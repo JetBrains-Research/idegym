@@ -1,0 +1,96 @@
+FROM {{ repository|default("docker.io/library", true) }}/{{ image|default("debian", true) }}:{{ tag|default("latest", true) }}
+
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+            bash \
+            ca-certificates \
+            coreutils \
+            curl \
+            dumb-init \
+            findutils \
+            fontconfig \
+            fonts-dejavu \
+            fonts-freefont-ttf \
+            fonts-liberation \
+            fonts-noto-cjk \
+            fonts-noto \
+            git \
+            libfreetype6 \
+            netcat-openbsd \
+            sudo; \
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+    fc-cache -f -v; \
+    update-ca-certificates
+
+SHELL ["/bin/bash", "-c"]
+
+RUN set -eux; \
+    groupadd -g 1000 appuser; \
+    useradd -u 1000 \
+            -g appuser \
+            -s /bin/bash \
+            -m appuser; \
+    echo "appuser ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/appuser; \
+    chmod 0440 /etc/sudoers.d/appuser
+
+COPY --from=ghcr.io/astral-sh/uv:0.6.13 /uv /uvx /bin/
+
+ENV IDEGYM_PATH=/opt/idegym \
+    IDEGYM_PROJECT_ROOT=/home/appuser/work \
+    PYTHONDONTWRITEBYTECODE=0 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONHASHSEED=random
+
+ENV PYTHONPATH="$IDEGYM_PATH"
+
+RUN set -eux; \
+    mkdir -p $IDEGYM_PATH $IDEGYM_PROJECT_ROOT; \
+    chown -R appuser:appuser $IDEGYM_PATH $IDEGYM_PROJECT_ROOT
+
+COPY --chown=appuser:appuser --chmod=755 scripts /usr/local/bin/
+COPY --chown=appuser:appuser --chmod=755 entrypoint.py $IDEGYM_PATH/
+COPY --chown=appuser:appuser --chmod=755 entrypoint.sh idegym.sh /usr/local/bin/
+
+RUN set -eux; \
+    for script in /usr/local/bin/*.{py,sh}; do \
+        [ -f "$script" ] || continue; \
+        mv "$script" "$(echo "${script%.*}" | tr "_" "-")"; \
+    done
+
+USER appuser
+
+WORKDIR $IDEGYM_PATH
+
+COPY pyproject.toml supervisord.conf uv.lock ./
+COPY api api/
+COPY backend-utils backend-utils/
+COPY common-utils common-utils/
+COPY rewards rewards/
+COPY tools tools/
+COPY server server/
+
+RUN set -eux; \
+    uv python install; \
+    uv sync --project server \
+            --frozen \
+            --no-cache \
+            --no-dev; \
+    uv pip install setuptools==80.8.0 supervisor
+
+VOLUME /docker-entrypoint.d
+
+EXPOSE 8000
+
+ENTRYPOINT ["dumb-init", "--"]
+CMD ["entrypoint", ".venv/bin/supervisord", "-c", "supervisord.conf"]
+
+HEALTHCHECK \
+    --start-period=10s \
+    --interval=60s \
+    --timeout=30s \
+    --retries=5 \
+CMD nc -z 127.0.0.1 8000 || exit 1

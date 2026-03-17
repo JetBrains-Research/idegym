@@ -1,0 +1,43 @@
+host: ${oc.env:IDEGYM_MANAGER_HOST, "0.0.0.0"}
+port: ${oc.env:IDEGYM_MANAGER_PORT, 8000}
+
+workers: ${oc.env:IDEGYM_UVICORN_WORKERS, 3}
+prometheus_multiproc_dir: ${oc.env:PROMETHEUS_MULTIPROC_DIR, ""}
+
+resources:
+  default_cpu_request: ${oc.env:IDEGYM_DEFAULT_CPU_REQUEST, 1.0}
+  default_ram_request: ${oc.env:IDEGYM_DEFAULT_RAM_REQUEST, 2.0}
+
+database:
+  host: ${oc.env:POSTGRES_HOST, "localhost"}
+  port: ${oc.env:POSTGRES_PORT, "5432"}
+  user: ${oc.env:POSTGRES_USER, "postgres"}
+  password: ${oc.env:POSTGRES_PASSWORD, "postgres"}
+  db: ${oc.env:POSTGRES_DB, "idegym"}
+  clean_database: ${oc.env:IDEGYM_CLEAN_DATABASE, "False"}
+
+sqlalchemy:
+  pool_size: ${oc.env:IDEGYM_SQLALCHEMY_POOL_SIZE, "20"}
+  max_overflow: ${oc.env:IDEGYM_SQLALCHEMY_MAX_OVERFLOW, "5"}
+  pool_recycle: ${oc.env:IDEGYM_SQLALCHEMY_POOL_RECYCLE, "1800"}
+  pool_timeout: ${oc.env:IDEGYM_SQLALCHEMY_POOL_TIMEOUT, "1200"}
+  pool_pre_ping: ${oc.env:IDEGYM_SQLALCHEMY_POOL_PRE_PING, "True"}
+
+client_request_timeout: ${oc.env:IDEGYM_CLIENT_REQUEST_TIMEOUT, 3600.0}
+
+connection_limits:
+  max_connections_or_asyncio_tasks: ${oc.env:IDEGYM_MAX_CONNECTIONS_OR_ASYNCIO_TASKS, 1500}
+  unhealthy_connections_or_asyncio_tasks: ${oc.env:IDEGYM_UNHEALTHY_CONNECTIONS_OR_ASYNCIO_TASKS, 1000}
+  max_keepalive_connections: ${oc.env:IDEGYM_MAX_KEEPALIVE_CONNECTIONS, 20}
+  keepalive_expiry: ${oc.env:IDEGYM_KEEPALIVE_EXPIRY, 5.0}
+
+asyncio:
+  debug: ${oc.env:IDEGYM_ASYNCIO_DEBUG, "False"}
+  dump_interval: ${oc.env:IDEGYM_ASYNCIO_DUMP_INTERVAL, 300}
+
+watcher:
+  cleanup_interval: ${oc.env:IDEGYM_WATCHER_CLEANUP_INTERVAL, "PT60S"}
+  inactive_timeout: ${oc.env:IDEGYM_WATCHER_INACTIVE_TIMEOUT, "PT10M"}
+  finished_timeout: ${oc.env:IDEGYM_WATCHER_FINISHED_TIMEOUT, "PT5M"}
+  request_max_age: ${oc.env:IDEGYM_WATCHER_REQUEST_MAX_AGE, "P14D"}
+  request_stale: ${oc.env:IDEGYM_WATCHER_REQUEST_STALE, "PT24H"}

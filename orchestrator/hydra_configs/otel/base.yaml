@@ -1,0 +1,8 @@
+service_name: ${oc.env:IDEGYM_OTEL_SERVICE_NAME, null}
+attributes: ${oc.decode:${oc.env:IDEGYM_OTEL_ATTRIBUTES, "{}"}}
+tracing:
+  endpoint: ${oc.env:IDEGYM_OTEL_TRACING_ENDPOINT, null}
+  timeout: ${oc.env:IDEGYM_OTEL_TRACING_TIMEOUT, "10"}
+  auth:
+    username: ${oc.env:IDEGYM_OTEL_TRACING_AUTH_USERNAME, null}
+    password: ${oc.env:IDEGYM_OTEL_TRACING_AUTH_PASSWORD, null}

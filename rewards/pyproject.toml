@@ -1,0 +1,23 @@
+[project]
+name = "idegym-rewards"
+version = "0.0.0.dev0"
+description = "IdeGYM Rewards"
+authors = [
+    { name = "Daniil Mironov", email = "daniil.mironov@jetbrains.com" },
+    { name = "Ozren Dabić", email = "ozren.dabic@jetbrains.com" },
+    { name = "Vladimir Poliakov", email = "vladimir.poliakov@jetbrains.com" },
+]
+requires-python = ">=3.12"
+dependencies = [
+    "idegym-api>=0.0.0.dev0",
+    "idegym-backend-utils>=0.0.0.dev0",
+    "idegym-common-utils>=0.0.0.dev0",
+    "junitparser>=3.2.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/idegym"]

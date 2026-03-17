@@ -1,0 +1,13 @@
+defaults: # https://hydra.cc/docs/tutorials/basic/your_first_app/composition/
+  - _self_
+  - logging: base
+  - otel: base
+  - project: base
+  - server: base
+  - override hydra/hydra_logging: disabled
+  - override hydra/job_logging: disabled
+
+hydra:
+  output_subdir: null
+  run:
+    dir: .

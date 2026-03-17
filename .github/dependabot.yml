@@ -1,0 +1,44 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directories:
+      - /.github/actions
+      - /.github/workflows
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+    target-branch: main
+    commit-message:
+      prefix: "[ci] "
+    labels:
+      - dependencies
+  - package-ecosystem: docker
+    directories:
+      - /orchestrator
+      - /orchestrator/kubernetes/grafana
+      - /orchestrator/kubernetes/orchestrator
+      - /orchestrator/kubernetes/postgresql
+      - /orchestrator/kubernetes/prometheus
+      - /orchestrator/kubernetes/tempo
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+    target-branch: main
+    commit-message:
+      prefix: "[orchestrator] "
+    labels:
+      - dependencies
+# FIXME: Enable `uv` updates once 0.10 is supported by project
+#  - package-ecosystem: uv
+#    directory: /
+#    schedule:
+#      interval: weekly
+#      day: monday
+#      time: "09:00"
+#    target-branch: main
+#    commit-message:
+#      prefix: "[dependencies] "
+#    labels:
+#      - dependencies

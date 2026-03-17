@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Kubernetes Pods — IdeGYM Orchestrator</title>
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;margin:20px;color:#222;background:#fafafa}
+    h1{font-size:22px;margin-bottom:8px}
+    .layout{max-width:1200px;margin:0 auto}
+    .muted{color:#777;font-size:13px}
+    table{border-collapse:collapse;width:100%;background:#fff}
+    th,td{border:1px solid #ddd;padding:8px;font-size:14px;vertical-align:top}
+    th{background:#f0f0f0;text-align:left}
+    tr:nth-child(even){background:#f9f9f9}
+    .pill{display:inline-block;padding:2px 6px;border-radius:10px;font-size:12px}
+    .ok{background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7}
+    .warn{background:#fff3e0;color:#e65100;border:1px solid #ffcc80}
+    .err{background:#ffebee;color:#c62828;border:1px solid #ef9a9a}
+    a{color:#0a62c9;text-decoration:none}
+    a:hover{text-decoration:underline}
+    code{background:#f3f3f3;padding:1px 4px;border-radius:4px}
+    .sub{color:#555;font-size:12px}
+  </style>
+</head>
+<body>
+<div class="layout">
+  <h1>Kubernetes Pods</h1>
+  <p class="muted">
+    Namespace: <code>{{ namespace }}</code>
+    {% if label_selector %} | Label selector: <code>{{ label_selector }}</code>{% endif %}
+    — <a href="/">Back to Home</a>
+  </p>
+
+  <form action="/dashboard/pods" method="get" style="margin:10px 0 18px">
+    <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end">
+      <label>
+        <div class="muted">Label selector</div>
+        <input type="text" name="label_selector" value="{{ label_selector }}" placeholder="e.g. app=idegym-server" style="padding:6px;border:1px solid #ccc;border-radius:6px;min-width:260px" />
+      </label>
+      <label>
+        <div class="muted">Limit</div>
+        <input type="number" min="1" name="limit" value="{{ limit or 50 }}" style="padding:6px;border:1px solid #ccc;border-radius:6px;min-width:100px" />
+      </label>
+      <button type="submit" style="padding:8px 14px;border:1px solid #0a62c9;background:#0a62c9;color:#fff;border-radius:6px;cursor:pointer">Refresh</button>
+    </div>
+  </form>
+
+  {% if not pods %}
+    <p>No pods found.</p>
+  {% else %}
+    <div style="margin:8px 0 14px; display:flex; gap:10px; align-items:center">
+      {% if next_continue %}
+        <a href="/dashboard/pods?label_selector={{ label_selector | urlencode }}&limit={{ limit }}&_continue={{ next_continue | urlencode }}" style="padding:6px 10px;border:1px solid #0a62c9;border-radius:6px;background:#eef5ff;color:#0a62c9;text-decoration:none">Next page ▶</a>
+      {% else %}
+        <span class="muted">End of results</span>
+      {% endif %}
+      <span class="muted">Limit: {{ limit }}</span>
+    </div>
+    <table>
+      <thead>
+      <tr>
+        <th>Pod</th>
+        <th>Status</th>
+        <th>Node</th>
+        <th>Containers</th>
+      </tr>
+      </thead>
+      <tbody>
+      {% for p in pods %}
+        <tr>
+          <td>
+            <div><strong>{{ p.name }}</strong></div>
+          </td>
+          <td>
+            <div>Phase: {{ p.phase or '' }}</div>
+            <div>Start: {{ p.start_time | format_ts }}</div>
+            {% if p.deletion_timestamp %}<div>Deleting: {{ p.deletion_timestamp | format_ts }}</div>{% endif %}
+          </td>
+          <td>{{ p.node_name or '' }}</td>
+          <td>
+            <table style="width:100%">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Image</th>
+                  <th>Ready</th>
+                  <th>Restarts</th>
+                  <th>State</th>
+                  <th>Last State</th>
+                </tr>
+              </thead>
+              <tbody>
+              {% for c in p.containers %}
+                <tr>
+                  <td>{{ c.name }}</td>
+                  <td class="sub">{{ c.image }}</td>
+                  <td>{{ 'Yes' if c.ready else 'No' }}</td>
+                  <td>{{ c.restart_count }}</td>
+                  <td>
+                    <div>
+                      <span class="pill {% if c.state.type == 'Running' %}ok{% elif c.state.type == 'Waiting' %}warn{% else %}err{% endif %}">{{ c.state.type }}</span>
+                      {% if c.state.reason %} — Reason: <strong>{{ c.state.reason }}</strong>{% endif %}
+                    </div>
+                    {% if c.state.started %}<div class="sub">Started: {{ c.state.started | format_ts }}</div>{% endif %}
+                    {% if c.state.finished %}<div class="sub">Finished: {{ c.state.finished | format_ts }}</div>{% endif %}
+                    {% if c.state.exit_code %}<div class="sub">ExitCode: {{ c.state.exit_code }}</div>{% endif %}
+                    {% if c.oomkilled %}<div class="pill err">OOMKilled</div>{% endif %}
+                  </td>
+                  <td>
+                    {% if c.last_state.type %}
+                      <div>{{ c.last_state.type }}{% if c.last_state.reason %} — Reason: <strong>{{ c.last_state.reason }}</strong>{% endif %}</div>
+                      {% if c.last_state.started %}<div class="sub">Started: {{ c.last_state.started | format_ts }}</div>{% endif %}
+                      {% if c.last_state.finished %}<div class="sub">Finished: {{ c.last_state.finished | format_ts }}</div>{% endif %}
+                      {% if c.last_state.exit_code %}<div class="sub">ExitCode: {{ c.last_state.exit_code }}</div>{% endif %}
+                    {% else %}
+                      <div class="sub">–</div>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+              </tbody>
+            </table>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+</div>
+</body>
+</html>

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ExternalDependencies">
+    <plugin id="Docker" />
+    <plugin id="Git4Idea" />
+    <plugin id="Pythonid" />
+    <plugin id="com.jetbrains.sh" />
+    <plugin id="com.koxudaxi.pydantic" min-version="0.4.16" />
+    <plugin id="com.koxudaxi.ruff" min-version="0.0.46" />
+    <plugin id="org.jetbrains.plugins.github" />
+  </component>
+</project>

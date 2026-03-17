@@ -1,0 +1,22 @@
+[project]
+name = "idegym-api"
+version = "0.0.0.dev0"
+description = "IdeGYM API"
+authors = [
+    { name = "Daniil Mironov", email = "daniil.mironov@jetbrains.com" },
+    { name = "Ozren Dabić", email = "ozren.dabic@jetbrains.com" },
+    { name = "Vladimir Poliakov", email = "vladimir.poliakov@jetbrains.com" },
+    { name = "Vseslav Kasatskii", email = "vseslav.kasatskii@jetbrains.com" },
+]
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.10.6",
+    "structlog>=25.4.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/idegym"]

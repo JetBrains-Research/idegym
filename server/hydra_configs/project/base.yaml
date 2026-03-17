@@ -1,0 +1,2 @@
+path: ${oc.env:IDEGYM_PROJECT_ROOT, ".project"}
+archive: ${oc.env:IDEGYM_PROJECT_ARCHIVE_PATH, ""}

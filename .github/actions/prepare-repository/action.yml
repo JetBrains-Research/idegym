@@ -1,0 +1,37 @@
+name: "Prepare Repository"
+description: "Set up common environment preparation steps for all jobs"
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout
+      uses: actions/checkout@v6
+      with:
+        ref: ${{ github.ref_name }}
+
+    - name: Remove Unwanted Software
+      uses: ./.github/actions/remove-unwanted-software
+
+    - name: Extract version from tag
+      shell: bash
+      run: |
+        TAG="${GITHUB_REF_NAME}"
+        echo "VERSION=${TAG#v}" >> $GITHUB_ENV
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v6
+      with:
+        version: "0.6.13"
+        enable-cache: true
+        cache-dependency-glob: "uv.lock"
+
+    - name: Set up Python
+      shell: bash
+      run: uv python install
+
+    - name: Set version in packages
+      shell: bash
+      run: scripts/set_version.py $VERSION
+
+    - name: Install dependencies
+      shell: bash
+      run: uv sync --all-packages --all-extras --all-groups

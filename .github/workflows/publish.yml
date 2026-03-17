@@ -1,0 +1,100 @@
+name: Publish
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  server-images:
+    name: Build and publish server images
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.ref_name }}
+      - name: Prepare Docker Build
+        uses: ./.github/actions/prepare-docker-build
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish server images
+        run: scripts/build_server_images.py --versions $VERSION --push
+
+  orchestrator-image:
+    name: Build and publish orchestrator image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.ref_name }}
+      - name: Prepare Docker Build
+        uses: ./.github/actions/prepare-docker-build
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish orchestrator image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./orchestrator/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/jetbrains-research/idegym/orchestrator:${{ env.VERSION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  example-image:
+    name: Build and publish example image
+    needs: [server-images]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.ref_name }}
+      - name: Prepare Docker Build
+        uses: ./.github/actions/prepare-docker-build
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Render example image Dockerfile
+        run: |
+          mkdir -p .github/docker-build
+          scripts/render_example_image_dockerfile.py --output .github/docker-build/Dockerfile
+      - name: Build and publish example image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: .github/docker-build/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/jetbrains-research/idegym/server-python-scripts:${{ env.VERSION }}
+          build-args: |
+            IDEGYM_VERSION=${{ env.VERSION }}
+            IDEGYM_PROJECT_ARCHIVE_URL=https://github.com/realpython/python-scripts/archive/cb448c2dc3593dbfbe1ca47b49193b320115aae5.tar.gz
+            IDEGYM_PROJECT_ARCHIVE_PATH=cb448c2dc3593dbfbe1ca47b49193b320115aae5.tar.gz
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  packages:
+    name: Build and publish packages
+    needs: [server-images, orchestrator-image]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.ref_name }}
+      - name: Prepare Repository
+        uses: ./.github/actions/prepare-repository
+      - name: Build packages
+        run: uv build --all-packages
+      - name: Publish packages
+        uses: pypa/gh-action-pypi-publish@release/v1

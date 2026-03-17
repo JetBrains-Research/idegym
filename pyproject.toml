@@ -1,0 +1,87 @@
+[project]
+name = "idegym"
+version = "0.0.0.dev0"
+readme = "README.md"
+authors = [
+    { name = "Daniil Mironov", email = "daniil.mironov@jetbrains.com" },
+    { name = "Ozren Dabić", email = "ozren.dabic@jetbrains.com" },
+    { name = "Valentin Fondaratov", email = "valentin.fondaratov@jetbrains.com" },
+    { name = "Vladimir Poliakov", email = "vladimir.poliakov@jetbrains.com" },
+    { name = "Vseslav Kasatskii", email = "vseslav.kasatskii@jetbrains.com" },
+]
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "from-root>=1.3.0",
+    "pre-commit>=4.3.0",
+    "pytest>=8.4.1",
+    "pytest-asyncio>=1.1.0",
+    "pytest-mock>=3.14.1",
+    "pytest-randomly>=3.16.0",
+    "python-on-whales>=0.78.0",
+    "requests>=2.32.5",
+    "ruff>=0.12.10",
+    "supervisor>=4.2.5",
+    "tqdm>=4.67.1",
+    "tomlkit>=0.13.3",
+]
+
+[tool.uv]
+required-version = ">=0.6.0,<0.7.0"
+
+[tool.uv.sources]
+idegym-api = { workspace = true }
+idegym-backend-utils = { workspace = true }
+idegym-client = { workspace = true }
+idegym-common-utils = { workspace = true }
+idegym-orchestrator = { workspace = true }
+idegym-rewards = { workspace = true }
+idegym-server = { workspace = true }
+idegym-tools = { workspace = true }
+
+[tool.uv.workspace]
+members = [
+    "api",
+    "backend-utils",
+    "client",
+    "common-utils",
+    "orchestrator",
+    "rewards",
+    "server",
+    "tools",
+]
+
+[tool.pytest.ini_options]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+pythonpath = ["."]
+testpaths = [
+    "integration-tests",
+    "unit-tests",
+]
+addopts = [
+    "--import-mode=importlib",
+    "--randomly-dont-reorganize",
+]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "docker: marks tests that should be run inside a Docker container",
+]
+
+[tool.ruff]
+indent-width = 4
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+fixable = ["ALL"]
+extend-select = ["I"]
+
+[tool.ruff.format]
+indent-style = "space"
+line-ending = "lf"
+quote-style = "double"
+skip-magic-trailing-comma = false

@@ -1,0 +1,26 @@
+ARG IDEGYM_BASE="debian-bookworm-20250520-slim"
+ARG IDEGYM_REGISTRY="ghcr.io/jetbrains-research/idegym"
+ARG IDEGYM_VERSION="latest"
+
+FROM ${IDEGYM_REGISTRY}/server-${IDEGYM_BASE}:${IDEGYM_VERSION}
+
+ARG IDEGYM_VERSION="latest" {#- Required, see: https://github.com/moby/moby/issues/34129 #}
+ARG IDEGYM_PROJECT_ARCHIVE_URL
+ARG IDEGYM_PROJECT_ARCHIVE_PATH
+ARG IDEGYM_AUTH_TOKEN
+ARG IDEGYM_AUTH_TYPE
+
+ENV IDEGYM_VERSION="$IDEGYM_VERSION"
+ENV IDEGYM_PROJECT_ARCHIVE_URL="$IDEGYM_PROJECT_ARCHIVE_URL"
+ENV IDEGYM_PROJECT_ARCHIVE_PATH="$IDEGYM_PROJECT_ARCHIVE_PATH"
+ENV IDEGYM_PROJECT_ROOT="/home/appuser/work" {#- TODO what if `root` is the end user? #}
+
+RUN mkdir -p $IDEGYM_PROJECT_ROOT
+
+RUN set -ex; \
+    download $IDEGYM_PROJECT_ARCHIVE_URL $IDEGYM_PROJECT_ARCHIVE_PATH \
+        --auth-type $IDEGYM_AUTH_TYPE \
+        --auth-token $IDEGYM_AUTH_TOKEN; \
+    extract $IDEGYM_PROJECT_ARCHIVE_PATH $IDEGYM_PROJECT_ROOT
+
+{{ commands|safe }} {#- Additional custom commands will be injected here #}

@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ title or 'Error — IdeGYM Orchestrator' }}</title>
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;margin:20px;color:#222;background:#fafafa}
+    h1{font-size:26px;margin-bottom:6px}
+    h2{font-size:18px;margin:18px 0 8px}
+    .layout{max-width:900px;margin:0 auto}
+    .muted{color:#666}
+    .card{background:#fff;border:1px solid #e3e3e3;border-radius:8px;padding:16px;margin:16px 0}
+    .err{border-color:#ef9a9a;background:#ffebee}
+    a{color:#0a62c9;text-decoration:none}
+    a:hover{text-decoration:underline}
+    pre{background:#f7f7f7;border:1px solid #e3e3e3;padding:10px;border-radius:6px;overflow:auto}
+    code{background:#f3f3f3;padding:1px 4px;border-radius:4px}
+    .pill{display:inline-block;padding:2px 6px;border-radius:10px;font-size:12px;background:#ffebee;color:#c62828;border:1px solid #ef9a9a}
+  </style>
+</head>
+<body>
+<div class="layout">
+  <h1>IdeGYM Orchestrator</h1>
+  <div class="card err">
+    <div class="pill">Error</div>
+    <h2 style="margin-top:8px">{{ message or 'An unexpected error occurred.' }}</h2>
+    {% if details %}
+      <pre>{{ details }}</pre>
+    {% endif %}
+    <p class="muted" style="margin-top:10px">You can go back to the <a href="{{ back_url or '/' }}">home page</a> and try again.</p>
+  </div>
+</div>
+</body>
+</html>

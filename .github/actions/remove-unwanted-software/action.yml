@@ -1,0 +1,8 @@
+name: "Remove Unwanted Software"
+description: "Maximize the available disk space for your build job by removing unwanted software"
+runs:
+  using: "composite"
+  steps:
+    - name: Remove unwanted software
+      shell: bash
+      run: sudo .github/scripts/remove-unwanted-software.sh

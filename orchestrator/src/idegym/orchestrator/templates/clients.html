@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Alive Clients — IdeGYM Orchestrator</title>
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;margin:20px;color:#222;background:#fafafa}
+    h1{font-size:22px;margin-bottom:8px}
+    .layout{max-width:1200px;margin:0 auto}
+    .muted{color:#777;font-size:13px}
+    table{border-collapse:collapse;width:100%;background:#fff}
+    th,td{border:1px solid #ddd;padding:8px;font-size:14px}
+    th{background:#f0f0f0;text-align:left}
+    tr:nth-child(even){background:#f9f9f9}
+    a{color:#0a62c9;text-decoration:none}
+    a:hover{text-decoration:underline}
+  </style>
+</head>
+<body>
+<div class="layout">
+  <h1>Alive Clients</h1>
+  <p class="muted">List of currently alive clients with their last heartbeat and nodes info. <a href="/">Back to Home</a></p>
+
+  {% if not alive_clients %}
+    <p>No alive clients found.</p>
+  {% else %}
+    <table>
+      <thead>
+      <tr>
+        <th>ID</th>
+        <th>Name</th>
+        <th>Namespace</th>
+        <th>Nodes Count</th>
+        <th>Availability</th>
+        <th>Created At</th>
+        <th>Last Heartbeat</th>
+      </tr>
+      </thead>
+      <tbody>
+      {% for c in alive_clients %}
+        <tr>
+          <td>{{ c.id }}</td>
+          <td>{{ c.name }}</td>
+          <td>{{ c.namespace }}</td>
+          <td>{{ c.nodes_count }}</td>
+          <td>{{ c.availability }}</td>
+          <td>{{ c.created_at | format_ts }}</td>
+          <td>{{ c.last_heartbeat_time | format_ts }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+</div>
+</body>
+</html>

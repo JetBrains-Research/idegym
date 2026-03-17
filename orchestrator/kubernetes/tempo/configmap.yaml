@@ -1,0 +1,67 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tempo
+  labels:
+    app.kubernetes.io/name: tempo
+    app.kubernetes.io/component: tracing
+data:
+  tempo.yaml: |
+    server:
+      http_listen_port: 3200
+
+    multitenancy_enabled: false
+    target: all
+
+    distributor:
+      receivers:
+        otlp:
+          protocols:
+            grpc:
+              endpoint: 0.0.0.0:4317
+            http:
+              endpoint: 0.0.0.0:4318
+
+    ingester:
+      lifecycler:
+        ring:
+          kvstore:
+            store: inmemory
+          replication_factor: 1
+      trace_idle_period: 10s
+      max_block_bytes: 1048576
+      max_block_duration: 5m
+
+    query_frontend:
+      search:
+        duration_slo: 5s
+        throughput_bytes_slo: 1073741824
+      trace_by_id:
+        duration_slo: 5s
+
+    querier:
+      frontend_worker:
+        frontend_address: 0.0.0.0:9095
+
+    metrics_generator:
+      ring:
+        kvstore:
+          store: inmemory
+      storage:
+        path: /tmp/tempo/generator/traces
+        remote_write:
+          - url: http://prometheus:9090/api/v1/write
+            send_exemplars: true
+
+    compactor:
+      compaction:
+        block_retention: 48h
+        compacted_block_retention: 48h
+
+    storage:
+      trace:
+        backend: local
+        local:
+          path: /tmp/tempo/traces
+        wal:
+          path: /tmp/tempo/wal

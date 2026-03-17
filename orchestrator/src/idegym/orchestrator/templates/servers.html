@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Alive Servers — IdeGYM Orchestrator</title>
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;margin:20px;color:#222;background:#fafafa}
+    h1{font-size:22px;margin-bottom:8px}
+    .layout{max-width:1200px;margin:0 auto}
+    .muted{color:#777;font-size:13px}
+    table{border-collapse:collapse;width:100%;background:#fff}
+    th,td{border:1px solid #ddd;padding:8px;font-size:14px}
+    th{background:#f0f0f0;text-align:left}
+    tr:nth-child(even){background:#f9f9f9}
+    a{color:#0a62c9;text-decoration:none}
+    a:hover{text-decoration:underline}
+  </style>
+</head>
+<body>
+<div class="layout">
+  <h1>Alive Servers</h1>
+  <p class="muted">List of currently alive servers (pods) with requested resources and last availability time. <a href="/">Back to Home</a></p>
+
+  {% if not alive_servers %}
+    <p>No running pods found.</p>
+  {% else %}
+    <table>
+      <thead>
+      <tr>
+        <th>ID</th>
+        <th>Name</th>
+        <th>Client</th>
+        <th>Namespace</th>
+        <th>Image Tag</th>
+        <th>Runtime</th>
+        <th>CPU</th>
+        <th>RAM (GB)</th>
+        <th>Last Heartbeat</th>
+      </tr>
+      </thead>
+      <tbody>
+      {% for s in alive_servers %}
+        <tr>
+          <td>{{ s.id }}</td>
+          <td>{{ s.generated_name or '' }}</td>
+          <td>{{ s.client_name or '' }}</td>
+          <td>{{ s.namespace or '' }}</td>
+          <td>{{ s.image_tag or '' }}</td>
+          <td>{{ s.container_runtime or '' }}</td>
+          <td>{{ '%.2f' % s.cpu }}</td>
+          <td>{{ '%.2f' % s.ram }}</td>
+          <td>{{ s.last_heartbeat_time | format_ts }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+</div>
+</body>
+</html>

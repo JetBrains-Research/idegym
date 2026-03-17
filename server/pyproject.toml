@@ -1,0 +1,25 @@
+[project]
+name = "idegym-server"
+version = "0.0.0.dev0"
+description = "IdeGYM Server"
+authors = [
+    { name = "Ozren Dabić", email = "ozren.dabic@jetbrains.com" },
+    { name = "Vladimir Poliakov", email = "vladimir.poliakov@jetbrains.com" },
+    { name = "Vseslav Kasatskii", email = "vseslav.kasatskii@jetbrains.com" },
+]
+requires-python = ">=3.12"
+dependencies = [
+    "idegym-api",
+    "idegym-rewards",
+    "idegym-tools",
+    "idegym-backend-utils",
+    "idegym-common-utils",
+    "anyio>=4.8.0",
+    "dependency-injector>=4.46.0",
+    "fastapi[standard]>=0.115.8",
+    "opentelemetry-instrumentation-asyncio>=0.57b0",
+    "opentelemetry-instrumentation-fastapi>=0.57b0",
+    "opentelemetry-instrumentation-httpx>=0.57b0",
+    "opentelemetry-instrumentation-system-metrics>=0.57b0",
+    "uvicorn>=0.35.0",
+]

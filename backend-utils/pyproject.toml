@@ -1,0 +1,35 @@
+[project]
+name = "idegym-backend-utils"
+version = "0.0.0.dev0"
+description = "IdeGYM Backend Utils"
+authors = [
+    { name = "Ozren Dabić", email = "ozren.dabic@jetbrains.com" },
+    { name = "Vladimir Poliakov", email = "vladimir.poliakov@jetbrains.com" },
+    { name = "Valentin Fondaratov", email = "valentin.fondaratov@jetbrains.com" },
+    { name = "Vseslav Kasatskii", email = "vseslav.kasatskii@jetbrains.com" },
+]
+requires-python = ">=3.12"
+dependencies = [
+    "idegym-api",
+    "aiorwlock>=1.5.0",
+    "diff-match-patch==20241021",
+    "hydra-core>=1.3.2",
+    "jinja2>=3.1.5",
+    "kubernetes-asyncio>=32.3.2",
+    "opentelemetry-api>=1.36.0",
+    "opentelemetry-sdk>=1.36.0",
+    "opentelemetry-exporter-otlp>=1.36.0",
+    "opentelemetry-exporter-prometheus>=0.57b0",
+    "psutil>=7.0.0",
+    "pyyaml>=6.0.2",
+    "starlette>=0.45.3",
+    "structlog>=25.4.0",
+    "uvicorn>=0.35.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/idegym"]

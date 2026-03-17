@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>IdeGYM Orchestrator</title>
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;margin:20px;color:#222;background:#fafafa}
+    h1{font-size:26px;margin-bottom:6px}
+    h2{font-size:18px;margin:18px 0 8px}
+    .layout{max-width:900px;margin:0 auto}
+    .muted{color:#666}
+    .card{background:#fff;border:1px solid #e3e3e3;border-radius:8px;padding:16px;margin:16px 0}
+    a{color:#0a62c9;text-decoration:none}
+    a:hover{text-decoration:underline}
+    ul{margin:8px 0 0 18px}
+    code{background:#f3f3f3;padding:1px 4px;border-radius:4px}
+  </style>
+</head>
+<body>
+<div class="layout">
+  <h1>IdeGYM Orchestrator</h1>
+  <p class="muted">A service that manages client environments, servers (pods), and resource constraints for the IdeGYM platform.</p>
+
+  <div class="card">
+    <h2>Dashboard Links</h2>
+    <ul>
+      <li><a href="./dashboard/rules">Resource limiter rules and current usage</a></li>
+      <li><a href="./dashboard/servers">Alive servers (pods) and details</a></li>
+      <li><a href="./dashboard/clients">Alive clients</a></li>
+      <li><a href="./dashboard/pods">Kubernetes pods overview</a></li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>About</h2>
+    <p>
+      The orchestrator exposes a FastAPI-based control plane for launching and supervising ephemeral
+      development environments. It tracks resource usage per client via configurable rules and keeps
+      metadata about active servers.
+    </p>
+    <p>
+      Useful endpoints:
+    </p>
+    <ul>
+      <li><code>GET /health</code> — orchestrator health check</li>
+      <li><code>GET /metrics</code> — Prometheus metrics</li>
+    </ul>
+  </div>
+</div>
+</body>
+</html>

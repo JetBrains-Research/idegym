@@ -1,0 +1,8 @@
+FROM alpine:latest
+
+RUN set -eux; \
+    touch /usr/local/bin/download /usr/local/bin/extract; \
+    chmod +x /usr/local/bin/download /usr/local/bin/extract; \
+    mkdir ".project"
+
+CMD ["tail", "-f", "/dev/null"]

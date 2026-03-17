@@ -1,0 +1,36 @@
+[project]
+name = "idegym-orchestrator"
+version = "0.0.0.dev0"
+description = "IdeGYM Orchestrator"
+authors = [
+    { name = "Daniil Mironov", email = "daniil.mironov@jetbrains.com" },
+    { name = "Ozren Dabić", email = "ozren.dabic@jetbrains.com" },
+    { name = "Valentin Fondaratov", email = "valentin.fondaratov@jetbrains.com" },
+    { name = "Vladimir Poliakov", email = "vladimir.poliakov@jetbrains.com" },
+    { name = "Vseslav Kasatskii", email = "vseslav.kasatskii@jetbrains.com" },
+]
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi[standard]>=0.115.8",
+    "uvicorn>=0.35.0",
+    "httpx>=0.28.1",
+    "opentelemetry-instrumentation-aiohttp-client>=0.57b0",
+    "opentelemetry-instrumentation-asyncio>=0.57b0",
+    "opentelemetry-instrumentation-asyncpg>=0.57b0",
+    "opentelemetry-instrumentation-fastapi>=0.57b0",
+    "opentelemetry-instrumentation-httpx>=0.57b0",
+    "opentelemetry-instrumentation-jinja2>=0.57b0",
+    "opentelemetry-instrumentation-psycopg2>=0.57b0",
+    "opentelemetry-instrumentation-sqlalchemy>=0.57b0",
+    "opentelemetry-instrumentation-system-metrics>=0.57b0",
+    "kubernetes-asyncio>=32.3.2",
+    "sqlalchemy>=2.0.0",
+    "asyncpg>=0.30.0",
+    "greenlet>=3.2.1",
+    "psycopg2-binary>=2.9.9",
+    "pydantic>=2.0.0",
+    "alembic>=1.16.4",
+    "idegym-api",
+    "idegym-backend-utils",
+    "idegym-common-utils",
+]
