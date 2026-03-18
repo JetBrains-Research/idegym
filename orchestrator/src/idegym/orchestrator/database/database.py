@@ -69,35 +69,35 @@ async def init_db(db_url: str, config: SQLAlchemyConfig, clean_database: bool = 
         logger.info("Waiting for migrations to complete...")
         max_wait_time = 300  # 5 minutes timeout
         poll_interval = 1  # Check every second
-        elapsed = 0
 
         # Get the expected migration version from Alembic
         expected_version = migration_manager.get_expected_version()
+        loop = asyncio.get_running_loop()
+        start_time = loop.time()
 
-        while elapsed < max_wait_time:
-            await asyncio.sleep(poll_interval)
-            elapsed += poll_interval
+        async with asyncio.timeout(max_wait_time):
+            while True:
+                await asyncio.sleep(poll_interval)
+                elapsed = int(loop.time() - start_time)
 
-            # Check if migrations are complete by verifying the alembic_version table
-            try:
-                async with migration_manager.engine.begin() as conn:
-                    result = await conn.execute(text("SELECT version_num FROM alembic_version"))
-                    current_version = result.scalar_one_or_none()
+                # Check if migrations are complete by verifying the alembic_version table
+                try:
+                    async with migration_manager.engine.begin() as conn:
+                        result = await conn.execute(text("SELECT version_num FROM alembic_version"))
+                        current_version = result.scalar_one_or_none()
 
-                    if current_version == expected_version:
-                        logger.info(f"Migrations completed successfully at version {current_version}")
-                        break
-                    elif elapsed % 10 == 0:  # Log every 10 seconds
-                        logger.info(
-                            f"Still waiting for migrations... (current: {current_version}, expected: {expected_version}, {elapsed}s elapsed)"
-                        )
-            except Exception:
-                # Alembic version table doesn't exist yet or other error, migrations still running
-                if elapsed % 10 == 0:  # Log every 10 seconds
-                    logger.info(f"Still waiting for migrations... ({elapsed}s elapsed)")
-                continue
-        else:
-            raise TimeoutError(f"Migrations did not complete within {max_wait_time} seconds")
+                        if current_version == expected_version:
+                            logger.info(f"Migrations completed successfully at version {current_version}")
+                            break
+                        elif elapsed % 10 == 0:  # Log every 10 seconds
+                            logger.info(
+                                f"Still waiting for migrations... (current: {current_version}, expected: {expected_version}, {elapsed}s elapsed)"
+                            )
+                except Exception:
+                    # Alembic version table doesn't exist yet or other error, migrations still running
+                    if elapsed % 10 == 0:  # Log every 10 seconds
+                        logger.info(f"Still waiting for migrations... ({elapsed}s elapsed)")
+                    continue
 
     logger.info("Database migrations completed")
 
