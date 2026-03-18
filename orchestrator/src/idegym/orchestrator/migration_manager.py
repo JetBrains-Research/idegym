@@ -3,6 +3,7 @@ from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from idegym.utils.logging import get_logger
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -96,3 +97,17 @@ class MigrationManager:
         except Exception as e:
             logger.exception(f"Alembic upgrade failed: {e}")
             raise RuntimeError(f"Database migration failed: {e}") from e
+
+    def get_expected_version(self) -> str:
+        """Get the expected migration version (latest head revision) from Alembic."""
+        try:
+            alembic_cfg = Config(self.alembic_ini_path)
+            script = ScriptDirectory.from_config(alembic_cfg)
+            # Get the head revision(s) - returns a tuple of head revisions
+            heads = script.get_heads()
+            if not heads:
+                raise ValueError("No migration heads found")
+            return heads[0] if heads else None
+        except Exception as e:
+            logger.exception(f"Failed to get expected migration version: {e}")
+            raise RuntimeError(f"Failed to get expected migration version: {e}") from e
