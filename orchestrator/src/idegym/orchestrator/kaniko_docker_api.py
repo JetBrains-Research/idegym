@@ -102,24 +102,37 @@ class IdeGYMKanikoDockerAPI:
         return job_name
 
     async def monitor_image_building_job(self, job_name: str, tag: str, request_id: Optional[str] = None) -> None:
-        async with get_db_session() as db:
-            await save_job_status(db, job_name, status=Status.IN_PROGRESS, tag=tag, request_id=request_id)
-
-        async with timeout(self._job_timeout):
-            status = await get_job_status(job_name, self._namespace)
-            while status == Status.IN_PROGRESS:
-                await sleep(2)
-                status = await get_job_status(job_name, self._namespace)
-
+        try:
             async with get_db_session() as db:
-                await update_job_status(db, job_name, status=status, tag=tag, request_id=request_id)
+                await save_job_status(db, job_name, status=Status.IN_PROGRESS, tag=tag, request_id=request_id)
 
-            if status == Status.SUCCESS:
-                logger.info(f"Job '{job_name}' finished successfully. Request ID: {request_id}")
-            else:
-                logger.error(f"Job '{job_name}' was terminated with status '{status}'. Request ID: {request_id}")
+            try:
+                async with timeout(self._job_timeout):
+                    status = await get_job_status(job_name, self._namespace)
+                    while status == Status.IN_PROGRESS:
+                        await sleep(2)
+                        status = await get_job_status(job_name, self._namespace)
+
+                    async with get_db_session() as db:
+                        await update_job_status(db, job_name, status=status, tag=tag, request_id=request_id)
+
+                    if status == Status.SUCCESS:
+                        logger.info(f"Job '{job_name}' finished successfully. Request ID: {request_id}")
+                    else:
+                        logger.error(f"Job '{job_name}' was terminated with status '{status}'. Request ID: {request_id}")
+            except TimeoutError:
+                logger.error(f"Job '{job_name}' monitoring timed out after {self._job_timeout}s. Request ID: {request_id}")
+                async with get_db_session() as db:
+                    await update_job_status(db, job_name, status=Status.FAILURE, tag=tag, request_id=request_id)
 
             await clean_up_after_job(job_name, self._namespace)
+        except Exception as e:
+            logger.exception(f"Error monitoring job '{job_name}'. Request ID: {request_id}")
+            try:
+                async with get_db_session() as db:
+                    await update_job_status(db, job_name, status=Status.FAILURE, tag=tag, request_id=request_id)
+            except Exception as db_error:
+                logger.exception(f"Failed to update job status to FAILURE for job '{job_name}': {db_error}")
 
     async def build_and_push_images(self, path: Path) -> List[str]:
         job_names = []

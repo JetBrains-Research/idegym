@@ -1,10 +1,12 @@
 import asyncio
 import random
 import time
+from os import environ as env
 
 from idegym.api.config import WatcherConfig
+from idegym.api.status import Status
 from idegym.api.type import Duration
-from idegym.backend.utils.kubernetes_client import are_any_pods_alive, clean_up_server
+from idegym.backend.utils.kubernetes_client import are_any_pods_alive, clean_up_server, get_job_status
 from idegym.backend.utils.utils import log_exceptions
 from idegym.orchestrator.database.database import (
     acquire_advisory_lock,
@@ -12,14 +14,18 @@ from idegym.orchestrator.database.database import (
     get_clients_by_status,
     get_db_session,
     get_idegym_servers_by_status,
+    get_job_status as get_job_status_from_db,
     mark_stale_async_operations_as_finished,
     release_advisory_lock,
     update_client_heartbeat,
     update_idegym_server_heartbeat,
+    update_job_status,
 )
 from idegym.orchestrator.database.models import AvailabilityStatus
 from idegym.orchestrator.nodes_holder import change_number_of_spun_nodes
 from idegym.utils.logging import get_logger
+from sqlalchemy import select
+from idegym.orchestrator.database.models import JobStatusRecord
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = get_logger(__name__)
@@ -140,6 +146,42 @@ async def cleanup_requests(db: AsyncSession, current_time: int, max_age: Duratio
     await mark_stale_async_operations_as_finished(db, current_time, stale_inprogress)
 
 
+@log_exceptions("Error checking orphaned kaniko jobs", logger, swallow=True)
+async def check_orphaned_kaniko_jobs(db: AsyncSession, namespace: str):
+    """
+    Check for orphaned kaniko jobs (jobs that are marked as IN_PROGRESS in DB but have actually finished/failed in k8s).
+    This handles cases where monitor_image_building_job fails or the orchestrator restarts.
+    """
+    # Get all jobs with IN_PROGRESS status from database
+    query = select(JobStatusRecord).filter(JobStatusRecord.status == Status.IN_PROGRESS)
+    result = await db.execute(query)
+    in_progress_jobs = result.scalars().all()
+
+    logger.debug(f"Found {len(in_progress_jobs)} jobs marked as IN_PROGRESS in database")
+
+    for job_record in in_progress_jobs:
+        job_name = job_record.job_name
+        try:
+            # Check actual status in Kubernetes
+            k8s_status = await get_job_status(job_name, namespace)
+
+            # If status differs from IN_PROGRESS, update the database
+            if k8s_status != Status.IN_PROGRESS:
+                logger.warning(
+                    f"Orphaned job detected: '{job_name}' is IN_PROGRESS in DB but {k8s_status} in k8s. Updating..."
+                )
+                await update_job_status(
+                    db,
+                    job_name,
+                    status=k8s_status,
+                    tag=job_record.tag,
+                    request_id=job_record.request_id
+                )
+                logger.info(f"Updated orphaned job '{job_name}' status to {k8s_status}")
+        except Exception:
+            logger.exception(f"Error checking status for job '{job_name}'")
+
+
 async def perform_cleanup_operations(
     db: AsyncSession,
     current_time: int,
@@ -147,6 +189,7 @@ async def perform_cleanup_operations(
     finished_timeout: Duration,
     requests_max_age: Duration,
     requests_stale: Duration,
+    namespace: str,
 ):
     """
     Perform all cleanup operations within the advisory lock.
@@ -158,6 +201,7 @@ async def perform_cleanup_operations(
         finished_timeout: Timeout for finished servers (Duration)
         requests_max_age: Max age for requests to keep (Duration)
         requests_stale: Duration after which IN_PROGRESS requests are marked finished by watcher (Duration)
+        namespace: Kubernetes namespace to check for orphaned jobs
     """
     # TODO: Parallelize these operations, but be aware of database sessions
     await cleanup_clients(db, current_time=current_time, inactive_timeout=inactive_timeout)
@@ -165,6 +209,7 @@ async def perform_cleanup_operations(
         db, current_time=current_time, inactive_timeout=inactive_timeout, finished_timeout=finished_timeout
     )
     await cleanup_requests(db, current_time, requests_max_age, requests_stale)
+    await check_orphaned_kaniko_jobs(db, namespace)
 
 
 async def _wait_for_jitter():
@@ -208,6 +253,7 @@ async def cleanup_inactive_pods(watcher_config: WatcherConfig):
 
             try:
                 logger.info("Starting cleanup operations with advisory lock acquired")
+                namespace = env.get("__NAMESPACE", "idegym")
                 await perform_cleanup_operations(
                     db,
                     current_time,
@@ -215,6 +261,7 @@ async def cleanup_inactive_pods(watcher_config: WatcherConfig):
                     watcher_config.finished_timeout,
                     watcher_config.request_max_age,
                     watcher_config.request_stale,
+                    namespace,
                 )
                 logger.info("Completed cleanup operations")
             except Exception:
