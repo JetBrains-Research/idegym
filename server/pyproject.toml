@@ -23,3 +23,6 @@ dependencies = [
     "opentelemetry-instrumentation-system-metrics>=0.57b0",
     "uvicorn>=0.35.0",
 ]
+
+[tool.setuptools]
+packages = ["router", "hydra_configs"]
