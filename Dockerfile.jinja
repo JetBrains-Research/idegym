@@ -4,7 +4,6 @@ RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
             bash \
-            build-essential \
             ca-certificates \
             coreutils \
             curl \
@@ -75,7 +74,7 @@ COPY --chown=appuser:appuser tools tools/
 COPY --chown=appuser:appuser server server/
 
 RUN set -eux; \
-    uv python install; \
+    uv python install 3.12; \
     uv sync --project server \
             --frozen \
             --no-cache \
