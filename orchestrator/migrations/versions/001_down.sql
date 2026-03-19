@@ -9,8 +9,8 @@ DROP TABLE IF EXISTS job_statuses;
 -- Drop resource_limit_rules table
 DROP TABLE IF EXISTS resource_limit_rules;
 
--- Drop idegym_servers table
-DROP TABLE IF EXISTS idegym_servers;
+-- Drop servers table
+DROP TABLE IF EXISTS servers;
 
 -- Drop clients table
 DROP TABLE IF EXISTS clients;
