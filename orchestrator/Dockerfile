@@ -9,7 +9,7 @@ RUN set -eux; \
             supervisor; \
     rm -rf /var/lib/apt/lists/*
 
-COPY --from=ghcr.io/astral-sh/uv:0.6.13 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.10.11 /uv /uvx /bin/
 
 SHELL ["/bin/bash", "-c"]
 
