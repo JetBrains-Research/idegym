@@ -65,13 +65,13 @@ USER appuser
 
 WORKDIR $IDEGYM_PATH
 
-COPY pyproject.toml supervisord.conf uv.lock ./
-COPY api api/
-COPY backend-utils backend-utils/
-COPY common-utils common-utils/
-COPY rewards rewards/
-COPY tools tools/
-COPY server server/
+COPY --chown=appuser:appuser pyproject.toml supervisord.conf uv.lock ./
+COPY --chown=appuser:appuser api api/
+COPY --chown=appuser:appuser backend-utils backend-utils/
+COPY --chown=appuser:appuser common-utils common-utils/
+COPY --chown=appuser:appuser rewards rewards/
+COPY --chown=appuser:appuser tools tools/
+COPY --chown=appuser:appuser server server/
 
 RUN set -eux; \
     uv python install; \
