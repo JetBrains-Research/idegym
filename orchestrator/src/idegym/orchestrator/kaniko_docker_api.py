@@ -119,9 +119,13 @@ class IdeGYMKanikoDockerAPI:
                     if status == Status.SUCCESS:
                         logger.info(f"Job '{job_name}' finished successfully. Request ID: {request_id}")
                     else:
-                        logger.error(f"Job '{job_name}' was terminated with status '{status}'. Request ID: {request_id}")
+                        logger.error(
+                            f"Job '{job_name}' was terminated with status '{status}'. Request ID: {request_id}"
+                        )
             except TimeoutError:
-                logger.error(f"Job '{job_name}' monitoring timed out after {self._job_timeout}s. Request ID: {request_id}")
+                logger.error(
+                    f"Job '{job_name}' monitoring timed out after {self._job_timeout}s. Request ID: {request_id}"
+                )
                 async with get_db_session() as db:
                     await update_job_status(db, job_name, status=Status.FAILURE, tag=tag, request_id=request_id)
 

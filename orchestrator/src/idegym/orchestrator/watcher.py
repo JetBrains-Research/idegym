@@ -171,11 +171,7 @@ async def check_orphaned_kaniko_jobs(db: AsyncSession, namespace: str):
                     f"Orphaned job detected: '{job_name}' is IN_PROGRESS in DB but {k8s_status} in k8s. Updating..."
                 )
                 await update_job_status(
-                    db,
-                    job_name,
-                    status=k8s_status,
-                    tag=job_record.tag,
-                    request_id=job_record.request_id
+                    db, job_name, status=k8s_status, tag=job_record.tag, request_id=job_record.request_id
                 )
                 logger.info(f"Updated orphaned job '{job_name}' status to {k8s_status}")
         except Exception:
