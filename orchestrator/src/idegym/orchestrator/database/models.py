@@ -4,7 +4,7 @@ from uuid import uuid4
 from idegym.api.orchestrator.clients import AvailabilityStatus
 from idegym.api.orchestrator.operations import AsyncOperationStatus
 from idegym.api.status import Status
-from sqlalchemy import BigInteger, Column, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import BigInteger, Boolean, Column, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import DeclarativeBase
@@ -52,6 +52,7 @@ class IdeGYMServer(Base):
     container_runtime = Column(String, nullable=True)
     cpu = Column(Float, default=0.0)  # CPU cores requested
     ram = Column(Float, default=0.0)  # RAM in GB requested
+    run_as_root = Column(Boolean, default=False, nullable=False)
 
 
 class ResourceLimitRule(Base):

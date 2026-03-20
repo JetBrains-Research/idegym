@@ -122,6 +122,7 @@ async def check_resources_and_save_server_in_db(
     ram_request: float,
     image_tag: Optional[str] = None,
     container_runtime: Optional[str] = None,
+    run_as_root: bool = False,
 ):
     server = await check_resources_and_save_server(
         db=db,
@@ -133,6 +134,7 @@ async def check_resources_and_save_server_in_db(
         ram_request=ram_request,
         image_tag=image_tag,
         container_runtime=container_runtime,
+        run_as_root=run_as_root,
     )
     if not server:
         raise HTTPException(
@@ -152,7 +154,7 @@ async def find_matching_finished_server_in_db(db: AsyncSession, request: StartSe
 
     # First, check if there's an existing finished server we can reuse
     existing_server = await find_matching_finished_server(
-        db, client_name, request.server_name, request.image_tag, request.runtime_class_name
+        db, client_name, request.server_name, request.image_tag, request.runtime_class_name, request.run_as_root
     )
 
     if existing_server:
