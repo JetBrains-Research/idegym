@@ -34,7 +34,7 @@ class Client(Base):
 
 
 class IdeGYMServer(Base):
-    __tablename__ = "idegym_servers"
+    __tablename__ = "servers"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     client_id = Column(UUID(as_uuid=True), ForeignKey("clients.id"), nullable=False)
@@ -96,7 +96,7 @@ class AsyncOperation(Base):
     result = Column(Text, nullable=True)
 
     client_id = Column(UUID(as_uuid=True), ForeignKey("clients.id"))
-    server_id = Column(BigInteger, ForeignKey("idegym_servers.id"), nullable=True)
+    server_id = Column(BigInteger, ForeignKey("servers.id"), nullable=True)
 
     orchestrator_pod = Column(String, nullable=True)
 

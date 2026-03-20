@@ -14,8 +14,8 @@ CREATE TABLE IF NOT EXISTS clients (
 -- Create index on name
 CREATE INDEX IF NOT EXISTS ix_clients_name ON clients (name);
 
--- Create idegym_servers table
-CREATE TABLE IF NOT EXISTS idegym_servers (
+-- Create servers table
+CREATE TABLE IF NOT EXISTS servers (
     id BIGSERIAL PRIMARY KEY,
     client_id UUID NOT NULL REFERENCES clients(id),
     client_name VARCHAR,
@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS idegym_servers (
 );
 
 -- Create index on generated_name
-CREATE UNIQUE INDEX IF NOT EXISTS ix_idegym_servers_generated_name ON idegym_servers (generated_name);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_servers_generated_name ON servers (generated_name);
 
 -- Create resource_limit_rules table
 CREATE TABLE IF NOT EXISTS resource_limit_rules (
@@ -73,7 +73,7 @@ CREATE TABLE IF NOT EXISTS async_operations (
     request TEXT,
     result TEXT,
     client_id UUID REFERENCES clients(id),
-    server_id BIGINT REFERENCES idegym_servers(id),
+    server_id BIGINT REFERENCES servers(id),
     orchestrator_pod VARCHAR,
     scheduled_at BIGINT,
     started_at BIGINT,
