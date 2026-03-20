@@ -130,7 +130,7 @@ class IdeGYMKanikoDockerAPI:
                     await update_job_status(db, job_name, status=Status.FAILURE, tag=tag, request_id=request_id)
 
             await clean_up_after_job(job_name, self._namespace)
-        except Exception as e:
+        except Exception:
             logger.exception(f"Error monitoring job '{job_name}'. Request ID: {request_id}")
             try:
                 async with get_db_session() as db:

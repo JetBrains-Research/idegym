@@ -14,18 +14,16 @@ from idegym.orchestrator.database.database import (
     get_clients_by_status,
     get_db_session,
     get_idegym_servers_by_status,
-    get_job_status as get_job_status_from_db,
     mark_stale_async_operations_as_finished,
     release_advisory_lock,
     update_client_heartbeat,
     update_idegym_server_heartbeat,
     update_job_status,
 )
-from idegym.orchestrator.database.models import AvailabilityStatus
+from idegym.orchestrator.database.models import AvailabilityStatus, JobStatusRecord
 from idegym.orchestrator.nodes_holder import change_number_of_spun_nodes
 from idegym.utils.logging import get_logger
 from sqlalchemy import select
-from idegym.orchestrator.database.models import JobStatusRecord
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = get_logger(__name__)
