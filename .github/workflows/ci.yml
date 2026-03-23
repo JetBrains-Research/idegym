@@ -32,7 +32,6 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v6
         with:
-          version: "0.6.13"
           enable-cache: true
           cache-dependency-glob: "uv.lock"
       - name: Set up Python
@@ -50,7 +49,7 @@ jobs:
       - name: Check code style
         uses: astral-sh/ruff-action@v3
         with:
-          version: "0.12.10"
+          version: "0.15.4"
           args: "check --output-format github"
       - name: Run tests
         run: uv run pytest -vv

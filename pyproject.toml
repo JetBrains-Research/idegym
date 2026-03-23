@@ -22,14 +22,14 @@ dev = [
     "pytest-randomly>=3.16.0",
     "python-on-whales>=0.78.0",
     "requests>=2.32.5",
-    "ruff>=0.12.10",
+    "ruff>=0.15.4",
     "supervisor>=4.2.5",
     "tqdm>=4.67.1",
     "tomlkit>=0.13.3",
 ]
 
 [tool.uv]
-required-version = ">=0.6.0,<0.7.0"
+required-version = ">=0.10.0"
 
 [tool.uv.sources]
 idegym-api = { workspace = true }

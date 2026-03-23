@@ -9,7 +9,7 @@ RUN set -eux; \
             supervisor; \
     rm -rf /var/lib/apt/lists/*
 
-COPY --from=ghcr.io/astral-sh/uv:0.6.13 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.10.11 /uv /uvx /bin/
 
 SHELL ["/bin/bash", "-c"]
 
@@ -25,6 +25,7 @@ RUN set -eux; \
 
 WORKDIR /opt/orchestrator
 
+COPY .python-version pyproject.toml uv.lock ./
 COPY api api/
 COPY backend-utils backend-utils/
 COPY common-utils common-utils/
@@ -38,11 +39,11 @@ RUN set -eux; \
 USER orchestrator
 
 RUN set -eux; \
-    pip install --no-cache-dir \
-        -e orchestrator \
-        -e common-utils \
-        -e backend-utils \
-        -e api
+    uv python install; \
+    uv sync --project orchestrator \
+            --frozen \
+            --no-cache \
+            --no-dev
 
 ENTRYPOINT ["dumb-init", "--"]
 CMD ["supervisord", "-c", "orchestrator/supervisord.conf"]
