@@ -244,11 +244,23 @@ async def _task_start_server(config: Config, request: StartServerRequest, async_
                 },
                 {
                     "name": "IDEGYM_OTEL_TRACING_AUTH_USERNAME",
-                    "value": otel_config.tracing.auth.username,
+                    "valueFrom": {
+                        "secretKeyRef": {
+                            "name": "tracing",
+                            "key": "username",
+                            "optional": True,
+                        }
+                    },
                 },
                 {
                     "name": "IDEGYM_OTEL_TRACING_AUTH_PASSWORD",
-                    "value": password.get_secret_value() if (password := otel_config.tracing.auth.password) else None,
+                    "valueFrom": {
+                        "secretKeyRef": {
+                            "name": "tracing",
+                            "key": "password",
+                            "optional": True,
+                        }
+                    },
                 },
                 {
                     "name": "IDEGYM_OTEL_TRACING_TIMEOUT",
