@@ -260,7 +260,7 @@ async def cleanup_inactive_pods(watcher_config: WatcherConfig):
 
             try:
                 logger.info("Starting cleanup operations with advisory lock acquired")
-                namespace = env.get("IDEGYM_NAMESPACE", "idegym")
+                namespace = env.get("__NAMESPACE", "idegym")
                 await perform_cleanup_operations(
                     db,
                     current_time,

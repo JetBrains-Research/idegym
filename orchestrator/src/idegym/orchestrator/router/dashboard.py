@@ -91,7 +91,7 @@ async def dashboard_clients(request: Request):
 async def dashboard_pods(
     request: Request, label_selector: str | None = None, limit: int = 50, _continue: str | None = None
 ):
-    namespace = env.get("IDEGYM_NAMESPACE", "idegym")
+    namespace = env.get("__NAMESPACE", "idegym")
 
     async with async_kube_api() as (_, _, core, _):
         try:
