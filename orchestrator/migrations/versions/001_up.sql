@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS servers (
     image_tag VARCHAR,
     container_runtime VARCHAR,
     cpu FLOAT DEFAULT 0.0,
-    ram FLOAT DEFAULT 0.0
+    ram FLOAT DEFAULT 0.0,
+    run_as_root BOOLEAN DEFAULT FALSE NOT NULL
 );
 
 -- Create index on generated_name

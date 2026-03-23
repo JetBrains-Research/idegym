@@ -183,6 +183,7 @@ async def _task_start_server(config: Config, request: StartServerRequest, async_
                 ram_request=ram_request,
                 image_tag=request.image_tag,
                 container_runtime=request.runtime_class_name,
+                run_as_root=request.run_as_root,
             )
 
             server_id = server.id

@@ -324,7 +324,7 @@ async def get_idegym_servers_by_status(db: AsyncSession, statuses: Set[Availabil
 
 
 async def find_matching_finished_server(
-    db: AsyncSession, client_name: str, server_name: Optional[str], image_tag: str, container_runtime: Optional[str]
+    db: AsyncSession, client_name: str, server_name: Optional[str], image_tag: str, container_runtime: Optional[str], run_as_root: bool
 ) -> Optional[IdeGYMServer]:
     """Find a finished server that matches the given criteria."""
     query = select(IdeGYMServer).filter(
@@ -332,6 +332,7 @@ async def find_matching_finished_server(
         IdeGYMServer.image_tag == image_tag,
         IdeGYMServer.availability == AvailabilityStatus.FINISHED,
         IdeGYMServer.container_runtime == container_runtime,
+        IdeGYMServer.run_as_root == run_as_root,
     )
 
     # If server_name is provided, filter by it
@@ -363,6 +364,7 @@ async def save_idegym_server(
     container_runtime: Optional[str] = None,
     cpu: float = 0.0,
     ram: float = 0.0,
+    run_as_root: bool = False,
 ) -> IdeGYMServer:
     """Create a new IdeGYM server."""
     # Create a server without generated_name first to get an ID
@@ -375,6 +377,7 @@ async def save_idegym_server(
         container_runtime=container_runtime,
         cpu=cpu,
         ram=ram,
+        run_as_root=run_as_root,
     )
     db.add(server)
     await db.flush()  # This assigns an ID but doesn't commit yet
@@ -664,6 +667,7 @@ async def check_resources_and_save_server(
     ram_request: float,
     image_tag: Optional[str] = None,
     container_runtime: Optional[str] = None,
+    run_as_root: bool = False,
 ) -> Optional[IdeGYMServer]:
     """
     Check resource availability and save a new server in a single atomic transaction.
@@ -719,6 +723,7 @@ async def check_resources_and_save_server(
             container_runtime=container_runtime,
             cpu=cpu_request,
             ram=ram_request,
+            run_as_root=run_as_root,
         )
         db.add(server)
         await db.flush()  # This assigns an ID but doesn't commit yet
