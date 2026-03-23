@@ -209,7 +209,7 @@ async def _task_start_server(config: Config, request: StartServerRequest, async_
                     },
                 },
                 {
-                    "name": "__NAMESPACE",
+                    "name": "IDEGYM_NAMESPACE",
                     "valueFrom": {
                         "fieldRef": {
                             "fieldPath": "metadata.namespace",
@@ -229,7 +229,7 @@ async def _task_start_server(config: Config, request: StartServerRequest, async_
                     "value": "{ "
                     'k8s.pod.uid: "$(__POD_UID)", '
                     'k8s.pod.name: "$(__POD_NAME)", '
-                    'k8s.namespace.name: "$(__NAMESPACE)", '
+                    'k8s.namespace.name: "$(IDEGYM_NAMESPACE)", '
                     'k8s.node.name: "$(__NODE_NAME)" '
                     "}",
                 },
