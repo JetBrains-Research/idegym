@@ -6,7 +6,12 @@ from os import environ as env
 from idegym.api.config import WatcherConfig
 from idegym.api.status import Status
 from idegym.api.type import Duration
-from idegym.backend.utils.kubernetes_client import are_any_pods_alive, clean_up_after_job, clean_up_server, get_job_status
+from idegym.backend.utils.kubernetes_client import (
+    are_any_pods_alive,
+    clean_up_after_job,
+    clean_up_server,
+    get_job_status,
+)
 from idegym.backend.utils.utils import log_exceptions
 from idegym.orchestrator.database.database import (
     acquire_advisory_lock,
