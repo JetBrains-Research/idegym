@@ -6,7 +6,7 @@ from os import environ as env
 from idegym.api.config import WatcherConfig
 from idegym.api.status import Status
 from idegym.api.type import Duration
-from idegym.backend.utils.kubernetes_client import are_any_pods_alive, clean_up_server, get_job_status
+from idegym.backend.utils.kubernetes_client import are_any_pods_alive, clean_up_after_job, clean_up_server, get_job_status
 from idegym.backend.utils.utils import log_exceptions
 from idegym.orchestrator.database.database import (
     acquire_advisory_lock,
@@ -149,6 +149,7 @@ async def check_orphaned_kaniko_jobs(db: AsyncSession, namespace: str):
     """
     Check for orphaned kaniko jobs (jobs that are marked as IN_PROGRESS in DB but have actually finished/failed in k8s).
     This handles cases where monitor_image_building_job fails or the orchestrator restarts.
+    Also cleans up associated resources (PDB and ConfigMaps) for finished jobs.
     """
     # Get all jobs with IN_PROGRESS status from database
     query = select(JobStatusRecord).filter(JobStatusRecord.status == Status.IN_PROGRESS)
@@ -163,7 +164,7 @@ async def check_orphaned_kaniko_jobs(db: AsyncSession, namespace: str):
             # Check actual status in Kubernetes
             k8s_status = await get_job_status(job_name, namespace)
 
-            # If status differs from IN_PROGRESS, update the database
+            # If status differs from IN_PROGRESS, update the database and clean up resources
             if k8s_status != Status.IN_PROGRESS:
                 logger.warning(
                     f"Orphaned job detected: '{job_name}' is IN_PROGRESS in DB but {k8s_status} in k8s. Updating..."
@@ -172,6 +173,13 @@ async def check_orphaned_kaniko_jobs(db: AsyncSession, namespace: str):
                     db, job_name, status=k8s_status, tag=job_record.tag, request_id=job_record.request_id
                 )
                 logger.info(f"Updated orphaned job '{job_name}' status to {k8s_status}")
+
+                # Clean up associated resources (PDB and ConfigMap)
+                try:
+                    await clean_up_after_job(job_name, namespace)
+                    logger.info(f"Cleaned up resources for orphaned job '{job_name}'")
+                except Exception:
+                    logger.exception(f"Error cleaning up resources for orphaned job '{job_name}'")
         except Exception:
             logger.exception(f"Error checking status for job '{job_name}'")
 
