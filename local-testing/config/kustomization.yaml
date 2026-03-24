@@ -1,0 +1,64 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Use local namespace
+namespace: idegym-local
+
+# Reference the base kustomization (relative to repo root)
+resources:
+  - ../../orchestrator/kubernetes
+
+# Patch orchestrator deployment to use local images
+patches:
+  - target:
+      kind: Deployment
+      name: orchestrator
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: IfNotPresent
+
+  # Patch Grafana deployment to use IfNotPresent
+  - target:
+      kind: Deployment
+      name: grafana
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: IfNotPresent
+
+  # Patch Prometheus deployment to use IfNotPresent
+  - target:
+      kind: Deployment
+      name: prometheus
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: IfNotPresent
+
+  # Patch Tempo deployment to use IfNotPresent
+  - target:
+      kind: Deployment
+      name: tempo
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: IfNotPresent
+
+  # Patch PostgreSQL statefulset to use IfNotPresent
+  - target:
+      kind: StatefulSet
+      name: postgresql
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: IfNotPresent
+
+  # Patch Ingress to use idegym-local.test host
+  - target:
+      kind: Ingress
+      name: orchestrator
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: idegym-local.test

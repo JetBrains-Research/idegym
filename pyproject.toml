@@ -47,6 +47,7 @@ members = [
     "backend-utils",
     "client",
     "common-utils",
+    "local-testing",
     "orchestrator",
     "rewards",
     "server",

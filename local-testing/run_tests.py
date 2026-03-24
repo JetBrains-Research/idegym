@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+"""
+Local Integration Test Runner for IdeGYM on Minikube.
+
+This script orchestrates the complete testing workflow:
+1. Builds required Docker images
+2. Sets up Kubernetes environment in minikube
+3. Runs integration tests
+4. Optionally cleans up resources
+
+Usage:
+    python run_tests.py                    # Run all tests
+    python run_tests.py --skip-build       # Skip image building
+    python run_tests.py --reuse-resources  # Reuse existing K8s resources
+    python run_tests.py --no-cleanup       # Don't clean up after tests
+    python run_tests.py --test test_name   # Run specific test
+"""
+
+import argparse
+import asyncio
+import sys
+from pathlib import Path
+
+from idegym.utils.logging import get_logger
+from scripts.build_images import build_all_images
+from scripts.k8s_setup import (
+    cleanup_kubernetes_environment,
+    setup_kubernetes_environment,
+)
+
+logger = get_logger(__name__)
+
+
+def run_pytest(test_name: str | None = None) -> bool:
+    """
+    Run pytest with the specified test.
+
+    Args:
+        test_name: Optional specific test to run
+
+    Returns:
+        bool: True if tests passed, False otherwise
+    """
+    import subprocess
+
+    tests_dir = Path(__file__).parent / "tests"
+
+    # Override root pytest config to avoid dependency on pytest-randomly
+    cmd = ["pytest", str(tests_dir), "-v", "-s", "-o", "addopts="]
+
+    if test_name:
+        cmd.extend(["-k", test_name])
+
+    logger.info("Running tests...")
+    result = subprocess.run(cmd, check=False)
+
+    return result.returncode == 0
+
+
+async def main_async() -> int:
+    """Main async entry point."""
+    parser = argparse.ArgumentParser(
+        description="Local integration test runner for minikube",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__,
+    )
+    parser.add_argument("--skip-build", action="store_true", help="Skip building Docker images")
+    parser.add_argument(
+        "--reuse-resources", action="store_true", help="Reuse existing Kubernetes resources instead of recreating"
+    )
+    parser.add_argument("--test", type=str, help="Run a specific test by name (uses pytest -k)")
+    parser.add_argument(
+        "--no-cleanup", action="store_true", help="Don't delete resources after tests (useful for debugging)"
+    )
+
+    args = parser.parse_args()
+
+    try:
+        # Step 1: Build images (unless skipped)
+        if not args.skip_build:
+            logger.info("=" * 80)
+            logger.info("STEP 1: Building Docker Images")
+            logger.info("=" * 80)
+            build_all_images()
+        else:
+            logger.info("Skipping image builds")
+
+        # Step 2: Set up Kubernetes environment
+        logger.info("=" * 80)
+        logger.info("STEP 2: Setting Up Kubernetes Environment")
+        logger.info("=" * 80)
+
+        if not setup_kubernetes_environment(reuse_resources=args.reuse_resources):
+            logger.error("Failed to set up Kubernetes environment")
+            return 1
+
+        # Step 3: Run tests
+        logger.info("=" * 80)
+        logger.info("STEP 3: Running Integration Tests")
+        logger.info("=" * 80)
+
+        tests_successful = run_pytest(args.test)
+
+        if tests_successful:
+            logger.info("=" * 80)
+            logger.info("✓ ALL TESTS PASSED")
+            logger.info("=" * 80)
+            return 0
+        else:
+            logger.warning("=" * 80)
+            logger.warning("✗ SOME TESTS FAILED")
+            logger.warning("=" * 80)
+            return 1
+
+    except Exception as e:
+        logger.error(f"Error during test execution: {e}", exc_info=True)
+        return 1
+
+    finally:
+        # Cleanup (optional)
+        if not args.no_cleanup and not args.reuse_resources:
+            try:
+                logger.info("=" * 80)
+                logger.info("CLEANUP: Removing Kubernetes Resources")
+                logger.info("=" * 80)
+                cleanup_kubernetes_environment()
+            except Exception as cleanup_error:
+                logger.error(f"Error during cleanup: {cleanup_error}", exc_info=True)
+
+
+def main() -> int:
+    """Entry point for the script that runs the async main function."""
+    return asyncio.run(main_async())
+
+
+if __name__ == "__main__":
+    sys.exit(main())
