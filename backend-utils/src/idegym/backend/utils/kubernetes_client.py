@@ -698,7 +698,7 @@ async def build_and_push_image_with_kaniko(
 
     container = V1Container(
         name="kaniko",
-        image="gcr.io/kaniko-project/executor:latest",
+        image="gcr.io/kaniko-project/executor:v1.24.0",
         args=kaniko_args,
         env=env_vars,
         volume_mounts=[
