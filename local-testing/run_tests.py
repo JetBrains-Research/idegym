@@ -47,10 +47,11 @@ def run_pytest(
     """
     import subprocess
 
-    tests_dir = Path(__file__).parent / "tests"
+    module_dir = Path(__file__).parent
+    tests_dir = module_dir / "tests"
 
     # Override root pytest config to avoid dependency on pytest-randomly
-    cmd = ["pytest", str(tests_dir), "-v", "-s", "-o", "addopts="]
+    cmd = [sys.executable, "-m", "pytest", str(tests_dir), "-v", "-s", "-o", "addopts="]
 
     if test_name:
         cmd.extend(["-k", test_name])
@@ -62,7 +63,7 @@ def run_pytest(
         cmd.append("--delete-kustomize-services")
 
     logger.info("Running tests...")
-    result = subprocess.run(cmd, check=False)
+    result = subprocess.run(cmd, check=False, cwd=module_dir)
 
     return result.returncode == 0
 
@@ -150,8 +151,8 @@ async def main_async() -> int:
                 logger.info("=" * 80)
                 logger.info("CLEANUP: Removing Kubernetes Resources")
                 logger.info("=" * 80)
-                # Use clean_namespace flag for cleanup as well
-                cleanup_kubernetes_environment(clean_namespace=args.clean_namespace)
+                # --clean-namespace is a pre-test setup option; post-test cleanup removes deployed resources.
+                cleanup_kubernetes_environment(clean_namespace=False)
             except Exception as cleanup_error:
                 logger.error(f"Error during cleanup: {cleanup_error}", exc_info=True)
         elif args.delete_namespace or args.delete_kustomize_services:

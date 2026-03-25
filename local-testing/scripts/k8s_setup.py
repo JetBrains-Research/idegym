@@ -148,6 +148,28 @@ def recreate_namespace() -> None:
         logger.warning(f"Could not create namespace: {create_result.stderr}")
 
 
+def delete_namespace(namespace: str = "idegym-local") -> None:
+    """Delete a namespace and wait until it is fully removed."""
+    logger.info(f"Deleting namespace {namespace}...")
+    delete_cmd = [
+        "kubectl",
+        "delete",
+        "namespace",
+        namespace,
+        "--ignore-not-found=true",
+        "--wait=true",
+        "--timeout=180s",
+    ]
+    delete_result = subprocess.run(delete_cmd, check=False, capture_output=True, text=True, timeout=240)
+
+    if delete_result.returncode != 0 and "NotFound" not in delete_result.stderr:
+        logger.warning(f"Could not delete namespace {namespace}: {delete_result.stderr}")
+        return
+
+    if wait_for_namespace_deleted(namespace):
+        logger.info(f"✓ Namespace {namespace} deleted successfully")
+
+
 def wait_for_service(timeout: int = 120, check_interval: int = 10) -> bool:
     """
     Wait for the orchestrator service to become responsive.
@@ -336,6 +358,6 @@ def cleanup_kubernetes_environment(clean_namespace: bool = False) -> None:
     """
     logger.info("Cleaning up Kubernetes environment...")
     if clean_namespace:
-        recreate_namespace()
+        delete_namespace()
     else:
         delete_kubernetes_resources()

@@ -934,6 +934,7 @@ source = { virtual = "local-testing" }
 dependencies = [
     { name = "idegym-client" },
     { name = "idegym-common-utils" },
+    { name = "jinja2" },
     { name = "kubernetes-asyncio" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -945,6 +946,7 @@ dependencies = [
 requires-dist = [
     { name = "idegym-client", editable = "client" },
     { name = "idegym-common-utils", editable = "common-utils" },
+    { name = "jinja2", specifier = ">=3.1.0" },
     { name = "kubernetes-asyncio", specifier = ">=32.3.2" },
     { name = "pytest", specifier = ">=8.4.1" },
     { name = "pytest-asyncio", specifier = ">=0.24.0" },

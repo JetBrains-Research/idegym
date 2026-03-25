@@ -7,6 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "idegym-client",
     "idegym-common-utils",
+    "jinja2>=3.1.0",
     "kubernetes-asyncio>=32.3.2",
     "pytest>=8.4.1",
     "pytest-asyncio>=0.24.0",

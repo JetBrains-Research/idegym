@@ -52,7 +52,11 @@ def cleanup_servers():
     if list_result.returncode == 0 and list_result.stdout.strip():
         import json
 
-        pods_data = json.loads(list_result.stdout)
+        try:
+            pods_data = json.loads(list_result.stdout)
+        except json.JSONDecodeError as exc:
+            logger.warning(f"Could not parse pod list JSON, skipping server cleanup: {exc}")
+            return
         deployment_names = set()
 
         # Find pods with container named "server"
@@ -123,23 +127,24 @@ def cleanup_servers():
                 timeout=30,
             )
 
-            # Delete ReplicaSet (using label selector to match all ReplicaSets for this deployment)
-            subprocess.run(
-                [
-                    "kubectl",
-                    "delete",
-                    "replicaset",
-                    "-n",
-                    "idegym-local",
-                    "-l",
-                    f"app={deployment_name}",
-                    "--ignore-not-found=true",
-                ],
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
+            # Delete ReplicaSets with either common label convention.
+            for selector in (f"app={deployment_name}", f"app.kubernetes.io/name={deployment_name}"):
+                subprocess.run(
+                    [
+                        "kubectl",
+                        "delete",
+                        "replicaset",
+                        "-n",
+                        "idegym-local",
+                        "-l",
+                        selector,
+                        "--ignore-not-found=true",
+                    ],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
 
         logger.info(f"✓ Server resources cleaned up ({len(deployment_names)} servers)")
     else:
