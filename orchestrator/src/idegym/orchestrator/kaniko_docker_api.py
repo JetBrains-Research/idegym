@@ -9,7 +9,7 @@ from idegym.api.docker import BaseImage
 from idegym.api.download import Authorization, DownloadRequest
 from idegym.api.git import GitRepositoryResource, GitRepositorySnapshot
 from idegym.api.status import Status
-from idegym.backend.utils.kubernetes_client import build_and_push_image_with_kaniko, clean_up_after_job, get_job_status
+from idegym.backend.utils.kubernetes_client import build_and_push_image_with_kaniko, get_job_status
 from idegym.orchestrator.database.database import get_db_session, save_job_status, update_job_status
 from idegym.utils import __version__
 from idegym.utils.dict import walk
@@ -128,8 +128,6 @@ class IdeGYMKanikoDockerAPI:
                 )
                 async with get_db_session() as db:
                     await update_job_status(db, job_name, status=Status.FAILURE, tag=tag, request_id=request_id)
-
-            await clean_up_after_job(job_name, self._namespace)
         except Exception:
             logger.exception(f"Error monitoring job '{job_name}'. Request ID: {request_id}")
             try:
