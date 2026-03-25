@@ -31,7 +31,11 @@ from scripts.k8s_setup import (
 logger = get_logger(__name__)
 
 
-def run_pytest(test_name: str | None = None) -> bool:
+def run_pytest(
+    test_name: str | None = None,
+    delete_namespace: bool = False,
+    delete_kustomize_services: bool = False,
+) -> bool:
     """
     Run pytest with the specified test.
 
@@ -50,6 +54,12 @@ def run_pytest(test_name: str | None = None) -> bool:
 
     if test_name:
         cmd.extend(["-k", test_name])
+
+    if delete_namespace:
+        cmd.append("--delete-namespace")
+
+    if delete_kustomize_services:
+        cmd.append("--delete-kustomize-services")
 
     logger.info("Running tests...")
     result = subprocess.run(cmd, check=False)
@@ -74,6 +84,16 @@ async def main_async() -> int:
     )
     parser.add_argument(
         "--clean-namespace", action="store_true", help="Recreate idegym-local namespace before tests (full cleanup)"
+    )
+    parser.add_argument(
+        "--delete-namespace",
+        action="store_true",
+        help="Delete the entire idegym-local namespace after all tests complete",
+    )
+    parser.add_argument(
+        "--delete-kustomize-services",
+        action="store_true",
+        help="Delete only services defined in kustomization.yaml after all tests complete",
     )
 
     args = parser.parse_args()
@@ -102,7 +122,11 @@ async def main_async() -> int:
         logger.info("STEP 3: Running Integration Tests")
         logger.info("=" * 80)
 
-        tests_successful = run_pytest(args.test)
+        tests_successful = run_pytest(
+            args.test,
+            delete_namespace=args.delete_namespace,
+            delete_kustomize_services=args.delete_kustomize_services,
+        )
 
         if tests_successful:
             logger.info("=" * 80)
@@ -121,7 +145,7 @@ async def main_async() -> int:
 
     finally:
         # Cleanup (optional)
-        if not args.no_cleanup:
+        if not args.no_cleanup and not (args.delete_namespace or args.delete_kustomize_services):
             try:
                 logger.info("=" * 80)
                 logger.info("CLEANUP: Removing Kubernetes Resources")
@@ -130,6 +154,10 @@ async def main_async() -> int:
                 cleanup_kubernetes_environment(clean_namespace=args.clean_namespace)
             except Exception as cleanup_error:
                 logger.error(f"Error during cleanup: {cleanup_error}", exc_info=True)
+        elif args.delete_namespace or args.delete_kustomize_services:
+            logger.info(
+                "Skipping k8s_setup cleanup because post-test deletion is handled by pytest flags",
+            )
 
 
 def main() -> int:

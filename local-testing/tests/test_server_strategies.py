@@ -4,6 +4,7 @@ from uuid import uuid4
 
 import pytest
 from idegym.api.orchestrator.servers import ServerReuseStrategy
+from idegym.client.client import ServerCloseAction
 from kubernetes_asyncio.client import V1ResourceRequirements
 
 from .utils import create_http_client
@@ -21,7 +22,7 @@ async def test_reuse_strategy_reset_vs_restart(test_image):
             server_name=f"reset-{test_id}",
             runtime_class_name="gvisor",
             reuse_strategy=ServerReuseStrategy.RESET,
-            close_action="finish",
+            close_action=ServerCloseAction.FINISH,
         ) as srv:
             id1 = srv.server_id
             await srv.create_file(file_path="/tmp/reset.txt", content="data")
@@ -31,7 +32,7 @@ async def test_reuse_strategy_reset_vs_restart(test_image):
             server_name=f"reset-{test_id}",
             runtime_class_name="gvisor",
             reuse_strategy=ServerReuseStrategy.RESET,
-            close_action="stop",
+            close_action=ServerCloseAction.STOP,
         ) as srv:
             assert srv.server_id == id1
             result = await srv.execute_bash(script="cat /tmp/reset.txt")
@@ -43,7 +44,7 @@ async def test_reuse_strategy_reset_vs_restart(test_image):
             server_name=f"restart-{test_id}",
             runtime_class_name="gvisor",
             reuse_strategy=ServerReuseStrategy.RESTART,
-            close_action="finish",
+            close_action=ServerCloseAction.FINISH,
         ) as srv:
             id2 = srv.server_id
             await srv.create_file(file_path="/tmp/restart.txt", content="data")
@@ -53,7 +54,7 @@ async def test_reuse_strategy_reset_vs_restart(test_image):
             server_name=f"restart-{test_id}",
             runtime_class_name="gvisor",
             reuse_strategy=ServerReuseStrategy.RESTART,
-            close_action="stop",
+            close_action=ServerCloseAction.STOP,
         ) as srv:
             assert srv.server_id == id2
             result = await srv.execute_bash(script="cat /tmp/restart.txt")
@@ -71,7 +72,7 @@ async def test_reuse_strategy_none(test_image):
             server_name=f"none-{test_id}",
             runtime_class_name="gvisor",
             reuse_strategy=ServerReuseStrategy.NONE,
-            close_action="stop",
+            close_action=ServerCloseAction.FINISH,
         ) as srv:
             id1 = srv.server_id
 
@@ -80,7 +81,7 @@ async def test_reuse_strategy_none(test_image):
             server_name=f"none-{test_id}",
             runtime_class_name="gvisor",
             reuse_strategy=ServerReuseStrategy.NONE,
-            close_action="stop",
+            close_action=ServerCloseAction.STOP,
         ) as srv:
             assert srv.server_id != id1, "NONE should create new servers"
 
@@ -100,7 +101,7 @@ async def test_reset_project(test_image):
             image_tag=test_image,
             server_name=f"reset-proj-{test_id}",
             runtime_class_name="gvisor",
-            close_action="stop",
+            close_action=ServerCloseAction.STOP,
         ) as server:
             # Modify a file in the cloned repo
             result = await server.execute_bash(script="ls /home/appuser/work", command_timeout=30.0)
@@ -155,7 +156,7 @@ async def test_resource_limits_enforcement(test_image):
                     limits={"cpu": "100", "memory": "1000Gi"},
                 ),
                 server_start_wait_timeout_in_seconds=60,
-                close_action="stop",
+                close_action=ServerCloseAction.STOP,
             ) as _:
                 # Should not reach here
                 pass
@@ -190,13 +191,13 @@ async def test_concurrent_clients(test_image):
                 image_tag=test_image,
                 server_name=f"s1-{test_id}",
                 runtime_class_name="gvisor",
-                close_action="stop",
+                close_action=ServerCloseAction.STOP,
             ) as s1,
             c2.with_server(
                 image_tag=test_image,
                 server_name=f"s2-{test_id}",
                 runtime_class_name="gvisor",
-                close_action="stop",
+                close_action=ServerCloseAction.STOP,
             ) as s2,
         ):
             assert s1.server_id != s2.server_id
@@ -212,7 +213,7 @@ async def test_bash_and_file_operations(test_image):
             image_tag=test_image,
             server_name=f"ops-{test_id}",
             runtime_class_name="gvisor",
-            close_action="stop",
+            close_action=ServerCloseAction.STOP,
         ) as server:
             # Bash: success
             result = await server.execute_bash(script="echo 'ok'")
@@ -242,7 +243,7 @@ async def test_reward_operations(test_image):
             image_tag=test_image,
             server_name=f"reward-{test_id}",
             runtime_class_name="gvisor",
-            close_action="stop",
+            close_action=ServerCloseAction.STOP,
         ) as server:
             result = await server.setup_reward(setup_check_script="python --version")
             assert result.status == "success"

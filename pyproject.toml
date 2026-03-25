@@ -57,7 +57,7 @@ members = [
 [tool.pytest.ini_options]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
-pythonpath = ["."]
+pythonpath = [".", "local-testing"]
 testpaths = [
     "integration-tests",
     "unit-tests",

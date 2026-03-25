@@ -17,6 +17,16 @@ patches:
       - op: add
         path: /spec/template/spec/containers/0/imagePullPolicy
         value: IfNotPresent
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: IDEGYM_CLEAN_DATABASE
+          value: "True"
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: IDEGYM_UVICORN_WORKERS
+          value: "1"
 
   # Patch Grafana deployment to use IfNotPresent
   - target:

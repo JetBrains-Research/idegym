@@ -90,24 +90,56 @@ def ensure_namespace_exists() -> None:
         logger.warning(f"Could not ensure namespace exists: {result.stderr}")
 
 
+def wait_for_namespace_deleted(namespace: str, timeout: int = 180, check_interval: int = 2) -> bool:
+    """Wait for a namespace to be fully deleted."""
+    logger.info("Waiting for namespace to be deleted...")
+    start_time = time.time()
+
+    while time.time() - start_time < timeout:
+        result = subprocess.run(
+            ["kubectl", "get", "namespace", namespace],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        if result.returncode != 0:
+            if "NotFound" in result.stderr:
+                logger.info("✓ Namespace deleted")
+                return True
+
+        time.sleep(check_interval)
+
+    logger.warning(f"Namespace {namespace} did not delete within {timeout}s")
+    return False
+
+
 def recreate_namespace() -> None:
     """Recreate idegym-local namespace to clean up everything completely."""
     logger.info("Recreating idegym-local namespace...")
 
-    # Delete namespace
-    delete_cmd = ["kubectl", "delete", "namespace", "idegym-local", "--ignore-not-found=true"]
-    delete_result = subprocess.run(delete_cmd, check=False, capture_output=True, text=True, timeout=120)
+    namespace = "idegym-local"
+
+    delete_cmd = [
+        "kubectl",
+        "delete",
+        "namespace",
+        namespace,
+        "--ignore-not-found=true",
+        "--wait=true",
+        "--timeout=180s",
+    ]
+    delete_result = subprocess.run(delete_cmd, check=False, capture_output=True, text=True, timeout=240)
 
     if delete_result.returncode != 0 and "NotFound" not in delete_result.stderr:
         logger.warning(f"Could not delete namespace: {delete_result.stderr}")
         return
 
-    # Wait for namespace to be fully deleted
-    logger.info("Waiting for namespace to be deleted...")
-    time.sleep(5)
+    if not wait_for_namespace_deleted(namespace):
+        logger.warning(f"Skipping namespace creation because {namespace} is still deleting")
+        return
 
-    # Create namespace
-    create_cmd = ["kubectl", "create", "namespace", "idegym-local"]
+    create_cmd = ["kubectl", "create", "namespace", namespace]
     create_result = subprocess.run(create_cmd, check=False, capture_output=True, text=True)
 
     if create_result.returncode == 0:
@@ -175,6 +207,124 @@ def setup_kubernetes_environment(reuse_resources: bool = False, clean_namespace:
         logger.info("Reusing existing Kubernetes resources")
 
     return wait_for_service()
+
+
+def _resolve_pod_label_selector(app_label: str, namespace: str, label_key: str) -> str:
+    """Return a working label selector for pods, falling back to app label if needed."""
+    selectors = [f"{label_key}={app_label}"]
+    if label_key != "app":
+        selectors.append(f"app={app_label}")
+
+    for selector in selectors:
+        result = subprocess.run(
+            ["kubectl", "get", "pod", "-l", selector, "-n", namespace, "-o", "name"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return selector
+
+    return selectors[0]
+
+
+def wait_for_pod_deleted(
+    app_label: str,
+    namespace: str = "idegym-local",
+    timeout: int = 60,
+    label_key: str = "app.kubernetes.io/name",
+) -> bool:
+    """
+    Wait for all pods with the given app label to be deleted.
+
+    Args:
+        app_label: The app label to filter pods
+        namespace: Kubernetes namespace
+        timeout: Maximum time to wait in seconds
+        label_key: Label key to use for pod selection (falls back to app label if needed)
+
+    Returns:
+        bool: True if pods are deleted, False if timeout reached
+    """
+    logger.info(f"Waiting for {app_label} pod to be deleted...")
+    start_time = time.time()
+
+    while time.time() - start_time < timeout:
+        elapsed = int(time.time() - start_time)
+
+        # Check if any pods exist
+        selector = _resolve_pod_label_selector(app_label, namespace, label_key)
+        result = subprocess.run(
+            ["kubectl", "get", "pod", "-l", selector, "-n", namespace, "-o", "name"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        if result.returncode == 0 and not result.stdout.strip():
+            logger.info(f"✓ {app_label} pod deleted (elapsed: {elapsed}s)")
+            return True
+
+        time.sleep(1)
+
+    logger.error(f"{app_label} pod did not delete within {timeout}s")
+    return False
+
+
+def wait_for_pod_ready(
+    app_label: str,
+    namespace: str = "idegym-local",
+    timeout: int = 120,
+    check_interval: int = 2,
+    label_key: str = "app.kubernetes.io/name",
+) -> bool:
+    """
+    Wait for a pod with the given app label to become ready.
+
+    Args:
+        app_label: The app label to filter pods
+        namespace: Kubernetes namespace
+        timeout: Maximum time to wait in seconds
+        check_interval: Time between checks in seconds
+        label_key: Label key to use for pod selection (falls back to app label if needed)
+
+    Returns:
+        bool: True if pod is ready, False if timeout reached
+    """
+    logger.info(f"Waiting for {app_label} pod to be ready...")
+    start_time = time.time()
+
+    while time.time() - start_time < timeout:
+        elapsed = int(time.time() - start_time)
+
+        # Check if pod exists and is ready
+        selector = _resolve_pod_label_selector(app_label, namespace, label_key)
+        result = subprocess.run(
+            [
+                "kubectl",
+                "get",
+                "pod",
+                "-l",
+                selector,
+                "-n",
+                namespace,
+                "-o",
+                "jsonpath={.items[0].status.conditions[?(@.type=='Ready')].status}",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        if result.returncode == 0 and result.stdout.strip() == "True":
+            logger.info(f"✓ {app_label} pod is ready (elapsed: {elapsed}s)")
+            return True
+
+        logger.info(f"{app_label} not yet ready, waiting... (elapsed: {elapsed}s)")
+        time.sleep(check_interval)
+
+    logger.error(f"{app_label} did not become ready within {timeout}s")
+    return False
 
 
 def cleanup_kubernetes_environment(clean_namespace: bool = False) -> None:
