@@ -666,14 +666,6 @@ async def build_and_push_image_with_kaniko(
         metadata=V1ObjectMeta(name=f"{job_name}-dockerfile"), data={"Dockerfile": dockerfile_content}
     )
 
-    env_vars = [
-        V1EnvVar(name="IDEGYM_VERSION", value=service_version),
-        V1EnvVar(name="IDEGYM_PROJECT_ARCHIVE_URL", value=request.descriptor.url),
-        V1EnvVar(name="IDEGYM_PROJECT_ARCHIVE_PATH", value=request.descriptor.name),
-        V1EnvVar(name="IDEGYM_AUTH_TYPE", value=request.auth.type),
-        V1EnvVar(name="IDEGYM_AUTH_TOKEN", value=request.auth.token),
-    ]
-
     kaniko_args = [
         "--dockerfile=/workspace/Dockerfile",
         f"--destination={tag}",
@@ -700,7 +692,28 @@ async def build_and_push_image_with_kaniko(
         name="kaniko",
         image="gcr.io/kaniko-project/executor:v1.24.0",
         args=kaniko_args,
-        env=env_vars,
+        env=[
+            V1EnvVar(
+                name="IDEGYM_VERSION",
+                value=service_version,
+            ),
+            V1EnvVar(
+                name="IDEGYM_PROJECT_ARCHIVE_URL",
+                value=request.descriptor.url,
+            ),
+            V1EnvVar(
+                name="IDEGYM_PROJECT_ARCHIVE_PATH",
+                value=request.descriptor.name,
+            ),
+            V1EnvVar(
+                name="IDEGYM_AUTH_TYPE",
+                value=request.auth.type,
+            ),
+            V1EnvVar(
+                name="IDEGYM_AUTH_TOKEN",
+                value=request.auth.token,
+            ),
+        ],
         volume_mounts=[
             V1VolumeMount(name="dockerfile-volume", mount_path="/workspace"),
             V1VolumeMount(name="docker-config", mount_path="/kaniko/.docker"),
