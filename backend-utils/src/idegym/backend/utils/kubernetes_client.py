@@ -1,7 +1,7 @@
 from asyncio import CancelledError, gather, sleep, timeout
 from contextlib import asynccontextmanager
+from random import getrandbits
 from typing import Any, AsyncGenerator, Awaitable, Callable, Dict, Iterable, Optional, Tuple, Union
-from uuid import uuid4
 
 from idegym.api import __version__
 from idegym.api.download import DownloadRequest
@@ -660,7 +660,7 @@ async def build_and_push_image_with_kaniko(
     Returns:
         The job name
     """
-    name = f"kaniko-build-{uuid4().hex[:8]}"  # Generate a unique job name
+    name = f"kaniko-build-{getrandbits(32):08x}"  # Generate a unique job name
     args = [
         "--dockerfile=/workspace/Dockerfile",
         f"--destination={tag}",
