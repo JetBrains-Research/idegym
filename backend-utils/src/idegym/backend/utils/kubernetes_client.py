@@ -682,6 +682,9 @@ async def build_and_push_image_with_kaniko(
 
     if resources and isinstance(resources, dict):
         resources = V1ResourceRequirements(**resources)
+    annotations = {
+        "cluster-autoscaler.kubernetes.io/safe-to-evict": "false",
+    }
     labels = {
         "app": name,
         "app.kubernetes.io/component": "image-builder",
@@ -750,6 +753,7 @@ async def build_and_push_image_with_kaniko(
         spec=V1JobSpec(
             template=V1PodTemplateSpec(
                 metadata=V1ObjectMeta(
+                    annotations=annotations,
                     labels=labels,
                 ),
                 spec=V1PodSpec(
