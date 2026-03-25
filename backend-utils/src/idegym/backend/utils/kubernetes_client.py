@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from typing import Any, AsyncGenerator, Awaitable, Callable, Dict, Iterable, Optional, Tuple, Union
 from uuid import uuid4
 
+from idegym.api import __version__
 from idegym.api.download import DownloadRequest
 from idegym.api.exceptions import ResourceDeletionFailedException
 from idegym.api.paths import API_BASE_PATH, ActuatorPath
@@ -659,18 +660,7 @@ async def build_and_push_image_with_kaniko(
     Returns:
         The job name
     """
-    # Create a unique job name
-    job_name = f"kaniko-build-{uuid4().hex[:8]}"
-
-    configmap = V1ConfigMap(
-        metadata=V1ObjectMeta(
-            name=f"{job_name}-dockerfile",
-        ),
-        data={
-            "Dockerfile": dockerfile_content,
-        },
-    )
-
+    name = f"kaniko-build-{uuid4().hex[:8]}"  # Generate a unique job name
     args = [
         "--dockerfile=/workspace/Dockerfile",
         f"--destination={tag}",
@@ -692,6 +682,23 @@ async def build_and_push_image_with_kaniko(
 
     if resources and isinstance(resources, dict):
         resources = V1ResourceRequirements(**resources)
+    labels = {
+        "app": name,
+        "app.kubernetes.io/component": "image-builder",
+        "app.kubernetes.io/name": name,
+        "app.kubernetes.io/version": __version__,
+        "app.kubernetes.io/managed-by": "idegym-orchestrator",
+    }
+
+    configmap = V1ConfigMap(
+        metadata=V1ObjectMeta(
+            name=name,
+            labels=labels,
+        ),
+        data={
+            "Dockerfile": dockerfile_content,
+        },
+    )
 
     container = V1Container(
         name="kaniko",
@@ -733,18 +740,17 @@ async def build_and_push_image_with_kaniko(
         resources=resources,
     )
 
-    pod_labels = {"app": job_name}
-
     job = V1Job(
         api_version="batch/v1",
         kind="Job",
         metadata=V1ObjectMeta(
-            name=job_name,
+            name=name,
+            labels=labels,
         ),
         spec=V1JobSpec(
             template=V1PodTemplateSpec(
                 metadata=V1ObjectMeta(
-                    labels=pod_labels,
+                    labels=labels,
                 ),
                 spec=V1PodSpec(
                     containers=[container],
@@ -780,11 +786,14 @@ async def build_and_push_image_with_kaniko(
     pdb = V1PodDisruptionBudget(
         api_version="policy/v1",
         kind="PodDisruptionBudget",
-        metadata=V1ObjectMeta(name=f"{job_name}-pdb"),
+        metadata=V1ObjectMeta(
+            name=name,
+            labels=labels,
+        ),
         spec=V1PodDisruptionBudgetSpec(
             min_available=1,
             selector=V1LabelSelector(
-                match_labels=pod_labels,
+                match_labels=labels,
             ),
         ),
     )
@@ -794,7 +803,7 @@ async def build_and_push_image_with_kaniko(
         await batch.create_namespaced_job(namespace=namespace, body=job)
         await policy.create_namespaced_pod_disruption_budget(namespace=namespace, body=pdb)
 
-    return job_name
+    return name
 
 
 async def get_job_status(job_name: str, namespace: str) -> Status:
