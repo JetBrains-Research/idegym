@@ -173,10 +173,8 @@ async def deploy_server(
     image_tag: str,
     server_name: str,
     namespace: str,
-    container_name: str = "server",
     service_port: int = 80,
     container_port: int = 8000,
-    replicas_count: int = 1,
     runtime_class_name: Optional[str] = None,
     run_as_root: bool = False,
     node_selector: Optional[Dict[str, str]] = None,
@@ -189,93 +187,130 @@ async def deploy_server(
     Args:
         image_tag: Docker image tag
         server_name: Name for the server
-        container_name: Name for the container
         service_port: Service port
         container_port: Container port
         namespace: Kubernetes namespace
-        replicas_count: Number of replicas
         runtime_class_name: Kubernetes runtime class name
         run_as_root: Run container as root
+        node_selector: Node selector for deployment
         resources: Kubernetes resource requirements (can be a V1ResourceRequirements object or a dictionary)
         environment_variables: Environment variables to set in the container (can be a V1EnvVar object or a dictionary)
     """
     logger.debug(f"Deploying '{server_name}' in namespace '{namespace}' with runtime class '{runtime_class_name}'.")
 
-    container_ports = [V1ContainerPort(container_port=container_port)]
-    readiness_probe = V1Probe(
-        http_get=V1HTTPGetAction(path=API_BASE_PATH + ActuatorPath.HEALTH, port=container_port),
-        initial_delay_seconds=10,
-        period_seconds=3,
+    uid = 1000 if not run_as_root else None
+    security_context = V1SecurityContext(
+        run_as_non_root=not run_as_root,
+        run_as_user=uid,
+        run_as_group=uid,
     )
-
-    if run_as_root:
-        security_context = V1SecurityContext(run_as_user=0)
-    else:
-        security_context = V1SecurityContext(run_as_non_root=True, run_as_user=1000, run_as_group=1000)
 
     # Convert dictionary resources to V1ResourceRequirements if needed
     if resources and isinstance(resources, dict):
         resources = V1ResourceRequirements(**resources)
 
     # Convert environment variables to V1EnvVar objects if needed
-    env_vars = [
+    env = [
         environment_variable if isinstance(environment_variable, V1EnvVar) else to_env_var(environment_variable)
         for environment_variable in environment_variables
     ]
 
+    port = V1ContainerPort(
+        name="http",
+        container_port=container_port,
+        protocol="TCP",
+    )
+    readiness_probe = V1Probe(
+        http_get=V1HTTPGetAction(
+            path=API_BASE_PATH + ActuatorPath.HEALTH,
+            port=port.container_port,
+        ),
+        initial_delay_seconds=10,
+        period_seconds=3,
+    )
     container = V1Container(
-        name=container_name,
+        name="server",
         image=image_tag,
         image_pull_policy="IfNotPresent",
-        ports=container_ports,
+        ports=[port],
         readiness_probe=readiness_probe,
         security_context=security_context,
         resources=resources,
-        env=[*env_vars],
+        env=env,
     )
 
-    image_pull_secrets = [V1LocalObjectReference(name="regcred")]
-    pod_spec = V1PodSpec(
-        containers=[container],
-        image_pull_secrets=image_pull_secrets,
-        runtime_class_name=runtime_class_name,
-        node_selector=node_selector,
-    )
-
-    deployment_metadata = V1ObjectMeta(name=server_name)
-    template_metadata = V1ObjectMeta(
-        annotations={
-            "prometheus.io/scrape": "true",
-            "prometheus.io/path": API_BASE_PATH + ActuatorPath.METRICS,
-            "prometheus.io/port": str(container_port),
-            "prometheus.io/scheme": "http|https",
-        },
-        labels={
-            "app": server_name,
-        },
-    )
-    label_selector = V1LabelSelector(match_labels={"app": server_name})
-
-    template_spec = V1PodTemplateSpec(metadata=template_metadata, spec=pod_spec)
-
-    deployment_spec = V1DeploymentSpec(replicas=replicas_count, selector=label_selector, template=template_spec)
-
+    image_pull_secret = V1LocalObjectReference(name="regcred")
+    annotations = {
+        "prometheus.io/scrape": "true",
+        "prometheus.io/path": API_BASE_PATH + ActuatorPath.METRICS,
+        "prometheus.io/port": str(port.container_port),
+        "prometheus.io/scheme": "http|https",
+    }
     deployment = V1Deployment(
-        api_version="apps/v1", kind="Deployment", metadata=deployment_metadata, spec=deployment_spec
+        api_version="apps/v1",
+        kind="Deployment",
+        metadata=V1ObjectMeta(
+            name=server_name,
+        ),
+        spec=V1DeploymentSpec(
+            replicas=1,
+            selector=V1LabelSelector(
+                match_labels={
+                    "app": server_name,
+                },
+            ),
+            template=V1PodTemplateSpec(
+                metadata=V1ObjectMeta(
+                    annotations=annotations,
+                    labels={
+                        "app": server_name,
+                    },
+                ),
+                spec=V1PodSpec(
+                    containers=[container],
+                    image_pull_secrets=[image_pull_secret],
+                    runtime_class_name=runtime_class_name,
+                    node_selector=node_selector,
+                ),
+            ),
+        ),
     )
 
-    service_metadata = V1ObjectMeta(name=f"{server_name}-service")
-    service_port_spec = V1ServicePort(protocol="TCP", port=service_port, target_port=container_port)
+    port = V1ServicePort(
+        port=service_port,
+        target_port=port.container_port,
+        protocol=port.protocol,
+        name=port.name,
+    )
+    service = V1Service(
+        api_version="v1",
+        kind="Service",
+        metadata=V1ObjectMeta(
+            name=f"{server_name}-service",
+        ),
+        spec=V1ServiceSpec(
+            type="ClusterIP",
+            ports=[port],
+            selector={
+                "app": server_name,
+            },
+        ),
+    )
 
-    service_spec = V1ServiceSpec(selector={"app": server_name}, ports=[service_port_spec], type="ClusterIP")
-
-    service = V1Service(api_version="v1", kind="Service", metadata=service_metadata, spec=service_spec)
-
-    # Create PodDisruptionBudget
-    pdb_metadata = V1ObjectMeta(name=f"{server_name}-pdb")
-    pdb_spec = V1PodDisruptionBudgetSpec(min_available=1, selector=V1LabelSelector(match_labels={"app": server_name}))
     pdb = V1PodDisruptionBudget(
-        api_version="policy/v1", kind="PodDisruptionBudget", metadata=pdb_metadata, spec=pdb_spec
+        api_version="policy/v1",
+        kind="PodDisruptionBudget",
+        metadata=V1ObjectMeta(
+            name=f"{server_name}-pdb",
+        ),
+        spec=V1PodDisruptionBudgetSpec(
+            min_available=1,
+            selector=V1LabelSelector(
+                match_labels={
+                    "app": server_name,
+                },
+            ),
+        ),
     )
 
     async with async_kube_api() as (apps, _, core, policy):
