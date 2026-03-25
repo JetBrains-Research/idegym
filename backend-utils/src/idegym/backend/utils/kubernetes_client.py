@@ -198,7 +198,7 @@ async def deploy_server(
         resources: Kubernetes resource requirements (can be a V1ResourceRequirements object or a dictionary)
         environment_variables: Environment variables to set in the container (can be a V1EnvVar object or a dictionary)
     """
-    logger.debug(f"Deploying {server_name} in namespace '{namespace}' with runtime class '{runtime_class_name}'.")
+    logger.debug(f"Deploying '{server_name}' in namespace '{namespace}' with runtime class '{runtime_class_name}'.")
 
     container_ports = [V1ContainerPort(container_port=container_port)]
     readiness_probe = V1Probe(
@@ -662,11 +662,16 @@ async def build_and_push_image_with_kaniko(
     # Create a unique job name
     job_name = f"kaniko-build-{uuid4().hex[:8]}"
 
-    dockerfile_config_map = V1ConfigMap(
-        metadata=V1ObjectMeta(name=f"{job_name}-dockerfile"), data={"Dockerfile": dockerfile_content}
+    configmap = V1ConfigMap(
+        metadata=V1ObjectMeta(
+            name=f"{job_name}-dockerfile",
+        ),
+        data={
+            "Dockerfile": dockerfile_content,
+        },
     )
 
-    kaniko_args = [
+    args = [
         "--dockerfile=/workspace/Dockerfile",
         f"--destination={tag}",
         "--context=dir:///workspace",
@@ -677,13 +682,13 @@ async def build_and_push_image_with_kaniko(
     ]
 
     if request.auth.type is not None:
-        kaniko_args.append(f"--build-arg=IDEGYM_AUTH_TYPE={request.auth.type}")
+        args.append(f"--build-arg=IDEGYM_AUTH_TYPE={request.auth.type}")
     if request.auth.token is not None:
-        kaniko_args.append(f"--build-arg=IDEGYM_AUTH_TOKEN={request.auth.token}")
+        args.append(f"--build-arg=IDEGYM_AUTH_TOKEN={request.auth.token}")
 
     if labels:
         for key, value in labels.items():
-            kaniko_args.append(f"--label={key}={value}")
+            args.append(f"--label={key}={value}")
 
     if resources and isinstance(resources, dict):
         resources = V1ResourceRequirements(**resources)
@@ -691,7 +696,7 @@ async def build_and_push_image_with_kaniko(
     container = V1Container(
         name="kaniko",
         image="gcr.io/kaniko-project/executor:v1.24.0",
-        args=kaniko_args,
+        args=args,
         env=[
             V1EnvVar(
                 name="IDEGYM_VERSION",
@@ -715,8 +720,14 @@ async def build_and_push_image_with_kaniko(
             ),
         ],
         volume_mounts=[
-            V1VolumeMount(name="dockerfile-volume", mount_path="/workspace"),
-            V1VolumeMount(name="docker-config", mount_path="/kaniko/.docker"),
+            V1VolumeMount(
+                name="dockerfile-volume",
+                mount_path="/workspace",
+            ),
+            V1VolumeMount(
+                name="docker-config",
+                mount_path="/kaniko/.docker",
+            ),
         ],
         security_context=V1SecurityContext(run_as_user=0),
         resources=resources,
@@ -724,44 +735,62 @@ async def build_and_push_image_with_kaniko(
 
     pod_labels = {"app": job_name}
 
-    pod_spec = V1PodSpec(
-        containers=[container],
-        restart_policy="Never",
-        volumes=[
-            V1Volume(name="dockerfile-volume", config_map={"name": f"{job_name}-dockerfile"}),
-            V1Volume(
-                name="docker-config",
-                secret=V1SecretVolumeSource(
-                    secret_name="regcred",
-                    items=[{"key": ".dockerconfigjson", "path": "config.json"}],
-                ),
-            ),
-        ],
-        runtime_class_name=runtime_class_name,
-    )
-
     job = V1Job(
         api_version="batch/v1",
         kind="Job",
-        metadata=V1ObjectMeta(name=job_name),
+        metadata=V1ObjectMeta(
+            name=job_name,
+        ),
         spec=V1JobSpec(
             template=V1PodTemplateSpec(
-                metadata=V1ObjectMeta(labels=pod_labels),
-                spec=pod_spec,
+                metadata=V1ObjectMeta(
+                    labels=pod_labels,
+                ),
+                spec=V1PodSpec(
+                    containers=[container],
+                    restart_policy="Never",
+                    volumes=[
+                        V1Volume(
+                            name="dockerfile-volume",
+                            config_map={
+                                "name": configmap.metadata.name,
+                            },
+                        ),
+                        V1Volume(
+                            name="docker-config",
+                            secret=V1SecretVolumeSource(
+                                secret_name="regcred",
+                                items=[
+                                    {
+                                        "key": ".dockerconfigjson",
+                                        "path": "config.json",
+                                    },
+                                ],
+                            ),
+                        ),
+                    ],
+                    runtime_class_name=runtime_class_name,
+                ),
             ),
             backoff_limit=0,
             ttl_seconds_after_finished=ttl_seconds_after_finished,
         ),
     )
 
-    pdb_metadata = V1ObjectMeta(name=f"{job_name}-pdb")
-    pdb_spec = V1PodDisruptionBudgetSpec(min_available=1, selector=V1LabelSelector(match_labels=pod_labels))
     pdb = V1PodDisruptionBudget(
-        api_version="policy/v1", kind="PodDisruptionBudget", metadata=pdb_metadata, spec=pdb_spec
+        api_version="policy/v1",
+        kind="PodDisruptionBudget",
+        metadata=V1ObjectMeta(name=f"{job_name}-pdb"),
+        spec=V1PodDisruptionBudgetSpec(
+            min_available=1,
+            selector=V1LabelSelector(
+                match_labels=pod_labels,
+            ),
+        ),
     )
 
     async with async_kube_api() as (_, batch, core, policy):
-        await core.create_namespaced_config_map(namespace=namespace, body=dockerfile_config_map)
+        await core.create_namespaced_config_map(namespace=namespace, body=configmap)
         await batch.create_namespaced_job(namespace=namespace, body=job)
         await policy.create_namespaced_pod_disruption_budget(namespace=namespace, body=pdb)
 
