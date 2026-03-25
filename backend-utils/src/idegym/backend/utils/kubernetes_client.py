@@ -685,12 +685,15 @@ async def build_and_push_image_with_kaniko(
     annotations = {
         "cluster-autoscaler.kubernetes.io/safe-to-evict": "false",
     }
-    labels = {
+    match_labels = {
         "app": name,
         "app.kubernetes.io/component": "image-builder",
         "app.kubernetes.io/name": name,
+        "app.kubernetes.io/part-of": "idegym",
+    }
+    labels = {
+        **match_labels,
         "app.kubernetes.io/version": __version__,
-        "app.kubernetes.io/managed-by": "idegym-orchestrator",
     }
 
     configmap = V1ConfigMap(
@@ -797,17 +800,37 @@ async def build_and_push_image_with_kaniko(
         spec=V1PodDisruptionBudgetSpec(
             min_available=1,
             selector=V1LabelSelector(
-                match_labels=labels,
+                match_labels=match_labels,
             ),
         ),
     )
 
     async with async_kube_api() as (_, batch, core, policy):
-        await core.create_namespaced_config_map(namespace=namespace, body=configmap)
-        await batch.create_namespaced_job(namespace=namespace, body=job)
-        await policy.create_namespaced_pod_disruption_budget(namespace=namespace, body=pdb)
+        job = await batch.create_namespaced_job(
+            body=job,
+            namespace=namespace,
+        )
 
-    return name
+        owner_reference = V1OwnerReference(
+            api_version=job.api_version,
+            kind=job.kind,
+            name=job.metadata.name,
+            uid=job.metadata.uid,
+        )
+        configmap.metadata.owner_references = [owner_reference]
+        pdb.metadata.owner_references = [owner_reference]
+
+        await gather(
+            core.create_namespaced_config_map(
+                body=configmap,
+                namespace=namespace,
+            ),
+            policy.create_namespaced_pod_disruption_budget(
+                body=pdb,
+                namespace=namespace,
+            ),
+        )
+        return name
 
 
 async def get_job_status(job_name: str, namespace: str) -> Status:
