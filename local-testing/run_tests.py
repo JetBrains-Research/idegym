@@ -72,6 +72,9 @@ async def main_async() -> int:
     parser.add_argument(
         "--no-cleanup", action="store_true", help="Don't delete resources after tests (useful for debugging)"
     )
+    parser.add_argument(
+        "--clean-namespace", action="store_true", help="Recreate idegym-local namespace before tests (full cleanup)"
+    )
 
     args = parser.parse_args()
 
@@ -90,7 +93,7 @@ async def main_async() -> int:
         logger.info("STEP 2: Setting Up Kubernetes Environment")
         logger.info("=" * 80)
 
-        if not setup_kubernetes_environment(reuse_resources=args.reuse_resources):
+        if not setup_kubernetes_environment(reuse_resources=args.reuse_resources, clean_namespace=args.clean_namespace):
             logger.error("Failed to set up Kubernetes environment")
             return 1
 
@@ -118,12 +121,13 @@ async def main_async() -> int:
 
     finally:
         # Cleanup (optional)
-        if not args.no_cleanup and not args.reuse_resources:
+        if not args.no_cleanup:
             try:
                 logger.info("=" * 80)
                 logger.info("CLEANUP: Removing Kubernetes Resources")
                 logger.info("=" * 80)
-                cleanup_kubernetes_environment()
+                # Use clean_namespace flag for cleanup as well
+                cleanup_kubernetes_environment(clean_namespace=args.clean_namespace)
             except Exception as cleanup_error:
                 logger.error(f"Error during cleanup: {cleanup_error}", exc_info=True)
 

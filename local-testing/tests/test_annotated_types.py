@@ -1,6 +1,9 @@
+"""Test validation of annotated types like OCI image names and Kubernetes names."""
+
 import pytest
 from pydantic import ValidationError
-from tests.utils import create_http_client
+
+from .utils import create_http_client
 
 
 @pytest.mark.asyncio
