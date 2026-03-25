@@ -255,10 +255,12 @@ export IDEGYM_TEST_BASE_URL=http://idegym-local.test
 4. Add docstring explaining what the test validates
 
 Example:
+
 ```python
 # tests/test_my_feature.py
-from tests.utils import create_http_client
+from tests.idegym_utils import create_http_client
 import pytest
+
 
 @pytest.mark.asyncio
 async def test_my_feature():

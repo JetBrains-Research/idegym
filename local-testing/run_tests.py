@@ -22,8 +22,8 @@ import sys
 from pathlib import Path
 
 from idegym.utils.logging import get_logger
-from scripts.build_images import build_all_images
-from scripts.k8s_setup import (
+from utils.build_images import build_all_images
+from utils.k8s_setup import (
     cleanup_kubernetes_environment,
     setup_kubernetes_environment,
 )

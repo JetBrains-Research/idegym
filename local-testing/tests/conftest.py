@@ -8,7 +8,7 @@ from idegym.api.docker import BaseImage
 from idegym.api.git import GitRepositorySnapshot
 from idegym.client import IdeGYMDockerAPI
 from idegym.utils.logging import get_logger
-from scripts.k8s_setup import wait_for_service
+from utqils.k8s_setup import wait_for_service
 
 logger = get_logger(__name__)
 
