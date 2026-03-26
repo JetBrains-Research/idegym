@@ -9,6 +9,7 @@ from idegym.api.docker import BaseImage
 from idegym.api.git import GitRepositorySnapshot
 from idegym.client import IdeGYMDockerAPI
 from idegym.utils.logging import get_logger
+from utils import k8s_client
 from utils.idegym_utils import generate_test_id
 from utils.k8s_setup import wait_for_service
 
@@ -48,119 +49,38 @@ def cleanup_servers():
     """Delete all server resources (deployments, services, PDBs) in idegym-local namespace."""
     logger.info("Cleaning up server resources after test...")
 
-    # Find all pods with container name=server
-    # Using jsonpath to filter pods that have a container named "server"
-    list_cmd = [
-        "kubectl",
-        "get",
-        "pods",
-        "-n",
-        "idegym-local",
-        "-o",
-        "json",
-    ]
-    list_result = subprocess.run(list_cmd, check=False, capture_output=True, text=True, timeout=30)
+    try:
+        pods = k8s_client.list_pods(namespace="idegym-local")
+    except Exception as exc:
+        logger.warning(f"Could not list pods for cleanup: {exc}")
+        return
 
-    if list_result.returncode == 0 and list_result.stdout.strip():
-        import json
-
-        try:
-            pods_data = json.loads(list_result.stdout)
-        except json.JSONDecodeError as exc:
-            logger.warning(f"Could not parse pod list JSON, skipping server cleanup: {exc}")
-            return
-        deployment_names = set()
-
-        # Find pods with container named "server"
-        for pod in pods_data.get("items", []):
-            containers = pod.get("spec", {}).get("containers", [])
-            has_server_container = any(c.get("name") == "server" for c in containers)
-
-            if has_server_container:
-                pod_name = pod.get("metadata", {}).get("name", "")
-                # Extract deployment name from pod name
-                # Pod name format: {deployment-name}-{replicaset-hash}-{pod-hash}
-                # e.g., lifecycle-4112939b-1-5f6d8c88f6-k2cwl -> lifecycle-4112939b-1
-                parts = pod_name.rsplit("-", 2)
-                if len(parts) >= 3:
-                    deployment_name = parts[0]
-                    deployment_names.add(deployment_name)
-
-        # Delete resources for each deployment
-        for deployment_name in deployment_names:
-            # Delete deployment
-            subprocess.run(
-                [
-                    "kubectl",
-                    "delete",
-                    "deployment",
-                    deployment_name,
-                    "-n",
-                    "idegym-local",
-                    "--ignore-not-found=true",
-                ],
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-
-            # Delete service
-            subprocess.run(
-                [
-                    "kubectl",
-                    "delete",
-                    "service",
-                    f"{deployment_name}-service",
-                    "-n",
-                    "idegym-local",
-                    "--ignore-not-found=true",
-                ],
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-
-            # Delete PDB
-            subprocess.run(
-                [
-                    "kubectl",
-                    "delete",
-                    "poddisruptionbudget",
-                    f"{deployment_name}-pdb",
-                    "-n",
-                    "idegym-local",
-                    "--ignore-not-found=true",
-                ],
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-
-            # Delete ReplicaSets with either common label convention.
-            for selector in (f"app={deployment_name}", f"app.kubernetes.io/name={deployment_name}"):
-                subprocess.run(
-                    [
-                        "kubectl",
-                        "delete",
-                        "replicaset",
-                        "-n",
-                        "idegym-local",
-                        "-l",
-                        selector,
-                        "--ignore-not-found=true",
-                    ],
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
-
-        logger.info(f"✓ Server resources cleaned up ({len(deployment_names)} servers)")
-    else:
+    if not pods:
         logger.info("✓ No server resources to clean up")
+        return
+
+    deployment_names: set[str] = set()
+
+    # Find pods with container named "server"
+    for pod in pods:
+        containers = pod.spec.containers if pod.spec else []
+        has_server_container = any(container.name == "server" for container in containers if container.name)
+
+        if has_server_container:
+            pod_name = pod.metadata.name if pod.metadata and pod.metadata.name else ""
+            # Pod name format: {deployment-name}-{replicaset-hash}-{pod-hash}
+            parts = pod_name.rsplit("-", 2)
+            if len(parts) >= 3:
+                deployment_names.add(parts[0])
+
+    for deployment_name in deployment_names:
+        k8s_client.delete_deployment(namespace="idegym-local", deployment_name=deployment_name)
+        k8s_client.delete_services(namespace="idegym-local", service_names=[f"{deployment_name}-service"])
+        k8s_client.delete_pod_disruption_budget(namespace="idegym-local", pdb_name=f"{deployment_name}-pdb")
+        for selector in (f"app={deployment_name}", f"app.kubernetes.io/name={deployment_name}"):
+            k8s_client.delete_replicasets_by_selector(namespace="idegym-local", selector=selector)
+
+    logger.info(f"✓ Server resources cleaned up ({len(deployment_names)} servers)")
 
 
 def resolve_pod_selector(app_label: str, namespace: str = "idegym-local") -> str:
@@ -168,14 +88,7 @@ def resolve_pod_selector(app_label: str, namespace: str = "idegym-local") -> str
     selectors = [f"app.kubernetes.io/name={app_label}", f"app={app_label}"]
 
     for selector in selectors:
-        result = subprocess.run(
-            ["kubectl", "get", "pod", "-l", selector, "-n", namespace, "-o", "name"],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        if result.returncode == 0 and result.stdout.strip():
+        if k8s_client.list_pod_names(namespace=namespace, label_selector=selector):
             return selector
 
     return selectors[0]
@@ -184,28 +97,7 @@ def resolve_pod_selector(app_label: str, namespace: str = "idegym-local") -> str
 def list_pods_by_label(app_label: str, namespace: str = "idegym-local") -> list[str]:
     """Return pod names for a given app label."""
     selector = resolve_pod_selector(app_label, namespace=namespace)
-    result = subprocess.run(
-        [
-            "kubectl",
-            "get",
-            "pod",
-            "-l",
-            selector,
-            "-n",
-            namespace,
-            "-o",
-            "jsonpath={.items[*].metadata.name}",
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-
-    if result.returncode != 0 or not result.stdout.strip():
-        return []
-
-    return result.stdout.strip().split()
+    return k8s_client.list_pod_names(namespace=namespace, label_selector=selector)
 
 
 def redeploy_orchestrator():
@@ -217,13 +109,9 @@ def redeploy_orchestrator():
         pod_names = list_pods_by_label(app_label, namespace="idegym-local")
 
         if pod_names:
-            subprocess.run(
-                ["kubectl", "delete", "pod", "-n", "idegym-local", "--ignore-not-found=true", *pod_names],
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
+            k8s_client.delete_pods(namespace="idegym-local", pod_names=pod_names)
+            if not k8s_client.wait_for_pods_deleted("idegym-local", pod_names, timeout=120, check_interval=2):
+                raise RuntimeError("Timed out waiting for orchestrator pods to terminate")
 
         if not wait_for_service(timeout=180, check_interval=10):
             raise RuntimeError("Orchestrator service did not become responsive in time")
@@ -245,14 +133,10 @@ def cleanup_after_test():
 def delete_namespace():
     """Delete the entire idegym-local namespace."""
     logger.info("Deleting idegym-local namespace...")
-    subprocess.run(
-        ["kubectl", "delete", "namespace", "idegym-local", "--ignore-not-found=true"],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    logger.info("✓ Namespace deleted")
+    if k8s_client.delete_namespace("idegym-local", timeout=120):
+        logger.info("✓ Namespace deleted")
+    else:
+        logger.warning("Namespace deletion timed out")
 
 
 def delete_kustomize_services():
@@ -331,22 +215,7 @@ def delete_kustomize_services():
         logger.info("✓ No kustomize services found to delete")
         return
 
-    delete_cmd = [
-        "kubectl",
-        "delete",
-        "service",
-        "-n",
-        "idegym-local",
-        "--ignore-not-found=true",
-        *sorted(service_names),
-    ]
-    subprocess.run(
-        delete_cmd,
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
+    k8s_client.delete_services(namespace="idegym-local", service_names=sorted(service_names))
     logger.info(f"✓ Kustomize services deleted ({len(service_names)})")
 
 

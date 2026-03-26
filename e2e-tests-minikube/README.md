@@ -25,6 +25,7 @@ e2e-tests-minikube/
 │   ├── __init__.py
 │   ├── build_images.py
 │   ├── idegym_utils.py
+│   ├── k8s_client.py
 │   └── k8s_setup.py
 ```
 
@@ -77,13 +78,9 @@ sudo minikube tunnel
 
 > **Important:** Keep this terminal open while running tests. The tunnel must stay active.
 
-### 5. Create Namespace
+### 5. Namespace Management
 
-Create the dedicated namespace for e2e testing:
-
-```bash
-kubectl create namespace idegym-local
-```
+The runner creates the `idegym-local` namespace automatically when needed.
 
 ## Quick Start
 
@@ -216,6 +213,11 @@ Deployed resources:
 - Prometheus (metrics)
 - Grafana (visualization)
 - Tempo (tracing)
+
+### Kubernetes API Usage
+
+- `kubernetes-asyncio` is used for namespace, pod, deployment, service, PDB, and ReplicaSet operations in test setup/teardown code.
+- `kubectl` is still used for kustomize workflows (`kubectl apply -k`, `kubectl delete -k`, `kubectl kustomize`) because the Python client does not provide native kustomize rendering/apply behavior.
 
 ### Network Access
 

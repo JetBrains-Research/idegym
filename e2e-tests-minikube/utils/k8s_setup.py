@@ -10,6 +10,7 @@ from pathlib import Path
 import config as e2e_config
 import requests
 from idegym.utils.logging import get_logger
+from utils import k8s_client
 
 logger = get_logger(__name__)
 
@@ -31,24 +32,17 @@ def ensure_ingress_loadbalancer() -> None:
     """
     logger.info("Configuring ingress controller...")
 
-    cmd = [
-        "kubectl",
-        "patch",
-        "svc",
-        "ingress-nginx-controller",
-        "-n",
-        "ingress-nginx",
-        "-p",
-        '{"spec":{"type":"LoadBalancer"}}',
-    ]
-
-    result = subprocess.run(cmd, capture_output=True, text=True)
-
-    if result.returncode == 0:
-        if "patched" in result.stdout or "no change" in result.stdout:
+    try:
+        if k8s_client.patch_service_type(
+            name="ingress-nginx-controller",
+            namespace="ingress-nginx",
+            service_type="LoadBalancer",
+        ):
             logger.info("✓ Ingress controller configured as LoadBalancer")
-    else:
-        logger.warning(f"Could not configure ingress: {result.stderr}")
+        else:
+            logger.warning("Could not configure ingress: service ingress-nginx-controller not found")
+    except Exception as exc:
+        logger.warning(f"Could not configure ingress: {exc}")
 
 
 def apply_kubernetes_resources() -> None:
@@ -83,15 +77,15 @@ def delete_kubernetes_resources() -> None:
 
 def ensure_namespace_exists() -> None:
     """Ensure idegym-local namespace exists."""
-    cmd = ["kubectl", "create", "namespace", "idegym-local"]
-    result = subprocess.run(cmd, check=False, capture_output=True, text=True)
-
-    if result.returncode == 0:
-        logger.info("✓ Created idegym-local namespace")
-    elif "AlreadyExists" in result.stderr:
-        logger.info("✓ Namespace idegym-local already exists")
-    else:
-        logger.warning(f"Could not ensure namespace exists: {result.stderr}")
+    try:
+        existed_before = k8s_client.namespace_exists("idegym-local")
+        k8s_client.ensure_namespace_exists("idegym-local")
+        if existed_before:
+            logger.info("✓ Namespace idegym-local already exists")
+        else:
+            logger.info("✓ Created idegym-local namespace")
+    except Exception as exc:
+        logger.warning(f"Could not ensure namespace exists: {exc}")
 
 
 def wait_for_namespace_deleted(namespace: str, timeout: int = 180, check_interval: int = 2) -> bool:
@@ -100,17 +94,9 @@ def wait_for_namespace_deleted(namespace: str, timeout: int = 180, check_interva
     start_time = time.time()
 
     while time.time() - start_time < timeout:
-        result = subprocess.run(
-            ["kubectl", "get", "namespace", namespace],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-
-        if result.returncode != 0:
-            if "NotFound" in result.stderr:
-                logger.info("✓ Namespace deleted")
-                return True
+        if not k8s_client.namespace_exists(namespace):
+            logger.info("✓ Namespace deleted")
+            return True
 
         time.sleep(check_interval)
 
@@ -124,54 +110,33 @@ def recreate_namespace() -> None:
 
     namespace = "idegym-local"
 
-    delete_cmd = [
-        "kubectl",
-        "delete",
-        "namespace",
-        namespace,
-        "--ignore-not-found=true",
-        "--wait=true",
-        "--timeout=180s",
-    ]
-    delete_result = subprocess.run(delete_cmd, check=False, capture_output=True, text=True, timeout=240)
-
-    if delete_result.returncode != 0 and "NotFound" not in delete_result.stderr:
-        logger.warning(f"Could not delete namespace: {delete_result.stderr}")
+    try:
+        deleted = k8s_client.delete_namespace(namespace, timeout=180)
+    except Exception as exc:
+        logger.warning(f"Could not delete namespace: {exc}")
         return
 
-    if not wait_for_namespace_deleted(namespace):
+    if not deleted:
         logger.warning(f"Skipping namespace creation because {namespace} is still deleting")
         return
 
-    create_cmd = ["kubectl", "create", "namespace", namespace]
-    create_result = subprocess.run(create_cmd, check=False, capture_output=True, text=True)
-
-    if create_result.returncode == 0:
+    try:
+        k8s_client.ensure_namespace_exists(namespace)
         logger.info("✓ Namespace recreated successfully")
-    else:
-        logger.warning(f"Could not create namespace: {create_result.stderr}")
+    except Exception as exc:
+        logger.warning(f"Could not create namespace: {exc}")
 
 
 def delete_namespace(namespace: str = "idegym-local") -> None:
     """Delete a namespace and wait until it is fully removed."""
     logger.info(f"Deleting namespace {namespace}...")
-    delete_cmd = [
-        "kubectl",
-        "delete",
-        "namespace",
-        namespace,
-        "--ignore-not-found=true",
-        "--wait=true",
-        "--timeout=180s",
-    ]
-    delete_result = subprocess.run(delete_cmd, check=False, capture_output=True, text=True, timeout=240)
-
-    if delete_result.returncode != 0 and "NotFound" not in delete_result.stderr:
-        logger.warning(f"Could not delete namespace {namespace}: {delete_result.stderr}")
-        return
-
-    if wait_for_namespace_deleted(namespace):
-        logger.info(f"✓ Namespace {namespace} deleted successfully")
+    try:
+        if k8s_client.delete_namespace(namespace, timeout=180):
+            logger.info(f"✓ Namespace {namespace} deleted successfully")
+        else:
+            logger.warning(f"Could not delete namespace {namespace}: timeout reached")
+    except Exception as exc:
+        logger.warning(f"Could not delete namespace {namespace}: {exc}")
 
 
 def wait_for_service(timeout: int = 120, check_interval: int = 10) -> bool:
@@ -242,13 +207,7 @@ def _resolve_pod_label_selector(app_label: str, namespace: str, label_key: str) 
         selectors.append(f"app={app_label}")
 
     for selector in selectors:
-        result = subprocess.run(
-            ["kubectl", "get", "pod", "-l", selector, "-n", namespace, "-o", "name"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode == 0 and result.stdout.strip():
+        if k8s_client.list_pod_names(namespace=namespace, label_selector=selector):
             return selector
 
     return selectors[0]
@@ -280,14 +239,7 @@ def wait_for_pod_deleted(
 
         # Check if any pods exist
         selector = _resolve_pod_label_selector(app_label, namespace, label_key)
-        result = subprocess.run(
-            ["kubectl", "get", "pod", "-l", selector, "-n", namespace, "-o", "name"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-
-        if result.returncode == 0 and not result.stdout.strip():
+        if not k8s_client.list_pod_names(namespace=namespace, label_selector=selector):
             logger.info(f"✓ {app_label} pod deleted (elapsed: {elapsed}s)")
             return True
 
@@ -325,24 +277,7 @@ def wait_for_pod_ready(
 
         # Check if pod exists and is ready
         selector = _resolve_pod_label_selector(app_label, namespace, label_key)
-        result = subprocess.run(
-            [
-                "kubectl",
-                "get",
-                "pod",
-                "-l",
-                selector,
-                "-n",
-                namespace,
-                "-o",
-                "jsonpath={.items[0].status.conditions[?(@.type=='Ready')].status}",
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-
-        if result.returncode == 0 and result.stdout.strip() == "True":
+        if k8s_client.is_any_pod_ready(namespace=namespace, label_selector=selector):
             logger.info(f"✓ {app_label} pod is ready (elapsed: {elapsed}s)")
             return True
 
