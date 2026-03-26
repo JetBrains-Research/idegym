@@ -9,6 +9,7 @@ from idegym.api.docker import BaseImage
 from idegym.api.git import GitRepositorySnapshot
 from idegym.client import IdeGYMDockerAPI
 from idegym.utils.logging import get_logger
+from utils.idegym_utils import generate_test_id
 from utils.k8s_setup import wait_for_service
 
 logger = get_logger(__name__)
@@ -19,6 +20,12 @@ TEST_IMAGE_COMMANDS_PATH = "test_image_commands.Dockerfile"
 def load_test_image_commands() -> str:
     """Load the Docker command snippet for the test image from packaged resources."""
     return files(e2e_config).joinpath(TEST_IMAGE_COMMANDS_PATH).read_text(encoding="utf-8")
+
+
+@pytest.fixture
+def test_id() -> str:
+    """Return a short unique ID for test resource names."""
+    return generate_test_id()
 
 
 def pytest_addoption(parser):

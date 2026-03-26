@@ -4,14 +4,12 @@ import pytest
 from idegym.api.orchestrator.servers import ServerReuseStrategy
 from idegym.client.client import ServerCloseAction
 from kubernetes_asyncio.client import V1ResourceRequirements
-from utils.idegym_utils import create_http_client, generate_test_id
+from utils.idegym_utils import create_http_client
 
 
 @pytest.mark.asyncio
-async def test_reuse_strategy_reset_vs_restart(test_image):
+async def test_reuse_strategy_reset_vs_restart(test_image, test_id):
     """Test RESET (no pod restart) vs RESTART (clears filesystem)."""
-    test_id = generate_test_id()
-
     async with create_http_client(name=f"reuse-{test_id}", nodes_count=0) as client:
         # RESET: Reuses pod, preserves filesystem
         async with client.with_server(
@@ -59,10 +57,8 @@ async def test_reuse_strategy_reset_vs_restart(test_image):
 
 
 @pytest.mark.asyncio
-async def test_reuse_strategy_none(test_image):
+async def test_reuse_strategy_none(test_image, test_id):
     """Test NONE strategy creates new servers."""
-    test_id = generate_test_id()
-
     async with create_http_client(name=f"none-{test_id}", nodes_count=0) as client:
         async with client.with_server(
             image_tag=test_image,
@@ -84,13 +80,11 @@ async def test_reuse_strategy_none(test_image):
 
 
 @pytest.mark.asyncio
-async def test_reset_project(test_image):
+async def test_reset_project(test_image, test_id):
     """
     Test reset_project resets changes in the cloned repository.
     Changes made to files in the work directory should be reverted.
     """
-    test_id = generate_test_id()
-
     async with create_http_client(
         name=f"reset-proj-{test_id}", nodes_count=0, request_timeout_in_seconds=120
     ) as client:
@@ -132,14 +126,12 @@ async def test_reset_project(test_image):
 
 
 @pytest.mark.asyncio
-async def test_resource_limits_enforcement(test_image):
+async def test_resource_limits_enforcement(test_image, test_id):
     """
     Test that resource limits are enforced.
     Try to create a server with excessive resources (100 CPU, 1000Gi memory).
     Should fail with 429 or timeout after retrying 429 errors.
     """
-    test_id = generate_test_id()
-
     async with create_http_client(name=f"limits-{test_id}", nodes_count=0, request_timeout_in_seconds=60) as client:
         # Try server with excessive resources - should fail
         resource_limit_hit = False
@@ -175,10 +167,8 @@ async def test_resource_limits_enforcement(test_image):
 
 
 @pytest.mark.asyncio
-async def test_concurrent_clients(test_image):
+async def test_concurrent_clients(test_image, test_id):
     """Test multiple clients with concurrent servers."""
-    test_id = generate_test_id()
-
     async with (
         create_http_client(name=f"c1-{test_id}", nodes_count=0) as c1,
         create_http_client(name=f"c2-{test_id}", nodes_count=0) as c2,
@@ -201,10 +191,8 @@ async def test_concurrent_clients(test_image):
 
 
 @pytest.mark.asyncio
-async def test_bash_and_file_operations(test_image):
+async def test_bash_and_file_operations(test_image, test_id):
     """Test bash execution and file operations."""
-    test_id = generate_test_id()
-
     async with create_http_client(name=f"ops-{test_id}", nodes_count=0) as client:
         async with client.with_server(
             image_tag=test_image,
@@ -231,10 +219,8 @@ async def test_bash_and_file_operations(test_image):
 
 
 @pytest.mark.asyncio
-async def test_reward_operations(test_image):
+async def test_reward_operations(test_image, test_id):
     """Test setup, compilation, and test rewards."""
-    test_id = generate_test_id()
-
     async with create_http_client(name=f"reward-{test_id}", nodes_count=0) as client:
         async with client.with_server(
             image_tag=test_image,
