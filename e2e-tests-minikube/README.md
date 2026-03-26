@@ -2,33 +2,6 @@
 
 Integration tests for IdeGYM that run on a local minikube cluster without requiring remote registry access.
 
-## Directory Map
-
-```
-e2e-tests-minikube/
-├── README.md
-├── __init__.py
-├── pyproject.toml
-├── run_tests.py
-├── uv.lock
-├── config/
-│   ├── __init__.py
-│   ├── kustomization.yaml
-│   └── test_image_commands.Dockerfile
-├── tests/
-│   ├── __init__.py
-│   ├── conftest.py
-│   ├── test_health.py
-│   ├── test_server_lifecycle.py
-│   └── test_server_strategies.py
-├── utils/
-│   ├── __init__.py
-│   ├── build_images.py
-│   ├── idegym_utils.py
-│   ├── k8s_client.py
-│   └── k8s_setup.py
-```
-
 ## Prerequisites
 
 ### 1. Install Required Tools
@@ -166,13 +139,6 @@ uv run python run_tests.py --skip-build --reuse-resources
 
 # After code changes - rebuild and test
 uv run python run_tests.py --reuse-resources
-```
-
-Direct pytest (without orchestration script):
-
-```bash
-cd e2e-tests-minikube
-uv run pytest tests -v -s -o addopts=
 ```
 
 ## How It Works
@@ -334,4 +300,59 @@ async def test_my_feature():
 - **Kubernetes changes:** Update `config/kustomization.yaml`
 - **Image building:** Update `utils/build_images.py`
 - **Deployment logic:** Update `utils/k8s_setup.py`
+- **Shared constants:** Update `utils/constants.py` (namespaces, timeouts, labels, URLs)
+- **Kubernetes API helpers:** Update `utils/k8s_client.py`
 - **Documentation:** Update this README
+
+## Module Architecture
+
+### utils/constants.py
+
+Centralized configuration values used across the test suite:
+
+```python
+# Kubernetes configuration
+DEFAULT_NAMESPACE = "idegym-local"
+INGRESS_NAMESPACE = "ingress-nginx"
+
+# URLs
+BASE_URL = "http://idegym-local.test"
+
+# Timeouts (in seconds)
+DEFAULT_REQUEST_TIMEOUT = 60
+DEFAULT_SERVER_START_TIMEOUT = 600
+
+# Pod labels
+APP_LABEL_KEY = "app.kubernetes.io/name"
+ORCHESTRATOR_APP_LABEL = "orchestrator"
+SERVER_CONTAINER_NAME = "server"
+```
+
+### utils/k8s_client.py
+
+Synchronous wrappers around `kubernetes-asyncio` for:
+- Namespace operations (create, delete, check existence)
+- Pod operations (list, delete, wait for deletion)
+- Deployment and service cleanup
+- Pod selector resolution (handles both `app` and `app.kubernetes.io/name` labels)
+
+### utils/k8s_setup.py
+
+High-level setup and teardown functions:
+- `setup_kubernetes_environment()` - Complete environment setup
+- `wait_for_service()` - Wait for orchestrator to become responsive
+- `wait_for_pod_ready()` / `wait_for_pod_deleted()` - Pod lifecycle helpers
+- `cleanup_kubernetes_environment()` - Resource cleanup
+
+### utils/idegym_utils.py
+
+Test utilities:
+- `create_http_client()` - Create configured IdeGYM client for tests
+- `generate_test_id()` - Generate unique IDs for test isolation
+
+### utils/build_images.py
+
+Image building:
+- `build_orchestrator_image()` - Build and load orchestrator image
+- `build_base_server_image()` - Build and load base server image
+- `switch_to_default_docker_builder()` - Ensure local image access
