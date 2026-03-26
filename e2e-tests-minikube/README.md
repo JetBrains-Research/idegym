@@ -13,11 +13,11 @@ e2e-tests-minikube/
 ├── uv.lock
 ├── config/
 │   ├── __init__.py
-│   └── kustomization.yaml
+│   ├── kustomization.yaml
+│   └── test_image_commands.Dockerfile
 ├── tests/
 │   ├── __init__.py
 │   ├── conftest.py
-│   ├── test_annotated_types.py
 │   ├── test_health.py
 │   ├── test_server_lifecycle.py
 │   └── test_server_strategies.py

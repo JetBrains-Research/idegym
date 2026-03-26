@@ -1,8 +1,9 @@
 """Pytest configuration and shared fixtures for e2e testing."""
 
 import subprocess
-from pathlib import Path
+from importlib.resources import as_file, files
 
+import config as e2e_config
 import pytest
 from idegym.api.docker import BaseImage
 from idegym.api.git import GitRepositorySnapshot
@@ -12,8 +13,12 @@ from utils.k8s_setup import wait_for_service
 
 logger = get_logger(__name__)
 
-# Path to e2e-tests-minikube config directory
-CONFIG_DIR = Path(__file__).parent.parent / "config"
+TEST_IMAGE_COMMANDS_PATH = "test_image_commands.Dockerfile"
+
+
+def load_test_image_commands() -> str:
+    """Load the Docker command snippet for the test image from packaged resources."""
+    return files(e2e_config).joinpath(TEST_IMAGE_COMMANDS_PATH).read_text(encoding="utf-8")
 
 
 def pytest_addoption(parser):
@@ -246,13 +251,14 @@ def delete_namespace():
 def delete_kustomize_services():
     """Delete only services defined in kustomization.yaml."""
     logger.info("Deleting kustomize services...")
-    build_result = subprocess.run(
-        ["kubectl", "kustomize", str(CONFIG_DIR)],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
+    with as_file(files(e2e_config)) as config_dir:
+        build_result = subprocess.run(
+            ["kubectl", "kustomize", str(config_dir)],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
 
     if build_result.returncode != 0:
         logger.warning(f"Could not render kustomization: {build_result.stderr}")
@@ -362,16 +368,7 @@ def test_image():
         reference="cb448c2dc3593dbfbe1ca47b49193b320115aae5",
     )
 
-    commands = """
-USER root
-RUN set -eux; \\
-    apt-get update; \\
-    apt-get install -y --no-install-recommends \\
-    python3=3.11.2* \\
-    python-is-python3=3.11.2*; \\
-    rm -rf /var/lib/apt/lists/*
-USER appuser
-"""
+    commands = load_test_image_commands()
 
     image = docker_api.build(project=project, base=BaseImage.DEBIAN, commands=commands)
     image_tag = str(image.repo_tags[0])
