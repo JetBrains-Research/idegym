@@ -1,8 +1,7 @@
 """Test orchestrator health endpoint."""
 
 import pytest
-
-from .idegym_utils import create_http_client
+from utils.idegym_utils import create_http_client
 
 
 @pytest.mark.asyncio

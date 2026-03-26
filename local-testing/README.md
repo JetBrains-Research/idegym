@@ -2,34 +2,41 @@
 
 Integration tests for IdeGYM that run on a local minikube cluster without requiring remote registry access.
 
-## Project Structure
+## Directory Map
 
 ```
 local-testing/
-├── README.md                 # This file
-├── pyproject.toml            # Package dependencies
-├── run_tests.py              # Main entry point
-├── scripts/                  # Build and infrastructure scripts
-│   ├── build_images.py       # Docker image building
-│   └── k8s_setup.py          # Kubernetes setup utilities
-├── config/                   # Configuration files
-│   └── kustomization.yaml    # Kubernetes resource customization
-└── tests/                    # Integration tests
-    ├── utils.py              # Shared test utilities
-    ├── test_orchestrator.py
-    ├── test_annotated_types.py
-    └── test_server_flow_local.py
+├── README.md
+├── __init__.py
+├── pyproject.toml
+├── run_tests.py
+├── uv.lock
+├── config/
+│   └── kustomization.yaml
+├── tests/
+│   ├── __init__.py
+│   ├── conftest.py
+│   ├── test_annotated_types.py
+│   ├── test_health.py
+│   ├── test_server_lifecycle.py
+│   └── test_server_strategies.py
+├── utils/
+│   ├── __init__.py
+│   ├── build_images.py
+│   ├── idegym_utils.py
+│   └── k8s_setup.py
 ```
 
 ## Prerequisites
 
 ### 1. Install Required Tools
 
-Install Docker, kubectl, and minikube:
+Install Docker, kubectl, minikube, and uv:
 
 ```bash
 brew install --cask docker
 brew install kubernetes-cli minikube
+brew install uv
 ```
 
 ### 2. Start Minikube Cluster
@@ -83,7 +90,7 @@ Run all tests:
 
 ```bash
 cd local-testing
-python run_tests.py
+uv run python run_tests.py
 ```
 
 This will:
@@ -102,8 +109,9 @@ This will:
 # Run all tests
 python run_tests.py
 
-# Run specific test
-python run_tests.py --test test_orchestrator
+# Run specific tests (pytest -k expression)
+python run_tests.py --test health
+python run_tests.py --test "reuse and not limits"
 
 # Skip image building (use existing images)
 python run_tests.py --skip-build
@@ -111,9 +119,41 @@ python run_tests.py --skip-build
 # Reuse existing Kubernetes resources
 python run_tests.py --reuse-resources
 
+# Recreate namespace before setup
+python run_tests.py --clean-namespace
+
 # Keep resources after tests (for debugging)
 python run_tests.py --no-cleanup
+
+# Delete full namespace after all tests
+python run_tests.py --delete-namespace
+
+# Delete only kustomize services after all tests
+python run_tests.py --delete-kustomize-services
 ```
+
+### Cleanup Behavior
+
+The post-test cleanup mode is selected by flags:
+
+- Default (no cleanup flags): delete kustomization resources (`kubectl delete -k ...`)
+- `--no-cleanup`: skip post-test cleanup
+- `--delete-namespace`: pytest session teardown deletes `idegym-local` namespace
+- `--delete-kustomize-services`: pytest session teardown deletes only services rendered by kustomize
+
+Important:
+- `--clean-namespace` is a pre-test setup option only (it resets namespace before deployment)
+- If `--delete-namespace` or `--delete-kustomize-services` is set, the runner skips default cleanup to avoid duplicate deletion paths
+
+### CLI Parameters
+
+- `--skip-build`: Skip building orchestrator and base server images
+- `--reuse-resources`: Skip `kubectl apply -k` and reuse current cluster resources
+- `--test <expr>`: Pass expression to `pytest -k`
+- `--no-cleanup`: Skip runner cleanup after tests
+- `--clean-namespace`: Recreate `idegym-local` before deployment (setup phase)
+- `--delete-namespace`: After tests, pytest teardown deletes `idegym-local`
+- `--delete-kustomize-services`: After tests, pytest teardown deletes services from rendered kustomization
 
 ### Development Workflow
 
@@ -121,13 +161,20 @@ When iterating on tests:
 
 ```bash
 # First run - builds everything
-python run_tests.py
+uv run python run_tests.py
 
 # Subsequent runs - reuse infrastructure
-python run_tests.py --skip-build --reuse-resources
+uv run python run_tests.py --skip-build --reuse-resources
 
 # After code changes - rebuild and test
-python run_tests.py --reuse-resources
+uv run python run_tests.py --reuse-resources
+```
+
+Direct pytest (without orchestration script):
+
+```bash
+cd local-testing
+uv run pytest tests -v -s -o addopts=
 ```
 
 ## How It Works
@@ -137,7 +184,7 @@ python run_tests.py --reuse-resources
 All images are built locally and loaded into minikube - no remote registry required:
 
 **Orchestrator Image:**
-- Built from local source code using `scripts/build_orchestrator_image.py`
+- Built from local source code using top-level `scripts/build_orchestrator_image.py`
 - Tagged as `ghcr.io/jetbrains-research/idegym/orchestrator:latest`
 - Loaded into minikube with `minikube image load`
 
@@ -235,7 +282,7 @@ minikube image ls | grep idegym
 
 Rebuild with:
 ```bash
-python run_tests.py --no-cleanup
+uv run python run_tests.py --no-cleanup
 ```
 
 ### Tests fail with SSL errors
@@ -245,12 +292,20 @@ Ensure the base URL uses `http://` not `https://`:
 export IDEGYM_TEST_BASE_URL=http://idegym-local.test
 ```
 
+### IDE shows `utils.k8s_setup` as unresolved
+
+If PyCharm highlights `from utils.k8s_setup import ...` in `tests/conftest.py`:
+
+- Mark `local-testing` as a Source Root in the IDE
+- Use a pytest run configuration with working directory set to `local-testing`
+- Run tests via `uv run python run_tests.py` or `cd local-testing && uv run pytest ...`
+
 ## Contributing
 
 ### Adding New Tests
 
 1. Create test file in `tests/` directory
-2. Use `create_http_client()` from `tests/utils.py`
+2. Use `create_http_client()` from `utils/idegym_utils.py`
 3. Follow naming convention: `test_*.py`
 4. Add docstring explaining what the test validates
 
@@ -258,14 +313,14 @@ Example:
 
 ```python
 # tests/test_my_feature.py
-from tests.idegym_utils import create_http_client
+from utils.idegym_utils import create_http_client
 import pytest
 
 
 @pytest.mark.asyncio
 async def test_my_feature():
     """Test that my feature works correctly."""
-    async with create_http_client("test-client") as client:
+    async with create_http_client(name="test-client") as client:
         # Your test code
         result = await client.some_operation()
         assert result.success
@@ -274,6 +329,6 @@ async def test_my_feature():
 ### Modifying Infrastructure
 
 - **Kubernetes changes:** Update `config/kustomization.yaml`
-- **Image building:** Update `scripts/build_images.py`
-- **Deployment logic:** Update `scripts/k8s_setup.py`
+- **Image building:** Update `utils/build_images.py`
+- **Deployment logic:** Update `utils/k8s_setup.py`
 - **Documentation:** Update this README

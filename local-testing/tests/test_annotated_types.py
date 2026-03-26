@@ -2,8 +2,7 @@
 
 import pytest
 from pydantic import ValidationError
-
-from .idegym_utils import create_http_client
+from utils.idegym_utils import create_http_client
 
 
 @pytest.mark.asyncio

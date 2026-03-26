@@ -5,8 +5,7 @@ from uuid import uuid4
 import pytest
 from idegym.api.orchestrator.servers import ServerReuseStrategy
 from kubernetes_asyncio.client import V1ResourceRequirements
-
-from .idegym_utils import create_http_client
+from utils.idegym_utils import create_http_client
 
 
 @pytest.mark.asyncio
