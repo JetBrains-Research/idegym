@@ -156,12 +156,12 @@ async def find_matching_finished_server_in_db(
 
     # First, check if there's an existing finished server we can reuse
     lookup_result = await find_matching_finished_server(
-        db,
-        client_name,
-        request.server_name,
-        request.image_tag,
-        request.runtime_class_name,
-        request.run_as_root,
+        db=db,
+        client_name=client_name,
+        server_name=request.server_name,
+        image_tag=request.image_tag,
+        container_runtime=request.runtime_class_name,
+        run_as_root=request.run_as_root,
         enable_fifo_check=enable_fifo_check,
     )
 

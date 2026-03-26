@@ -331,7 +331,7 @@ async def has_pending_start_server_operations(
     container_runtime: str,
     run_as_root: bool,
     server_name: Optional[str] = None,
-    scheduled_before: int = None,
+    scheduled_before: Optional[int] = None,
 ) -> bool:
     """Check if there are SCHEDULED START_SERVER operations for matching servers scheduled before given time."""
     if scheduled_before is None:
