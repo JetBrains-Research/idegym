@@ -138,6 +138,8 @@ def wait_for_service(timeout: int = 120, check_interval: int = 10) -> bool:
     logger.info(f"Waiting for service at {BASE_URL}/health...")
 
     start_time = time.time()
+    consecutive_successes = 0
+    required_successes = 3
 
     while time.time() - start_time < timeout:
         elapsed = int(time.time() - start_time)
@@ -145,11 +147,16 @@ def wait_for_service(timeout: int = 120, check_interval: int = 10) -> bool:
         try:
             response = requests.get(f"{BASE_URL}/health", timeout=5)
             if response.status_code == 200:
-                logger.info(f"✓ Service is responsive (elapsed: {elapsed}s)")
-                return True
+                consecutive_successes += 1
+                if consecutive_successes >= required_successes:
+                    logger.info(f"✓ Service is responsive (elapsed: {elapsed}s)")
+                    return True
+                time.sleep(1)
+                continue
         except requests.exceptions.RequestException:
             pass
 
+        consecutive_successes = 0
         logger.info(f"Service not yet responsive, waiting... (elapsed: {elapsed}s)")
         time.sleep(check_interval)
 

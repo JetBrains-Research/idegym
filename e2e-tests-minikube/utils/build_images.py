@@ -6,8 +6,11 @@ import tempfile
 from from_root import from_root
 from idegym.utils.logging import get_logger
 from jinja2 import Template
+from python_on_whales import DockerClient
 
 logger = get_logger(__name__)
+
+docker = DockerClient()
 
 
 def build_orchestrator_image() -> None:
@@ -40,27 +43,16 @@ def switch_to_default_docker_builder() -> None:
     """
     logger.info("Switching to default docker context and builder...")
 
-    # First switch context
-    context_result = subprocess.run(
-        ["docker", "context", "use", "default"],
-        capture_output=True,
-        text=True,
-    )
+    try:
+        docker.context.use("default")
+    except Exception as e:
+        logger.warning(f"Could not switch context: {e}")
 
-    if context_result.returncode != 0:
-        logger.warning(f"Could not switch context: {context_result.stderr}")
-
-    # Then switch builder
-    builder_result = subprocess.run(
-        ["docker", "buildx", "use", "default"],
-        capture_output=True,
-        text=True,
-    )
-
-    if builder_result.returncode == 0:
+    try:
+        docker.buildx.use("default")
         logger.info("✓ Switched to default builder")
-    else:
-        logger.warning(f"Could not switch builder: {builder_result.stderr}")
+    except Exception as e:
+        logger.warning(f"Could not switch builder: {e}")
 
 
 def build_base_server_image() -> str:
@@ -90,29 +82,32 @@ def build_base_server_image() -> str:
         tmp.write(rendered_dockerfile)
         tmp.flush()
 
-        # Build the base server image
-        cmd = ["docker", "build", "-t", image_tag, "-f", tmp.name, "."]
-
         logger.info(f"Building: {image_tag}")
-        subprocess.run(cmd, cwd=from_root(), check=True)
+        for line in docker.build(
+            context_path=from_root(),
+            file=tmp.name,
+            tags=[image_tag],
+            progress="plain",
+            stream_logs=True,
+        ):
+            if line := line.strip():
+                logger.info(line)
 
         logger.info("✓ Base server image built and available in local Docker")
 
-        # Switch to default docker builder for local image access
-        switch_to_default_docker_builder()
+    # Switch to default docker builder for local image access
+    switch_to_default_docker_builder()
 
-        # Load into minikube
-        logger.info("Loading base image into minikube...")
-        subprocess.run(
-            ["minikube", "image", "load", image_tag],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
+    # Load into minikube
+    logger.info("Loading base image into minikube...")
+    subprocess.run(
+        ["minikube", "image", "load", image_tag],
+        check=True,
+    )
 
-        logger.info("✓ Base server image loaded into minikube")
+    logger.info("✓ Base server image loaded into minikube")
 
-        return image_tag
+    return image_tag
 
 
 def build_all_images() -> None:

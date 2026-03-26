@@ -133,9 +133,7 @@ async def test_resource_limits_enforcement(test_image, test_id):
     Should fail with 429 or timeout after retrying 429 errors.
     """
     async with create_http_client(name=f"limits-{test_id}", nodes_count=0, request_timeout_in_seconds=60) as client:
-        # Try server with excessive resources - should fail
-        resource_limit_hit = False
-        try:
+        with pytest.raises(Exception, match=r"(?i)429|Resource limit|limit exceeded|timed out"):
             async with client.with_server(
                 image_tag=test_image,
                 server_name=f"limits-excessive-{test_id}",
@@ -147,23 +145,7 @@ async def test_resource_limits_enforcement(test_image, test_id):
                 server_start_wait_timeout_in_seconds=60,
                 close_action=ServerCloseAction.STOP,
             ) as _:
-                # Should not reach here
                 pass
-        except (TimeoutError, Exception) as e:
-            error_msg = str(e)
-            # Accept either TimeoutError (from retrying 429s) or direct resource limit errors
-            if (
-                "429" in error_msg
-                or "Resource limit" in error_msg
-                or "limit exceeded" in error_msg.lower()
-                or "timed out" in error_msg.lower()
-            ):
-                resource_limit_hit = True
-            else:
-                # Re-raise if it's not a resource limit related error
-                raise
-
-        assert resource_limit_hit, "Expected to hit resource limit with excessive resource request"
 
 
 @pytest.mark.asyncio

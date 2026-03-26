@@ -737,6 +737,7 @@ dependencies = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "python-dotenv" },
+    { name = "python-on-whales" },
     { name = "pyyaml" },
     { name = "requests" },
 ]
@@ -751,6 +752,7 @@ requires-dist = [
     { name = "pytest", specifier = ">=8.4.1" },
     { name = "pytest-asyncio", specifier = ">=0.24.0" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
+    { name = "python-on-whales", specifier = ">=0.60.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "requests", specifier = ">=2.32.5" },
 ]
