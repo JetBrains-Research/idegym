@@ -5,6 +5,7 @@ metadata:
   labels:
     app.kubernetes.io/name: postgresql
     app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: idegym
 spec:
   serviceName: postgresql
   replicas: 1
@@ -16,6 +17,7 @@ spec:
       labels:
         app.kubernetes.io/name: postgresql
         app.kubernetes.io/component: database
+        app.kubernetes.io/part-of: idegym
     spec:
       containers:
         - name: postgresql

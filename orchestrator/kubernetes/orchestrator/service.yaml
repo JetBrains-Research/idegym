@@ -5,6 +5,7 @@ metadata:
   labels:
     app.kubernetes.io/name: orchestrator
     app.kubernetes.io/component: controller
+    app.kubernetes.io/part-of: idegym
 spec:
   type: ClusterIP
   selector:

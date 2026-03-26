@@ -5,6 +5,7 @@ metadata:
   labels:
     app.kubernetes.io/name: orchestrator
     app.kubernetes.io/component: controller
+    app.kubernetes.io/part-of: idegym
 spec:
   replicas: 1
   selector:
@@ -15,6 +16,7 @@ spec:
       labels:
         app.kubernetes.io/name: orchestrator
         app.kubernetes.io/component: controller
+        app.kubernetes.io/part-of: idegym
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "8000"
