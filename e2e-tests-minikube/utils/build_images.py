@@ -1,4 +1,4 @@
-"""Image building utilities for local testing."""
+"""Image building utilities for e2e testing."""
 
 import subprocess
 import tempfile
@@ -139,7 +139,7 @@ def build_base_server_image() -> str:
 
 
 def build_all_images() -> None:
-    """Build all required images for local testing."""
+    """Build all required images for e2e testing."""
     logger.info("Building all required images...")
 
     build_orchestrator_image()

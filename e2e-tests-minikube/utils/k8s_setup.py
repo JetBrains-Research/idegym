@@ -1,4 +1,4 @@
-"""Kubernetes and minikube setup utilities for local testing."""
+"""Kubernetes and minikube setup utilities for e2e testing."""
 
 import subprocess
 import time

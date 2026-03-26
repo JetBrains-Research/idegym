@@ -36,6 +36,7 @@ idegym-api = { workspace = true }
 idegym-backend-utils = { workspace = true }
 idegym-client = { workspace = true }
 idegym-common-utils = { workspace = true }
+idegym-e2e-tests = { workspace = true }
 idegym-orchestrator = { workspace = true }
 idegym-rewards = { workspace = true }
 idegym-server = { workspace = true }
@@ -47,7 +48,7 @@ members = [
     "backend-utils",
     "client",
     "common-utils",
-    "local-testing",
+    "e2e-tests-minikube",
     "orchestrator",
     "rewards",
     "server",
@@ -57,7 +58,7 @@ members = [
 [tool.pytest.ini_options]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
-pythonpath = [".", "local-testing"]
+pythonpath = ["."]
 testpaths = [
     "integration-tests",
     "unit-tests",

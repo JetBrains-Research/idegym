@@ -1,4 +1,4 @@
-"""Pytest configuration and shared fixtures for local testing."""
+"""Pytest configuration and shared fixtures for e2e testing."""
 
 import subprocess
 from pathlib import Path
@@ -12,7 +12,7 @@ from utils.k8s_setup import wait_for_service
 
 logger = get_logger(__name__)
 
-# Path to local-testing config directory
+# Path to e2e-tests-minikube config directory
 CONFIG_DIR = Path(__file__).parent.parent / "config"
 
 

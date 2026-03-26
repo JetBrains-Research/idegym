@@ -346,12 +346,13 @@ wheels = [
 ]
 
 [[package]]
-name = "local-testing"
+name = "idegym-e2e-tests"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "idegym-client" },
     { name = "idegym-common-utils" },
+    { name = "jinja2" },
     { name = "kubernetes-asyncio" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -363,6 +364,7 @@ dependencies = [
 requires-dist = [
     { name = "idegym-client" },
     { name = "idegym-common-utils" },
+    { name = "jinja2", specifier = ">=3.1.0" },
     { name = "kubernetes-asyncio", specifier = ">=32.3.2" },
     { name = "pytest", specifier = ">=8.4.1" },
     { name = "pytest-asyncio", specifier = ">=0.24.0" },

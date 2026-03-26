@@ -1,11 +1,11 @@
-# Local Testing with Minikube
+# E2E Tests on Minikube
 
 Integration tests for IdeGYM that run on a local minikube cluster without requiring remote registry access.
 
 ## Directory Map
 
 ```
-local-testing/
+e2e-tests-minikube/
 ├── README.md
 ├── __init__.py
 ├── pyproject.toml
@@ -78,7 +78,7 @@ sudo minikube tunnel
 
 ### 5. Create Namespace
 
-Create the dedicated namespace for local testing:
+Create the dedicated namespace for e2e testing:
 
 ```bash
 kubectl create namespace idegym-local
@@ -89,7 +89,7 @@ kubectl create namespace idegym-local
 Run all tests:
 
 ```bash
-cd local-testing
+cd e2e-tests-minikube
 uv run python run_tests.py
 ```
 
@@ -173,7 +173,7 @@ uv run python run_tests.py --reuse-resources
 Direct pytest (without orchestration script):
 
 ```bash
-cd local-testing
+cd e2e-tests-minikube
 uv run pytest tests -v -s -o addopts=
 ```
 
@@ -296,9 +296,9 @@ export IDEGYM_TEST_BASE_URL=http://idegym-local.test
 
 If PyCharm highlights `from utils.k8s_setup import ...` in `tests/conftest.py`:
 
-- Mark `local-testing` as a Source Root in the IDE
-- Use a pytest run configuration with working directory set to `local-testing`
-- Run tests via `uv run python run_tests.py` or `cd local-testing && uv run pytest ...`
+- Mark `e2e-tests-minikube` as a Source Root in the IDE
+- Use a pytest run configuration with working directory set to `e2e-tests-minikube`
+- Run tests via `uv run python run_tests.py` or `cd e2e-tests-minikube && uv run pytest ...`
 
 ## Contributing
 
