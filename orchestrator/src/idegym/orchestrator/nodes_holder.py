@@ -1,3 +1,5 @@
+from http import HTTPStatus
+from typing import Awaitable, Callable, TypeVar
 from uuid import UUID
 
 from idegym.backend.utils.kubernetes_client import async_kube_api, delete_with_retries, wait_for_pods_ready
@@ -5,17 +7,23 @@ from idegym.orchestrator.database.helpers import need_to_release_nodes_for_clien
 from idegym.utils.logging import get_logger
 from kubernetes_asyncio.client import (
     ApiException,
+    V1Affinity,
     V1Container,
     V1Deployment,
     V1DeploymentSpec,
     V1LabelSelector,
+    V1LabelSelectorRequirement,
     V1ObjectMeta,
+    V1PodAffinityTerm,
+    V1PodAntiAffinity,
     V1PodDisruptionBudget,
     V1PodDisruptionBudgetSpec,
     V1PodSpec,
     V1PodTemplateSpec,
     V1ResourceRequirements,
 )
+
+T = TypeVar("T", V1Deployment, V1PodDisruptionBudget)
 
 logger = get_logger(__name__)
 
@@ -24,18 +32,30 @@ idegym_nodes_holder_prefix = "idegym-nodes-holder"
 
 
 async def create_or_patch_resource(
-    create_resource_method, patch_resource_method, resource_name: str, namespace: str, body, resource_type: str
+    create_resource_method: Callable[..., Awaitable[T]],
+    patch_resource_method: Callable[..., Awaitable[T]],
+    resource_name: str,
+    namespace: str,
+    body: T,
+    resource_type: str,
 ):
     """Helper function to create or patch a Kubernetes resource."""
     try:
-        await create_resource_method(namespace=namespace, body=body)
+        await create_resource_method(
+            namespace=namespace,
+            body=body,
+        )
         logger.info(f"Created {resource_type} {resource_name} in namespace {namespace}")
-    except ApiException as e:
-        if e.status == 409:  # Conflict - resource already exists
-            await patch_resource_method(name=resource_name, namespace=namespace, body=body)
+    except ApiException as ex:
+        if ex.status == HTTPStatus.CONFLICT:  # Resource already exists
+            await patch_resource_method(
+                name=resource_name,
+                namespace=namespace,
+                body=body,
+            )
             logger.info(f"Patched existing {resource_type} {resource_name} in namespace {namespace}")
         else:
-            logger.exception(f"Failed to create {resource_type} {resource_name}: {e}")
+            logger.exception(f"Failed to create {resource_type} {resource_name}")
             raise
 
 
@@ -61,68 +81,86 @@ async def spin_up_or_update_nodes_for_client(
     # Create a unique name for the deployment based on client ID
     deployment_name = f"{idegym_nodes_holder_prefix}-{client_name}"
 
-    # Set up resource requirements
-    resources = V1ResourceRequirements(
-        limits={"memory": "150Mi", "cpu": "100m"}, requests={"memory": "150Mi", "cpu": "100m"}
-    )
-
-    # Create container
     container = V1Container(
         name=deployment_name,
         image="busybox:1.37.0",
         image_pull_policy="IfNotPresent",
-        resources=resources,
         command=["sleep", "infinity"],
+        resources=V1ResourceRequirements(
+            limits={
+                "cpu": "100m",
+                "memory": "150Mi",
+            },
+            requests={
+                "cpu": "100m",
+                "memory": "150Mi",
+            },
+        ),
     )
 
-    # Create pod template with anti-affinity
-    pod_spec = V1PodSpec(
-        containers=[container],
-        runtime_class_name=runtime_class_name,
-        affinity={
-            "podAntiAffinity": {
-                "requiredDuringSchedulingIgnoredDuringExecution": [
-                    {
-                        "labelSelector": {
-                            "matchExpressions": [
-                                {"key": "role", "operator": "In", "values": [idegym_nodes_holder_prefix]}
-                            ]
-                        },
-                        "topologyKey": "kubernetes.io/hostname",
-                    }
-                ]
-            }
-        },
+    label_selector_requirement = V1LabelSelectorRequirement(
+        key="role",
+        operator="In",
+        values=[idegym_nodes_holder_prefix],
     )
 
-    pod_template = V1PodTemplateSpec(
-        metadata=V1ObjectMeta(labels={"app": deployment_name, "role": idegym_nodes_holder_prefix}),
-        spec=pod_spec,
+    term = V1PodAffinityTerm(
+        topology_key="kubernetes.io/hostname",
+        label_selector=V1LabelSelector(
+            match_expressions=[label_selector_requirement],
+        ),
     )
 
-    # Create deployment
     deployment = V1Deployment(
         api_version="apps/v1",
         kind="Deployment",
-        metadata=V1ObjectMeta(name=deployment_name),
+        metadata=V1ObjectMeta(
+            name=deployment_name,
+        ),
         spec=V1DeploymentSpec(
-            replicas=nodes_count, selector=V1LabelSelector(match_labels={"app": deployment_name}), template=pod_template
+            replicas=nodes_count,
+            selector=V1LabelSelector(
+                match_labels={
+                    "app": deployment_name,
+                }
+            ),
+            template=V1PodTemplateSpec(
+                metadata=V1ObjectMeta(
+                    labels={
+                        "app": deployment_name,
+                        "role": idegym_nodes_holder_prefix,
+                    },
+                ),
+                spec=V1PodSpec(
+                    containers=[container],
+                    runtime_class_name=runtime_class_name,
+                    affinity=V1Affinity(
+                        pod_anti_affinity=V1PodAntiAffinity(
+                            required_during_scheduling_ignored_during_execution=[term],
+                        ),
+                    ),
+                ),
+            ),
         ),
     )
 
-    # Create PodDisruptionBudget
     pdb = V1PodDisruptionBudget(
         api_version="policy/v1",
         kind="PodDisruptionBudget",
-        metadata=V1ObjectMeta(name=f"{deployment_name}-pdb"),
+        metadata=V1ObjectMeta(
+            name=f"{deployment_name}-pdb",
+        ),
         spec=V1PodDisruptionBudgetSpec(
-            min_available=nodes_count, selector=V1LabelSelector(match_labels={"app": deployment_name})
+            min_available=nodes_count,
+            selector=V1LabelSelector(
+                match_labels={
+                    "app": deployment_name,
+                }
+            ),
         ),
     )
 
-    # Create resources in Kubernetes
     async with async_kube_api() as (apps, _, _, policy):
-        # Create or patch deployment
         await create_or_patch_resource(
             create_resource_method=apps.create_namespaced_deployment,
             patch_resource_method=apps.patch_namespaced_deployment,
@@ -132,7 +170,6 @@ async def spin_up_or_update_nodes_for_client(
             resource_type="deployment",
         )
 
-        # Create or patch PodDisruptionBudget
         await create_or_patch_resource(
             create_resource_method=policy.create_namespaced_pod_disruption_budget,
             patch_resource_method=policy.patch_namespaced_pod_disruption_budget,
@@ -143,9 +180,11 @@ async def spin_up_or_update_nodes_for_client(
         )
 
     if wait_timeout > 0:
-        # Wait for pods to be ready
-        label_selector = f"app={deployment_name}"
-        await wait_for_pods_ready(label_selector=label_selector, namespace=namespace, wait_timeout=wait_timeout)
+        await wait_for_pods_ready(
+            label_selector=f"app={deployment_name}",
+            namespace=namespace,
+            wait_timeout=wait_timeout,
+        )
         logger.info(f"All {nodes_count} nodes for client {client_name} are ready")
     else:
         logger.info(
