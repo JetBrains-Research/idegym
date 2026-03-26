@@ -1,5 +1,5 @@
 from http import HTTPStatus
-from typing import Awaitable, Callable, TypeVar
+from typing import Awaitable, Callable, Optional, TypeVar
 from uuid import UUID
 
 from idegym.backend.utils.kubernetes_client import async_kube_api, delete_with_retries, wait_for_pods_ready
@@ -63,7 +63,7 @@ async def spin_up_or_update_nodes_for_client(
     client_name: str,
     nodes_count: int,
     namespace: str,
-    runtime_class_name: str = "gvisor",
+    runtime_class_name: Optional[str] = None,
     wait_timeout: int = 600,
 ):
     """
