@@ -10,8 +10,7 @@ Install Docker, kubectl, minikube, and uv:
 
 ```bash
 brew install --cask docker
-brew install kubernetes-cli minikube
-brew install uv
+brew install kubernetes-cli minikube uv
 ```
 
 ### 2. Start Minikube Cluster

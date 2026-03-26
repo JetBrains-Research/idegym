@@ -726,9 +726,10 @@ requires-dist = [
 
 [[package]]
 name = "idegym-e2e-tests"
-version = "0.1.0"
+version = "0.0.0.dev0"
 source = { editable = "e2e-tests-minikube" }
 dependencies = [
+    { name = "from-root" },
     { name = "idegym-client" },
     { name = "idegym-common-utils" },
     { name = "jinja2" },
@@ -742,6 +743,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "from-root", specifier = ">=1.3.0" },
     { name = "idegym-client", editable = "client" },
     { name = "idegym-common-utils", editable = "common-utils" },
     { name = "jinja2", specifier = ">=3.1.0" },

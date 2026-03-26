@@ -51,8 +51,7 @@ def create_http_client(
     base_url, username, password = get_test_params()
 
     # Remove trailing slash if present
-    if base_url.endswith("/"):
-        base_url = base_url[:-1]
+    base_url = base_url.rstrip("/")
 
     # Create HTTP client with all parameters
     return IdeGYMClient(

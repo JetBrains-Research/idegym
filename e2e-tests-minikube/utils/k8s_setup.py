@@ -55,12 +55,9 @@ def apply_kubernetes_resources() -> None:
 
     with get_config_dir() as kustomization_dir:
         cmd = ["kubectl", "apply", "-k", str(kustomization_dir)]
-        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
 
-    if result.returncode == 0:
-        logger.info("✓ Kubernetes resources applied successfully")
-    else:
-        raise RuntimeError(f"Failed to apply resources: {result.stderr}")
+    logger.info("✓ Kubernetes resources applied successfully")
 
 
 def delete_kubernetes_resources() -> None:

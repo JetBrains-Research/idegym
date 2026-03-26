@@ -1,19 +1,13 @@
 """Image building utilities for e2e testing."""
 
-import os
 import subprocess
 import tempfile
-from pathlib import Path
 
+from from_root import from_root
 from idegym.utils.logging import get_logger
 from jinja2 import Template
 
 logger = get_logger(__name__)
-
-
-def get_repo_root() -> Path:
-    """Get the repository root directory."""
-    return Path(__file__).parent.parent.parent
 
 
 def build_orchestrator_image() -> None:
@@ -23,22 +17,18 @@ def build_orchestrator_image() -> None:
     """
     logger.info("Building orchestrator image...")
 
-    repo_root = get_repo_root()
-    script_path = repo_root / "scripts" / "build_orchestrator_image.py"
+    script_path = from_root("scripts", "build_orchestrator_image.py")
 
     if not script_path.exists():
         raise FileNotFoundError(f"Build script not found: {script_path}")
 
-    # Use uv run to execute the script with its declared dependencies
-    cmd = ["uv", "run", str(script_path), "--versions", "latest"]
+    # The script is executable and has a shebang
+    cmd = [str(script_path), "--versions", "latest"]
 
     logger.info(f"Running: {' '.join(cmd)}")
-    result = subprocess.run(cmd, cwd=repo_root, check=True)
+    subprocess.run(cmd, cwd=from_root(), check=True)
 
-    if result.returncode == 0:
-        logger.info("✓ Orchestrator image built successfully")
-    else:
-        raise RuntimeError(f"Failed to build orchestrator image: exit code {result.returncode}")
+    logger.info("✓ Orchestrator image built successfully")
 
 
 def switch_to_default_docker_builder() -> None:
@@ -86,30 +76,25 @@ def build_base_server_image() -> str:
     """
     logger.info("Building base server image...")
 
-    repo_root = get_repo_root()
     image_tag = "ghcr.io/jetbrains-research/idegym/server-debian-bookworm-20250520-slim:latest"
 
     # Read and render the Dockerfile template
-    dockerfile_template_path = repo_root / "Dockerfile.jinja"
+    dockerfile_template_path = from_root("Dockerfile.jinja")
     with open(dockerfile_template_path, "r") as f:
         template = Template(f.read())
 
     rendered_dockerfile = template.render(repository="docker.io/library", image="debian", tag="bookworm-20250520-slim")
 
     # Write rendered Dockerfile to a temporary file
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".Dockerfile", delete=False) as tmp:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".Dockerfile") as tmp:
         tmp.write(rendered_dockerfile)
-        tmp_dockerfile_path = tmp.name
+        tmp.flush()
 
-    try:
         # Build the base server image
-        cmd = ["docker", "build", "-t", image_tag, "-f", tmp_dockerfile_path, "."]
+        cmd = ["docker", "build", "-t", image_tag, "-f", tmp.name, "."]
 
         logger.info(f"Building: {image_tag}")
-        result = subprocess.run(cmd, cwd=repo_root, check=True)
-
-        if result.returncode != 0:
-            raise RuntimeError(f"Failed to build server image: exit code {result.returncode}")
+        subprocess.run(cmd, cwd=from_root(), check=True)
 
         logger.info("✓ Base server image built and available in local Docker")
 
@@ -118,23 +103,16 @@ def build_base_server_image() -> str:
 
         # Load into minikube
         logger.info("Loading base image into minikube...")
-        load_result = subprocess.run(
+        subprocess.run(
             ["minikube", "image", "load", image_tag],
             capture_output=True,
             text=True,
+            check=True,
         )
-
-        if load_result.returncode != 0:
-            raise RuntimeError(f"Failed to load base image into minikube: {load_result.stderr}")
 
         logger.info("✓ Base server image loaded into minikube")
 
         return image_tag
-
-    finally:
-        # Clean up temporary Dockerfile
-        if os.path.exists(tmp_dockerfile_path):
-            os.unlink(tmp_dockerfile_path)
 
 
 def build_all_images() -> None:
