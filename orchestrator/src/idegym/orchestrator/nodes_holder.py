@@ -2,6 +2,7 @@ from http import HTTPStatus
 from typing import Awaitable, Callable, Optional, TypeVar
 from uuid import UUID
 
+from idegym.api import __version__
 from idegym.backend.utils.kubernetes_client import async_kube_api, delete_with_retries, wait_for_pods_ready
 from idegym.orchestrator.database.helpers import need_to_release_nodes_for_client
 from idegym.utils.logging import get_logger
@@ -14,6 +15,7 @@ from kubernetes_asyncio.client import (
     V1LabelSelector,
     V1LabelSelectorRequirement,
     V1ObjectMeta,
+    V1OwnerReference,
     V1PodAffinityTerm,
     V1PodAntiAffinity,
     V1PodDisruptionBudget,
@@ -27,8 +29,8 @@ T = TypeVar("T", V1Deployment, V1PodDisruptionBudget)
 
 logger = get_logger(__name__)
 
-# Common multi purpose prefix for node manipulations
-idegym_nodes_holder_prefix = "idegym-nodes-holder"
+component = "node-holder"
+"""Name of the component. Value is used as a common, multi-purpose label or prefix for operations."""
 
 
 async def create_or_patch_resource(
@@ -38,25 +40,33 @@ async def create_or_patch_resource(
     namespace: str,
     body: T,
     resource_type: str,
-):
+) -> T:
     """Helper function to create or patch a Kubernetes resource."""
     try:
-        await create_resource_method(
+        resource = await create_resource_method(
             namespace=namespace,
             body=body,
         )
         logger.info(f"Created {resource_type} {resource_name} in namespace {namespace}")
+        return resource
     except ApiException as ex:
-        if ex.status == HTTPStatus.CONFLICT:  # Resource already exists
-            await patch_resource_method(
-                name=resource_name,
-                namespace=namespace,
-                body=body,
-            )
-            logger.info(f"Patched existing {resource_type} {resource_name} in namespace {namespace}")
+        if ex.status == HTTPStatus.CONFLICT:
+            pass  # Resource already exists, try patching it instead
         else:
             logger.exception(f"Failed to create {resource_type} {resource_name}")
             raise
+
+    try:
+        resource = await patch_resource_method(
+            name=resource_name,
+            namespace=namespace,
+            body=body,
+        )
+        logger.info(f"Patched existing {resource_type} {resource_name} in namespace {namespace}")
+        return resource
+    except ApiException:
+        logger.exception(f"Failed to patch {resource_type} {resource_name}")
+        raise
 
 
 async def spin_up_or_update_nodes_for_client(
@@ -79,7 +89,17 @@ async def spin_up_or_update_nodes_for_client(
     logger.info(f"Spinning up {nodes_count} nodes for client {client_name} in namespace {namespace}")
 
     # Create a unique name for the deployment based on client ID
-    deployment_name = f"{idegym_nodes_holder_prefix}-{client_name}"
+    name = f"{component}-{client_name}"
+    match_labels = {
+        "app": name,
+        "app.kubernetes.io/component": component,
+        "app.kubernetes.io/name": name,
+        "app.kubernetes.io/part-of": "idegym",
+    }
+    labels = {
+        **match_labels,
+        "app.kubernetes.io/version": __version__,
+    }
 
     container = V1Container(
         name="sleeper",
@@ -98,9 +118,9 @@ async def spin_up_or_update_nodes_for_client(
     )
 
     label_selector_requirement = V1LabelSelectorRequirement(
-        key="role",
+        key="app.kubernetes.io/component",
         operator="In",
-        values=[idegym_nodes_holder_prefix],
+        values=[component],
     )
 
     term = V1PodAffinityTerm(
@@ -114,21 +134,17 @@ async def spin_up_or_update_nodes_for_client(
         api_version="apps/v1",
         kind="Deployment",
         metadata=V1ObjectMeta(
-            name=deployment_name,
+            name=name,
+            labels=labels,
         ),
         spec=V1DeploymentSpec(
             replicas=nodes_count,
             selector=V1LabelSelector(
-                match_labels={
-                    "app": deployment_name,
-                }
+                match_labels=match_labels,
             ),
             template=V1PodTemplateSpec(
                 metadata=V1ObjectMeta(
-                    labels={
-                        "app": deployment_name,
-                        "role": idegym_nodes_holder_prefix,
-                    },
+                    labels=labels,
                 ),
                 spec=V1PodSpec(
                     containers=[container],
@@ -147,32 +163,39 @@ async def spin_up_or_update_nodes_for_client(
         api_version="policy/v1",
         kind="PodDisruptionBudget",
         metadata=V1ObjectMeta(
-            name=f"{deployment_name}-pdb",
+            name=name,
+            labels=labels,
         ),
         spec=V1PodDisruptionBudgetSpec(
             min_available=nodes_count,
             selector=V1LabelSelector(
-                match_labels={
-                    "app": deployment_name,
-                }
+                match_labels=match_labels,
             ),
         ),
     )
 
     async with async_kube_api() as (apps, _, _, policy):
-        await create_or_patch_resource(
+        deployment = await create_or_patch_resource(
             create_resource_method=apps.create_namespaced_deployment,
             patch_resource_method=apps.patch_namespaced_deployment,
-            resource_name=deployment_name,
+            resource_name=name,
             namespace=namespace,
             body=deployment,
             resource_type="deployment",
         )
 
+        owner_reference = V1OwnerReference(
+            api_version=deployment.api_version,
+            kind=deployment.kind,
+            name=deployment.metadata.name,
+            uid=deployment.metadata.uid,
+        )
+        pdb.metadata.owner_references = [owner_reference]
+
         await create_or_patch_resource(
             create_resource_method=policy.create_namespaced_pod_disruption_budget,
             patch_resource_method=policy.patch_namespaced_pod_disruption_budget,
-            resource_name=f"{deployment_name}-pdb",
+            resource_name=name,
             namespace=namespace,
             body=pdb,
             resource_type="pod disruption budget",
@@ -180,7 +203,7 @@ async def spin_up_or_update_nodes_for_client(
 
     if wait_timeout > 0:
         await wait_for_pods_ready(
-            label_selector=f"app={deployment_name}",
+            label_selector=f"app={name}",
             namespace=namespace,
             wait_timeout=wait_timeout,
         )
@@ -200,36 +223,22 @@ async def release_nodes_for_client(
     """
     Delete the deployment and PodDisruptionBudget that were created for a client to hold its nodes.
     """
-    deployment_name = f"{idegym_nodes_holder_prefix}-{client_name}"
-    pdb_name = f"{deployment_name}-pdb"
-
+    name = f"{component}-{client_name}"
     logger.info(f"Releasing nodes for client {client_name} in namespace {namespace}")
 
-    async with async_kube_api() as (apps, _, _, policy):
-        # Delete PodDisruptionBudget
-        pdb_deleted = await delete_with_retries(
-            policy.delete_namespaced_pod_disruption_budget, "pod disruption budget", pdb_name, namespace, max_retries
+    async with async_kube_api() as (apps, _, _, _):
+        deleted = await delete_with_retries(
+            delete_func=apps.delete_namespaced_deployment,
+            resource_type="deployment",
+            resource_name=name,
+            namespace=namespace,
+            max_retries=max_retries,
         )
-
-        # Delete deployment
-        deployment_deleted = await delete_with_retries(
-            apps.delete_namespaced_deployment, "deployment", deployment_name, namespace, max_retries
-        )
-
-    # Report final status
-    failures = []
-    if not deployment_deleted:
-        failures.append(f"deployment '{deployment_name}'")
-    if not pdb_deleted:
-        failures.append(f"pod disruption budget '{pdb_name}'")
-
-    if failures:
-        error_msg = f"Failed to release client nodes resources: {', '.join(failures)}"
-        logger.warning(error_msg)
-        return False
-
-    logger.info(f"Successfully released all nodes for client {client_name}")
-    return True
+        if not deleted:
+            logger.warning(f"Failed to clean up node holder deployment '{name}' for client '{client_name}'")
+        else:
+            logger.info(f"Successfully cleaned up node holder for '{client_name}'")
+        return deleted
 
 
 async def change_number_of_spun_nodes(client_id: UUID, namespace: str):
