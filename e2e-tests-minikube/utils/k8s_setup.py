@@ -2,8 +2,12 @@
 
 import subprocess
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
+from importlib.resources import as_file, files
 from pathlib import Path
 
+import config as e2e_config
 import requests
 from idegym.utils.logging import get_logger
 
@@ -12,9 +16,11 @@ logger = get_logger(__name__)
 BASE_URL = "http://idegym-local.test"
 
 
-def get_config_dir() -> Path:
-    """Get the config directory containing kustomization.yaml."""
-    return Path(__file__).parent.parent / "config"
+@contextmanager
+def get_config_dir() -> Iterator[Path]:
+    """Yield a filesystem path to the config resource directory."""
+    with as_file(files(e2e_config)) as config_dir:
+        yield Path(config_dir)
 
 
 def ensure_ingress_loadbalancer() -> None:
@@ -49,10 +55,9 @@ def apply_kubernetes_resources() -> None:
     """Apply all Kubernetes resources using kustomize."""
     logger.info("Applying Kubernetes resources...")
 
-    kustomization_dir = get_config_dir()
-
-    cmd = ["kubectl", "apply", "-k", str(kustomization_dir)]
-    result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+    with get_config_dir() as kustomization_dir:
+        cmd = ["kubectl", "apply", "-k", str(kustomization_dir)]
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
 
     if result.returncode == 0:
         logger.info("✓ Kubernetes resources applied successfully")
@@ -64,10 +69,9 @@ def delete_kubernetes_resources() -> None:
     """Delete all Kubernetes resources defined in kustomization.yaml."""
     logger.info("Deleting Kubernetes resources from kustomization...")
 
-    kustomization_dir = get_config_dir()
-
-    cmd = ["kubectl", "delete", "-k", str(kustomization_dir), "--ignore-not-found=true"]
-    result = subprocess.run(cmd, check=False, capture_output=True, text=True)
+    with get_config_dir() as kustomization_dir:
+        cmd = ["kubectl", "delete", "-k", str(kustomization_dir), "--ignore-not-found=true"]
+        result = subprocess.run(cmd, check=False, capture_output=True, text=True)
 
     if result.returncode == 0:
         logger.info("✓ Kubernetes resources deleted successfully")

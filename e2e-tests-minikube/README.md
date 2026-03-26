@@ -12,6 +12,7 @@ e2e-tests-minikube/
 ├── run_tests.py
 ├── uv.lock
 ├── config/
+│   ├── __init__.py
 │   └── kustomization.yaml
 ├── tests/
 │   ├── __init__.py
