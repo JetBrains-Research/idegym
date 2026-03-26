@@ -1,18 +1,16 @@
 """Test different server reuse strategies and advanced operations."""
 
-from uuid import uuid4
-
 import pytest
 from idegym.api.orchestrator.servers import ServerReuseStrategy
 from idegym.client.client import ServerCloseAction
 from kubernetes_asyncio.client import V1ResourceRequirements
-from utils.idegym_utils import create_http_client
+from utils.idegym_utils import create_http_client, generate_test_id
 
 
 @pytest.mark.asyncio
 async def test_reuse_strategy_reset_vs_restart(test_image):
     """Test RESET (no pod restart) vs RESTART (clears filesystem)."""
-    test_id = uuid4().hex[:8]
+    test_id = generate_test_id()
 
     async with create_http_client(name=f"reuse-{test_id}", nodes_count=0) as client:
         # RESET: Reuses pod, preserves filesystem
@@ -63,7 +61,7 @@ async def test_reuse_strategy_reset_vs_restart(test_image):
 @pytest.mark.asyncio
 async def test_reuse_strategy_none(test_image):
     """Test NONE strategy creates new servers."""
-    test_id = uuid4().hex[:8]
+    test_id = generate_test_id()
 
     async with create_http_client(name=f"none-{test_id}", nodes_count=0) as client:
         async with client.with_server(
@@ -91,7 +89,7 @@ async def test_reset_project(test_image):
     Test reset_project resets changes in the cloned repository.
     Changes made to files in the work directory should be reverted.
     """
-    test_id = uuid4().hex[:8]
+    test_id = generate_test_id()
 
     async with create_http_client(
         name=f"reset-proj-{test_id}", nodes_count=0, request_timeout_in_seconds=120
@@ -140,7 +138,7 @@ async def test_resource_limits_enforcement(test_image):
     Try to create a server with excessive resources (100 CPU, 1000Gi memory).
     Should fail with 429 or timeout after retrying 429 errors.
     """
-    test_id = uuid4().hex[:8]
+    test_id = generate_test_id()
 
     async with create_http_client(name=f"limits-{test_id}", nodes_count=0, request_timeout_in_seconds=60) as client:
         # Try server with excessive resources - should fail
@@ -179,7 +177,7 @@ async def test_resource_limits_enforcement(test_image):
 @pytest.mark.asyncio
 async def test_concurrent_clients(test_image):
     """Test multiple clients with concurrent servers."""
-    test_id = uuid4().hex[:8]
+    test_id = generate_test_id()
 
     async with (
         create_http_client(name=f"c1-{test_id}", nodes_count=0) as c1,
@@ -205,7 +203,7 @@ async def test_concurrent_clients(test_image):
 @pytest.mark.asyncio
 async def test_bash_and_file_operations(test_image):
     """Test bash execution and file operations."""
-    test_id = uuid4().hex[:8]
+    test_id = generate_test_id()
 
     async with create_http_client(name=f"ops-{test_id}", nodes_count=0) as client:
         async with client.with_server(
@@ -235,7 +233,7 @@ async def test_bash_and_file_operations(test_image):
 @pytest.mark.asyncio
 async def test_reward_operations(test_image):
     """Test setup, compilation, and test rewards."""
-    test_id = uuid4().hex[:8]
+    test_id = generate_test_id()
 
     async with create_http_client(name=f"reward-{test_id}", nodes_count=0) as client:
         async with client.with_server(

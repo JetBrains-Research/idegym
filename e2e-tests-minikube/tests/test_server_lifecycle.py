@@ -1,11 +1,9 @@
 """Test complete server lifecycle: start, operations, finish, reuse."""
 
-from uuid import uuid4
-
 import pytest
 from idegym.api.orchestrator.servers import ServerReuseStrategy
 from kubernetes_asyncio.client import V1ResourceRequirements
-from utils.idegym_utils import create_http_client
+from utils.idegym_utils import create_http_client, generate_test_id
 
 
 @pytest.mark.asyncio
@@ -17,7 +15,7 @@ async def test_server_lifecycle_with_reuse(test_image):
     3. Start another server with same config and close_action="stop"
     4. Verify server is reused and filesystem is reset
     """
-    test_id = uuid4().hex[:8]
+    test_id = generate_test_id()
 
     async with (
         create_http_client(name=f"lifecycle-{test_id}", nodes_count=0, request_timeout_in_seconds=600) as client_a,

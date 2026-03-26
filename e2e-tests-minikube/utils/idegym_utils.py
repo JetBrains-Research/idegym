@@ -1,4 +1,5 @@
 import os
+import secrets
 
 from idegym.api.auth import BasicAuth
 from idegym.api.config import OTELConfig, TracingConfig
@@ -6,6 +7,18 @@ from idegym.client.client import IdeGYMClient
 from idegym.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+def generate_test_id(length: int = 8) -> str:
+    """
+    Return a short hexadecimal test identifier.
+
+    The default value keeps names compact while still providing enough entropy
+    for parallel test runs.
+    """
+    if length <= 0:
+        raise ValueError("length must be positive")
+    return secrets.token_hex((length + 1) // 2)[:length]
 
 
 def get_test_params():
