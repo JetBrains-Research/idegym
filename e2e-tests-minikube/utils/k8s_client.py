@@ -183,6 +183,31 @@ def is_any_pod_ready(namespace: str, label_selector: str | None = None) -> bool:
     return False
 
 
+def resolve_pod_selector(app_label: str, namespace: str, label_key: str = "app.kubernetes.io/name") -> str:
+    """
+    Return a working label selector for pods, trying the preferred label key first.
+
+    Falls back to the legacy 'app' label if no pods are found with the preferred key.
+
+    Args:
+        app_label: The value of the app label to match
+        namespace: Kubernetes namespace to search in
+        label_key: Preferred label key (default: app.kubernetes.io/name)
+
+    Returns:
+        A label selector string that matches existing pods, or the preferred selector if none found
+    """
+    selectors = [f"{label_key}={app_label}"]
+    if label_key != "app":
+        selectors.append(f"app={app_label}")
+
+    for selector in selectors:
+        if list_pod_names(namespace=namespace, label_selector=selector):
+            return selector
+
+    return selectors[0]
+
+
 def delete_pods(namespace: str, pod_names: list[str]) -> None:
     if not pod_names:
         return
@@ -264,8 +289,19 @@ def delete_service(namespace: str, service_name: str) -> None:
 
 
 def delete_services(namespace: str, service_names: list[str]) -> None:
-    for service_name in service_names:
-        delete_service(namespace=namespace, service_name=service_name)
+    """Delete multiple services in a single API client session."""
+    if not service_names:
+        return
+
+    async def _op(core: CoreV1Api, _apps: AppsV1Api, _policy: PolicyV1Api) -> None:
+        for service_name in service_names:
+            try:
+                await _await_api_result(core.delete_namespaced_service(name=service_name, namespace=namespace))
+            except ApiException as exc:
+                if exc.status != 404:
+                    raise
+
+    _run_async(_with_clients(_op))
 
 
 def delete_pod_disruption_budget(namespace: str, pdb_name: str) -> None:

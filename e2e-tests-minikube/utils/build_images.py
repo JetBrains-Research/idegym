@@ -1,5 +1,6 @@
 """Image building utilities for e2e testing."""
 
+import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -132,8 +133,6 @@ def build_base_server_image() -> str:
 
     finally:
         # Clean up temporary Dockerfile
-        import os
-
         if os.path.exists(tmp_dockerfile_path):
             os.unlink(tmp_dockerfile_path)
 

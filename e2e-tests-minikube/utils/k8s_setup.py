@@ -11,10 +11,14 @@ import config as e2e_config
 import requests
 from idegym.utils.logging import get_logger
 from utils import k8s_client
+from utils.constants import (
+    BASE_URL,
+    DEFAULT_NAMESPACE,
+    INGRESS_CONTROLLER_SERVICE,
+    INGRESS_NAMESPACE,
+)
 
 logger = get_logger(__name__)
-
-BASE_URL = "http://idegym-local.test"
 
 
 @contextmanager
@@ -34,13 +38,13 @@ def ensure_ingress_loadbalancer() -> None:
 
     try:
         if k8s_client.patch_service_type(
-            name="ingress-nginx-controller",
-            namespace="ingress-nginx",
+            name=INGRESS_CONTROLLER_SERVICE,
+            namespace=INGRESS_NAMESPACE,
             service_type="LoadBalancer",
         ):
             logger.info("✓ Ingress controller configured as LoadBalancer")
         else:
-            logger.warning("Could not configure ingress: service ingress-nginx-controller not found")
+            logger.warning(f"Could not configure ingress: service {INGRESS_CONTROLLER_SERVICE} not found")
     except Exception as exc:
         logger.warning(f"Could not configure ingress: {exc}")
 
@@ -78,37 +82,21 @@ def delete_kubernetes_resources() -> None:
 def ensure_namespace_exists() -> None:
     """Ensure idegym-local namespace exists."""
     try:
-        existed_before = k8s_client.namespace_exists("idegym-local")
-        k8s_client.ensure_namespace_exists("idegym-local")
+        existed_before = k8s_client.namespace_exists(DEFAULT_NAMESPACE)
+        k8s_client.ensure_namespace_exists(DEFAULT_NAMESPACE)
         if existed_before:
-            logger.info("✓ Namespace idegym-local already exists")
+            logger.info(f"✓ Namespace {DEFAULT_NAMESPACE} already exists")
         else:
-            logger.info("✓ Created idegym-local namespace")
+            logger.info(f"✓ Created {DEFAULT_NAMESPACE} namespace")
     except Exception as exc:
         logger.warning(f"Could not ensure namespace exists: {exc}")
 
 
-def wait_for_namespace_deleted(namespace: str, timeout: int = 180, check_interval: int = 2) -> bool:
-    """Wait for a namespace to be fully deleted."""
-    logger.info("Waiting for namespace to be deleted...")
-    start_time = time.time()
-
-    while time.time() - start_time < timeout:
-        if not k8s_client.namespace_exists(namespace):
-            logger.info("✓ Namespace deleted")
-            return True
-
-        time.sleep(check_interval)
-
-    logger.warning(f"Namespace {namespace} did not delete within {timeout}s")
-    return False
-
-
 def recreate_namespace() -> None:
     """Recreate idegym-local namespace to clean up everything completely."""
-    logger.info("Recreating idegym-local namespace...")
+    logger.info(f"Recreating {DEFAULT_NAMESPACE} namespace...")
 
-    namespace = "idegym-local"
+    namespace = DEFAULT_NAMESPACE
 
     try:
         deleted = k8s_client.delete_namespace(namespace, timeout=180)
@@ -200,22 +188,9 @@ def setup_kubernetes_environment(reuse_resources: bool = False, clean_namespace:
     return wait_for_service()
 
 
-def _resolve_pod_label_selector(app_label: str, namespace: str, label_key: str) -> str:
-    """Return a working label selector for pods, falling back to app label if needed."""
-    selectors = [f"{label_key}={app_label}"]
-    if label_key != "app":
-        selectors.append(f"app={app_label}")
-
-    for selector in selectors:
-        if k8s_client.list_pod_names(namespace=namespace, label_selector=selector):
-            return selector
-
-    return selectors[0]
-
-
 def wait_for_pod_deleted(
     app_label: str,
-    namespace: str = "idegym-local",
+    namespace: str = DEFAULT_NAMESPACE,
     timeout: int = 60,
     label_key: str = "app.kubernetes.io/name",
 ) -> bool:
@@ -238,7 +213,7 @@ def wait_for_pod_deleted(
         elapsed = int(time.time() - start_time)
 
         # Check if any pods exist
-        selector = _resolve_pod_label_selector(app_label, namespace, label_key)
+        selector = k8s_client.resolve_pod_selector(app_label, namespace, label_key)
         if not k8s_client.list_pod_names(namespace=namespace, label_selector=selector):
             logger.info(f"✓ {app_label} pod deleted (elapsed: {elapsed}s)")
             return True
@@ -251,7 +226,7 @@ def wait_for_pod_deleted(
 
 def wait_for_pod_ready(
     app_label: str,
-    namespace: str = "idegym-local",
+    namespace: str = DEFAULT_NAMESPACE,
     timeout: int = 120,
     check_interval: int = 2,
     label_key: str = "app.kubernetes.io/name",
@@ -276,7 +251,7 @@ def wait_for_pod_ready(
         elapsed = int(time.time() - start_time)
 
         # Check if pod exists and is ready
-        selector = _resolve_pod_label_selector(app_label, namespace, label_key)
+        selector = k8s_client.resolve_pod_selector(app_label, namespace, label_key)
         if k8s_client.is_any_pod_ready(namespace=namespace, label_selector=selector):
             logger.info(f"✓ {app_label} pod is ready (elapsed: {elapsed}s)")
             return True
