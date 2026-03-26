@@ -4,7 +4,7 @@ metadata:
   name: orchestrator
   labels:
     app.kubernetes.io/name: orchestrator
-    app.kubernetes.io/component: api
+    app.kubernetes.io/component: controller
 spec:
   type: ClusterIP
   selector:

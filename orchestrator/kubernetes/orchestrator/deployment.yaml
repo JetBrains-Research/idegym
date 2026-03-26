@@ -4,7 +4,7 @@ metadata:
   name: orchestrator
   labels:
     app.kubernetes.io/name: orchestrator
-    app.kubernetes.io/component: api
+    app.kubernetes.io/component: controller
 spec:
   replicas: 1
   selector:
@@ -14,7 +14,7 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: orchestrator
-        app.kubernetes.io/component: api
+        app.kubernetes.io/component: controller
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "8000"
