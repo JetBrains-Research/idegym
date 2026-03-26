@@ -245,7 +245,6 @@ async def deploy_server(
         "prometheus.io/scrape": "true",
         "prometheus.io/path": API_BASE_PATH + ActuatorPath.METRICS,
         "prometheus.io/port": str(port.container_port),
-        "prometheus.io/scheme": "http|https",
     }
     match_labels = {
         "app": server_name,
