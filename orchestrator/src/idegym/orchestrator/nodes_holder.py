@@ -92,6 +92,9 @@ async def spin_up_or_update_nodes_for_client(
     # Create a unique name for the deployment based on client ID
     client_hash = md5(client_name.encode()).hexdigest()
     name = f"{component}-{client_hash}"
+    annotations = {
+        "cluster-autoscaler.kubernetes.io/safe-to-evict": "false",
+    }
     match_labels = {
         "app": name,
         "app.kubernetes.io/component": component,
@@ -146,6 +149,7 @@ async def spin_up_or_update_nodes_for_client(
             ),
             template=V1PodTemplateSpec(
                 metadata=V1ObjectMeta(
+                    annotations=annotations,
                     labels=labels,
                 ),
                 spec=V1PodSpec(
