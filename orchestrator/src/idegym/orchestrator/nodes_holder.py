@@ -82,18 +82,17 @@ async def spin_up_or_update_nodes_for_client(
     deployment_name = f"{idegym_nodes_holder_prefix}-{client_name}"
 
     container = V1Container(
-        name=deployment_name,
-        image="busybox:1.37.0",
+        name="sleeper",
+        image="registry.k8s.io/pause:3.10.1",
         image_pull_policy="IfNotPresent",
-        command=["sleep", "infinity"],
         resources=V1ResourceRequirements(
             limits={
-                "cpu": "100m",
-                "memory": "150Mi",
+                "cpu": "1m",
+                "memory": "5Mi",
             },
             requests={
-                "cpu": "100m",
-                "memory": "150Mi",
+                "cpu": "1m",
+                "memory": "1Mi",
             },
         ),
     )
