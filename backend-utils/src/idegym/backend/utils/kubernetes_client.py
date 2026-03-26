@@ -36,6 +36,7 @@ from kubernetes_asyncio.client import (
     V1LocalObjectReference,
     V1ObjectFieldSelector,
     V1ObjectMeta,
+    V1OwnerReference,
     V1PodDisruptionBudget,
     V1PodDisruptionBudgetList,
     V1PodDisruptionBudgetSpec,
@@ -246,25 +247,32 @@ async def deploy_server(
         "prometheus.io/port": str(port.container_port),
         "prometheus.io/scheme": "http|https",
     }
+    match_labels = {
+        "app": server_name,
+        "app.kubernetes.io/component": "sandbox",
+        "app.kubernetes.io/name": server_name,
+        "app.kubernetes.io/part-of": "idegym",
+    }
+    labels = {
+        **match_labels,
+        "app.kubernetes.io/version": __version__,
+    }
     deployment = V1Deployment(
         api_version="apps/v1",
         kind="Deployment",
         metadata=V1ObjectMeta(
             name=server_name,
+            labels=labels,
         ),
         spec=V1DeploymentSpec(
             replicas=1,
             selector=V1LabelSelector(
-                match_labels={
-                    "app": server_name,
-                },
+                match_labels=match_labels,
             ),
             template=V1PodTemplateSpec(
                 metadata=V1ObjectMeta(
                     annotations=annotations,
-                    labels={
-                        "app": server_name,
-                    },
+                    labels=labels,
                 ),
                 spec=V1PodSpec(
                     containers=[container],
@@ -286,14 +294,13 @@ async def deploy_server(
         api_version="v1",
         kind="Service",
         metadata=V1ObjectMeta(
-            name=f"{server_name}-service",
+            name=server_name,
+            labels=labels,
         ),
         spec=V1ServiceSpec(
             type="ClusterIP",
             ports=[port],
-            selector={
-                "app": server_name,
-            },
+            selector=match_labels,
         ),
     )
 
@@ -301,23 +308,43 @@ async def deploy_server(
         api_version="policy/v1",
         kind="PodDisruptionBudget",
         metadata=V1ObjectMeta(
-            name=f"{server_name}-pdb",
+            name=server_name,
+            labels=labels,
         ),
         spec=V1PodDisruptionBudgetSpec(
             min_available=1,
             selector=V1LabelSelector(
-                match_labels={
-                    "app": server_name,
-                },
+                match_labels=match_labels,
             ),
         ),
     )
 
     async with async_kube_api() as (apps, _, core, policy):
-        # Create resources
-        await core.create_namespaced_service(namespace=namespace, body=service)
-        await apps.create_namespaced_deployment(namespace=namespace, body=deployment)
-        await policy.create_namespaced_pod_disruption_budget(namespace=namespace, body=pdb)
+        deployment = await apps.create_namespaced_deployment(
+            body=deployment,
+            namespace=namespace,
+        )
+
+        owner_reference = V1OwnerReference(
+            api_version=deployment.api_version,
+            kind=deployment.kind,
+            name=deployment.metadata.name,
+            uid=deployment.metadata.uid,
+        )
+
+        service.metadata.owner_references = [owner_reference]
+        pdb.metadata.owner_references = [owner_reference]
+
+        await gather(
+            core.create_namespaced_service(
+                body=service,
+                namespace=namespace,
+            ),
+            policy.create_namespaced_pod_disruption_budget(
+                body=pdb,
+                namespace=namespace,
+            ),
+        )
 
 
 async def wait_for_pods_ready(
@@ -579,51 +606,16 @@ async def clean_up_server(name: str, namespace: str, max_retries: int = 3):
         namespace: Kubernetes namespace
         max_retries: Maximum number of retry attempts for each operation
     """
-    async with async_kube_api() as (apps, _, core, policy):
-        delete_pdb = check_and_delete(
-            query_func=policy.list_namespaced_pod_disruption_budget,
-            delete_func=policy.delete_namespaced_pod_disruption_budget,
-            resource_name=f"{name}-pdb",
-            resource_type="pod disruption budget",
-            namespace=namespace,
-            max_retries=max_retries,
-        )
-
-        delete_service = check_and_delete(
-            query_func=core.list_namespaced_service,
-            delete_func=core.delete_namespaced_service,
-            resource_name=f"{name}-service",
-            resource_type="service",
-            namespace=namespace,
-            max_retries=max_retries,
-        )
-
-        delete_deployment = check_and_delete(
+    async with async_kube_api() as (apps, _, _, _):
+        if not await check_and_delete(
             query_func=apps.list_namespaced_deployment,
             delete_func=apps.delete_namespaced_deployment,
             resource_name=name,
             resource_type="deployment",
             namespace=namespace,
             max_retries=max_retries,
-        )
-
-        pdb_deleted, service_deleted, deployment_deleted = await gather(
-            delete_pdb,
-            delete_service,
-            delete_deployment,
-        )
-
-    # Report final status
-    failures = []
-    if not deployment_deleted:
-        failures.append(f"deployment '{name}'")
-    if not service_deleted:
-        failures.append(f"service '{name}-service'")
-    if not pdb_deleted:
-        failures.append(f"pod disruption budget '{name}-pdb'")
-
-    if len(failures) > 0:
-        raise ResourceDeletionFailedException(failures)
+        ):
+            raise ResourceDeletionFailedException(f"Failed to clean up deployment: {name}")
 
 
 async def restart_pods(name: str, namespace: str, wait_timeout: int = 60, max_retries: int = 3):
