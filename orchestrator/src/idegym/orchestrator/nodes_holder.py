@@ -1,3 +1,4 @@
+from hashlib import md5
 from http import HTTPStatus
 from typing import Awaitable, Callable, Optional, TypeVar
 from uuid import UUID
@@ -89,7 +90,8 @@ async def spin_up_or_update_nodes_for_client(
     logger.info(f"Spinning up {nodes_count} nodes for client {client_name} in namespace {namespace}")
 
     # Create a unique name for the deployment based on client ID
-    name = f"{component}-{client_name}"
+    client_hash = md5(client_name.encode()).hexdigest()
+    name = f"{component}-{client_hash}"
     match_labels = {
         "app": name,
         "app.kubernetes.io/component": component,
@@ -223,7 +225,8 @@ async def release_nodes_for_client(
     """
     Delete the deployment and PodDisruptionBudget that were created for a client to hold its nodes.
     """
-    name = f"{component}-{client_name}"
+    client_hash = md5(client_name.encode()).hexdigest()
+    name = f"{component}-{client_hash}"
     logger.info(f"Releasing nodes for client {client_name} in namespace {namespace}")
 
     async with async_kube_api() as (apps, _, _, _):
