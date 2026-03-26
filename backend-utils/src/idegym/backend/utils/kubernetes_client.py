@@ -242,6 +242,7 @@ async def deploy_server(
 
     image_pull_secret = V1LocalObjectReference(name="regcred")
     annotations = {
+        "cluster-autoscaler.kubernetes.io/safe-to-evict": "false",
         "prometheus.io/scrape": "true",
         "prometheus.io/path": API_BASE_PATH + ActuatorPath.METRICS,
         "prometheus.io/port": str(port.container_port),
