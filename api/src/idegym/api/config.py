@@ -161,6 +161,10 @@ class OrchestratorConfig(BaseModel):
     connection_limits: ConnectionLimitsConfig = Field(
         description="Connection limits configuration", default_factory=ConnectionLimitsConfig
     )
+    enable_fifo_server_reuse: bool = Field(
+        description="Enable FIFO queue for server reuse to ensure fair provisioning",
+        default=False,
+    )
 
     @field_validator("prometheus_multiproc_dir")
     def validate_prometheus_multiproc_dir(cls, value: str) -> str:

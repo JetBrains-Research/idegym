@@ -145,7 +145,9 @@ async def check_resources_and_save_server_in_db(
 
 
 @with_db_session
-async def find_matching_finished_server_in_db(db: AsyncSession, request: StartServerRequest):
+async def find_matching_finished_server_in_db(
+    db: AsyncSession, request: StartServerRequest, enable_fifo_check: bool = False
+):
     client_name = await get_client_name(db, request.client_id)
     if not client_name:
         raise HTTPException(
@@ -153,14 +155,26 @@ async def find_matching_finished_server_in_db(db: AsyncSession, request: StartSe
         )
 
     # First, check if there's an existing finished server we can reuse
-    existing_server = await find_matching_finished_server(
-        db, client_name, request.server_name, request.image_tag, request.runtime_class_name, request.run_as_root
+    lookup_result = await find_matching_finished_server(
+        db=db,
+        client_name=client_name,
+        server_name=request.server_name,
+        image_tag=request.image_tag,
+        container_runtime=request.runtime_class_name,
+        run_as_root=request.run_as_root,
+        enable_fifo_check=enable_fifo_check,
     )
 
-    if existing_server:
-        logger.info(f"Found existing finished server {existing_server.generated_name} that can be reused")
+    if lookup_result.server:
+        logger.info(f"Found existing finished server {lookup_result.server.generated_name} that can be reused")
+    elif lookup_result.blocked_by_fifo:
+        # Server exists but blocked by FIFO queue
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Server reuse blocked due to pending START_SERVER operations scheduled earlier (FIFO queue)",
+        )
 
-    return existing_server, client_name
+    return lookup_result.server, client_name
 
 
 @with_db_session
