@@ -324,7 +324,12 @@ async def get_idegym_servers_by_status(db: AsyncSession, statuses: Set[Availabil
 
 
 async def find_matching_finished_server(
-    db: AsyncSession, client_name: str, server_name: Optional[str], image_tag: str, container_runtime: Optional[str], run_as_root: bool
+    db: AsyncSession,
+    client_name: str,
+    server_name: Optional[str],
+    image_tag: str,
+    container_runtime: Optional[str],
+    run_as_root: bool,
 ) -> Optional[IdeGYMServer]:
     """Find a finished server that matches the given criteria."""
     query = select(IdeGYMServer).filter(
