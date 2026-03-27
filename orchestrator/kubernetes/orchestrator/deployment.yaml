@@ -64,6 +64,18 @@ spec:
               value: orchestrator
             - name: IDEGYM_OTEL_TRACING_ENDPOINT
               value: "http://tempo:4318/v1/traces"
+            - name: IDEGYM_OTEL_TRACING_AUTH_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: tracing
+                  key: username
+                  optional: true
+            - name: IDEGYM_OTEL_TRACING_AUTH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: tracing
+                  key: password
+                  optional: true
             - name: POSTGRES_HOST
               value: postgresql
             - name: POSTGRES_PORT
