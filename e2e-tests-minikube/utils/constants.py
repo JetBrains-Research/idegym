@@ -22,7 +22,5 @@ DEFAULT_CHECK_INTERVAL = 2
 HEALTH_CHECK_INTERVAL = 10
 
 # Pod labels
-APP_LABEL_KEY = "app.kubernetes.io/name"
-APP_LABEL_KEY_LEGACY = "app"
 ORCHESTRATOR_APP_LABEL = "orchestrator"
 SERVER_CONTAINER_NAME = "server"

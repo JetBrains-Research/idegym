@@ -322,7 +322,6 @@ DEFAULT_REQUEST_TIMEOUT = 60
 DEFAULT_SERVER_START_TIMEOUT = 600
 
 # Pod labels
-APP_LABEL_KEY = "app.kubernetes.io/name"
 ORCHESTRATOR_APP_LABEL = "orchestrator"
 SERVER_CONTAINER_NAME = "server"
 ```

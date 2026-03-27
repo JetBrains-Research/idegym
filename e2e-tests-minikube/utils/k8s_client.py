@@ -319,27 +319,3 @@ def delete_pod_disruption_budget(namespace: str, pdb_name: str) -> None:
                 raise
 
     _run_async(_with_clients(_op))
-
-
-def delete_replicasets_by_selector(namespace: str, selector: str) -> None:
-    async def _op(_core: CoreV1Api, apps: AppsV1Api, _policy: PolicyV1Api) -> None:
-        replica_sets = await _await_api_result(
-            apps.list_namespaced_replica_set(namespace=namespace, label_selector=selector)
-        )
-        for replica_set in replica_sets.items or []:
-            replica_set_name = replica_set.metadata.name if replica_set.metadata else None
-            if not replica_set_name:
-                continue
-            try:
-                await _await_api_result(
-                    apps.delete_namespaced_replica_set(
-                        name=replica_set_name,
-                        namespace=namespace,
-                        body=V1DeleteOptions(),
-                    ),
-                )
-            except ApiException as exc:
-                if exc.status != 404:
-                    raise
-
-    _run_async(_with_clients(_op))

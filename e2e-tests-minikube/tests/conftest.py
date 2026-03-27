@@ -81,8 +81,6 @@ def cleanup_servers():
         k8s_client.delete_deployment(namespace=DEFAULT_NAMESPACE, deployment_name=deployment_name)
         k8s_client.delete_services(namespace=DEFAULT_NAMESPACE, service_names=[f"{deployment_name}-service"])
         k8s_client.delete_pod_disruption_budget(namespace=DEFAULT_NAMESPACE, pdb_name=f"{deployment_name}-pdb")
-        for selector in (f"app={deployment_name}", f"app.kubernetes.io/name={deployment_name}"):
-            k8s_client.delete_replicasets_by_selector(namespace=DEFAULT_NAMESPACE, selector=selector)
 
     logger.info(f"✓ Server resources cleaned up ({len(deployment_names)} servers)")
 
