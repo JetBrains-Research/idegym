@@ -1,5 +1,4 @@
 from asyncio import create_task, sleep, timeout
-from hashlib import md5
 from os import environ as env
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Union
@@ -14,6 +13,7 @@ from idegym.orchestrator.database.database import get_db_session, save_job_statu
 from idegym.utils import __version__
 from idegym.utils.dict import walk
 from idegym.utils.dockerfile import render_dockerfile
+from idegym.utils.hashing import md5
 from idegym.utils.logging import get_logger
 from idegym.utils.path import get_base_filename
 from yaml import safe_load as parse
@@ -38,11 +38,8 @@ class IdeGYMKanikoDockerAPI:
 
     @staticmethod
     def hash(project: GitRepositorySnapshot | GitRepositoryResource) -> str:
-        digest = md5()
         identifiers = [str(value) for value in walk(project.model_dump()) if value is not None]
-        for identifier in identifiers:
-            digest.update(identifier.encode())
-        return digest.hexdigest()
+        return md5(*identifiers)
 
     @staticmethod
     def labels(value: GitRepositoryResource | GitRepositorySnapshot) -> Dict[str, str]:

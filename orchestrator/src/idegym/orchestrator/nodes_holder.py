@@ -1,4 +1,3 @@
-from hashlib import md5
 from http import HTTPStatus
 from typing import Awaitable, Callable, Optional, TypeVar
 from uuid import UUID
@@ -6,6 +5,7 @@ from uuid import UUID
 from idegym.api import __version__
 from idegym.backend.utils.kubernetes_client import async_kube_api, delete_with_retries, wait_for_pods_ready
 from idegym.orchestrator.database.helpers import need_to_release_nodes_for_client
+from idegym.utils.hashing import md5
 from idegym.utils.logging import get_logger
 from kubernetes_asyncio.client import (
     ApiException,
@@ -89,8 +89,7 @@ async def spin_up_or_update_nodes_for_client(
 
     logger.info(f"Spinning up {nodes_count} nodes for client {client_name} in namespace {namespace}")
 
-    # Create a unique name for the deployment based on client ID
-    client_hash = md5(client_name.encode()).hexdigest()
+    client_hash = md5(client_name)
     name = f"{component}-{client_hash}"
     annotations = {
         "cluster-autoscaler.kubernetes.io/safe-to-evict": "false",
@@ -229,7 +228,7 @@ async def release_nodes_for_client(
     """
     Delete the deployment and PodDisruptionBudget that were created for a client to hold its nodes.
     """
-    client_hash = md5(client_name.encode()).hexdigest()
+    client_hash = md5(client_name)
     name = f"{component}-{client_hash}"
     logger.info(f"Releasing nodes for client {client_name} in namespace {namespace}")
 
