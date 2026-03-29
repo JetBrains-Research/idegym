@@ -79,14 +79,17 @@ class DockerService:
 
     def build(
         self,
-        request: DownloadRequest,
+        request: Optional[DownloadRequest],
         image_version: str,
-        image_base: str = BaseImage.DEFAULT.value,
+        image_base: Optional[str] = BaseImage.DEFAULT.value,
         service_version: str = library_version,
         commands: Union[None, str, Iterable[str]] = None,
         labels: Optional[Dict[str, str]] = None,
         registry: Optional[str] = None,
+        image_name: Optional[str] = None,
+        context_path: str = ".",
         platforms: Optional[List[str]] = None,
+        dockerfile_content: Optional[str] = None,
     ) -> Image:
         # Coerce commands into `str`
         commands: Union[str, Iterable[str]] = [] if commands is None else commands
@@ -94,26 +97,38 @@ class DockerService:
         # Coerce platforms into either None or a non-empty list
         platforms = None if not platforms else platforms
         labels = {} if labels is None else labels
-        rendered = render_dockerfile(commands=commands)
-        with NamedTemporaryFile(mode="w", prefix="Dockerfile.", delete=True) as dockerfile:
+        rendered = dockerfile_content if dockerfile_content is not None else render_dockerfile(commands=commands)
+        temporary_dir = context_path if context_path != "." else None
+        with NamedTemporaryFile(mode="w", prefix="Dockerfile.", dir=temporary_dir, delete=True) as dockerfile:
             dockerfile.write(rendered)
             dockerfile.flush()
 
-            image_name = get_base_filename(request.descriptor.name)
-            tag = f"{self._registry}/{image_name}:{image_version}"
+            resolved_image_name = image_name or (
+                get_base_filename(request.descriptor.name) if request is not None else None
+            )
+            if resolved_image_name is None:
+                raise ValueError("Image name is required when build request is not provided")
+
+            tag = f"{self._registry}/{resolved_image_name}:{image_version}"
             build_args = {
-                "IDEGYM_BASE": image_base,
                 "IDEGYM_REGISTRY": registry,
                 "IDEGYM_VERSION": service_version,
-                "IDEGYM_PROJECT_ARCHIVE_URL": request.descriptor.url,
-                "IDEGYM_PROJECT_ARCHIVE_PATH": request.descriptor.name,
-                "IDEGYM_AUTH_TYPE": request.auth.type,
-                "IDEGYM_AUTH_TOKEN": request.auth.token,
             }
+            if request is not None:
+                build_args.update(
+                    {
+                        "IDEGYM_PROJECT_ARCHIVE_URL": request.descriptor.url,
+                        "IDEGYM_PROJECT_ARCHIVE_PATH": request.descriptor.name,
+                        "IDEGYM_AUTH_TYPE": request.auth.type,
+                        "IDEGYM_AUTH_TOKEN": request.auth.token,
+                    }
+                )
+            if image_base is not None:
+                build_args["IDEGYM_BASE"] = image_base
 
             build_args = {k: v for k, v in build_args.items() if v is not None}  # Filter None args
             logs: Iterable[str] = self._client.build(
-                context_path=".",
+                context_path=context_path,
                 file=dockerfile.name,
                 tags=[tag],
                 build_args=build_args,

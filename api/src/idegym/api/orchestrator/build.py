@@ -1,9 +1,8 @@
 from typing import List
 
+from idegym.api.image_build import parse_image_build_pipeline
 from idegym.api.orchestrator.jobs import JobPollResult
 from pydantic import BaseModel, Field, field_validator, model_validator
-from yaml import YAMLError
-from yaml import safe_load as parse_yaml
 
 
 class BuildFromYamlRequest(BaseModel):
@@ -13,9 +12,9 @@ class BuildFromYamlRequest(BaseModel):
     @field_validator("yaml_content")
     def validate_yaml_content(cls, value: str) -> str:
         try:
-            parse_yaml(value)
+            parse_image_build_pipeline(value)
             return value
-        except YAMLError as ex:
+        except Exception as ex:
             raise ValueError("Yaml content is not valid") from ex
 
 

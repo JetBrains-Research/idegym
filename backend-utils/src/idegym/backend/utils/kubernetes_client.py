@@ -678,11 +678,12 @@ async def build_and_push_image_with_kaniko(
         "--dockerfile=/workspace/Dockerfile",
         f"--destination={tag}",
         "--context=dir:///workspace",
-        f"--build-arg=IDEGYM_BASE={base}",
         f"--build-arg=IDEGYM_VERSION={service_version}",
         f"--build-arg=IDEGYM_PROJECT_ARCHIVE_URL={request.descriptor.url}",
         f"--build-arg=IDEGYM_PROJECT_ARCHIVE_PATH={request.descriptor.name}",
     ]
+    if base is not None:
+        kaniko_args.append(f"--build-arg=IDEGYM_BASE={base}")
 
     if request.auth.type is not None:
         kaniko_args.append(f"--build-arg=IDEGYM_AUTH_TYPE={request.auth.type}")

@@ -618,12 +618,14 @@ version = "0.0.0.dev0"
 source = { editable = "api" }
 dependencies = [
     { name = "pydantic" },
+    { name = "pyyaml" },
     { name = "structlog" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "pydantic", specifier = ">=2.10.6" },
+    { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "structlog", specifier = ">=25.4.0" },
 ]
 
