@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 from shlex import quote
-from typing import Mapping, Optional
+from typing import ClassVar, Mapping, Optional
 
 from idegym.api.download import Authorization, DownloadRequest
 from idegym.api.git import GitRepository, GitRepositoryResource, GitRepositorySnapshot
@@ -21,9 +21,6 @@ DEFAULT_BASE_SYSTEM_PACKAGES = (
     "netcat-openbsd",
     "sudo",
 )
-
-IDEGYM_SERVER_WORKSPACE_FILES = (".python-version", "pyproject.toml", "supervisord.conf", "uv.lock")
-IDEGYM_SERVER_WORKSPACE_DIRS = ("api", "backend-utils", "common-utils", "rewards", "tools", "server")
 
 
 def _build_image_labels(value: GitRepository | GitRepositorySnapshot | GitRepositoryResource) -> dict[str, str]:
@@ -306,6 +303,10 @@ class Project(PluginBase):
 
 @dataclass(frozen=True, slots=True)
 class IdegymServer(PluginBase):
+    UV_IMAGE: ClassVar[str] = "ghcr.io/astral-sh/uv:0.10.11"
+    WORKSPACE_FILES: ClassVar[tuple[str, ...]] = (".python-version", "pyproject.toml", "supervisord.conf", "uv.lock")
+    WORKSPACE_DIRS: ClassVar[tuple[str, ...]] = ("api", "backend-utils", "common-utils", "rewards", "tools", "server")
+
     source: str
     root: Optional[str] = None
     url: Optional[str] = None
@@ -336,7 +337,7 @@ class IdegymServer(PluginBase):
 
         return "\n".join(
             [
-                "COPY --from=ghcr.io/astral-sh/uv:0.10.11 /uv /uvx /bin/",
+                f"COPY --from={self.UV_IMAGE} /uv /uvx /bin/",
                 "",
                 "ENV IDEGYM_PATH=/opt/idegym \\",
                 "    PYTHONDONTWRITEBYTECODE=0 \\",
@@ -361,8 +362,8 @@ class IdegymServer(PluginBase):
                 f"USER {user}",
                 "WORKDIR $IDEGYM_PATH",
                 "",
-                f"COPY --chown={user}:{group} {' '.join(IDEGYM_SERVER_WORKSPACE_FILES)} ./",
-                *(f"COPY --chown={user}:{group} {path} {path}/" for path in IDEGYM_SERVER_WORKSPACE_DIRS),
+                f"COPY --chown={user}:{group} {' '.join(self.WORKSPACE_FILES)} ./",
+                *(f"COPY --chown={user}:{group} {path} {path}/" for path in self.WORKSPACE_DIRS),
                 "",
                 "RUN set -eux; \\",
                 "    uv python install; \\",
