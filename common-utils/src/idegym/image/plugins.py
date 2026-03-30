@@ -9,19 +9,6 @@ from idegym.api.type import AuthType
 
 from .plugin import BuildContext, Plugin, PluginBase
 
-DEFAULT_BASE_SYSTEM_PACKAGES = (
-    "bash",
-    "ca-certificates",
-    "coreutils",
-    "curl",
-    "dumb-init",
-    "findutils",
-    "fontconfig",
-    "git",
-    "netcat-openbsd",
-    "sudo",
-)
-
 
 def _build_image_labels(value: GitRepository | GitRepositorySnapshot | GitRepositoryResource) -> dict[str, str]:
     match value:
@@ -60,7 +47,20 @@ def _build_authorization(
 
 @dataclass(frozen=True, slots=True)
 class BaseSystem(PluginBase):
-    packages: tuple[str, ...] = field(default_factory=lambda: DEFAULT_BASE_SYSTEM_PACKAGES)
+    DEFAULT_PACKAGES: ClassVar[tuple[str, ...]] = (
+        "bash",
+        "ca-certificates",
+        "coreutils",
+        "curl",
+        "dumb-init",
+        "findutils",
+        "fontconfig",
+        "git",
+        "netcat-openbsd",
+        "sudo",
+    )
+
+    packages: tuple[str, ...] = field(default_factory=lambda: BaseSystem.DEFAULT_PACKAGES)
 
     def render(self, ctx: BuildContext) -> str:
         if not self.packages:
@@ -392,7 +392,6 @@ class IdegymServer(PluginBase):
 __all__ = [
     "BuildContext",
     "BaseSystem",
-    "DEFAULT_BASE_SYSTEM_PACKAGES",
     "IdegymServer",
     "Permissions",
     "Plugin",
