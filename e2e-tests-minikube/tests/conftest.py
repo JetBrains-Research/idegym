@@ -11,7 +11,7 @@ from idegym.api.git import GitRepositorySnapshot
 from idegym.client import IdeGYMDockerAPI
 from idegym.utils.logging import get_logger
 from utils import k8s_client
-from utils.constants import DEFAULT_NAMESPACE, ORCHESTRATOR_APP_LABEL, SERVER_CONTAINER_NAME
+from utils.constants import DEFAULT_NAMESPACE, ORCHESTRATOR_APP_LABEL
 from utils.idegym_utils import generate_test_id
 from utils.k8s_setup import wait_for_service
 
@@ -51,31 +51,12 @@ def cleanup_servers():
     """Delete server deployments in the test namespace."""
     logger.info("Cleaning up server deployments after test...")
 
-    try:
-        pods = k8s_client.list_pods(namespace=DEFAULT_NAMESPACE)
-    except Exception as exc:
-        logger.warning(f"Could not list pods for cleanup: {exc}")
-        return
+    label_selector = "app.kubernetes.io/component=sandbox"
+    deployment_names = k8s_client.list_deployment_names(namespace=DEFAULT_NAMESPACE, label_selector=label_selector)
 
-    if not pods:
+    if not deployment_names:
         logger.info("✓ No server deployments to clean up")
         return
-
-    deployment_names: set[str] = set()
-
-    # Find pods with container named "server"
-    for pod in pods:
-        containers = pod.spec.containers if pod.spec else []
-        has_server_container = any(
-            container.name == SERVER_CONTAINER_NAME for container in containers if container.name
-        )
-
-        if has_server_container:
-            pod_name = pod.metadata.name if pod.metadata and pod.metadata.name else ""
-            # Pod name format: {deployment-name}-{replicaset-hash}-{pod-hash}
-            parts = pod_name.rsplit("-", 2)
-            if len(parts) >= 3:
-                deployment_names.add(parts[0])
 
     for deployment_name in deployment_names:
         k8s_client.delete_deployment(namespace=DEFAULT_NAMESPACE, deployment_name=deployment_name)
@@ -112,7 +93,7 @@ def redeploy_orchestrator():
 
 @pytest.fixture(autouse=True)
 def cleanup_after_test():
-    """Automatically cleanup server pods and redeploy orchestrator/database after each test."""
+    """Automatically cleanup server deployments and redeploy orchestrator/database after each test."""
     yield
     cleanup_servers()
     redeploy_orchestrator()

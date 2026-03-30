@@ -23,4 +23,3 @@ HEALTH_CHECK_INTERVAL = 10
 
 # Pod labels
 ORCHESTRATOR_APP_LABEL = "orchestrator"
-SERVER_CONTAINER_NAME = "server"

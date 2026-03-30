@@ -260,6 +260,16 @@ def wait_for_pods_deleted(
     return False
 
 
+def list_deployment_names(namespace: str, label_selector: str | None = None) -> list[str]:
+    async def _op(_core: CoreV1Api, apps: AppsV1Api, _policy: PolicyV1Api) -> list[str]:
+        response = await _await_api_result(
+            apps.list_namespaced_deployment(namespace=namespace, label_selector=label_selector),
+        )
+        return [item.metadata.name for item in (response.items or []) if item.metadata and item.metadata.name]
+
+    return _run_async(_with_clients(_op))
+
+
 def delete_deployment(namespace: str, deployment_name: str) -> None:
     async def _op(_core: CoreV1Api, apps: AppsV1Api, _policy: PolicyV1Api) -> None:
         try:
