@@ -6,10 +6,13 @@ Integration tests for IdeGYM that run on a local minikube cluster without requir
 
 ### 1. Install Required Tools
 
-Install Docker, kubectl, minikube, and uv:
+Install Docker, kubectl, minikube, and uv.
+For Docker, install either Docker Desktop or the Docker formula:
 
 ```bash
-brew install --cask docker
+brew install --cask docker-desktop
+# or
+brew install docker
 brew install kubernetes-cli minikube uv
 ```
 
