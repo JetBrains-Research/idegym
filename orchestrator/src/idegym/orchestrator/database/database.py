@@ -1,4 +1,5 @@
 import asyncio
+import json
 from contextlib import asynccontextmanager
 from typing import Any, List, NamedTuple, Optional, Set, cast
 from uuid import UUID
@@ -323,6 +324,64 @@ async def get_idegym_servers_by_status(db: AsyncSession, statuses: Set[Availabil
     return result.scalars().all()
 
 
+async def has_pending_start_server_operations(
+    db: AsyncSession,
+    client_name: str,
+    image_tag: str,
+    container_runtime: str,
+    run_as_root: bool,
+    server_name: Optional[str] = None,
+    scheduled_before: Optional[int] = None,
+) -> bool:
+    """Check if there are SCHEDULED START_SERVER operations for matching servers scheduled before given time."""
+    if scheduled_before is None:
+        scheduled_before = current_time_millis()
+
+    # First, get the client by name to get its ID
+    client_result = await db.execute(select(Client).filter(Client.name == client_name))
+    client = client_result.scalar_one_or_none()
+
+    if not client:
+        # No client with this name, so no pending operations
+        return False
+
+    # Build query to find SCHEDULED START_SERVER operations for this client
+    query = select(AsyncOperation).filter(
+        AsyncOperation.request_type == AsyncOperationType.START_SERVER,
+        AsyncOperation.status == AsyncOperationStatus.SCHEDULED,
+        AsyncOperation.scheduled_at < scheduled_before,
+        AsyncOperation.client_id == client.id,
+    )
+
+    result = await db.execute(query)
+    operations = result.scalars().all()
+
+    # Check if any operation matches our server criteria
+    for op in operations:
+        if op.request:
+            try:
+                request_data = json.loads(op.request)
+                # Match the server criteria from the request
+                # Note: StartServerRequest has runtime_class_name, not container_runtime
+                if (
+                    request_data.get("image_tag") == image_tag
+                    and request_data.get("runtime_class_name") == container_runtime
+                    and request_data.get("run_as_root") == run_as_root
+                ):
+                    # If server_name is specified, it must match too
+                    if server_name is None or request_data.get("server_name") == server_name:
+                        return True
+            except (json.JSONDecodeError, KeyError):
+                continue
+
+    return False
+
+
+class ServerReuseLookupResult(NamedTuple):
+    server: Optional[IdeGYMServer]
+    blocked_by_fifo: bool
+
+
 async def find_matching_finished_server(
     db: AsyncSession,
     client_name: str,
@@ -330,33 +389,63 @@ async def find_matching_finished_server(
     image_tag: str,
     container_runtime: Optional[str],
     run_as_root: bool,
-) -> Optional[IdeGYMServer]:
-    """Find a finished server that matches the given criteria."""
-    query = select(IdeGYMServer).filter(
-        IdeGYMServer.client_name == client_name,
-        IdeGYMServer.image_tag == image_tag,
-        IdeGYMServer.availability == AvailabilityStatus.FINISHED,
-        IdeGYMServer.container_runtime == container_runtime,
-        IdeGYMServer.run_as_root == run_as_root,
-    )
+    enable_fifo_check: bool = False,
+) -> ServerReuseLookupResult:
+    """Find a finished server that matches the given criteria.
 
-    # If server_name is provided, filter by it
-    if server_name:
-        query = query.filter(IdeGYMServer.server_name == server_name)
+    Returns:
+        ServerReuseLookupResult with:
+        - server: The matched server if found and not blocked, None otherwise
+        - blocked_by_fifo: True if server exists but blocked by pending operations, False otherwise
+    """
 
-    # 1. Use SKIP LOCKED to prevent workers from blocking each other but lock selected rows
-    # 2. Order by last_heartbeat_time to get the freshest reusable server
-    query = query.order_by(IdeGYMServer.last_heartbeat_time.desc()).limit(1).with_for_update(skip_locked=True)
+    # Build base query for finished servers matching criteria
+    def build_query(with_lock: bool = False):
+        query = select(IdeGYMServer).filter(
+            IdeGYMServer.client_name == client_name,
+            IdeGYMServer.image_tag == image_tag,
+            IdeGYMServer.availability == AvailabilityStatus.FINISHED,
+            IdeGYMServer.container_runtime == container_runtime,
+            IdeGYMServer.run_as_root == run_as_root,
+        )
+        if server_name:
+            query = query.filter(IdeGYMServer.server_name == server_name)
 
-    # Return the first matching server (most recently finished)
-    result = await db.execute(query)
+        if with_lock:
+            # Use SKIP LOCKED to prevent workers from blocking each other but lock selected rows
+            # Order by last_heartbeat_time to get the freshest reusable server
+            query = query.order_by(IdeGYMServer.last_heartbeat_time.desc()).limit(1).with_for_update(skip_locked=True)
+        else:
+            query = query.limit(1)
+
+        return query
+
+    # FIFO queue check: if enabled, check for pending START_SERVER operations
+    if enable_fifo_check:
+        has_pending = await has_pending_start_server_operations(
+            db=db,
+            client_name=client_name,
+            image_tag=image_tag,
+            container_runtime=container_runtime,
+            run_as_root=run_as_root,
+            server_name=server_name,
+        )
+        if has_pending:
+            # Check if there's actually a finished server available (that we're blocking)
+            result = await db.execute(build_query(with_lock=False))
+            has_finished_server = result.scalar_one_or_none() is not None
+            # Return blocked status only if there's actually a server to block
+            return ServerReuseLookupResult(server=None, blocked_by_fifo=has_finished_server)
+
+    # Execute query with locking to claim the server
+    result = await db.execute(build_query(with_lock=True))
     server = result.scalar_one_or_none()
 
     if server:
         server.last_heartbeat_time = current_time_millis()
         server.availability = AvailabilityStatus.REUSED
         await db.commit()
-    return server
+    return ServerReuseLookupResult(server=server, blocked_by_fifo=False)
 
 
 async def save_idegym_server(

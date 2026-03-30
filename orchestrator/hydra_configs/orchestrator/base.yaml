@@ -41,3 +41,5 @@ watcher:
   finished_timeout: ${oc.env:IDEGYM_WATCHER_FINISHED_TIMEOUT, "PT5M"}
   request_max_age: ${oc.env:IDEGYM_WATCHER_REQUEST_MAX_AGE, "P14D"}
   request_stale: ${oc.env:IDEGYM_WATCHER_REQUEST_STALE, "PT24H"}
+
+enable_fifo_server_reuse: ${oc.env:IDEGYM_ENABLE_FIFO_SERVER_REUSE, "False"}

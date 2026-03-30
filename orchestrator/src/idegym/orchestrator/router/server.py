@@ -139,12 +139,6 @@ async def _task_start_server(config: Config, request: StartServerRequest, async_
     server_image_tag = None
 
     try:
-        await update_operation_status(
-            async_operation_id=async_operation_id,
-            async_operation_status=AsyncOperationStatus.IN_PROGRESS,
-            orchestrator_pod=env.get("__POD_NAME"),
-        )
-
         cpu_request, ram_request = extract_resources_request(config, request)
 
         existing_server = None
@@ -152,9 +146,19 @@ async def _task_start_server(config: Config, request: StartServerRequest, async_
         used_reset_reuse = False
 
         if request.reuse_strategy in (ServerReuseStrategy.RESTART, ServerReuseStrategy.RESET):
-            existing_server, client_name_from_request = await find_matching_finished_server_in_db(request=request)
+            enable_fifo = config.orchestrator.enable_fifo_server_reuse
+            existing_server, client_name_from_request = await find_matching_finished_server_in_db(
+                request=request, enable_fifo_check=enable_fifo
+            )
             if request.reuse_strategy == ServerReuseStrategy.RESET:
                 used_reset_reuse = existing_server is not None
+
+        # Mark as IN_PROGRESS only after FIFO check passes (to allow other requests to see this as SCHEDULED)
+        await update_operation_status(
+            async_operation_id=async_operation_id,
+            async_operation_status=AsyncOperationStatus.IN_PROGRESS,
+            orchestrator_pod=env.get("__POD_NAME"),
+        )
 
         client_name = client_name_from_request
 

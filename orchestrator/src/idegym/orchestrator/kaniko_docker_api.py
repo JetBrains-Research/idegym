@@ -1,5 +1,4 @@
 from asyncio import create_task, sleep, timeout
-from hashlib import md5
 from os import environ as env
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Union
@@ -9,11 +8,12 @@ from idegym.api.docker import BaseImage
 from idegym.api.download import Authorization, DownloadRequest
 from idegym.api.git import GitRepositoryResource, GitRepositorySnapshot
 from idegym.api.status import Status
-from idegym.backend.utils.kubernetes_client import build_and_push_image_with_kaniko, clean_up_after_job, get_job_status
+from idegym.backend.utils.kubernetes_client import build_and_push_image_with_kaniko, get_job_status
 from idegym.orchestrator.database.database import get_db_session, save_job_status, update_job_status
 from idegym.utils import __version__
 from idegym.utils.dict import walk
 from idegym.utils.dockerfile import render_dockerfile
+from idegym.utils.hashing import md5
 from idegym.utils.logging import get_logger
 from idegym.utils.path import get_base_filename
 from yaml import safe_load as parse
@@ -38,11 +38,8 @@ class IdeGYMKanikoDockerAPI:
 
     @staticmethod
     def hash(project: GitRepositorySnapshot | GitRepositoryResource) -> str:
-        digest = md5()
         identifiers = [str(value) for value in walk(project.model_dump()) if value is not None]
-        for identifier in identifiers:
-            digest.update(identifier.encode())
-        return digest.hexdigest()
+        return md5(*identifiers)
 
     @staticmethod
     def labels(value: GitRepositoryResource | GitRepositorySnapshot) -> Dict[str, str]:
@@ -128,8 +125,6 @@ class IdeGYMKanikoDockerAPI:
                 )
                 async with get_db_session() as db:
                     await update_job_status(db, job_name, status=Status.FAILURE, tag=tag, request_id=request_id)
-
-            await clean_up_after_job(job_name, self._namespace)
         except Exception:
             logger.exception(f"Error monitoring job '{job_name}'. Request ID: {request_id}")
             try:

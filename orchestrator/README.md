@@ -123,7 +123,7 @@ Start a Kubernetes deployment for an IdeGYM server.
   "server_id": 1,  // Integer, auto-incrementing
   "server_name": "your-server-name",  // Optional, may be null
   "generated_name": "your-server-name-1",  // Automatically generated name
-  "service_name": "your-server-name-1-service"
+  "service_name": "your-server-name-1"
 }
 ```
 

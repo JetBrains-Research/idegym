@@ -1,8 +1,9 @@
 from asyncio import CancelledError, gather, sleep, timeout
 from contextlib import asynccontextmanager
+from random import getrandbits
 from typing import Any, AsyncGenerator, Awaitable, Callable, Dict, Iterable, Optional, Tuple, Union
-from uuid import uuid4
 
+from idegym.api import __version__
 from idegym.api.download import DownloadRequest
 from idegym.api.exceptions import ResourceDeletionFailedException
 from idegym.api.paths import API_BASE_PATH, ActuatorPath
@@ -35,6 +36,7 @@ from kubernetes_asyncio.client import (
     V1LocalObjectReference,
     V1ObjectFieldSelector,
     V1ObjectMeta,
+    V1OwnerReference,
     V1PodDisruptionBudget,
     V1PodDisruptionBudgetList,
     V1PodDisruptionBudgetSpec,
@@ -172,10 +174,8 @@ async def deploy_server(
     image_tag: str,
     server_name: str,
     namespace: str,
-    container_name: str = "server",
     service_port: int = 80,
     container_port: int = 8000,
-    replicas_count: int = 1,
     runtime_class_name: Optional[str] = None,
     run_as_root: bool = False,
     node_selector: Optional[Dict[str, str]] = None,
@@ -188,100 +188,163 @@ async def deploy_server(
     Args:
         image_tag: Docker image tag
         server_name: Name for the server
-        container_name: Name for the container
         service_port: Service port
         container_port: Container port
         namespace: Kubernetes namespace
-        replicas_count: Number of replicas
         runtime_class_name: Kubernetes runtime class name
         run_as_root: Run container as root
+        node_selector: Node selector for deployment
         resources: Kubernetes resource requirements (can be a V1ResourceRequirements object or a dictionary)
         environment_variables: Environment variables to set in the container (can be a V1EnvVar object or a dictionary)
     """
-    logger.debug(f"Deploying {server_name} in namespace '{namespace}' with runtime class '{runtime_class_name}'.")
+    logger.debug(f"Deploying '{server_name}' in namespace '{namespace}' with runtime class '{runtime_class_name}'.")
 
-    container_ports = [V1ContainerPort(container_port=container_port)]
-    readiness_probe = V1Probe(
-        http_get=V1HTTPGetAction(path=API_BASE_PATH + ActuatorPath.HEALTH, port=container_port),
-        initial_delay_seconds=10,
-        period_seconds=3,
+    uid = 1000 if not run_as_root else None
+    security_context = V1SecurityContext(
+        run_as_non_root=not run_as_root,
+        run_as_user=uid,
+        run_as_group=uid,
     )
-
-    if run_as_root:
-        security_context = V1SecurityContext(run_as_user=0)
-    else:
-        security_context = V1SecurityContext(run_as_non_root=True, run_as_user=1000, run_as_group=1000)
 
     # Convert dictionary resources to V1ResourceRequirements if needed
     if resources and isinstance(resources, dict):
         resources = V1ResourceRequirements(**resources)
 
     # Convert environment variables to V1EnvVar objects if needed
-    env_vars = [
+    env = [
         environment_variable if isinstance(environment_variable, V1EnvVar) else to_env_var(environment_variable)
         for environment_variable in environment_variables
     ]
 
+    port = V1ContainerPort(
+        name="http",
+        container_port=container_port,
+        protocol="TCP",
+    )
+    readiness_probe = V1Probe(
+        http_get=V1HTTPGetAction(
+            path=API_BASE_PATH + ActuatorPath.HEALTH,
+            port=port.container_port,
+        ),
+        initial_delay_seconds=10,
+        period_seconds=3,
+    )
     container = V1Container(
-        name=container_name,
+        name="server",
         image=image_tag,
         image_pull_policy="IfNotPresent",
-        ports=container_ports,
+        ports=[port],
         readiness_probe=readiness_probe,
         security_context=security_context,
         resources=resources,
-        env=[*env_vars],
+        env=env,
     )
 
-    image_pull_secrets = [V1LocalObjectReference(name="regcred")]
-    pod_spec = V1PodSpec(
-        containers=[container],
-        image_pull_secrets=image_pull_secrets,
-        runtime_class_name=runtime_class_name,
-        node_selector=node_selector,
-    )
-
-    deployment_metadata = V1ObjectMeta(name=server_name)
-    template_metadata = V1ObjectMeta(
-        annotations={
-            "prometheus.io/scrape": "true",
-            "prometheus.io/path": API_BASE_PATH + ActuatorPath.METRICS,
-            "prometheus.io/port": str(container_port),
-            "prometheus.io/scheme": "http|https",
-        },
-        labels={
-            "app": server_name,
-        },
-    )
-    label_selector = V1LabelSelector(match_labels={"app": server_name})
-
-    template_spec = V1PodTemplateSpec(metadata=template_metadata, spec=pod_spec)
-
-    deployment_spec = V1DeploymentSpec(replicas=replicas_count, selector=label_selector, template=template_spec)
-
+    image_pull_secret = V1LocalObjectReference(name="regcred")
+    annotations = {
+        "cluster-autoscaler.kubernetes.io/safe-to-evict": "false",
+        "prometheus.io/scrape": "true",
+        "prometheus.io/path": API_BASE_PATH + ActuatorPath.METRICS,
+        "prometheus.io/port": str(port.container_port),
+    }
+    match_labels = {
+        "app": server_name,
+        "app.kubernetes.io/component": "sandbox",
+        "app.kubernetes.io/name": server_name,
+        "app.kubernetes.io/part-of": "idegym",
+    }
+    labels = {
+        **match_labels,
+        "app.kubernetes.io/version": __version__,
+    }
     deployment = V1Deployment(
-        api_version="apps/v1", kind="Deployment", metadata=deployment_metadata, spec=deployment_spec
+        api_version="apps/v1",
+        kind="Deployment",
+        metadata=V1ObjectMeta(
+            name=server_name,
+            labels=labels,
+        ),
+        spec=V1DeploymentSpec(
+            replicas=1,
+            selector=V1LabelSelector(
+                match_labels=match_labels,
+            ),
+            template=V1PodTemplateSpec(
+                metadata=V1ObjectMeta(
+                    annotations=annotations,
+                    labels=labels,
+                ),
+                spec=V1PodSpec(
+                    containers=[container],
+                    image_pull_secrets=[image_pull_secret],
+                    runtime_class_name=runtime_class_name,
+                    node_selector=node_selector,
+                ),
+            ),
+        ),
     )
 
-    service_metadata = V1ObjectMeta(name=f"{server_name}-service")
-    service_port_spec = V1ServicePort(protocol="TCP", port=service_port, target_port=container_port)
+    port = V1ServicePort(
+        port=service_port,
+        target_port=port.container_port,
+        protocol=port.protocol,
+        name=port.name,
+    )
+    service = V1Service(
+        api_version="v1",
+        kind="Service",
+        metadata=V1ObjectMeta(
+            name=server_name,
+            labels=labels,
+        ),
+        spec=V1ServiceSpec(
+            type="ClusterIP",
+            ports=[port],
+            selector=match_labels,
+        ),
+    )
 
-    service_spec = V1ServiceSpec(selector={"app": server_name}, ports=[service_port_spec], type="ClusterIP")
-
-    service = V1Service(api_version="v1", kind="Service", metadata=service_metadata, spec=service_spec)
-
-    # Create PodDisruptionBudget
-    pdb_metadata = V1ObjectMeta(name=f"{server_name}-pdb")
-    pdb_spec = V1PodDisruptionBudgetSpec(min_available=1, selector=V1LabelSelector(match_labels={"app": server_name}))
     pdb = V1PodDisruptionBudget(
-        api_version="policy/v1", kind="PodDisruptionBudget", metadata=pdb_metadata, spec=pdb_spec
+        api_version="policy/v1",
+        kind="PodDisruptionBudget",
+        metadata=V1ObjectMeta(
+            name=server_name,
+            labels=labels,
+        ),
+        spec=V1PodDisruptionBudgetSpec(
+            min_available=1,
+            selector=V1LabelSelector(
+                match_labels=match_labels,
+            ),
+        ),
     )
 
     async with async_kube_api() as (apps, _, core, policy):
-        # Create resources
-        await core.create_namespaced_service(namespace=namespace, body=service)
-        await apps.create_namespaced_deployment(namespace=namespace, body=deployment)
-        await policy.create_namespaced_pod_disruption_budget(namespace=namespace, body=pdb)
+        deployment = await apps.create_namespaced_deployment(
+            body=deployment,
+            namespace=namespace,
+        )
+
+        owner_reference = V1OwnerReference(
+            api_version=deployment.api_version,
+            kind=deployment.kind,
+            name=deployment.metadata.name,
+            uid=deployment.metadata.uid,
+        )
+
+        service.metadata.owner_references = [owner_reference]
+        pdb.metadata.owner_references = [owner_reference]
+
+        await gather(
+            core.create_namespaced_service(
+                body=service,
+                namespace=namespace,
+            ),
+            policy.create_namespaced_pod_disruption_budget(
+                body=pdb,
+                namespace=namespace,
+            ),
+        )
 
 
 async def wait_for_pods_ready(
@@ -543,51 +606,16 @@ async def clean_up_server(name: str, namespace: str, max_retries: int = 3):
         namespace: Kubernetes namespace
         max_retries: Maximum number of retry attempts for each operation
     """
-    async with async_kube_api() as (apps, _, core, policy):
-        delete_pdb = check_and_delete(
-            query_func=policy.list_namespaced_pod_disruption_budget,
-            delete_func=policy.delete_namespaced_pod_disruption_budget,
-            resource_name=f"{name}-pdb",
-            resource_type="pod disruption budget",
-            namespace=namespace,
-            max_retries=max_retries,
-        )
-
-        delete_service = check_and_delete(
-            query_func=core.list_namespaced_service,
-            delete_func=core.delete_namespaced_service,
-            resource_name=f"{name}-service",
-            resource_type="service",
-            namespace=namespace,
-            max_retries=max_retries,
-        )
-
-        delete_deployment = check_and_delete(
+    async with async_kube_api() as (apps, _, _, _):
+        if not await check_and_delete(
             query_func=apps.list_namespaced_deployment,
             delete_func=apps.delete_namespaced_deployment,
             resource_name=name,
             resource_type="deployment",
             namespace=namespace,
             max_retries=max_retries,
-        )
-
-        pdb_deleted, service_deleted, deployment_deleted = await gather(
-            delete_pdb,
-            delete_service,
-            delete_deployment,
-        )
-
-    # Report final status
-    failures = []
-    if not deployment_deleted:
-        failures.append(f"deployment '{name}'")
-    if not service_deleted:
-        failures.append(f"service '{name}-service'")
-    if not pdb_deleted:
-        failures.append(f"pod disruption budget '{name}-pdb'")
-
-    if len(failures) > 0:
-        raise ResourceDeletionFailedException(failures)
+        ):
+            raise ResourceDeletionFailedException(f"Failed to clean up deployment: {name}")
 
 
 async def restart_pods(name: str, namespace: str, wait_timeout: int = 60, max_retries: int = 3):
@@ -659,22 +687,8 @@ async def build_and_push_image_with_kaniko(
     Returns:
         The job name
     """
-    # Create a unique job name
-    job_name = f"kaniko-build-{uuid4().hex[:8]}"
-
-    dockerfile_config_map = V1ConfigMap(
-        metadata=V1ObjectMeta(name=f"{job_name}-dockerfile"), data={"Dockerfile": dockerfile_content}
-    )
-
-    env_vars = [
-        V1EnvVar(name="IDEGYM_VERSION", value=service_version),
-        V1EnvVar(name="IDEGYM_PROJECT_ARCHIVE_URL", value=request.descriptor.url),
-        V1EnvVar(name="IDEGYM_PROJECT_ARCHIVE_PATH", value=request.descriptor.name),
-        V1EnvVar(name="IDEGYM_AUTH_TYPE", value=request.auth.type),
-        V1EnvVar(name="IDEGYM_AUTH_TOKEN", value=request.auth.token),
-    ]
-
-    kaniko_args = [
+    name = f"kaniko-build-{getrandbits(32):08x}"  # Generate a unique job name
+    args = [
         "--dockerfile=/workspace/Dockerfile",
         f"--destination={tag}",
         "--context=dir:///workspace",
@@ -685,74 +699,165 @@ async def build_and_push_image_with_kaniko(
     ]
 
     if request.auth.type is not None:
-        kaniko_args.append(f"--build-arg=IDEGYM_AUTH_TYPE={request.auth.type}")
+        args.append(f"--build-arg=IDEGYM_AUTH_TYPE={request.auth.type}")
     if request.auth.token is not None:
-        kaniko_args.append(f"--build-arg=IDEGYM_AUTH_TOKEN={request.auth.token}")
+        args.append(f"--build-arg=IDEGYM_AUTH_TOKEN={request.auth.token}")
 
     if labels:
         for key, value in labels.items():
-            kaniko_args.append(f"--label={key}={value}")
+            args.append(f"--label={key}={value}")
 
     if resources and isinstance(resources, dict):
         resources = V1ResourceRequirements(**resources)
+    annotations = {
+        "cluster-autoscaler.kubernetes.io/safe-to-evict": "false",
+    }
+    match_labels = {
+        "app": name,
+        "app.kubernetes.io/component": "image-builder",
+        "app.kubernetes.io/name": name,
+        "app.kubernetes.io/part-of": "idegym",
+    }
+    labels = {
+        **match_labels,
+        "app.kubernetes.io/version": __version__,
+    }
+
+    configmap = V1ConfigMap(
+        metadata=V1ObjectMeta(
+            name=name,
+            labels=labels,
+        ),
+        data={
+            "Dockerfile": dockerfile_content,
+        },
+    )
 
     container = V1Container(
         name="kaniko",
-        image="gcr.io/kaniko-project/executor:latest",
-        args=kaniko_args,
-        env=env_vars,
+        image="gcr.io/kaniko-project/executor:v1.24.0",
+        args=args,
+        env=[
+            V1EnvVar(
+                name="IDEGYM_VERSION",
+                value=service_version,
+            ),
+            V1EnvVar(
+                name="IDEGYM_PROJECT_ARCHIVE_URL",
+                value=request.descriptor.url,
+            ),
+            V1EnvVar(
+                name="IDEGYM_PROJECT_ARCHIVE_PATH",
+                value=request.descriptor.name,
+            ),
+            V1EnvVar(
+                name="IDEGYM_AUTH_TYPE",
+                value=request.auth.type,
+            ),
+            V1EnvVar(
+                name="IDEGYM_AUTH_TOKEN",
+                value=request.auth.token,
+            ),
+        ],
         volume_mounts=[
-            V1VolumeMount(name="dockerfile-volume", mount_path="/workspace"),
-            V1VolumeMount(name="docker-config", mount_path="/kaniko/.docker"),
+            V1VolumeMount(
+                name="dockerfile-volume",
+                mount_path="/workspace",
+            ),
+            V1VolumeMount(
+                name="docker-config",
+                mount_path="/kaniko/.docker",
+            ),
         ],
         security_context=V1SecurityContext(run_as_user=0),
         resources=resources,
     )
 
-    pod_labels = {"app": job_name}
-
-    pod_spec = V1PodSpec(
-        containers=[container],
-        restart_policy="Never",
-        volumes=[
-            V1Volume(name="dockerfile-volume", config_map={"name": f"{job_name}-dockerfile"}),
-            V1Volume(
-                name="docker-config",
-                secret=V1SecretVolumeSource(
-                    secret_name="regcred",
-                    items=[{"key": ".dockerconfigjson", "path": "config.json"}],
-                ),
-            ),
-        ],
-        runtime_class_name=runtime_class_name,
-    )
-
     job = V1Job(
         api_version="batch/v1",
         kind="Job",
-        metadata=V1ObjectMeta(name=job_name),
+        metadata=V1ObjectMeta(
+            name=name,
+            labels=labels,
+        ),
         spec=V1JobSpec(
             template=V1PodTemplateSpec(
-                metadata=V1ObjectMeta(labels=pod_labels),
-                spec=pod_spec,
+                metadata=V1ObjectMeta(
+                    annotations=annotations,
+                    labels=labels,
+                ),
+                spec=V1PodSpec(
+                    containers=[container],
+                    restart_policy="Never",
+                    volumes=[
+                        V1Volume(
+                            name="dockerfile-volume",
+                            config_map={
+                                "name": configmap.metadata.name,
+                            },
+                        ),
+                        V1Volume(
+                            name="docker-config",
+                            secret=V1SecretVolumeSource(
+                                secret_name="regcred",
+                                items=[
+                                    {
+                                        "key": ".dockerconfigjson",
+                                        "path": "config.json",
+                                    },
+                                ],
+                            ),
+                        ),
+                    ],
+                    runtime_class_name=runtime_class_name,
+                ),
             ),
             backoff_limit=0,
             ttl_seconds_after_finished=ttl_seconds_after_finished,
         ),
     )
 
-    pdb_metadata = V1ObjectMeta(name=f"{job_name}-pdb")
-    pdb_spec = V1PodDisruptionBudgetSpec(min_available=1, selector=V1LabelSelector(match_labels=pod_labels))
     pdb = V1PodDisruptionBudget(
-        api_version="policy/v1", kind="PodDisruptionBudget", metadata=pdb_metadata, spec=pdb_spec
+        api_version="policy/v1",
+        kind="PodDisruptionBudget",
+        metadata=V1ObjectMeta(
+            name=name,
+            labels=labels,
+        ),
+        spec=V1PodDisruptionBudgetSpec(
+            min_available=1,
+            selector=V1LabelSelector(
+                match_labels=match_labels,
+            ),
+        ),
     )
 
     async with async_kube_api() as (_, batch, core, policy):
-        await core.create_namespaced_config_map(namespace=namespace, body=dockerfile_config_map)
-        await batch.create_namespaced_job(namespace=namespace, body=job)
-        await policy.create_namespaced_pod_disruption_budget(namespace=namespace, body=pdb)
+        job = await batch.create_namespaced_job(
+            body=job,
+            namespace=namespace,
+        )
 
-    return job_name
+        owner_reference = V1OwnerReference(
+            api_version=job.api_version,
+            kind=job.kind,
+            name=job.metadata.name,
+            uid=job.metadata.uid,
+        )
+        configmap.metadata.owner_references = [owner_reference]
+        pdb.metadata.owner_references = [owner_reference]
+
+        await gather(
+            core.create_namespaced_config_map(
+                body=configmap,
+                namespace=namespace,
+            ),
+            policy.create_namespaced_pod_disruption_budget(
+                body=pdb,
+                namespace=namespace,
+            ),
+        )
+        return name
 
 
 async def get_job_status(job_name: str, namespace: str) -> Status:
@@ -780,52 +885,3 @@ async def get_job_status(job_name: str, namespace: str) -> Status:
     except Exception as e:
         logger.error(f"Error getting job status: {e}")
         return Status.FAILURE
-
-
-async def clean_up_after_job(
-    name: str,
-    namespace: str,
-    max_retries: int = 3,
-):
-    """
-    Clean up resources created for a Kubernetes job.
-
-    This function deletes the ConfigMap and PodDisruptionBudget that were created for the job.
-    The ConfigMap is named with the pattern "{job_name}-dockerfile".
-    The PodDisruptionBudget is named with the pattern "{job_name}-pdb".
-
-    Args:
-        name: Name of the job
-        namespace: Kubernetes namespace where the job, ConfigMap, and PDB were created
-        max_retries: Maximum number of retry attempts for resource deletion
-    """
-    async with async_kube_api() as (_, _, core, policy):
-        delete_pdb = check_and_delete(
-            query_func=policy.list_namespaced_pod_disruption_budget,
-            delete_func=policy.delete_namespaced_pod_disruption_budget,
-            resource_name=f"{name}-pdb",
-            resource_type="pod disruption budget",
-            namespace=namespace,
-            max_retries=max_retries,
-        )
-
-        delete_config_map = check_and_delete(
-            query_func=core.list_namespaced_config_map,
-            delete_func=core.delete_namespaced_config_map,
-            resource_name=f"{name}-dockerfile",
-            resource_type="config map",
-            namespace=namespace,
-            max_retries=max_retries,
-        )
-
-        pdb_deleted, config_map_deleted = await gather(delete_pdb, delete_config_map)
-
-        if not pdb_deleted:
-            logger.warning(f"Failed to delete pod disruption budget '{name}-pdb'")
-            # We don't raise an exception here as this is a cleanup operation
-            # and failure shouldn't stop the main workflow
-
-        if not config_map_deleted:
-            logger.warning(f"Failed to delete config map '{name}-dockerfile'")
-            # We don't raise an exception here as this is a cleanup operation
-            # and failure shouldn't stop the main workflow
