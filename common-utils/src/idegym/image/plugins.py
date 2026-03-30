@@ -76,7 +76,7 @@ class BaseSystem(PluginBase):
                 "    apt-get clean; \\",
                 "    rm -rf /var/lib/apt/lists/*",
                 "",
-                "# Refresh system caches used by IDE tools",
+                "# Refresh system caches",
                 "RUN set -eux; \\",
                 "    fc-cache -f -v || true; \\",
                 "    update-ca-certificates",
