@@ -277,17 +277,6 @@ def delete_deployment(namespace: str, deployment_name: str) -> None:
     _run_async(_with_clients(_op))
 
 
-def delete_service(namespace: str, service_name: str) -> None:
-    async def _op(core: CoreV1Api, _apps: AppsV1Api, _policy: PolicyV1Api) -> None:
-        try:
-            await _await_api_result(core.delete_namespaced_service(name=service_name, namespace=namespace))
-        except ApiException as exc:
-            if exc.status != 404:
-                raise
-
-    _run_async(_with_clients(_op))
-
-
 def delete_services(namespace: str, service_names: list[str]) -> None:
     """Delete multiple services in a single API client session."""
     if not service_names:
@@ -300,22 +289,5 @@ def delete_services(namespace: str, service_names: list[str]) -> None:
             except ApiException as exc:
                 if exc.status != 404:
                     raise
-
-    _run_async(_with_clients(_op))
-
-
-def delete_pod_disruption_budget(namespace: str, pdb_name: str) -> None:
-    async def _op(_core: CoreV1Api, _apps: AppsV1Api, policy: PolicyV1Api) -> None:
-        try:
-            await _await_api_result(
-                policy.delete_namespaced_pod_disruption_budget(
-                    name=pdb_name,
-                    namespace=namespace,
-                    body=V1DeleteOptions(),
-                ),
-            )
-        except ApiException as exc:
-            if exc.status != 404:
-                raise
 
     _run_async(_with_clients(_op))

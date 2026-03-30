@@ -48,8 +48,8 @@ def pytest_addoption(parser):
 
 
 def cleanup_servers():
-    """Delete all server resources (deployments, services, PDBs) in the test namespace."""
-    logger.info("Cleaning up server resources after test...")
+    """Delete server deployments in the test namespace."""
+    logger.info("Cleaning up server deployments after test...")
 
     try:
         pods = k8s_client.list_pods(namespace=DEFAULT_NAMESPACE)
@@ -58,7 +58,7 @@ def cleanup_servers():
         return
 
     if not pods:
-        logger.info("✓ No server resources to clean up")
+        logger.info("✓ No server deployments to clean up")
         return
 
     deployment_names: set[str] = set()
@@ -79,10 +79,8 @@ def cleanup_servers():
 
     for deployment_name in deployment_names:
         k8s_client.delete_deployment(namespace=DEFAULT_NAMESPACE, deployment_name=deployment_name)
-        k8s_client.delete_services(namespace=DEFAULT_NAMESPACE, service_names=[f"{deployment_name}-service"])
-        k8s_client.delete_pod_disruption_budget(namespace=DEFAULT_NAMESPACE, pdb_name=f"{deployment_name}-pdb")
 
-    logger.info(f"✓ Server resources cleaned up ({len(deployment_names)} servers)")
+    logger.info(f"✓ Server deployments cleaned up ({len(deployment_names)} servers)")
 
 
 def list_pods_by_label(app_label: str, namespace: str = DEFAULT_NAMESPACE) -> list[str]:
