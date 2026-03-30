@@ -11,9 +11,10 @@ from idegym.api.git import GitRepositorySnapshot
 from idegym.client import IdeGYMDockerAPI
 from idegym.utils.logging import get_logger
 from utils import k8s_client
+from utils.build_images import build_all_images
 from utils.constants import DEFAULT_NAMESPACE, ORCHESTRATOR_APP_LABEL
 from utils.idegym_utils import generate_test_id
-from utils.k8s_setup import wait_for_service
+from utils.k8s_setup import cleanup_kubernetes_environment, setup_kubernetes_environment, wait_for_service
 
 logger = get_logger(__name__)
 
@@ -32,7 +33,31 @@ def test_id() -> str:
 
 
 def pytest_addoption(parser):
-    """Add custom command-line options for cleanup behavior."""
+    """Add custom command-line options for e2e setup and cleanup behavior."""
+    parser.addoption(
+        "--skip-build",
+        action="store_true",
+        default=False,
+        help="Skip building Docker images before e2e tests",
+    )
+    parser.addoption(
+        "--reuse-resources",
+        action="store_true",
+        default=False,
+        help="Reuse existing Kubernetes resources instead of recreating them",
+    )
+    parser.addoption(
+        "--clean-namespace",
+        action="store_true",
+        default=False,
+        help="Recreate idegym-local namespace before e2e tests",
+    )
+    parser.addoption(
+        "--no-cleanup",
+        action="store_true",
+        default=False,
+        help="Do not delete resources after e2e tests",
+    )
     parser.addoption(
         "--delete-namespace",
         action="store_true",
@@ -45,6 +70,60 @@ def pytest_addoption(parser):
         default=False,
         help="Delete only services defined in kustomization.yaml after all tests complete",
     )
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "e2e: marks end-to-end test suite")
+
+
+def pytest_collection_modifyitems(config, items):
+    del config
+
+    for item in items:
+        if item.nodeid.startswith("tests/") or item.nodeid.startswith("e2e-tests-minikube/tests/"):
+            item.add_marker(pytest.mark.e2e)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def setup_and_cleanup_environment(request):
+    """Set up e2e environment before session and clean it up afterwards."""
+    skip_build = request.config.getoption("--skip-build")
+    reuse_resources = request.config.getoption("--reuse-resources")
+    clean_namespace = request.config.getoption("--clean-namespace")
+
+    logger.info("=" * 80)
+    logger.info("E2E SESSION SETUP")
+    logger.info("=" * 80)
+
+    try:
+        if not skip_build:
+            logger.info("Building Docker images for e2e tests...")
+            build_all_images()
+        else:
+            logger.info("Skipping Docker image build")
+
+        logger.info("Setting up Kubernetes environment for e2e tests...")
+        if not setup_kubernetes_environment(reuse_resources=reuse_resources, clean_namespace=clean_namespace):
+            pytest.exit("Failed to set up Kubernetes environment", returncode=1)
+
+        yield
+
+    finally:
+        delete_namespace_flag = request.config.getoption("--delete-namespace")
+        delete_services_flag = request.config.getoption("--delete-kustomize-services")
+        no_cleanup = request.config.getoption("--no-cleanup")
+
+        if delete_namespace_flag:
+            delete_namespace()
+        elif delete_services_flag:
+            delete_kustomize_services()
+        elif no_cleanup:
+            logger.info("Skipping post-test cleanup due to --no-cleanup")
+        else:
+            try:
+                cleanup_kubernetes_environment(clean_namespace=False)
+            except Exception as cleanup_error:
+                logger.error(f"Error during cleanup: {cleanup_error}", exc_info=True)
 
 
 def cleanup_servers():
@@ -151,20 +230,6 @@ def delete_kustomize_services():
 
     k8s_client.delete_services(namespace=DEFAULT_NAMESPACE, service_names=sorted(service_names))
     logger.info(f"✓ Kustomize services deleted ({len(service_names)})")
-
-
-@pytest.fixture(scope="session", autouse=True)
-def cleanup_after_session(request):
-    """Cleanup after all tests based on command-line flags."""
-    yield
-
-    delete_namespace_flag = request.config.getoption("--delete-namespace")
-    delete_services_flag = request.config.getoption("--delete-kustomize-services")
-
-    if delete_namespace_flag:
-        delete_namespace()
-    elif delete_services_flag:
-        delete_kustomize_services()
 
 
 @pytest.fixture(scope="session")

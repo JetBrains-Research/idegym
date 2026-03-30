@@ -58,10 +58,11 @@ members = [
 [tool.pytest.ini_options]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
-pythonpath = ["."]
+pythonpath = [".", "e2e-tests-minikube"]
 testpaths = [
     "integration-tests",
     "unit-tests",
+    "e2e-tests-minikube/tests",
 ]
 addopts = [
     "--import-mode=importlib",
@@ -69,6 +70,9 @@ addopts = [
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 markers = [
+    "unit: marks unit test suite",
+    "integration: marks integration test suite",
+    "e2e: marks end-to-end test suite",
     "docker: marks tests that should be run inside a Docker container",
 ]
 

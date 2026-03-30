@@ -55,15 +55,14 @@ sudo minikube tunnel
 
 ### 5. Namespace Management
 
-The runner creates the `idegym-local` namespace automatically when needed.
+Pytest session setup creates the `idegym-local` namespace automatically when needed.
 
 ## Quick Start
 
 Run all tests:
 
 ```bash
-cd e2e-tests-minikube
-uv run python run_tests.py
+uv run pytest -m e2e
 ```
 
 This will:
@@ -71,7 +70,7 @@ This will:
 2. Load images into minikube
 3. Deploy all Kubernetes resources
 4. Wait for services to become ready
-5. Run integration tests
+5. Run e2e tests
 6. Clean up resources
 
 ## Usage
@@ -80,30 +79,59 @@ This will:
 
 ```bash
 # Run all tests
-python run_tests.py
+uv run pytest -m e2e
 
 # Run specific tests (pytest -k expression)
-python run_tests.py --test health
-python run_tests.py --test "reuse and not limits"
+uv run pytest -m e2e -k health
+uv run pytest -m e2e -k "reuse and not limits"
 
 # Skip image building (use existing images)
-python run_tests.py --skip-build
+uv run pytest -m e2e --skip-build
 
 # Reuse existing Kubernetes resources
-python run_tests.py --reuse-resources
+uv run pytest -m e2e --reuse-resources
 
 # Recreate namespace before setup
-python run_tests.py --clean-namespace
+uv run pytest -m e2e --clean-namespace
 
 # Keep resources after tests (for debugging)
-python run_tests.py --no-cleanup
+uv run pytest -m e2e --no-cleanup
 
 # Delete full namespace after all tests
-python run_tests.py --delete-namespace
+uv run pytest -m e2e --delete-namespace
 
 # Delete only kustomize services after all tests
-python run_tests.py --delete-kustomize-services
+uv run pytest -m e2e --delete-kustomize-services
 ```
+
+### Running Specific Tests
+
+Run by test name/expression (`-k`):
+
+```bash
+uv run pytest -m e2e -k health
+uv run pytest -m e2e -k "reuse and not limits"
+```
+
+Run a single test by node ID:
+
+```bash
+uv run pytest -m e2e e2e-tests-minikube/tests/test_health.py::test_orchestrator_health
+```
+
+### Showing All Logs
+
+Use:
+
+```bash
+uv run pytest -m e2e -vv -s -o log_cli=true --log-cli-level=INFO
+```
+
+What each flag does:
+- `-vv`: very verbose pytest output (shows test IDs and more details)
+- `-s`: disable output capture so stdout/stderr is printed live
+- `-o log_cli=true`: enable live logging to console
+- `--log-cli-level=INFO`: show logs at INFO level and above
 
 ### Cleanup Behavior
 
@@ -116,14 +144,14 @@ The post-test cleanup mode is selected by flags:
 
 Important:
 - `--clean-namespace` is a pre-test setup option only (it resets namespace before deployment)
-- If `--delete-namespace` or `--delete-kustomize-services` is set, the runner skips default cleanup to avoid duplicate deletion paths
+- If `--delete-namespace` or `--delete-kustomize-services` is set, pytest teardown skips default cleanup to avoid duplicate deletion paths
 
 ### CLI Parameters
 
 - `--skip-build`: Skip building orchestrator and base server images
 - `--reuse-resources`: Skip `kubectl apply -k` and reuse current cluster resources
-- `--test <expr>`: Pass expression to `pytest -k`
-- `--no-cleanup`: Skip runner cleanup after tests
+- `-k <expr>`: Run only tests matching a keyword expression
+- `--no-cleanup`: Skip pytest teardown cleanup after tests
 - `--clean-namespace`: Recreate `idegym-local` before deployment (setup phase)
 - `--delete-namespace`: After tests, pytest teardown deletes `idegym-local`
 - `--delete-kustomize-services`: After tests, pytest teardown deletes services from rendered kustomization
@@ -134,13 +162,13 @@ When iterating on tests:
 
 ```bash
 # First run - builds everything
-uv run python run_tests.py
+uv run pytest -m e2e
 
 # Subsequent runs - reuse infrastructure
-uv run python run_tests.py --skip-build --reuse-resources
+uv run pytest -m e2e --skip-build --reuse-resources
 
 # After code changes - rebuild and test
-uv run python run_tests.py --reuse-resources
+uv run pytest -m e2e --reuse-resources
 ```
 
 ## How It Works
@@ -253,7 +281,7 @@ minikube image ls | grep idegym
 
 Rebuild with:
 ```bash
-uv run python run_tests.py --no-cleanup
+uv run pytest -m e2e --no-cleanup
 ```
 
 ### Tests fail with SSL errors
@@ -269,7 +297,7 @@ If PyCharm highlights `from utils.k8s_setup import ...` in `tests/conftest.py`:
 
 - Mark `e2e-tests-minikube` as a Source Root in the IDE
 - Use a pytest run configuration with working directory set to `e2e-tests-minikube`
-- Run tests via `uv run python run_tests.py` or `cd e2e-tests-minikube && uv run pytest ...`
+- Run tests via `uv run pytest -m e2e` or `cd e2e-tests-minikube && uv run pytest -m e2e ...`
 
 ## Contributing
 

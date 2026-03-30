@@ -56,10 +56,24 @@ uv run ruff format
 
 ### Running Tests
 
-Execute the following command to run tests:
+Run the fast local default suite (unit + integration, excluding e2e):
 
 ```sh
 uv run pytest
+```
+
+Run a specific suite with markers:
+
+```sh
+uv run pytest -m unit
+uv run pytest -m integration
+uv run pytest -m e2e
+```
+
+For e2e, orchestration is handled by pytest fixtures. You can pass e2e setup flags directly:
+
+```sh
+uv run pytest -m e2e --skip-build --reuse-resources
 ```
 
 ### Running Pre-Commit Hooks
