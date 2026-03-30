@@ -65,7 +65,6 @@ testpaths = [
 ]
 addopts = [
     "--import-mode=importlib",
-    "--randomly-dont-reorganize",
 ]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"

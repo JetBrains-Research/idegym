@@ -50,8 +50,7 @@ def run_pytest(
     module_dir = Path(__file__).parent
     tests_dir = module_dir / "tests"
 
-    # Override root pytest config to avoid dependency on pytest-randomly
-    cmd = [sys.executable, "-m", "pytest", str(tests_dir), "-v", "-s", "-o", "addopts="]
+    cmd = [sys.executable, "-m", "pytest", str(tests_dir), "-v", "-s"]
 
     if test_name:
         cmd.extend(["-k", test_name])
