@@ -9,8 +9,12 @@ We will first go over all the software one needs to install and pre-configure to
 
 ### Install Docker
 
+Install either Docker Desktop or the Docker formula:
+
 ```shell
 brew install --cask docker-desktop
+# or
+brew install docker
 ```
 
 ### Install Kubernetes tools

@@ -29,6 +29,7 @@ from idegym.orchestrator.database.helpers import (
     update_operation_with_error,
     update_server_owner,
     update_server_status,
+    validate_client,
     validate_server,
 )
 from idegym.orchestrator.util.decorators import handle_async_task_exceptions, handle_server_exceptions
@@ -178,6 +179,10 @@ async def _task_start_server(config: Config, request: StartServerRequest, async_
 
             # For RESTART, we'll mark ALIVE later below; for RESET we skip marking ALIVE
         else:
+            if client_name is None:
+                client = await validate_client(request.client_id)
+                client_name = client.name
+
             server = await check_resources_and_save_server_in_db(
                 client_id=request.client_id,
                 client_name=client_name,

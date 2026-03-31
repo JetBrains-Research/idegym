@@ -73,13 +73,12 @@ class TestDockerService(TestCase):
             except DockerException:
                 pass
 
-    def assertImageCorrect(self, image: Image, request: DownloadRequest):
+    def assertImageCorrect(self, image: Image, request: DownloadRequest, image_version: str):
         self.assertIsNotNone(image)
         self.assertTrue(image.id)
-        self.assertEqual(len(image.repo_tags), 1)
-        tag, *_ = image.repo_tags
         image_name = get_base_filename(request.descriptor.name)
-        self.assertRegex(tag, rf"^{DockerService.REGISTRY}/{image_name}:[a-z_]+$")
+        expected_tag = f"{DockerService.REGISTRY}/{image_name}:{image_version}"
+        self.assertIn(expected_tag, image.repo_tags)
 
     def test_build_image(self):
         image = self.service.build(
@@ -90,7 +89,7 @@ class TestDockerService(TestCase):
             registry=self.registry,
         )
         self.images.append(image)
-        self.assertImageCorrect(image, self.request)
+        self.assertImageCorrect(image, self.request, self.test_build_image.__name__)
 
     def test_build_image_with_additional_lines(self):
         key = "idegym"
@@ -104,7 +103,7 @@ class TestDockerService(TestCase):
             commands=labels,
             registry=self.registry,
         )
-        self.assertImageCorrect(image, self.request)
+        self.assertImageCorrect(image, self.request, self.test_build_image_with_additional_lines.__name__)
         self.assertIn(key, image.config.labels)
         self.assertEqual(image.config.labels[key], value)
 
@@ -123,7 +122,7 @@ class TestDockerService(TestCase):
             service_version="test",
             registry=self.registry,
         )
-        self.assertImageCorrect(image, request)
+        self.assertImageCorrect(image, request, self.test_build_image_from_resource.__name__)
 
     def test_create_container_success(self):
         image = self.service.build(

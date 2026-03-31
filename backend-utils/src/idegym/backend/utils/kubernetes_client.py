@@ -199,7 +199,7 @@ async def deploy_server(
     """
     logger.debug(f"Deploying '{server_name}' in namespace '{namespace}' with runtime class '{runtime_class_name}'.")
 
-    uid = 1000 if not run_as_root else None
+    uid = 0 if run_as_root else 1000
     security_context = V1SecurityContext(
         run_as_non_root=not run_as_root,
         run_as_user=uid,
