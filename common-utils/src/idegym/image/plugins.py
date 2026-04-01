@@ -1,13 +1,12 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 from shlex import quote
-from typing import ClassVar, Mapping, Optional
+from typing import Any, ClassVar
 
 from idegym.api.download import Authorization, DownloadRequest
 from idegym.api.git import GitRepository, GitRepositoryResource, GitRepositorySnapshot
 from idegym.api.type import AuthType
-
-from .plugin import BuildContext, Plugin, PluginBase
+from idegym.image.plugin import BuildContext, Plugin, PluginBase, image_plugin
 
 
 def _build_image_labels(value: GitRepository | GitRepositorySnapshot | GitRepositoryResource) -> dict[str, str]:
@@ -34,9 +33,9 @@ def _render_run_block(commands: list[str], *, comment: str | None = None) -> str
 
 
 def _build_authorization(
-    auth: Optional[Authorization],
-    auth_type: Optional[AuthType],
-    auth_token: Optional[str],
+    auth: Authorization | None,
+    auth_type: AuthType | None,
+    auth_token: str | None,
 ) -> Authorization:
     if auth is not None and (auth_type is not None or auth_token is not None):
         raise ValueError("Use either 'auth' or 'auth_type'/'auth_token', not both")
@@ -45,6 +44,23 @@ def _build_authorization(
     return Authorization(type=auth_type, token=auth_token)
 
 
+def _authorization_to_payload(auth: Authorization) -> dict[str, Any]:
+    return {
+        "type": auth.type,
+        "token": auth.token,
+    }
+
+
+def _authorization_from_payload(payload: dict[str, Any] | None) -> Authorization:
+    if payload is None:
+        return Authorization()
+    return Authorization(
+        type=payload.get("type"),
+        token=payload.get("token"),
+    )
+
+
+@image_plugin("base-system")
 @dataclass(frozen=True, slots=True)
 class BaseSystem(PluginBase):
     DEFAULT_PACKAGES: ClassVar[tuple[str, ...]] = (
@@ -61,6 +77,18 @@ class BaseSystem(PluginBase):
     )
 
     packages: tuple[str, ...] = field(default_factory=lambda: BaseSystem.DEFAULT_PACKAGES)
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "packages": list(self.packages),
+        }
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> "BaseSystem":
+        packages = payload.get("packages")
+        if packages is None:
+            return cls()
+        return cls(packages=tuple(packages))
 
     def render(self, ctx: BuildContext) -> str:
         if not self.packages:
@@ -84,17 +112,46 @@ class BaseSystem(PluginBase):
         )
 
 
+@image_plugin("user")
 @dataclass(frozen=True, slots=True)
 class User(PluginBase):
     username: str
     uid: int = 1000
     gid: int = 1000
-    group: Optional[str] = None
-    home: Optional[str] = None
+    group: str | None = None
+    home: str | None = None
     shell: str = "/bin/bash"
     sudo: bool = True
     create_home: bool = True
     additional_groups: tuple[str, ...] = ()
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "username": self.username,
+            "uid": self.uid,
+            "gid": self.gid,
+            "group": self.group,
+            "home": self.home,
+            "shell": self.shell,
+            "sudo": self.sudo,
+            "create_home": self.create_home,
+            "additional_groups": list(self.additional_groups),
+        }
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> "User":
+        username = payload.get("username")
+        return cls(
+            username=username,
+            uid=payload.get("uid", 1000),
+            gid=payload.get("gid", 1000),
+            group=payload.get("group"),
+            home=payload.get("home"),
+            shell=payload.get("shell", "/bin/bash"),
+            sudo=payload.get("sudo", True),
+            create_home=payload.get("create_home", True),
+            additional_groups=tuple(payload.get("additional_groups", [])),
+        )
 
     @property
     def effective_group(self) -> str:
@@ -172,9 +229,18 @@ class User(PluginBase):
         return _render_run_block(commands, comment=f"Create or update user {self.username}")
 
 
+@image_plugin("permissions")
 @dataclass(frozen=True, slots=True)
 class Permissions(PluginBase):
-    paths: Mapping[str, Mapping[str, str | None]]
+    paths: dict[str, dict[str, str | None]]
+
+    def to_payload(self) -> dict[str, Any]:
+        return {"paths": self.paths}
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> "Permissions":
+        paths = payload.get("paths", {})
+        return cls(paths={path: dict(config) for path, config in paths.items()})
 
     def render(self, ctx: BuildContext) -> str:
         commands: list[str] = []
@@ -197,16 +263,42 @@ class Permissions(PluginBase):
         return _render_run_block(commands, comment="Adjust file ownership and permissions")
 
 
+@image_plugin("project")
 @dataclass(frozen=True, slots=True)
 class Project(PluginBase):
     source: str
     url: str
     ref: str = "HEAD"
-    path: Optional[str] = None
+    path: str | None = None
     auth: Authorization = field(default_factory=Authorization)
-    target: Optional[str] = None
-    owner: Optional[str] = None
-    group: Optional[str] = None
+    target: str | None = None
+    owner: str | None = None
+    group: str | None = None
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "source": self.source,
+            "url": self.url,
+            "ref": self.ref,
+            "path": self.path,
+            "auth": _authorization_to_payload(self.auth),
+            "target": self.target,
+            "owner": self.owner,
+            "group": self.group,
+        }
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> "Project":
+        return cls(
+            source=payload.get("source"),
+            url=payload.get("url"),
+            ref=payload.get("ref", "HEAD"),
+            path=payload.get("path"),
+            auth=_authorization_from_payload(payload.get("auth")),
+            target=payload.get("target"),
+            owner=payload.get("owner"),
+            group=payload.get("group"),
+        )
 
     @classmethod
     def from_git(
@@ -214,12 +306,12 @@ class Project(PluginBase):
         *,
         url: str,
         ref: str = "HEAD",
-        auth: Optional[Authorization] = None,
-        auth_type: Optional[AuthType] = None,
-        auth_token: Optional[str] = None,
-        target: Optional[str] = None,
-        owner: Optional[str] = None,
-        group: Optional[str] = None,
+        auth: Authorization | None = None,
+        auth_type: AuthType | None = None,
+        auth_token: str | None = None,
+        target: str | None = None,
+        owner: str | None = None,
+        group: str | None = None,
     ) -> "Project":
         return cls(
             source="git",
@@ -238,12 +330,12 @@ class Project(PluginBase):
         url: str,
         path: str,
         ref: str = "HEAD",
-        auth: Optional[Authorization] = None,
-        auth_type: Optional[AuthType] = None,
-        auth_token: Optional[str] = None,
-        target: Optional[str] = None,
-        owner: Optional[str] = None,
-        group: Optional[str] = None,
+        auth: Authorization | None = None,
+        auth_type: AuthType | None = None,
+        auth_token: str | None = None,
+        target: str | None = None,
+        owner: str | None = None,
+        group: str | None = None,
     ) -> "Project":
         return cls(
             source="resource",
@@ -301,6 +393,7 @@ class Project(PluginBase):
         return _render_run_block(commands, comment="Fetch and unpack the project")
 
 
+@image_plugin("idegym-server")
 @dataclass(frozen=True, slots=True)
 class IdegymServer(PluginBase):
     UV_IMAGE: ClassVar[str] = "ghcr.io/astral-sh/uv:0.10.11"
@@ -308,12 +401,29 @@ class IdegymServer(PluginBase):
     WORKSPACE_DIRS: ClassVar[tuple[str, ...]] = ("api", "backend-utils", "common-utils", "rewards", "tools", "server")
 
     source: str
-    root: Optional[str] = None
-    url: Optional[str] = None
-    ref: Optional[str] = None
+    root: str | None = None
+    url: str | None = None
+    ref: str | None = None
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "source": self.source,
+            "root": self.root,
+            "url": self.url,
+            "ref": self.ref,
+        }
 
     @classmethod
-    def from_local(cls, root: Optional[str | Path] = None) -> "IdegymServer":
+    def from_payload(cls, payload: dict[str, Any]) -> "IdegymServer":
+        return cls(
+            source=payload.get("source"),
+            root=payload.get("root"),
+            url=payload.get("url"),
+            ref=payload.get("ref"),
+        )
+
+    @classmethod
+    def from_local(cls, root: str | Path | None = None) -> "IdegymServer":
         root_path = Path.cwd() if root is None else Path(root)
         return cls(source="local", root=str(root_path.expanduser().resolve()))
 

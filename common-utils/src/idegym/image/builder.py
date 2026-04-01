@@ -1,14 +1,15 @@
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from idegym.api.docker import BaseImage
-from idegym.api.image_build import ImageBuildPipeline, ImageBuildSpec
+from idegym.api.image_build import ImageBuildSpec
+from idegym.client.docker_api import IdeGYMDockerAPI
+from idegym.image.plugin import BuildContext, Plugin
+from idegym.image.serialization import deserialize_image, dump_images, load_images, serialize_image
 
-from .plugin import BuildContext, Plugin
 
-
-def _run_block(commands: Tuple[str, ...]) -> str:
+def _run_block(commands: tuple[str, ...]) -> str:
     filtered = [command.strip() for command in commands if command.strip()]
     if not filtered:
         return ""
@@ -19,15 +20,15 @@ def _run_block(commands: Tuple[str, ...]) -> str:
 @dataclass(frozen=True, slots=True)
 class Image:
     base: str
-    name: Optional[str] = None
-    _plugins: Tuple[Plugin, ...] = ()
-    _commands: Tuple[str, ...] = ()
-    _platforms: Tuple[str, ...] = ()
+    name: str | None = None
+    _plugins: tuple[Plugin, ...] = ()
+    _commands: tuple[str, ...] = ()
+    _platforms: tuple[str, ...] = ()
     _runtime_class_name: str = "gvisor"
-    _resources: Optional[Dict[str, Any]] = None
+    _resources: dict[str, Any] | None = None
 
     @classmethod
-    def from_base(cls, base: str | BaseImage, *, name: Optional[str] = None) -> "Image":
+    def from_base(cls, base: str | BaseImage, *, name: str | None = None) -> "Image":
         image = base.value if isinstance(base, BaseImage) else base
         return cls(base=image, name=name)
 
@@ -36,7 +37,7 @@ class Image:
 
     def with_plugin(self, plugin: Plugin) -> "Image":
         if not isinstance(plugin, Plugin):
-            raise TypeError("Plugin must implement apply(ctx) and render(ctx)")
+            raise TypeError("Plugin must implement the image plugin protocol")
         return replace(self, _plugins=(*self._plugins, plugin))
 
     def run_commands(self, *commands: str) -> "Image":
@@ -50,8 +51,8 @@ class Image:
     def with_runtime(
         self,
         *,
-        runtime_class_name: Optional[str] = None,
-        resources: Optional[Dict[str, Any]] = None,
+        runtime_class_name: str | None = None,
+        resources: dict[str, Any] | None = None,
     ) -> "Image":
         return replace(
             self,
@@ -83,7 +84,7 @@ class Image:
     def _render_dockerfile(
         self,
         ctx: BuildContext,
-        fragments: Tuple[str, ...],
+        fragments: tuple[str, ...],
     ) -> str:
         lines = [f"FROM {self.base}", "", 'SHELL ["/bin/bash", "-c"]', "", "USER root"]
 
@@ -114,16 +115,34 @@ class Image:
 
         return "\n".join(lines).strip() + "\n"
 
-    def to_pipeline(self) -> ImageBuildPipeline:
-        return ImageBuildPipeline(images=[self.to_spec()])
+    def to_dict(self) -> dict[str, Any]:
+        return serialize_image(self)
+
+    @classmethod
+    def from_dict(cls, definition: dict[str, Any]) -> "Image":
+        return deserialize_image(definition, cls)
+
+    @classmethod
+    def from_yaml(cls, value: str | bytes | dict[str, Any]) -> "Image":
+        images = load_images(value, cls)
+        if len(images) != 1:
+            raise ValueError(f"Expected exactly one image definition, got {len(images)}")
+        return images[0]
+
+    @classmethod
+    def load_all(cls, value: str | bytes | dict[str, Any]) -> tuple["Image", ...]:
+        return load_images(value, cls)
 
     def to_yaml(self) -> str:
-        return self.to_pipeline().to_yaml()
+        return dump_images((self,))
 
     def write_yaml(self, path: str | Path) -> Path:
         target = Path(path)
         target.write_text(self.to_yaml())
         return target
+
+    def build(self, registry: str | None = None) -> Any:
+        return IdeGYMDockerAPI(registry=registry).build_image(self)
 
     def compile(self) -> ImageBuildSpec:
         return self.to_spec()

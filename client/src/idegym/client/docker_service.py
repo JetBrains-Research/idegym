@@ -15,7 +15,8 @@ from idegym.utils.dict import walk
 from idegym.utils.dockerfile import render_dockerfile
 from idegym.utils.logging import get_logger
 from idegym.utils.path import get_base_filename
-from python_on_whales import Container, DockerClient, Image
+from python_on_whales import Container, DockerClient
+from python_on_whales import Image as DockerImage
 
 __CONTAINER_PORT__ = "8000/tcp"
 __CONTAINER_VOLUME_PATH__ = "/docker-entrypoint.d"
@@ -77,6 +78,22 @@ class DockerService:
             case _:
                 raise ValueError("Unsupported type!")
 
+    def build_image(
+        self,
+        image,
+    ) -> DockerImage:
+        compiled = image.compile()
+        return self.build(
+            request=compiled.request,
+            image_version=compiled.image_version(),
+            image_base=None,
+            labels=compiled.labels,
+            image_name=compiled.name,
+            context_path=compiled.context_path,
+            platforms=compiled.platforms,
+            dockerfile_content=compiled.dockerfile_content,
+        )
+
     def build(
         self,
         request: Optional[DownloadRequest],
@@ -90,7 +107,7 @@ class DockerService:
         context_path: str = ".",
         platforms: Optional[List[str]] = None,
         dockerfile_content: Optional[str] = None,
-    ) -> Image:
+    ) -> DockerImage:
         # Coerce commands into `str`
         commands: Union[str, Iterable[str]] = [] if commands is None else commands
         commands: str = "\n".join(commands) if isiterable(commands) else commands
@@ -152,7 +169,7 @@ class DockerService:
 
             return image
 
-    def push(self, images: Iterable[Image]):
+    def push(self, images: Iterable[DockerImage]):
         tags = [tag for image in images for tag in image.repo_tags]
         logger.info(f"Pushing image tags: {tags}")
         if generator := self._client.image.push(tags, stream_logs=True):
@@ -163,7 +180,7 @@ class DockerService:
 
     def run(
         self,
-        image: Image,
+        image: DockerImage,
         port: Optional[Port] = None,
         scripts: Optional[List[Path]] = None,
         config: Optional[ContainerConfig] = None,
