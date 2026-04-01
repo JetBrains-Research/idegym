@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field, replace
-from typing import Any, Self
+from typing import Any, Optional, Self
 
 from idegym.api.download import DownloadRequest
 from pydantic import BaseModel, ConfigDict
@@ -11,7 +11,7 @@ class BuildContext:
     current_user: str = "appuser"
     home: str = "/home/appuser"
     project_root: str = "/home/appuser/work"
-    request: DownloadRequest | None = None
+    request: Optional[DownloadRequest] = None
     labels: dict[str, str] = field(default_factory=dict)
     context_path: str = "."
     extras: dict[str, Any] = field(default_factory=dict)

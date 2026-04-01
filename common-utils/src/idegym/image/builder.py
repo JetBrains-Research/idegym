@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Self
+from typing import Any, Optional, Self
 
 from idegym.api.docker import BaseImage
 from idegym.api.image_build import ImageBuildSpec
@@ -19,18 +19,23 @@ def _run_block(commands: tuple[str, ...]) -> str:
 
 class Image(BaseModel):
     base: str = Field(min_length=1)
-    name: str | None = None
-    plugins: tuple[PluginBase, ...] = ()
-    commands: tuple[str, ...] = ()
-    platforms: tuple[str, ...] = ()
+    name: Optional[str] = Field(default=None)
+    plugins: tuple[PluginBase, ...] = Field(default_factory=tuple)
+    commands: tuple[str, ...] = Field(default_factory=tuple)
+    platforms: tuple[str, ...] = Field(default_factory=tuple)
     runtime_class_name: str = Field(default="gvisor", min_length=1)
-    resources: dict[str, Any] | None = None
+    resources: Optional[dict[str, Any]] = Field(default=None)
 
     model_config = ConfigDict(frozen=True, extra="forbid", arbitrary_types_allowed=True)
 
     @field_validator("plugins", mode="before")
     @classmethod
     def parse_plugins(cls, value: Any) -> tuple[PluginBase, ...]:
+        if value is None:
+            return ()
+        if not isinstance(value, (list, tuple)):
+            raise TypeError(f"Image 'plugins' must be a list or tuple, got {type(value).__name__}")
+
         plugins: list[PluginBase] = []
         for item in value:
             if isinstance(item, dict):
@@ -46,7 +51,7 @@ class Image(BaseModel):
         return [serialize_plugin(plugin) for plugin in plugins]
 
     @classmethod
-    def from_base(cls, base: str | BaseImage, *, name: str | None = None) -> Self:
+    def from_base(cls, base: str | BaseImage, *, name: Optional[str] = None) -> Self:
         image = base.value if isinstance(base, BaseImage) else base
         return cls(base=image, name=name)
 
@@ -69,8 +74,8 @@ class Image(BaseModel):
     def with_runtime(
         self,
         *,
-        runtime_class_name: str | None = None,
-        resources: dict[str, Any] | None = None,
+        runtime_class_name: Optional[str] = None,
+        resources: Optional[dict[str, Any]] = None,
     ) -> Self:
         return self.model_copy(
             update={
@@ -160,7 +165,7 @@ class Image(BaseModel):
         target.write_text(self.to_yaml())
         return target
 
-    def build(self, registry: str | None = None) -> Any:
+    def build(self, registry: Optional[str] = None) -> Any:
         return IdeGYMDockerAPI(registry=registry).build_image(self)
 
     def compile(self) -> ImageBuildSpec:

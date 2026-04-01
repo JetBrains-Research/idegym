@@ -1,7 +1,7 @@
 from pathlib import Path
 from shlex import quote
 from textwrap import dedent
-from typing import ClassVar
+from typing import ClassVar, Optional, Union
 
 from idegym.api.download import Authorization, DownloadRequest
 from idegym.api.git import GitRepository, GitRepositoryResource, GitRepositorySnapshot
@@ -24,7 +24,7 @@ def _build_image_labels(value: GitRepository | GitRepositorySnapshot | GitReposi
             raise ValueError(f"Unsupported project type: {type(value).__name__}")
 
 
-def _render_run_block(commands: list[str], *, comment: str | None = None) -> str:
+def _render_run_block(commands: list[str], *, comment: Optional[str] = None) -> str:
     filtered = [command.strip() for command in commands if command.strip()]
     if not filtered:
         return ""
@@ -78,8 +78,8 @@ class User(PluginBase):
     username: str
     uid: int = 1000
     gid: int = 1000
-    group: str | None = None
-    home: str | None = None
+    group: Optional[str] = None
+    home: Optional[str] = None
     shell: str = "/bin/bash"
     sudo: bool = True
     create_home: bool = True
@@ -153,7 +153,7 @@ class User(PluginBase):
 
 @image_plugin("permissions")
 class Permissions(PluginBase):
-    paths: dict[str, dict[str, str | None]]
+    paths: dict[str, dict[str, Optional[str]]]
 
     def render(self, ctx: BuildContext) -> str:
         commands: list[str] = []
@@ -181,11 +181,11 @@ class Project(PluginBase):
     source: str
     url: str
     ref: str = "HEAD"
-    path: str | None = None
+    path: Optional[str] = None
     auth: Authorization = Field(default_factory=Authorization)
-    target: str | None = None
-    owner: str | None = None
-    group: str | None = None
+    target: Optional[str] = None
+    owner: Optional[str] = None
+    group: Optional[str] = None
 
     @classmethod
     def from_git(
@@ -193,12 +193,12 @@ class Project(PluginBase):
         *,
         url: str,
         ref: str = "HEAD",
-        auth: Authorization | None = None,
-        auth_type: AuthType | None = None,
-        auth_token: str | None = None,
-        target: str | None = None,
-        owner: str | None = None,
-        group: str | None = None,
+        auth: Optional[Authorization] = None,
+        auth_type: Optional[AuthType] = None,
+        auth_token: Optional[str] = None,
+        target: Optional[str] = None,
+        owner: Optional[str] = None,
+        group: Optional[str] = None,
     ) -> "Project":
         return cls(
             source="git",
@@ -217,12 +217,12 @@ class Project(PluginBase):
         url: str,
         path: str,
         ref: str = "HEAD",
-        auth: Authorization | None = None,
-        auth_type: AuthType | None = None,
-        auth_token: str | None = None,
-        target: str | None = None,
-        owner: str | None = None,
-        group: str | None = None,
+        auth: Optional[Authorization] = None,
+        auth_type: Optional[AuthType] = None,
+        auth_token: Optional[str] = None,
+        target: Optional[str] = None,
+        owner: Optional[str] = None,
+        group: Optional[str] = None,
     ) -> "Project":
         if auth is not None and (auth_type is not None or auth_token is not None):
             raise ValueError("Use either 'auth' or 'auth_type'/'auth_token', not both")
@@ -285,12 +285,12 @@ class Project(PluginBase):
 @image_plugin("idegym-server")
 class IdeGYMServer(PluginBase):
     source: str
-    root: str | None = None
-    url: str | None = None
-    ref: str | None = None
+    root: Optional[str] = None
+    url: Optional[str] = None
+    ref: Optional[str] = None
 
     @classmethod
-    def from_local(cls, root: str | Path | None = None) -> "IdeGYMServer":
+    def from_local(cls, root: Optional[Union[str, Path]] = None) -> "IdeGYMServer":
         root_path = Path.cwd() if root is None else Path(root)
         return cls(source="local", root=str(root_path.expanduser().resolve()))
 
