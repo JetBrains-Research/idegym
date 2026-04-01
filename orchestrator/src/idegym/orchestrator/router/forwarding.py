@@ -1,7 +1,7 @@
 import asyncio
 from asyncio import CancelledError
 from os import environ as env
-from typing import Dict
+from typing import Dict, Optional
 from uuid import UUID
 
 import websockets
@@ -49,6 +49,7 @@ async def forward_request_by_server_id(request: Request, client_id: UUID, server
         request=request,
         request_content=request_content,
         generated_name=server.generated_name,
+        namespace=server.namespace,
         server_id=server_id,
         service_port=server.service_port,
     )
@@ -73,11 +74,12 @@ def construct_forwarding_payload(
     request: Request,
     request_content: str,
     generated_name: str,
+    namespace: Optional[str],
     server_id: int,
     service_port: int = 80,
 ):
     # Build target URL first
-    target_url = f"http://{generated_name}-service:{service_port}/{path}"
+    target_url = f"http://{_build_server_host(generated_name, namespace)}:{service_port}/{path}"
     # Prepare headers for forwarding
     headers = request.headers.mutablecopy()
     del headers["Host"]
@@ -198,7 +200,8 @@ async def update_server_heartbeat_on_call(path: str, server_id: int):
 async def forward_websocket(websocket: WebSocket, client_id: UUID, server_id: int):
     logger.info(f"Received WebSocket forwarding request for server ID {server_id} for client {client_id}")
     server = await validate_server(client_id=client_id, server_id=server_id)
-    target_url = f"ws://{server.generated_name}-service:{server.service_port}/ws"
+    target_host = _build_server_host(server.generated_name, server.namespace)
+    target_url = f"ws://{target_host}:{server.service_port}/ws"
     await websocket.accept()
     # Update server heartbeat on WebSocket connection
     await update_server_status(server_id=server_id, availability_status=AvailabilityStatus.ALIVE)
@@ -237,3 +240,13 @@ async def forward_websocket(websocket: WebSocket, client_id: UUID, server_id: in
             exception = task.exception()
             if exception:
                 raise exception
+
+
+def _build_server_host(generated_name: str, namespace: Optional[str]) -> str:
+    """
+    Build a DNS name for a server Service in Kubernetes.
+    Using namespace-qualified service names avoids cross-namespace lookup failures.
+    """
+    if namespace:
+        return f"{generated_name}.{namespace}.svc"
+    return generated_name

@@ -7,7 +7,7 @@ import config as e2e_config
 import pytest
 import yaml
 from idegym.api.docker import BaseImage
-from idegym.api.git import GitRepositorySnapshot
+from idegym.api.git import GitRepository, GitRepositorySnapshot
 from idegym.client import IdeGYMDockerAPI
 from idegym.utils.logging import get_logger
 from utils import k8s_client
@@ -19,11 +19,24 @@ from utils.k8s_setup import cleanup_kubernetes_environment, setup_kubernetes_env
 logger = get_logger(__name__)
 
 TEST_IMAGE_COMMANDS_PATH = "test_image_commands.Dockerfile"
+WEBSOCKET_TEST_IMAGE_COMMANDS_PATH = "openenv_websocket_test_image_commands.Dockerfile"
 
 
 def load_test_image_commands() -> str:
     """Load the Docker command snippet for the test image from packaged resources."""
     return files(e2e_config).joinpath(TEST_IMAGE_COMMANDS_PATH).read_text(encoding="utf-8")
+
+
+def load_websocket_test_image_commands() -> str:
+    """Load the Docker command snippet for the OpenEnv websocket test image."""
+    return files(e2e_config).joinpath(WEBSOCKET_TEST_IMAGE_COMMANDS_PATH).read_text(encoding="utf-8")
+
+
+def _test_project_snapshot() -> GitRepositorySnapshot:
+    return GitRepositorySnapshot(
+        repository=GitRepository.parse("https://github.com/realpython/python-scripts.git"),
+        reference="cb448c2dc3593dbfbe1ca47b49193b320115aae5",
+    )
 
 
 @pytest.fixture
@@ -238,10 +251,7 @@ def test_image():
     logger.info("Building test image for session")
     docker_api = IdeGYMDockerAPI()
 
-    project = GitRepositorySnapshot(
-        repository={"server": "github.com", "owner": "realpython", "name": "python-scripts"},
-        reference="cb448c2dc3593dbfbe1ca47b49193b320115aae5",
-    )
+    project = _test_project_snapshot()
 
     commands = load_test_image_commands()
 
@@ -250,4 +260,22 @@ def test_image():
     subprocess.run(["minikube", "image", "load", image_tag], check=True, capture_output=True)
 
     logger.info(f"Test image built and loaded: {image_tag}")
+    return image_tag
+
+
+@pytest.fixture(scope="session")
+def websocket_test_image():
+    """Build and cache websocket-capable OpenEnv test image for the entire test session."""
+    logger.info("Building websocket test image for session")
+    docker_api = IdeGYMDockerAPI()
+
+    image = docker_api.build(
+        project=_test_project_snapshot(),
+        base=BaseImage.DEBIAN,
+        commands=load_websocket_test_image_commands(),
+    )
+    image_tag = str(image.repo_tags[0])
+    subprocess.run(["minikube", "image", "load", image_tag], check=True, capture_output=True)
+
+    logger.info(f"Websocket test image built and loaded: {image_tag}")
     return image_tag
