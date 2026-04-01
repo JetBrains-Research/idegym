@@ -3,6 +3,7 @@ from uuid import UUID
 
 from idegym.api.orchestrator.servers import (
     ServerActionResponse,
+    ServerKind,
 )
 from idegym.api.project.reset import ResetResult
 from idegym.api.rewards.compilation import CompilationResult
@@ -27,18 +28,31 @@ class IdeGYMServer:
         client_id: Optional[UUID] = None,
         namespace: Optional[str] = None,
         polling_config: PollingConfig = PollingConfig(),
+        server_kind: ServerKind = ServerKind.IDEGYM,
     ):
         self.server_id = server_id
         self.client_id = client_id
         self.namespace = namespace
         self.polling_config = polling_config
+        self.server_kind = server_kind
 
+        self._http_utils = http_utils
         forwarding: ForwardingOperations = ForwardingOperations(utils=http_utils)
         self.project: ProjectOperations = ProjectOperations(forward=forwarding)
         self.server: ServerOperations = ServerOperations(utils=http_utils, project=self.project)
         self.tools: ToolsOperations = ToolsOperations(forward=forwarding)
         self.files: FileOperations = FileOperations(utils=http_utils, forward=forwarding)
         self.rewards: RewardOperations = RewardOperations(forward=forwarding)
+
+    @property
+    def openenv_url(self) -> str:
+        """
+        Base URL for an OpenEnv EnvClient. The client will append /ws automatically.
+        OpenEnv implements a different API for each environment, and this API is contained
+        within the OpenEnvClient that each environment implements. For this reason we do not implement
+        methods to call the OpenEnv API directly - OpenEnvClient handles all the API calls.
+        """
+        return f"{self._http_utils.base_url}/api/ws-forward/{self.client_id}/{self.server_id}"
 
     async def _stop_server(
         self,

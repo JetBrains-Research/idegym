@@ -30,6 +30,7 @@ dependencies = [
     "psycopg2-binary>=2.9.9",
     "pydantic>=2.0.0",
     "alembic>=1.16.4",
+    "websockets>=13.0",
     "idegym-api",
     "idegym-backend-utils",
     "idegym-common-utils",

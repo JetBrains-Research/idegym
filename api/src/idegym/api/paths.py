@@ -18,6 +18,15 @@ class ActuatorPath(APIPath):
     SHUTDOWN = "/shutdown"
 
 
+class OpenenvPath(APIPath):
+    """
+    API path constants for the OpenEnv server API.
+    These are used to deploy OpenEnv servers with IdeGYM without using the IdeGYM API.
+    """
+
+    HEALTH = "/health"
+
+
 class FSPath(APIPath):
     """
     API path constants for the filesystem API.
