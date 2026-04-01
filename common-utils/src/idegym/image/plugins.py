@@ -386,7 +386,6 @@ class Project(PluginBase):
 @image_plugin("idegym-server")
 @dataclass(frozen=True, slots=True)
 class IdeGYMServer(PluginBase):
-    UV_IMAGE: ClassVar[str] = "ghcr.io/astral-sh/uv:0.10.11"
     WORKSPACE_FILES: ClassVar[tuple[str, ...]] = (".python-version", "pyproject.toml", "supervisord.conf", "uv.lock")
     WORKSPACE_DIRS: ClassVar[tuple[str, ...]] = ("api", "backend-utils", "common-utils", "rewards", "tools", "server")
 
@@ -437,7 +436,7 @@ class IdeGYMServer(PluginBase):
 
         return "\n".join(
             [
-                f"COPY --from={self.UV_IMAGE} /uv /uvx /bin/",
+                "COPY --from=ghcr.io/astral-sh/uv:0.10.11 /uv /uvx /bin/",
                 "",
                 "ENV IDEGYM_PATH=/opt/idegym \\",
                 "    PYTHONDONTWRITEBYTECODE=0 \\",
