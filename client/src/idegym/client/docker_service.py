@@ -1,4 +1,3 @@
-from hashlib import md5
 from os import environ as env
 from pathlib import Path
 from re import Pattern
@@ -13,6 +12,7 @@ from idegym.api.git import GitRepository, GitRepositoryResource, GitRepositorySn
 from idegym.utils import __version__ as library_version
 from idegym.utils.dict import walk
 from idegym.utils.dockerfile import render_dockerfile
+from idegym.utils.hashing import md5
 from idegym.utils.logging import get_logger
 from idegym.utils.path import get_base_filename
 from python_on_whales import Container, DockerClient
@@ -58,11 +58,8 @@ class DockerService:
 
     @staticmethod
     def hash(project: GitRepositorySnapshot | GitRepositoryResource) -> str:
-        digest = md5()
         identifiers = [str(value) for value in walk(project.model_dump()) if value is not None]
-        for identifier in identifiers:
-            digest.update(identifier.encode())
-        return digest.hexdigest()
+        return md5(*identifiers)
 
     @staticmethod
     def labels(value: GitRepository | GitRepositorySnapshot | GitRepositoryResource) -> Dict[str, str]:

@@ -42,7 +42,7 @@ async def forward_request_by_server_id(request: Request, client_id: UUID, server
     )
     server = await validate_server(client_id=client_id, server_id=server_id)
     request_content = await parse_request_body(request)
-    forward_payload = await construct_forwarding_payload(
+    forward_payload = construct_forwarding_payload(
         path=path,
         request=request,
         request_content=request_content,
@@ -65,17 +65,21 @@ async def forward_request_by_server_id(request: Request, client_id: UUID, server
     return ForwardRequestResponse(async_operation_id=async_operation_id)
 
 
-async def construct_forwarding_payload(
-    path: str, request: Request, request_content: str, generated_name: str, server_id: int
+def construct_forwarding_payload(
+    path: str,
+    request: Request,
+    request_content: str,
+    generated_name: str,
+    server_id: int,
 ):
     # Build target URL first
     target_port = request.url.port or 80
-    target_url = f"http://{generated_name}-service:{target_port}/{path}"
+    target_url = f"http://{generated_name}:{target_port}/{path}"
     # Prepare headers for forwarding
     headers = request.headers.mutablecopy()
     del headers["Host"]
     del headers["Authorization"]
-    forward_payload = ForwardRequestPayload(
+    return ForwardRequestPayload(
         method=request.method,
         path=path,
         headers=dict(headers),
@@ -83,7 +87,6 @@ async def construct_forwarding_payload(
         target_url=target_url,
         server_id=server_id,
     )
-    return forward_payload
 
 
 async def parse_request_body(request: Request) -> str:

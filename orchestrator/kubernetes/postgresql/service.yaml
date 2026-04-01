@@ -5,6 +5,7 @@ metadata:
   labels:
     app.kubernetes.io/name: postgresql
     app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: idegym
 spec:
   type: ClusterIP
   clusterIP: None

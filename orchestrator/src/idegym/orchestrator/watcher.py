@@ -8,7 +8,6 @@ from idegym.api.status import Status
 from idegym.api.type import Duration
 from idegym.backend.utils.kubernetes_client import (
     are_any_pods_alive,
-    clean_up_after_job,
     clean_up_server,
     get_job_status,
 )
@@ -178,13 +177,6 @@ async def check_orphaned_kaniko_jobs(db: AsyncSession, namespace: str):
                     db, job_name, status=k8s_status, tag=job_record.tag, request_id=job_record.request_id
                 )
                 logger.info(f"Updated orphaned job '{job_name}' status to {k8s_status}")
-
-                # Clean up associated resources (PDB and ConfigMap)
-                try:
-                    await clean_up_after_job(job_name, namespace)
-                    logger.info(f"Cleaned up resources for orphaned job '{job_name}'")
-                except Exception:
-                    logger.exception(f"Error cleaning up resources for orphaned job '{job_name}'")
         except Exception:
             logger.exception(f"Error checking status for job '{job_name}'")
 

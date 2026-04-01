@@ -4,7 +4,8 @@ metadata:
   name: orchestrator
   labels:
     app.kubernetes.io/name: orchestrator
-    app.kubernetes.io/component: api
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/part-of: idegym
   annotations:
     nginx.ingress.kubernetes.io/proxy-read-timeout: "1800"
     nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"

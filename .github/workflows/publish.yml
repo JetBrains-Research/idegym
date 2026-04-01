@@ -37,7 +37,7 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and publish orchestrator image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./orchestrator/Dockerfile
@@ -66,7 +66,7 @@ jobs:
           mkdir -p .github/docker-build
           scripts/render_example_image_dockerfile.py --output .github/docker-build/Dockerfile
       - name: Build and publish example image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: .github/docker-build/Dockerfile
