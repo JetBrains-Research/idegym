@@ -395,7 +395,7 @@ class Project(PluginBase):
 
 @image_plugin("idegym-server")
 @dataclass(frozen=True, slots=True)
-class IdegymServer(PluginBase):
+class IdeGYMServer(PluginBase):
     UV_IMAGE: ClassVar[str] = "ghcr.io/astral-sh/uv:0.10.11"
     WORKSPACE_FILES: ClassVar[tuple[str, ...]] = (".python-version", "pyproject.toml", "supervisord.conf", "uv.lock")
     WORKSPACE_DIRS: ClassVar[tuple[str, ...]] = ("api", "backend-utils", "common-utils", "rewards", "tools", "server")
@@ -414,7 +414,7 @@ class IdegymServer(PluginBase):
         }
 
     @classmethod
-    def from_payload(cls, payload: dict[str, Any]) -> "IdegymServer":
+    def from_payload(cls, payload: dict[str, Any]) -> "IdeGYMServer":
         return cls(
             source=payload.get("source"),
             root=payload.get("root"),
@@ -423,24 +423,24 @@ class IdegymServer(PluginBase):
         )
 
     @classmethod
-    def from_local(cls, root: str | Path | None = None) -> "IdegymServer":
+    def from_local(cls, root: str | Path | None = None) -> "IdeGYMServer":
         root_path = Path.cwd() if root is None else Path(root)
         return cls(source="local", root=str(root_path.expanduser().resolve()))
 
     @classmethod
-    def from_git(cls, *, url: str, ref: str = "HEAD") -> "IdegymServer":
+    def from_git(cls, *, url: str, ref: str = "HEAD") -> "IdeGYMServer":
         return cls(source="git", url=url, ref=ref)
 
     def apply(self, ctx: BuildContext) -> BuildContext:
         if self.source == "git":
-            raise NotImplementedError("IdegymServer.from_git(...) is not implemented yet")
+            raise NotImplementedError("IdeGYMServer.from_git(...) is not implemented yet")
         if self.root is None:
-            raise ValueError("IdegymServer.from_local(...) requires a workspace root")
+            raise ValueError("IdeGYMServer.from_local(...) requires a workspace root")
         return ctx.updated(context_path=self.root)
 
     def render(self, ctx: BuildContext) -> str:
         if self.source == "git":
-            raise NotImplementedError("IdegymServer.from_git(...) is not implemented yet")
+            raise NotImplementedError("IdeGYMServer.from_git(...) is not implemented yet")
 
         user = ctx.current_user
         group = str(ctx.get_extra("idegym.user.group", user))
@@ -502,7 +502,7 @@ class IdegymServer(PluginBase):
 __all__ = [
     "BuildContext",
     "BaseSystem",
-    "IdegymServer",
+    "IdeGYMServer",
     "Permissions",
     "Plugin",
     "PluginBase",
