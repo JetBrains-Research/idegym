@@ -111,15 +111,13 @@ class DockerService:
         # Coerce platforms into either None or a non-empty list
         platforms = None if not platforms else platforms
         labels = {} if labels is None else labels
-        rendered = dockerfile_content if dockerfile_content is not None else render_dockerfile(commands=commands)
+        rendered = dockerfile_content if dockerfile_content else render_dockerfile(commands=commands)
         temporary_dir = context_path if context_path != "." else None
         with NamedTemporaryFile(mode="w", prefix="Dockerfile.", dir=temporary_dir, delete=True) as dockerfile:
             dockerfile.write(rendered)
             dockerfile.flush()
 
-            resolved_image_name = image_name or (
-                get_base_filename(request.descriptor.name) if request is not None else None
-            )
+            resolved_image_name = image_name or (get_base_filename(request.descriptor.name) if request else None)
             if resolved_image_name is None:
                 raise ValueError("Image name is required when build request is not provided")
 
