@@ -2,6 +2,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any, Protocol, Self, runtime_checkable
 
 from idegym.api.download import DownloadRequest
+from pydantic import BaseModel, ConfigDict
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,16 +46,18 @@ class Plugin(Protocol):
     def from_payload(cls, payload: dict[str, Any]) -> Self: ...
 
 
-class PluginBase:
+class PluginBase(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
     def apply(self, ctx: BuildContext) -> BuildContext:
         return ctx
 
     def to_payload(self) -> dict[str, Any]:
-        raise NotImplementedError(f"{type(self).__name__}.to_payload() is not implemented")
+        return self.model_dump(mode="json")
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> Self:
-        raise NotImplementedError(f"{cls.__name__}.from_payload() is not implemented")
+        return cls.model_validate(payload)
 
 
 _PLUGIN_REGISTRY: dict[str, type] = {}

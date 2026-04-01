@@ -5,8 +5,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class Authorization(BaseModel):
-    type: Optional[AuthType] = Field(description="Authorization type", default=None, exclude=True)
-    token: Optional[str] = Field(description="Authorization token", default=None, exclude=True)
+    type: Optional[AuthType] = Field(description="Authorization type", default=None)
+    token: Optional[str] = Field(description="Authorization token", default=None)
 
     model_config = ConfigDict(frozen=True)
 
