@@ -1,12 +1,12 @@
-from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
 from idegym.api.docker import BaseImage
 from idegym.api.image_build import ImageBuildSpec
 from idegym.client.docker_api import IdeGYMDockerAPI
 from idegym.image.plugin import BuildContext, Plugin
-from idegym.image.serialization import deserialize_image, dump_images, load_images, serialize_image
+from idegym.image.serialization import deserialize_plugin, dump_images, load_images, serialize_plugin
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 
 def _run_block(commands: tuple[str, ...]) -> str:
@@ -17,53 +17,73 @@ def _run_block(commands: tuple[str, ...]) -> str:
     return f"RUN set -eux; \\\n    {body}"
 
 
-@dataclass(frozen=True, slots=True)
-class Image:
-    base: str
+class Image(BaseModel):
+    base: str = Field(min_length=1)
     name: str | None = None
-    _plugins: tuple[Plugin, ...] = ()
-    _commands: tuple[str, ...] = ()
-    _platforms: tuple[str, ...] = ()
-    _runtime_class_name: str = "gvisor"
-    _resources: dict[str, Any] | None = None
+    plugins: tuple[Plugin, ...] = ()
+    commands: tuple[str, ...] = ()
+    platforms: tuple[str, ...] = ()
+    runtime_class_name: str = Field(default="gvisor", min_length=1)
+    resources: dict[str, Any] | None = None
+
+    model_config = ConfigDict(frozen=True, extra="forbid", arbitrary_types_allowed=True)
+
+    @field_validator("plugins", mode="before")
+    @classmethod
+    def parse_plugins(cls, value: Any) -> tuple[Plugin, ...]:
+
+        plugins: list[Plugin] = []
+        for item in value:
+            if isinstance(item, dict):
+                plugins.append(deserialize_plugin(item))
+                continue
+            if not isinstance(item, Plugin):
+                raise TypeError("Plugin must implement the image plugin protocol")
+            plugins.append(item)
+        return tuple(plugins)
+
+    @field_serializer("plugins")
+    def dump_plugins(self, plugins: tuple[Plugin, ...]) -> list[dict[str, Any]]:
+        return [serialize_plugin(plugin) for plugin in plugins]
 
     @classmethod
-    def from_base(cls, base: str | BaseImage, *, name: str | None = None) -> "Image":
+    def from_base(cls, base: str | BaseImage, *, name: str | None = None) -> Self:
         image = base.value if isinstance(base, BaseImage) else base
         return cls(base=image, name=name)
 
-    def named(self, name: str) -> "Image":
-        return replace(self, name=name)
+    def named(self, name: str) -> Self:
+        return self.model_copy(update={"name": name})
 
-    def with_plugin(self, plugin: Plugin) -> "Image":
+    def with_plugin(self, plugin: Plugin) -> Self:
         if not isinstance(plugin, Plugin):
             raise TypeError("Plugin must implement the image plugin protocol")
-        return replace(self, _plugins=(*self._plugins, plugin))
+        return self.model_copy(update={"plugins": (*self.plugins, plugin)})
 
-    def run_commands(self, *commands: str) -> "Image":
+    def run_commands(self, *commands: str) -> Self:
         if not commands:
             return self
-        return replace(self, _commands=(*self._commands, *commands))
+        return self.model_copy(update={"commands": (*self.commands, *commands)})
 
-    def with_platforms(self, *platforms: str) -> "Image":
-        return replace(self, _platforms=platforms)
+    def with_platforms(self, *platforms: str) -> Self:
+        return self.model_copy(update={"platforms": tuple(platforms)})
 
     def with_runtime(
         self,
         *,
         runtime_class_name: str | None = None,
         resources: dict[str, Any] | None = None,
-    ) -> "Image":
-        return replace(
-            self,
-            _runtime_class_name=runtime_class_name or self._runtime_class_name,
-            _resources=resources if resources is not None else self._resources,
+    ) -> Self:
+        return self.model_copy(
+            update={
+                "runtime_class_name": runtime_class_name or self.runtime_class_name,
+                "resources": resources if resources is not None else self.resources,
+            }
         )
 
     def to_spec(self) -> ImageBuildSpec:
         ctx = BuildContext(base=self.base)
         fragments: list[str] = []
-        for plugin in self._plugins:
+        for plugin in self.plugins:
             ctx = plugin.apply(ctx)
             fragment = plugin.render(ctx).strip()
             if fragment:
@@ -76,9 +96,9 @@ class Image:
             dockerfile_content=dockerfile_content,
             labels=dict(ctx.labels),
             context_path=ctx.context_path,
-            platforms=list(self._platforms),
-            runtime_class_name=self._runtime_class_name,
-            resources=self._resources,
+            platforms=list(self.platforms),
+            runtime_class_name=self.runtime_class_name,
+            resources=self.resources,
         )
 
     def _render_dockerfile(
@@ -109,28 +129,28 @@ class Image:
 
         lines.extend(["", f"USER {ctx.current_user}"])
 
-        commands_block = _run_block(self._commands)
+        commands_block = _run_block(self.commands)
         if commands_block:
             lines.extend(["", commands_block])
 
         return "\n".join(lines).strip() + "\n"
 
     def to_dict(self) -> dict[str, Any]:
-        return serialize_image(self)
+        return self.model_dump(mode="json")
 
     @classmethod
-    def from_dict(cls, definition: dict[str, Any]) -> "Image":
-        return deserialize_image(definition, cls)
+    def from_dict(cls, definition: dict[str, Any]) -> Self:
+        return cls.model_validate(definition)
 
     @classmethod
-    def from_yaml(cls, value: str | bytes | dict[str, Any]) -> "Image":
+    def from_yaml(cls, value: str | bytes | dict[str, Any]) -> Self:
         images = load_images(value, cls)
         if len(images) != 1:
             raise ValueError(f"Expected exactly one image definition, got {len(images)}")
         return images[0]
 
     @classmethod
-    def load_all(cls, value: str | bytes | dict[str, Any]) -> tuple["Image", ...]:
+    def load_all(cls, value: str | bytes | dict[str, Any]) -> tuple[Self, ...]:
         return load_images(value, cls)
 
     def to_yaml(self) -> str:
