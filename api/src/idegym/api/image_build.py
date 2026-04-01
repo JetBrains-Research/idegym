@@ -1,8 +1,8 @@
-from hashlib import md5
 from json import dumps as dump_json
 from typing import Any, Dict, List, Optional
 
 from idegym.api.download import DownloadRequest
+from idegym.utils.hashing import md5
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -19,10 +19,10 @@ class ImageBuildSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     def image_version(self) -> str:
-        digest = md5()
+        identifiers = []
         if self.request is not None:
-            digest.update(dump_json(self.request.descriptor.model_dump(mode="json"), sort_keys=True).encode())
-        digest.update(dump_json(self.labels, sort_keys=True).encode())
-        digest.update(self.context_path.encode())
-        digest.update(self.dockerfile_content.encode())
-        return digest.hexdigest()
+            identifiers.append(dump_json(self.request.descriptor.model_dump(mode="json"), sort_keys=True))
+        identifiers.append(dump_json(self.labels, sort_keys=True))
+        identifiers.append(self.context_path)
+        identifiers.append(self.dockerfile_content)
+        return md5(*identifiers)
