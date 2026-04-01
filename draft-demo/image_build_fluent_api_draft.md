@@ -1,13 +1,13 @@
 # Fluent Image Builder Draft
 
 This is the current draft surface of the fluent builder API.
-Python is the authoring interface. YAML is the generated build payload produced by `Image.to_yaml()`.
+Python is the authoring interface. YAML is the serialized image definition produced by `Image.to_yaml()`.
 
 ## Example
 
 ```python
 from idegym.image import Image
-from idegym.image.plugins import BaseSystem, IdegymServer, User
+from idegym.image.plugins import BaseSystem, IdeGYMServer, User
 
 
 image = (
@@ -24,8 +24,10 @@ image = (
             sudo=True,
         )
     )
-    .with_plugin(IdegymServer.from_local())
+    .with_plugin(IdeGYMServer.from_local())
 )
+
+local_image = image.build()
 ```
 
 ## Generated YAML Payload
@@ -33,10 +35,19 @@ image = (
 ```yaml
 images:
   - name: idegym-server-local-draft
-    context_path: /path/to/idegym-repo
-    dockerfile_content: |
-      FROM debian:bookworm-slim
-      ...
+    base: debian:bookworm-slim
+    plugins:
+      - type: base-system
+      - type: user
+        username: appuser
+        uid: 1000
+        gid: 1000
+        home: /home/appuser
+        shell: /bin/bash
+        sudo: true
+      - type: idegym-server
+        source: local
+        root: /path/to/idegym-repo
 ```
 
 ## Intended Reading
@@ -48,5 +59,5 @@ images:
 - The base reference is arbitrary, but the current built-in plugins still assume a Debian/Ubuntu-like image.
 - `BuildContext` keeps the small typed core and also exposes `extras` for custom plugin state.
 - `PluginBase` is just convenience. Any object implementing `apply(ctx)` and `render(ctx)` can be used as a plugin.
-- `context_path` is explicit in the generated YAML because local `COPY` depends on the Docker build context.
-- `named(...)` sets the image entry name in the generated YAML payload.
+- `image.build()` performs a local Docker build.
+- `named(...)` sets the image entry name in the serialized definition.

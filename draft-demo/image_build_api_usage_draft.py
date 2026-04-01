@@ -2,7 +2,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from idegym.image import Image
-from idegym.image.plugins import BaseSystem, IdegymServer, User
+from idegym.image.plugins import BaseSystem, IdeGYMServer, User
 
 
 def build_image() -> Image:
@@ -20,14 +20,15 @@ def build_image() -> Image:
                 sudo=True,
             )
         )
-        .with_plugin(IdegymServer.from_local(root=""))
+        .with_plugin(IdeGYMServer.from_local(root="/path/to/your/idegym/folder"))
     )
 
 
 def main() -> None:
     image = build_image()
-
+    # image.build()
     yaml_content = image.to_yaml()
+    restored = Image.from_yaml(yaml_content)
     compiled = image.compile()
 
     print("=== YAML ===")
@@ -57,13 +58,7 @@ def main() -> None:
         print(dockerfile_path)
 
         # Local Docker build usage:
-        from idegym.client.docker_api import IdeGYMDockerAPI
-
-        docker_api = IdeGYMDockerAPI()
-        docker_api.build_and_push_from_yaml(
-            path=yaml_path,
-            push=False,
-        )
+        restored.build()
 
 
 if __name__ == "__main__":
