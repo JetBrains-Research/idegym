@@ -488,7 +488,7 @@ class IdeGYMServer(PluginBase):
         )
 
 
-__all__ = [
+__all__ = (
     "BuildContext",
     "BaseSystem",
     "IdeGYMServer",
@@ -497,4 +497,4 @@ __all__ = [
     "PluginBase",
     "Project",
     "User",
-]
+)
