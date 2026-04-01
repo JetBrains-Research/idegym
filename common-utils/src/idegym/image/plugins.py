@@ -190,27 +190,17 @@ class User(PluginBase):
         for extra_group in self.additional_groups:
             commands.append(f"if ! getent group {extra_group} >/dev/null 2>&1; then groupadd {extra_group}; fi")
 
-        if additional_groups:
-            group_flags = f"-G {additional_groups}"
-        else:
-            group_flags = ""
+        group_flags = f"-G {additional_groups}" if additional_groups else ""
+        add_groups = f"usermod -aG {additional_groups} {self.username}" if additional_groups else ":"
 
         commands.append(
-            "if id -u {username} >/dev/null 2>&1; then "
-            "usermod -u {uid} -g {group} -d {home} -s {shell} {username}; "
-            "{add_groups}; "
+            f"if id -u {self.username} >/dev/null 2>&1; then "
+            f"usermod -u {self.uid} -g {group} -d {quote(home)} -s {quote(self.shell)} {self.username}; "
+            f"{add_groups}; "
             "else "
-            "useradd -u {uid} -g {group} {group_flags} -d {home} -s {shell} {create_home} {username}; "
-            "fi".format(
-                username=self.username,
-                uid=self.uid,
-                group=group,
-                home=quote(home),
-                shell=quote(self.shell),
-                add_groups=f"usermod -aG {additional_groups} {self.username}" if additional_groups else ":",
-                group_flags=group_flags,
-                create_home=create_home_flag,
-            )
+            f"useradd -u {self.uid} -g {group} {group_flags} -d {quote(home)} "
+            f"-s {quote(self.shell)} {create_home_flag} {self.username}; "
+            "fi"
         )
         if self.create_home:
             commands.extend(
