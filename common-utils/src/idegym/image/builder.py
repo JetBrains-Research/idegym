@@ -4,7 +4,7 @@ from typing import Any, Self
 from idegym.api.docker import BaseImage
 from idegym.api.image_build import ImageBuildSpec
 from idegym.client.docker_api import IdeGYMDockerAPI
-from idegym.image.plugin import BuildContext, Plugin
+from idegym.image.plugin import BuildContext, PluginBase
 from idegym.image.serialization import deserialize_plugin, dump_images, load_images, serialize_plugin
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
@@ -20,7 +20,7 @@ def _run_block(commands: tuple[str, ...]) -> str:
 class Image(BaseModel):
     base: str = Field(min_length=1)
     name: str | None = None
-    plugins: tuple[Plugin, ...] = ()
+    plugins: tuple[PluginBase, ...] = ()
     commands: tuple[str, ...] = ()
     platforms: tuple[str, ...] = ()
     runtime_class_name: str = Field(default="gvisor", min_length=1)
@@ -30,20 +30,19 @@ class Image(BaseModel):
 
     @field_validator("plugins", mode="before")
     @classmethod
-    def parse_plugins(cls, value: Any) -> tuple[Plugin, ...]:
-
-        plugins: list[Plugin] = []
+    def parse_plugins(cls, value: Any) -> tuple[PluginBase, ...]:
+        plugins: list[PluginBase] = []
         for item in value:
             if isinstance(item, dict):
                 plugins.append(deserialize_plugin(item))
                 continue
-            if not isinstance(item, Plugin):
-                raise TypeError("Plugin must implement the image plugin protocol")
+            if not isinstance(item, PluginBase):
+                raise TypeError("Plugin must inherit from PluginBase")
             plugins.append(item)
         return tuple(plugins)
 
     @field_serializer("plugins")
-    def dump_plugins(self, plugins: tuple[Plugin, ...]) -> list[dict[str, Any]]:
+    def dump_plugins(self, plugins: tuple[PluginBase, ...]) -> list[dict[str, Any]]:
         return [serialize_plugin(plugin) for plugin in plugins]
 
     @classmethod
@@ -54,9 +53,9 @@ class Image(BaseModel):
     def named(self, name: str) -> Self:
         return self.model_copy(update={"name": name})
 
-    def with_plugin(self, plugin: Plugin) -> Self:
-        if not isinstance(plugin, Plugin):
-            raise TypeError("Plugin must implement the image plugin protocol")
+    def with_plugin(self, plugin: PluginBase) -> Self:
+        if not isinstance(plugin, PluginBase):
+            raise TypeError("Plugin must inherit from PluginBase")
         return self.model_copy(update={"plugins": (*self.plugins, plugin)})
 
     def run_commands(self, *commands: str) -> Self:

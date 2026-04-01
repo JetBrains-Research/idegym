@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field, replace
-from typing import Any, Protocol, Self, runtime_checkable
+from typing import Any, Self
 
 from idegym.api.download import DownloadRequest
 from pydantic import BaseModel, ConfigDict
@@ -34,18 +34,6 @@ class BuildContext:
         return self.extras[key]
 
 
-@runtime_checkable
-class Plugin(Protocol):
-    def apply(self, ctx: BuildContext) -> BuildContext: ...
-
-    def render(self, ctx: BuildContext) -> str: ...
-
-    def to_payload(self) -> dict[str, Any]: ...
-
-    @classmethod
-    def from_payload(cls, payload: dict[str, Any]) -> Self: ...
-
-
 class PluginBase(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -60,14 +48,14 @@ class PluginBase(BaseModel):
         return cls.model_validate(payload)
 
 
-_PLUGIN_REGISTRY: dict[str, type] = {}
-_PLUGIN_TYPE_NAMES: dict[type, str] = {}
+_PLUGIN_REGISTRY: dict[str, type[PluginBase]] = {}
+_PLUGIN_TYPE_NAMES: dict[type[PluginBase], str] = {}
 
 
 def image_plugin(type_name: str):
-    def decorator(cls: type) -> type:
+    def decorator(cls: type[PluginBase]) -> type[PluginBase]:
         existing = _PLUGIN_REGISTRY.get(type_name)
-        if existing is not None:
+        if existing:
             raise ValueError(f"Plugin type '{type_name}' is already registered by {existing.__name__}")
         _PLUGIN_REGISTRY[type_name] = cls
         _PLUGIN_TYPE_NAMES[cls] = type_name
@@ -76,14 +64,14 @@ def image_plugin(type_name: str):
     return decorator
 
 
-def get_plugin_class(type_name: str) -> type:
+def get_plugin_class(type_name: str) -> type[PluginBase]:
     try:
         return _PLUGIN_REGISTRY[type_name]
     except KeyError as ex:
         raise KeyError(f"Unknown image plugin type: {type_name}") from ex
 
 
-def get_plugin_type_name(plugin_or_class: Any) -> str:
+def get_plugin_type_name(plugin_or_class: PluginBase | type[PluginBase]) -> str:
     cls = plugin_or_class if isinstance(plugin_or_class, type) else type(plugin_or_class)
     try:
         return _PLUGIN_TYPE_NAMES[cls]

@@ -6,7 +6,7 @@ from typing import ClassVar
 from idegym.api.download import Authorization, DownloadRequest
 from idegym.api.git import GitRepository, GitRepositoryResource, GitRepositorySnapshot
 from idegym.api.type import AuthType
-from idegym.image.plugin import BuildContext, Plugin, PluginBase, image_plugin
+from idegym.image.plugin import BuildContext, PluginBase, image_plugin
 from pydantic import Field
 
 
@@ -376,7 +376,6 @@ __all__ = (
     "BaseSystem",
     "IdeGYMServer",
     "Permissions",
-    "Plugin",
     "PluginBase",
     "Project",
     "User",

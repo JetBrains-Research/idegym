@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Iterable, List, Optional, Union
+from typing import Dict, Iterable, List, Optional, Union
 
 import yaml
 from idegym.api.docker import BaseImage
@@ -63,7 +63,7 @@ class IdeGYMDockerAPI:
     ) -> List[DockerImage]:
         images = []
         with open(path, "r") as file:
-            pipeline = yaml.safe_load(file)
+            pipeline: Dict[str, List[Dict[str, ...]]] = yaml.safe_load(file)
             items = pipeline.get("images", [])
             for item in items:
                 auth = item.pop("auth", {})
