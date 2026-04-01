@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 from shlex import quote
+from textwrap import dedent
 from typing import Any, ClassVar
 
 from idegym.api.download import Authorization, DownloadRequest
@@ -93,23 +94,24 @@ class BaseSystem(PluginBase):
     def render(self, ctx: BuildContext) -> str:
         if not self.packages:
             return ""
-        package_list = " \\\n        ".join(self.packages)
-        return "\n".join(
-            [
-                "# Install base system packages",
-                "RUN set -eux; \\",
-                "    apt-get update -qq; \\",
-                "    apt-get install -y --no-install-recommends \\",
-                f"        {package_list}; \\",
-                "    apt-get clean; \\",
-                "    rm -rf /var/lib/apt/lists/*",
-                "",
-                "# Refresh system caches",
-                "RUN set -eux; \\",
-                "    fc-cache -f -v || true; \\",
-                "    update-ca-certificates",
-            ]
-        )
+        package_list = " \\\n".join(f"                    {package}" for package in self.packages)
+        # language=dockerfile
+        return dedent(
+            f"""\
+            # Install base system packages
+            RUN set -eux; \\
+                apt-get update -qq; \\
+                apt-get install -y --no-install-recommends \\
+{package_list}; \\
+                apt-get clean; \\
+                rm -rf /var/lib/apt/lists/*
+
+            # Refresh system caches
+            RUN set -eux; \\
+                fc-cache -f -v || true; \\
+                update-ca-certificates
+            """
+        ).strip()
 
 
 @image_plugin("user")
@@ -386,9 +388,6 @@ class Project(PluginBase):
 @image_plugin("idegym-server")
 @dataclass(frozen=True, slots=True)
 class IdeGYMServer(PluginBase):
-    WORKSPACE_FILES: ClassVar[tuple[str, ...]] = (".python-version", "pyproject.toml", "supervisord.conf", "uv.lock")
-    WORKSPACE_DIRS: ClassVar[tuple[str, ...]] = ("api", "backend-utils", "common-utils", "rewards", "tools", "server")
-
     source: str
     root: str | None = None
     url: str | None = None
@@ -433,59 +432,64 @@ class IdeGYMServer(PluginBase):
 
         user = ctx.current_user
         group = str(ctx.get_extra("idegym.user.group", user))
+        # language=dockerfile
+        return dedent(
+            f"""\
+            COPY --from=ghcr.io/astral-sh/uv:0.10.11 /uv /uvx /bin/
 
-        return "\n".join(
-            [
-                "COPY --from=ghcr.io/astral-sh/uv:0.10.11 /uv /uvx /bin/",
-                "",
-                "ENV IDEGYM_PATH=/opt/idegym \\",
-                "    PYTHONDONTWRITEBYTECODE=0 \\",
-                "    PYTHONUNBUFFERED=1 \\",
-                "    PYTHONHASHSEED=random",
-                'ENV PYTHONPATH="$IDEGYM_PATH"',
-                "",
-                "RUN set -eux; \\",
-                "    mkdir -p $IDEGYM_PATH $IDEGYM_PROJECT_ROOT; \\",
-                f"    chown -R {user}:{group} $IDEGYM_PATH $IDEGYM_PROJECT_ROOT",
-                "",
-                f"COPY --chown={user}:{group} --chmod=755 scripts /usr/local/bin/",
-                f"COPY --chown={user}:{group} --chmod=755 entrypoint.py $IDEGYM_PATH/",
-                f"COPY --chown={user}:{group} --chmod=755 entrypoint.sh idegym.sh /usr/local/bin/",
-                "",
-                "RUN set -eux; \\",
-                "    for script in /usr/local/bin/*.{py,sh}; do \\",
-                '        [ -f "$script" ] || continue; \\',
-                '        mv "$script" "$(echo "${script%.*}" | tr "_" "-")"; \\',
-                "    done",
-                "",
-                f"USER {user}",
-                "WORKDIR $IDEGYM_PATH",
-                "",
-                f"COPY --chown={user}:{group} {' '.join(self.WORKSPACE_FILES)} ./",
-                *(f"COPY --chown={user}:{group} {path} {path}/" for path in self.WORKSPACE_DIRS),
-                "",
-                "RUN set -eux; \\",
-                "    uv python install; \\",
-                "    uv sync --project server \\",
-                "            --frozen \\",
-                "            --no-cache \\",
-                "            --no-dev; \\",
-                "    uv pip install supervisor",
-                "",
-                "VOLUME /docker-entrypoint.d",
-                "EXPOSE 8000",
-                "",
-                'ENTRYPOINT ["dumb-init", "--"]',
-                'CMD ["entrypoint", ".venv/bin/supervisord", "-c", "supervisord.conf"]',
-                "",
-                "HEALTHCHECK \\",
-                "    --start-period=10s \\",
-                "    --interval=60s \\",
-                "    --timeout=30s \\",
-                "    --retries=5 \\",
-                "CMD nc -z 127.0.0.1 8000 || exit 1",
-            ]
-        )
+            ENV IDEGYM_PATH=/opt/idegym \\
+                PYTHONDONTWRITEBYTECODE=0 \\
+                PYTHONUNBUFFERED=1 \\
+                PYTHONHASHSEED=random
+            ENV PYTHONPATH="$IDEGYM_PATH"
+
+            RUN set -eux; \\
+                mkdir -p $IDEGYM_PATH $IDEGYM_PROJECT_ROOT; \\
+                chown -R {user}:{group} $IDEGYM_PATH $IDEGYM_PROJECT_ROOT
+
+            COPY --chown={user}:{group} --chmod=755 scripts /usr/local/bin/
+            COPY --chown={user}:{group} --chmod=755 entrypoint.py $IDEGYM_PATH/
+            COPY --chown={user}:{group} --chmod=755 entrypoint.sh idegym.sh /usr/local/bin/
+
+            RUN set -eux; \\
+                for script in /usr/local/bin/*.{{py,sh}}; do \\
+                    [ -f "$script" ] || continue; \\
+                    mv "$script" "$(echo "${{script%.*}}" | tr "_" "-")"; \\
+                done
+
+            USER {user}
+            WORKDIR $IDEGYM_PATH
+
+            COPY --chown={user}:{group} .python-version pyproject.toml supervisord.conf uv.lock ./
+            COPY --chown={user}:{group} api api/
+            COPY --chown={user}:{group} backend-utils backend-utils/
+            COPY --chown={user}:{group} common-utils common-utils/
+            COPY --chown={user}:{group} rewards rewards/
+            COPY --chown={user}:{group} tools tools/
+            COPY --chown={user}:{group} server server/
+
+            RUN set -eux; \\
+                uv python install; \\
+                uv sync --project server \\
+                    --frozen \\
+                    --no-cache \\
+                    --no-dev; \\
+                uv pip install supervisor
+
+            VOLUME /docker-entrypoint.d
+            EXPOSE 8000
+
+            ENTRYPOINT ["dumb-init", "--"]
+            CMD ["entrypoint", ".venv/bin/supervisord", "-c", "supervisord.conf"]
+
+            HEALTHCHECK \\
+                --start-period=10s \\
+                --interval=60s \\
+                --timeout=30s \\
+                --retries=5 \\
+            CMD nc -z 127.0.0.1 8000 || exit 1
+            """
+        ).strip()
 
 
 __all__ = (
