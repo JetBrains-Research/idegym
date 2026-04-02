@@ -9,9 +9,9 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "idegym-api>=0.0.0.dev0",
-    "idegym-backend-utils>=0.0.0.dev0",
-    "idegym-common-utils>=0.0.0.dev0",
+    "idegym-api",
+    "idegym-backend-utils",
+    "idegym-common-utils",
     "junitparser>=3.2.0",
 ]
 
