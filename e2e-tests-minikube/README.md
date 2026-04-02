@@ -297,7 +297,7 @@ If PyCharm highlights `from utils.k8s_setup import ...` in `tests/conftest.py`:
 
 - Mark `e2e-tests-minikube` as a Source Root in the IDE
 - Use a pytest run configuration with working directory set to `e2e-tests-minikube`
-- Run tests via `uv run pytest -m e2e` or `cd e2e-tests-minikube && uv run pytest -m e2e ...`
+- Run tests via `uv run pytest -m e2e` from the project root
 
 ## Contributing
 
