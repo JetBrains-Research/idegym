@@ -18,12 +18,8 @@ from kubernetes_asyncio.client import (
     V1ObjectMeta,
     V1Pod,
 )
-from kubernetes_asyncio.config import ConfigException, load_incluster_config, load_kube_config
 
 T = TypeVar("T")
-
-_config_loaded = False
-_config_lock = threading.Lock()
 
 
 async def _await_api_result(result: Awaitable[T] | T) -> T:
@@ -64,27 +60,13 @@ def _run_async(coro: Awaitable[T]) -> T:
     return result["value"]
 
 
-async def _ensure_config_loaded() -> None:
-    """Initialize Kubernetes config once per process."""
-    global _config_loaded
-
-    if _config_loaded:
-        return
-
-    with _config_lock:
-        if _config_loaded:
-            return
-
-        try:
-            load_incluster_config()
-        except ConfigException:
-            await load_kube_config()
-
-        _config_loaded = True
-
-
 async def _with_clients(func: Callable[[CoreV1Api, AppsV1Api, PolicyV1Api], Awaitable[T]]) -> T:
-    await _ensure_config_loaded()
+    """
+    Execute a function with Kubernetes API clients.
+
+    Note:
+        Assumes kubernetes config is already loaded (e.g., via pytest fixture).
+    """
     async with ApiClient() as api_client:
         core = CoreV1Api(api_client)
         apps = AppsV1Api(api_client)

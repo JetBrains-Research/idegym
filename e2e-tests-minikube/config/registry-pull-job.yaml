@@ -1,0 +1,38 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: registry-pull-job
+  namespace: kube-system
+spec:
+  ttlSecondsAfterFinished: 60
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: ctr-pull
+        image: busybox:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -ex
+          echo "Pulling image from registry using ctr..."
+          /usr/bin/ctr -n k8s.io images pull --plain-http {image_tag}
+          echo "Successfully pulled image into containerd"
+        volumeMounts:
+        - name: containerd-socket
+          mountPath: /run/containerd
+        - name: ctr-bin
+          mountPath: /usr/bin/ctr
+        securityContext:
+          privileged: true
+      volumes:
+      - name: containerd-socket
+        hostPath:
+          path: /run/containerd
+      - name: ctr-bin
+        hostPath:
+          path: /usr/bin/ctr
+      nodeSelector:
+        kubernetes.io/hostname: minikube

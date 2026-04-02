@@ -2,8 +2,17 @@
 
 # Kubernetes configuration
 DEFAULT_NAMESPACE = "idegym-local"
+KUBE_SYSTEM_NAMESPACE = "kube-system"
 INGRESS_NAMESPACE = "ingress-nginx"
 INGRESS_CONTROLLER_SERVICE = "ingress-nginx-controller"
+
+# Kaniko job names
+REGISTRY_PUSH_JOB_NAME = "registry-push-job"
+REGISTRY_PULL_JOB_NAME = "registry-pull-job"
+
+# Registry configuration
+LOCAL_REGISTRY_HOST = "registry.kube-system.svc.cluster.local"
+MINIKUBE_NODE_NAME = "minikube"
 
 # URLs
 BASE_URL = "http://idegym-local.test"

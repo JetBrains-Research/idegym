@@ -27,6 +27,16 @@ patches:
         value:
           name: IDEGYM_UVICORN_WORKERS
           value: "1"
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: KANIKO_INSECURE_REGISTRY
+          value: "true"
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: DOCKER_REGISTRY
+          value: "registry.kube-system.svc.cluster.local"
 
   # Patch Grafana deployment to use IfNotPresent
   - target:

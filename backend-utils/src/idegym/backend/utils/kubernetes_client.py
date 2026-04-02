@@ -668,6 +668,7 @@ async def build_and_push_image_with_kaniko(
     ttl_seconds_after_finished: int = 300,
     runtime_class_name: Optional[str] = None,
     resources: Optional[Any] = None,
+    insecure_registry: bool = False,
 ) -> str:
     """
     Build a Docker image using kaniko in a Kubernetes job.
@@ -683,16 +684,25 @@ async def build_and_push_image_with_kaniko(
         ttl_seconds_after_finished: Time in seconds to automatically delete the job after it finishes (default: 300)
         runtime_class_name: Kubernetes runtime class name (e.g., "gvisor") to use for the Kaniko pod
         resources: Kubernetes resource requirements (can be a V1ResourceRequirements object or a dictionary)
+        insecure_registry: Allow pushing to insecure (HTTP) registries like localhost:5000 (default: False)
 
     Returns:
         The job name
     """
     name = f"kaniko-build-{getrandbits(32):08x}"  # Generate a unique job name
+
+    # Determine registry URL for base images
+    # Extract registry from destination tag or use environment variable
+    from os import environ as env
+
+    registry_url = env.get("DOCKER_REGISTRY", "ghcr.io/jetbrains-research/idegym")
+
     args = [
         "--dockerfile=/workspace/Dockerfile",
         f"--destination={tag}",
         "--context=dir:///workspace",
         f"--build-arg=IDEGYM_BASE={base}",
+        f"--build-arg=IDEGYM_REGISTRY={registry_url}",
         f"--build-arg=IDEGYM_VERSION={service_version}",
         f"--build-arg=IDEGYM_PROJECT_ARCHIVE_URL={request.descriptor.url}",
         f"--build-arg=IDEGYM_PROJECT_ARCHIVE_PATH={request.descriptor.name}",
@@ -702,6 +712,9 @@ async def build_and_push_image_with_kaniko(
         args.append(f"--build-arg=IDEGYM_AUTH_TYPE={request.auth.type}")
     if request.auth.token is not None:
         args.append(f"--build-arg=IDEGYM_AUTH_TOKEN={request.auth.token}")
+
+    if insecure_registry:
+        args.append("--insecure")
 
     if labels:
         for key, value in labels.items():
@@ -764,11 +777,17 @@ async def build_and_push_image_with_kaniko(
                 name="dockerfile-volume",
                 mount_path="/workspace",
             ),
-            V1VolumeMount(
-                name="docker-config",
-                mount_path="/kaniko/.docker",
-            ),
-        ],
+        ]
+        + (
+            [
+                V1VolumeMount(
+                    name="docker-config",
+                    mount_path="/kaniko/.docker",
+                ),
+            ]
+            if not insecure_registry
+            else []
+        ),
         security_context=V1SecurityContext(run_as_user=0),
         resources=resources,
     )
@@ -796,19 +815,25 @@ async def build_and_push_image_with_kaniko(
                                 "name": configmap.metadata.name,
                             },
                         ),
-                        V1Volume(
-                            name="docker-config",
-                            secret=V1SecretVolumeSource(
-                                secret_name="regcred",
-                                items=[
-                                    {
-                                        "key": ".dockerconfigjson",
-                                        "path": "config.json",
-                                    },
-                                ],
+                    ]
+                    + (
+                        [
+                            V1Volume(
+                                name="docker-config",
+                                secret=V1SecretVolumeSource(
+                                    secret_name="regcred",
+                                    items=[
+                                        {
+                                            "key": ".dockerconfigjson",
+                                            "path": "config.json",
+                                        },
+                                    ],
+                                ),
                             ),
-                        ),
-                    ],
+                        ]
+                        if not insecure_registry
+                        else []
+                    ),
                     runtime_class_name=runtime_class_name,
                 ),
             ),

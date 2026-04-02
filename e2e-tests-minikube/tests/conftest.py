@@ -10,10 +10,12 @@ from idegym.api.docker import BaseImage
 from idegym.api.git import GitRepositorySnapshot
 from idegym.client import IdeGYMDockerAPI
 from idegym.utils.logging import get_logger
+from kubernetes_asyncio import config as k8s_config
 from utils import k8s_client
 from utils.build_images import build_all_images
 from utils.constants import DEFAULT_NAMESPACE, ORCHESTRATOR_APP_LABEL
 from utils.idegym_utils import generate_test_id
+from utils.k8s_jobs import run_job
 from utils.k8s_setup import cleanup_kubernetes_environment, setup_kubernetes_environment, wait_for_service
 
 logger = get_logger(__name__)
@@ -85,7 +87,35 @@ def pytest_collection_modifyitems(config, items):
 
 
 @pytest.fixture(scope="session", autouse=True)
-def setup_and_cleanup_environment(request):
+def k8s_config_loader():
+    """Load Kubernetes configuration once per test session."""
+    import asyncio
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(k8s_config.load_kube_config())
+        logger.info("✓ Loaded Kubernetes configuration")
+        yield
+    finally:
+        try:
+            # Cancel all remaining tasks
+            pending = asyncio.all_tasks(loop)
+            for task in pending:
+                task.cancel()
+            # Wait for all tasks to be cancelled
+            if pending:
+                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            # Shutdown async generators
+            loop.run_until_complete(loop.shutdown_asyncgens())
+            # Shutdown default executor
+            loop.run_until_complete(loop.shutdown_default_executor())
+        finally:
+            loop.close()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def setup_and_cleanup_environment(request, k8s_config_loader):
     """Set up e2e environment before session and clean it up afterwards."""
     skip_build = request.config.getoption("--skip-build")
     reuse_resources = request.config.getoption("--reuse-resources")
@@ -170,11 +200,49 @@ def redeploy_orchestrator():
         raise
 
 
+def cleanup_kaniko_jobs():
+    """
+    Delete all Kaniko-related jobs in kube-system namespace.
+
+    This includes:
+    - registry-push-job (pushes base image to registry)
+    - registry-pull-job (pulls images from registry to containerd)
+    """
+    import asyncio
+
+    from utils.constants import KUBE_SYSTEM_NAMESPACE, REGISTRY_PULL_JOB_NAME, REGISTRY_PUSH_JOB_NAME
+    from utils.k8s_jobs import delete_job
+
+    async def _cleanup():
+        await delete_job(REGISTRY_PUSH_JOB_NAME, namespace=KUBE_SYSTEM_NAMESPACE)
+        await delete_job(REGISTRY_PULL_JOB_NAME, namespace=KUBE_SYSTEM_NAMESPACE)
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(_cleanup())
+        logger.debug("✓ Kaniko jobs cleaned up")
+    except Exception as e:
+        logger.debug(f"Error during Kaniko job cleanup (may not exist): {e}")
+    finally:
+        try:
+            pending = asyncio.all_tasks(loop)
+            for task in pending:
+                task.cancel()
+            if pending:
+                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            loop.run_until_complete(loop.shutdown_asyncgens())
+            loop.run_until_complete(loop.shutdown_default_executor())
+        finally:
+            loop.close()
+
+
 @pytest.fixture(autouse=True)
 def cleanup_after_test():
     """Automatically cleanup server deployments and redeploy orchestrator/database after each test."""
     yield
     cleanup_servers()
+    cleanup_kaniko_jobs()
     redeploy_orchestrator()
 
 
@@ -232,6 +300,36 @@ def delete_kustomize_services():
     logger.info(f"✓ Kustomize services deleted ({len(service_names)})")
 
 
+async def pull_image_from_registry_to_containerd(image_tag: str) -> None:
+    """
+    Pull an image from the local registry into Minikube's containerd.
+
+    This is needed because pods can't directly pull from registry.kube-system.svc.cluster.local
+    via standard imagePullPolicy - we need to explicitly import it into containerd.
+
+    Uses a privileged Kubernetes job with hostPath mounts to access the host's containerd socket.
+
+    Args:
+        image_tag: Full image tag in the registry (e.g., registry.kube-system.svc.cluster.local/image:tag)
+    """
+    from importlib.resources import files
+
+    import config as e2e_config
+    from utils.constants import KUBE_SYSTEM_NAMESPACE
+
+    logger.info(f"Pulling image from registry into containerd: {image_tag}")
+
+    # Load job template and substitute values
+    template_path = files(e2e_config).joinpath("registry-pull-job.yaml")
+    job_manifest = template_path.read_text(encoding="utf-8").format(image_tag=image_tag)
+
+    success = await run_job(job_manifest, namespace=KUBE_SYSTEM_NAMESPACE, timeout=120)
+    if not success:
+        logger.warning("Registry pull job had issues - image might already be available")
+    else:
+        logger.info("✓ Successfully pulled image from registry to containerd")
+
+
 @pytest.fixture(scope="session")
 def test_image():
     """Build and cache test image for the entire test session."""
@@ -251,3 +349,13 @@ def test_image():
 
     logger.info(f"Test image built and loaded: {image_tag}")
     return image_tag
+
+
+@pytest.fixture
+def kaniko_image_loader():
+    """
+    Fixture that returns a function to load Kaniko-built images into containerd.
+
+    Use this after building images with Kaniko to make them available for pod deployment.
+    """
+    return pull_image_from_registry_to_containerd

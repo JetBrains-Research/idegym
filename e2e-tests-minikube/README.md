@@ -22,7 +22,7 @@ Start the cluster with required addons:
 
 ```bash
 minikube start \
-  --addons=gvisor,ingress \
+  --addons=gvisor,ingress,registry \
   --container-runtime=containerd \
   --docker-opt containerd=/var/run/containerd/containerd.sock \
   --kubernetes-version=v1.35.0
@@ -30,8 +30,26 @@ minikube start \
 
 This will:
 - Create a new Kubernetes cluster
-- Install the gvisor and ingress addons
+- Install the gvisor, ingress, and registry addons
 - Set up the containerd container runtime
+
+The registry addon creates a local Docker registry that can be used by Kaniko for building and pushing images without requiring remote registry access.
+
+**Registry Access:**
+- **From inside cluster (Kaniko pods):** `registry.kube-system.svc.cluster.local:80` ✅ This is what we use
+- **From outside cluster (host machine):** Port forwarding required (registry is ClusterIP only)
+
+**Note:** The Minikube registry addon with Docker driver mentions port 64216, but this port is not reliably accessible from the host. All registry operations should go through the cluster-internal DNS name.
+
+To verify the registry is running:
+
+```bash
+# Check the registry addon is enabled
+minikube addons list | grep registry
+
+# Test from inside cluster (this is the reliable way)
+kubectl run curl --rm -it --image=curlimages/curl --restart=Never -- curl http://registry.kube-system.svc.cluster.local/v2/
+```
 
 ### 3. Configure Host Access
 
@@ -222,6 +240,35 @@ Tests connect to `http://idegym-local.test`:
 2. `minikube tunnel` assigns `127.0.0.1` as external IP for LoadBalancer
 3. Ingress controller routes requests to orchestrator service
 
+## Privileged Containers and Security Considerations
+
+### Why Privileged Containers Are Needed
+
+The test infrastructure uses privileged Kubernetes jobs with hostPath mounts to interact with Minikube's containerd runtime. This is required for:
+
+1. **Pushing base images to the local registry** (`registry-push-job` in `utils/build_images.py`):
+   - Mounts `/run/containerd` socket and `/usr/bin/ctr` from the host
+   - Uses `ctr` to export images from containerd and `skopeo` to push to the registry
+
+2. **Pulling images from registry into containerd** (`registry-pull-job` in `tests/conftest.py`):
+   - Mounts `/run/containerd` socket and `/usr/bin/ctr` from the host
+   - Uses `ctr` to pull images from the registry into the k8s.io namespace
+
+### CI and Production Implications
+
+**Important**: These privileged containers with hostPath mounts may not work in restricted CI environments or production clusters that enforce security policies like:
+- Pod Security Standards (PSS) with `restricted` profile
+- PodSecurityPolicy (deprecated but still used in some clusters)
+- OPA/Gatekeeper policies that block privileged containers or hostPath mounts
+
+**Alternatives for restricted environments**:
+1. Use a real container registry (e.g., GitLab Container Registry, GitHub Container Registry)
+2. Use a registry accessible from both the host and cluster (e.g., kind's registry or a NodePort-exposed registry)
+3. Pre-load all images before running tests using `minikube image load`
+4. Use a CI-specific runner with Docker-in-Docker or similar capabilities
+
+**For local development**: Minikube with the Docker driver allows these privileged operations, which is why this approach works for local e2e testing.
+
 ## Environment Variables
 
 Configure test behavior with environment variables:
@@ -233,7 +280,26 @@ export IDEGYM_TEST_BASE_URL=http://idegym-local.test
 # Authentication credentials (default: test/test)
 export IDEGYM_TEST_USERNAME=test
 export IDEGYM_TEST_PASSWORD=test
+
+# Docker registry for Kaniko (default: ghcr.io/jetbrains-research/idegym)
+# Use cluster-internal DNS name for Kaniko pods
+export DOCKER_REGISTRY=registry.kube-system.svc.cluster.local
+
+# Kaniko insecure registry (set to "true" for local Minikube registry)
+export KANIKO_INSECURE_REGISTRY=true
 ```
+
+### Using Local Minikube Registry with Kaniko
+
+The local Minikube registry is accessible at different addresses depending on context:
+- **From Kaniko pods:** `registry.kube-system.svc.cluster.local` (cluster-internal DNS)
+- **From host machine:** `localhost:64216` (Docker driver) or `localhost:5000` (other drivers)
+
+The e2e test kustomization automatically configures the orchestrator with:
+- `DOCKER_REGISTRY=registry.kube-system.svc.cluster.local` - Cluster-internal registry address for Kaniko
+- `KANIKO_INSECURE_REGISTRY=true` - Enables `--insecure` flag for HTTP registry access
+
+No manual configuration is needed for e2e tests. The kustomize overlay automatically sets these environment variables.
 
 ## Troubleshooting
 
