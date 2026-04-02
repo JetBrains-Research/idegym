@@ -25,7 +25,9 @@ from idegym.orchestrator.util.decorators import handle_general_exceptions, handl
 from idegym.orchestrator.util.errors import format_error
 from idegym.utils.decorators import executes_operation_in_background
 from idegym.utils.logging import get_logger
-from websockets.exceptions import ConnectionClosedOK
+from starlette.websockets import WebSocketState
+from websockets.exceptions import ConnectionClosed
+from websockets.protocol import State
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -212,8 +214,11 @@ async def forward_websocket(websocket: WebSocket, client_id: UUID, server_id: in
             try:
                 async for message in websocket.iter_text():
                     await upstream.send(message)
-            except (WebSocketDisconnect, ConnectionClosedOK):
+            except (WebSocketDisconnect, ConnectionClosed):
                 pass
+            finally:
+                if upstream.state != State.CLOSED:
+                    await upstream.close()
 
         async def relay_upstream_to_client():
             try:
@@ -221,8 +226,11 @@ async def forward_websocket(websocket: WebSocket, client_id: UUID, server_id: in
                     await websocket.send_text(message if isinstance(message, str) else message.decode())
                     # Update server heartbeat for every message received from the upstream server
                     await update_server_status(server_id=server_id, availability_status=AvailabilityStatus.ALIVE)
-            except (WebSocketDisconnect, ConnectionClosedOK):
+            except (WebSocketDisconnect, ConnectionClosed):
                 pass
+            finally:
+                if websocket.application_state != WebSocketState.DISCONNECTED:
+                    await websocket.close()
 
         client_task = asyncio.create_task(relay_client_to_upstream())
         upstream_task = asyncio.create_task(relay_upstream_to_client())
@@ -238,7 +246,7 @@ async def forward_websocket(websocket: WebSocket, client_id: UUID, server_id: in
             if task.cancelled():
                 continue
             exception = task.exception()
-            if exception:
+            if exception and not isinstance(exception, ConnectionClosed):
                 raise exception
 
 

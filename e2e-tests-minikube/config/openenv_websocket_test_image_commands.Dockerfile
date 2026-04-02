@@ -41,6 +41,8 @@ async def websocket_endpoint(websocket: WebSocket):
             await websocket.send_text("bye")
             await websocket.close(code=1000)
             break
+        elif message == "crash":
+            raise RuntimeError("forced websocket crash")
         else:
             await websocket.send_text("error: unknown command")
 
