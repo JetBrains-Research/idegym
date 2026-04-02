@@ -33,7 +33,6 @@ jobs:
     name: Run ${{ matrix.suite }} tests
     runs-on: ${{ matrix.runner }}
     strategy:
-      fail-fast: false
       matrix:
         include:
           - suite: unit
