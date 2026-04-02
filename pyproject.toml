@@ -58,9 +58,9 @@ python_files = ["test_*.py"]
 python_functions = ["test_*"]
 pythonpath = [".", "e2e-tests-minikube"]
 testpaths = [
+    "e2e-tests-minikube",
     "integration-tests",
     "unit-tests",
-    "e2e-tests-minikube/tests",
 ]
 addopts = [
     "--import-mode=importlib",

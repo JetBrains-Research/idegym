@@ -1,21 +1,19 @@
 """Root pytest hooks for suite markers and default selection behavior."""
 
 from pathlib import Path
+from typing import Optional
 
 
-def _suite_marker_for_path(path: Path) -> str | None:
-    parts = path.parts
-
-    if "unit-tests" in parts:
-        return "unit"
-    if "integration-tests" in parts:
-        return "integration"
-    if "e2e-tests-minikube" in parts:
-        e2e_dir_idx = parts.index("e2e-tests-minikube")
-        if e2e_dir_idx + 1 < len(parts) and parts[e2e_dir_idx + 1] == "tests":
+def _suite_marker_for_path(path: Path) -> Optional[str]:
+    match path.parts:
+        case (*_, "e2e-tests-minikube", _):
             return "e2e"
-
-    return None
+        case (*_, "integration-tests", _):
+            return "integration"
+        case (*_, "unit-tests", _):
+            return "unit"
+        case _:
+            return None
 
 
 def pytest_collection_modifyitems(config, items):
