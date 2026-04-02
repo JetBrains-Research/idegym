@@ -50,8 +50,6 @@ jobs:
     steps:
       - name: Checkout latest
         uses: actions/checkout@v6
-      - name: Remove Unwanted Software
-        uses: ./.github/actions/remove-unwanted-software
       - name: Install Docker
         if: matrix.suite != 'e2e'
         uses: docker/setup-docker-action@v5
