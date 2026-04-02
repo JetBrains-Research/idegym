@@ -116,7 +116,7 @@ uv run pytest -m e2e -k "reuse and not limits"
 Run a single test by node ID:
 
 ```bash
-uv run pytest -m e2e e2e-tests-minikube/test_health.py::test_orchestrator_health
+uv run pytest -m e2e e2e-tests/test_health.py::test_orchestrator_health
 ```
 
 ### Showing All Logs
@@ -295,15 +295,15 @@ export IDEGYM_TEST_BASE_URL=http://idegym-local.test
 
 If PyCharm highlights `from utils.k8s_setup import ...` in `conftest.py`:
 
-- Mark `e2e-tests-minikube` as a Source Root in the IDE
-- Use a pytest run configuration with working directory set to `e2e-tests-minikube`
+- Mark `e2e-tests` as a Source Root in the IDE
+- Use a pytest run configuration with working directory set to `e2e-tests`
 - Run tests via `uv run pytest -m e2e` from the project root
 
 ## Contributing
 
 ### Adding New Tests
 
-1. Create test file in the `e2e-tests-minikube/` directory
+1. Create test file in the `e2e-tests/` directory
 2. Use `create_http_client()` from `utils/idegym_utils.py`
 3. Follow naming convention: `test_*.py`
 4. Add docstring explaining what the test validates
@@ -311,7 +311,7 @@ If PyCharm highlights `from utils.k8s_setup import ...` in `conftest.py`:
 Example:
 
 ```python
-# e2e-tests-minikube/test_my_feature.py
+# e2e-tests/test_my_feature.py
 from utils.idegym_utils import create_http_client
 import pytest
 
