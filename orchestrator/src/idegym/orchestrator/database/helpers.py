@@ -122,6 +122,8 @@ async def check_resources_and_save_server_in_db(
     ram_request: float,
     image_tag: Optional[str] = None,
     container_runtime: Optional[str] = None,
+    server_kind: str = "idegym",
+    service_port: int = 80,
     run_as_root: bool = False,
 ):
     server = await check_resources_and_save_server(
@@ -134,6 +136,8 @@ async def check_resources_and_save_server_in_db(
         ram_request=ram_request,
         image_tag=image_tag,
         container_runtime=container_runtime,
+        server_kind=server_kind,
+        service_port=service_port,
         run_as_root=run_as_root,
     )
     if not server:

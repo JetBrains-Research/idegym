@@ -3,7 +3,7 @@ from functools import wraps
 from types import NoneType
 from typing import Any, Dict
 
-from fastapi import HTTPException, Request, status
+from fastapi import HTTPException, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import HTMLResponse
 from idegym.api.orchestrator.clients import AvailabilityStatus
 from idegym.api.orchestrator.operations import AsyncOperationStatus
@@ -16,6 +16,7 @@ from idegym.orchestrator.util.errors import format_error
 from idegym.utils.logging import get_logger
 from pydantic import BaseModel
 from starlette.templating import Jinja2Templates
+from starlette.websockets import WebSocketState
 
 logger = get_logger(__name__)
 
@@ -48,6 +49,47 @@ def handle_general_exceptions(error_message: str):
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail=format_error(message=enhanced_message, exception=e),
                 )
+
+        return wrapper
+
+    return decorator
+
+
+def handle_websocket_exceptions(error_message: str, close_code: int = status.WS_1011_INTERNAL_ERROR):
+    """
+    Decorator to handle exceptions in WebSocket endpoints.
+
+    It keeps expected disconnections silent and closes the socket on serious errors.
+    """
+
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            websocket = _extract_websocket(args, kwargs)
+
+            try:
+                await func(*args, **kwargs)
+                return
+
+            except HTTPException:
+                # Preserve handshake-time HTTP semantics before websocket acceptance.
+                raise
+
+            except (WebSocketDisconnect, CancelledError):
+                # Expected shutdown paths should not be converted to internal errors.
+                return
+
+            except Exception:
+                relevant_kwargs = _extract_relevant_kwargs(kwargs)
+                logger.exception(event=error_message, parameters=relevant_kwargs)
+
+                await _close_websocket_if_needed(
+                    websocket=websocket,
+                    code=close_code,
+                    reason=error_message,
+                )
+
+                return
 
         return wrapper
 
@@ -162,6 +204,27 @@ def _extract_relevant_kwargs(kwargs: Dict[str, Any]) -> Dict[str, Any]:
             relevant_kwargs[key] = value.model_dump() if hasattr(value, "model_dump") else str(value)
 
     return relevant_kwargs
+
+
+def _extract_websocket(args: tuple[Any, ...], kwargs: Dict[str, Any]) -> WebSocket | None:
+    for arg in args:
+        if isinstance(arg, WebSocket):
+            return arg
+    candidate = kwargs.get("websocket")
+    return candidate if isinstance(candidate, WebSocket) else None
+
+
+async def _close_websocket_if_needed(websocket: WebSocket | None, code: int, reason: str):
+    if websocket is None:
+        return
+
+    if websocket.application_state == WebSocketState.DISCONNECTED:
+        return
+
+    try:
+        await websocket.close(code=code, reason=reason)
+    except Exception:
+        logger.exception("Failed to close WebSocket after an internal error")
 
 
 def _format_kwargs_for_logging(kwargs: Dict[str, Any]) -> str:
