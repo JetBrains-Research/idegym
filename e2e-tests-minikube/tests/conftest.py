@@ -8,7 +8,7 @@ import pytest
 import yaml
 from idegym.api.docker import BaseImage
 from idegym.api.git import GitRepositorySnapshot
-from idegym.client import IdeGYMDockerAPI
+from idegym.image.docker_api import IdeGYMDockerAPI
 from idegym.utils.logging import get_logger
 from utils import k8s_client
 from utils.build_images import build_all_images

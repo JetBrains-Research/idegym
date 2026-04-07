@@ -6,7 +6,7 @@ from unittest import TestCase, main
 
 from idegym.api.download import DownloadRequest
 from idegym.api.git import GitRepository, GitServer
-from idegym.client.docker_service import __CONTAINER_VOLUME_PATH__, DockerService
+from idegym.image.docker_service import __CONTAINER_VOLUME_PATH__, DockerService
 from idegym.utils.path import get_base_filename
 from python_on_whales import DockerClient, DockerException, Image
 

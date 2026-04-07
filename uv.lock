@@ -827,7 +827,6 @@ dependencies = [
     { name = "httpx" },
     { name = "idegym-api" },
     { name = "idegym-common-utils" },
-    { name = "idegym-image-builder" },
     { name = "pydantic", version = "2.10.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.14'" },
     { name = "pydantic", version = "2.12.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.14'" },
 ]
@@ -844,7 +843,6 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "idegym-api", editable = "api" },
     { name = "idegym-common-utils", editable = "common-utils" },
-    { name = "idegym-image-builder", editable = "image-builder" },
     { name = "opentelemetry-exporter-otlp", marker = "extra == 'otel'", specifier = ">=1.36.0" },
     { name = "opentelemetry-instrumentation-httpx", marker = "extra == 'otel'", specifier = ">=0.57b0" },
     { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.36.0" },
