@@ -53,6 +53,8 @@ class IdeGYMServer(Base):
     cpu = Column(Float, default=0.0)  # CPU cores requested
     ram = Column(Float, default=0.0)  # RAM in GB requested
     run_as_root = Column(Boolean, default=False, nullable=False)
+    server_kind = Column(String, default="idegym", nullable=False)
+    service_port = Column(Integer, default=80)
 
 
 class ResourceLimitRule(Base):

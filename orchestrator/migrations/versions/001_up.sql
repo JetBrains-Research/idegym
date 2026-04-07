@@ -29,7 +29,9 @@ CREATE TABLE IF NOT EXISTS servers (
     container_runtime VARCHAR,
     cpu FLOAT DEFAULT 0.0,
     ram FLOAT DEFAULT 0.0,
-    run_as_root BOOLEAN DEFAULT FALSE NOT NULL
+    run_as_root BOOLEAN DEFAULT FALSE NOT NULL,
+    server_kind VARCHAR NOT NULL DEFAULT 'idegym',
+    service_port INTEGER DEFAULT 80
 );
 
 -- Create index on generated_name

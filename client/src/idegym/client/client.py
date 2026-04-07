@@ -24,6 +24,7 @@ from idegym.api.orchestrator.jobs import (
 from idegym.api.orchestrator.servers import (
     ErrorResponse,
     ServerActionResponse,
+    ServerKind,
     ServerReuseStrategy,
     StartServerResponse,
 )
@@ -249,6 +250,8 @@ class IdeGYMClient:
         namespace: Optional[str] = None,
         runtime_class_name: Optional[str] = None,
         run_as_root: bool = False,
+        service_port: int = 80,
+        container_port: int = 8000,
         resources: Optional[Any] = None,
         node_selector: Optional[KubernetesNodeSelector] = None,
         server_start_wait_timeout_in_seconds: int = 60,
@@ -256,6 +259,7 @@ class IdeGYMClient:
         polling_config: PollingConfig = PollingConfig(),
         reuse_strategy=ServerReuseStrategy.RESET,
         close_action: ServerCloseAction = ServerCloseAction.FINISH,
+        server_kind: ServerKind = ServerKind.IDEGYM,
     ):
         server = await self.start_server(
             image_tag=image_tag,
@@ -263,12 +267,15 @@ class IdeGYMClient:
             namespace=namespace,
             runtime_class_name=runtime_class_name,
             run_as_root=run_as_root,
+            service_port=service_port,
+            container_port=container_port,
             resources=resources,
             node_selector=node_selector,
             server_start_wait_timeout_in_seconds=server_start_wait_timeout_in_seconds,
             retry_delay_in_seconds=retry_delay_in_seconds,
             polling_config=polling_config,
             reuse_strategy=reuse_strategy,
+            server_kind=server_kind,
         )
 
         try:
@@ -315,12 +322,15 @@ class IdeGYMClient:
         namespace: Optional[str] = None,
         runtime_class_name: Optional[str] = None,
         run_as_root: bool = False,
+        service_port: int = 80,
+        container_port: int = 8000,
         resources: Optional[Any] = None,
         node_selector: Optional[KubernetesNodeSelector] = None,
         server_start_wait_timeout_in_seconds: int = 60,
         retry_delay_in_seconds: int = 15,
         polling_config: PollingConfig = PollingConfig(),
         reuse_strategy=ServerReuseStrategy.RESET,
+        server_kind: ServerKind = ServerKind.IDEGYM,
     ) -> IdeGYMServer:
         logger.info(f"Starting IdeGYM server: name={server_name}, image={image_tag}")
         server_response = await self.server.start_server(
@@ -330,12 +340,15 @@ class IdeGYMClient:
             namespace=namespace,
             runtime_class_name=runtime_class_name,
             run_as_root=run_as_root,
+            service_port=service_port,
+            container_port=container_port,
             resources=resources,
             node_selector=node_selector,
             server_start_wait_timeout_in_seconds=server_start_wait_timeout_in_seconds,
             retry_delay_in_seconds=retry_delay_in_seconds,
             polling_config=polling_config,
             reuse_strategy=reuse_strategy,
+            server_kind=server_kind,
         )
 
         if isinstance(server_response, ErrorResponse):
@@ -347,6 +360,7 @@ class IdeGYMClient:
                 client_id=self.client_id,
                 namespace=namespace,
                 polling_config=polling_config,
+                server_kind=server_kind,
             )
         else:
             raise RuntimeError(f"Unexpected response from server start: {server_response.model_dump()}")

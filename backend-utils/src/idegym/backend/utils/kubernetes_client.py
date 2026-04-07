@@ -6,7 +6,8 @@ from typing import Any, AsyncGenerator, Awaitable, Callable, Dict, Iterable, Opt
 from idegym.api import __version__
 from idegym.api.download import DownloadRequest
 from idegym.api.exceptions import ResourceDeletionFailedException
-from idegym.api.paths import API_BASE_PATH, ActuatorPath
+from idegym.api.orchestrator.servers import ServerKind
+from idegym.api.paths import API_BASE_PATH, ActuatorPath, OpenenvPath
 from idegym.api.status import Status
 from idegym.utils.functools import cached_async_result
 from idegym.utils.logging import get_logger
@@ -67,6 +68,27 @@ KubernetesV1Apis = Tuple[AppsV1Api, BatchV1Api, CoreV1Api, PolicyV1Api]
 V1ResourceList = Union[V1ConfigMapList, V1DeploymentList, V1PodDisruptionBudgetList, V1ServiceList]
 
 logger = get_logger(__name__)
+
+
+def get_server_probe_config(server_kind: ServerKind, container_port: int) -> Tuple[str, Dict[str, str]]:
+    """
+    Return health probe path and Prometheus annotations for a server deployment.
+    OpenEnv servers use a different health path and have no metrics endpoint.
+    IdeGYM servers expose actuator health and Prometheus metrics.
+    """
+    match server_kind:
+        case ServerKind.OPENENV:
+            return str(OpenenvPath.HEALTH), {"prometheus.io/scrape": "false"}
+        case _:
+            return (
+                API_BASE_PATH + ActuatorPath.HEALTH,
+                {
+                    "prometheus.io/scrape": "true",
+                    "prometheus.io/path": API_BASE_PATH + ActuatorPath.METRICS,
+                    "prometheus.io/port": str(container_port),
+                    "prometheus.io/scheme": "http|https",
+                },
+            )
 
 
 @cached_async_result
@@ -181,6 +203,7 @@ async def deploy_server(
     node_selector: Optional[Dict[str, str]] = None,
     resources: Union[V1ResourceRequirements, Dict[str, Any], None] = None,
     environment_variables: Iterable[Union[V1EnvVar, Dict[str, Any]]] = (),
+    server_kind: ServerKind = ServerKind.IDEGYM,
 ):
     """
     Deploy a server in Kubernetes.
@@ -221,9 +244,10 @@ async def deploy_server(
         container_port=container_port,
         protocol="TCP",
     )
+    health_probe_path, prometheus_annotations = get_server_probe_config(server_kind, port.container_port)
     readiness_probe = V1Probe(
         http_get=V1HTTPGetAction(
-            path=API_BASE_PATH + ActuatorPath.HEALTH,
+            path=health_probe_path,
             port=port.container_port,
         ),
         initial_delay_seconds=10,
@@ -243,9 +267,7 @@ async def deploy_server(
     image_pull_secret = V1LocalObjectReference(name="regcred")
     annotations = {
         "cluster-autoscaler.kubernetes.io/safe-to-evict": "false",
-        "prometheus.io/scrape": "true",
-        "prometheus.io/path": API_BASE_PATH + ActuatorPath.METRICS,
-        "prometheus.io/port": str(port.container_port),
+        **prometheus_annotations,
     }
     match_labels = {
         "app": server_name,
