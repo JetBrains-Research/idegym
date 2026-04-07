@@ -4,8 +4,8 @@ import subprocess
 import tempfile
 
 from from_root import from_root
+from idegym.image.dockerfile import render_server_image_dockerfile
 from idegym.utils.logging import get_logger
-from jinja2 import Template
 from python_on_whales import DockerClient
 
 logger = get_logger(__name__)
@@ -70,12 +70,11 @@ def build_base_server_image() -> str:
 
     image_tag = "ghcr.io/jetbrains-research/idegym/server-debian-bookworm-20250520-slim:latest"
 
-    # Read and render the Dockerfile template
-    dockerfile_template_path = from_root("Dockerfile.jinja")
-    with open(dockerfile_template_path, "r") as f:
-        template = Template(f.read())
-
-    rendered_dockerfile = template.render(repository="docker.io/library", image="debian", tag="bookworm-20250520-slim")
+    rendered_dockerfile = render_server_image_dockerfile(
+        repository="docker.io/library",
+        image="debian",
+        tag="bookworm-20250520-slim",
+    )
 
     # Write rendered Dockerfile to a temporary file
     with tempfile.NamedTemporaryFile(mode="w", suffix=".Dockerfile") as tmp:

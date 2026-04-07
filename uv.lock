@@ -15,6 +15,7 @@ members = [
     "idegym-client",
     "idegym-common-utils",
     "idegym-e2e-tests",
+    "idegym-image-builder",
     "idegym-orchestrator",
     "idegym-rewards",
     "idegym-server",
@@ -762,6 +763,7 @@ name = "idegym-api"
 version = "0.0.0.dev0"
 source = { editable = "api" }
 dependencies = [
+    { name = "idegym-common-utils" },
     { name = "pydantic", version = "2.10.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.14'" },
     { name = "pydantic", version = "2.12.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.14'" },
     { name = "pyyaml" },
@@ -770,6 +772,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "idegym-common-utils", editable = "common-utils" },
     { name = "pydantic", specifier = ">=2.10.6" },
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "structlog", specifier = ">=25.4.0" },
@@ -824,10 +827,9 @@ dependencies = [
     { name = "httpx" },
     { name = "idegym-api" },
     { name = "idegym-common-utils" },
+    { name = "idegym-image-builder" },
     { name = "pydantic", version = "2.10.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.14'" },
     { name = "pydantic", version = "2.12.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.14'" },
-    { name = "python-on-whales" },
-    { name = "pyyaml" },
 ]
 
 [package.optional-dependencies]
@@ -842,12 +844,11 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "idegym-api", editable = "api" },
     { name = "idegym-common-utils", editable = "common-utils" },
+    { name = "idegym-image-builder", editable = "image-builder" },
     { name = "opentelemetry-exporter-otlp", marker = "extra == 'otel'", specifier = ">=1.36.0" },
     { name = "opentelemetry-instrumentation-httpx", marker = "extra == 'otel'", specifier = ">=0.57b0" },
     { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.36.0" },
     { name = "pydantic", specifier = ">=2.10.6" },
-    { name = "python-on-whales", specifier = ">=0.78.0" },
-    { name = "pyyaml", specifier = ">=6.0.2" },
 ]
 provides-extras = ["otel"]
 
@@ -857,18 +858,15 @@ version = "0.0.0.dev0"
 source = { editable = "common-utils" }
 dependencies = [
     { name = "hydra-core" },
-    { name = "idegym-api" },
-    { name = "jinja2" },
-    { name = "pyyaml" },
+    { name = "pydantic", version = "2.10.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.14'" },
+    { name = "pydantic", version = "2.12.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.14'" },
     { name = "structlog" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "hydra-core", specifier = ">=1.3.2" },
-    { name = "idegym-api", editable = "api" },
-    { name = "jinja2", specifier = ">=3.1.5" },
-    { name = "pyyaml", specifier = ">=6.0.2" },
+    { name = "pydantic", specifier = ">=2.10.6" },
     { name = "structlog", specifier = ">=25.4.0" },
 ]
 
@@ -880,7 +878,7 @@ dependencies = [
     { name = "from-root" },
     { name = "idegym-client" },
     { name = "idegym-common-utils" },
-    { name = "jinja2" },
+    { name = "idegym-image-builder" },
     { name = "kubernetes-asyncio" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -896,7 +894,7 @@ requires-dist = [
     { name = "from-root", specifier = ">=1.3.0" },
     { name = "idegym-client", editable = "client" },
     { name = "idegym-common-utils", editable = "common-utils" },
-    { name = "jinja2", specifier = ">=3.1.0" },
+    { name = "idegym-image-builder", editable = "image-builder" },
     { name = "kubernetes-asyncio", specifier = ">=32.3.2" },
     { name = "pytest", specifier = ">=8.4.1" },
     { name = "pytest-asyncio", specifier = ">=0.24.0" },
@@ -905,6 +903,30 @@ requires-dist = [
     { name = "python-on-whales", specifier = ">=0.60.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "requests", specifier = ">=2.32.5" },
+]
+
+[[package]]
+name = "idegym-image-builder"
+version = "0.0.0.dev0"
+source = { editable = "image-builder" }
+dependencies = [
+    { name = "idegym-api" },
+    { name = "idegym-common-utils" },
+    { name = "jinja2" },
+    { name = "pydantic", version = "2.10.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.14'" },
+    { name = "pydantic", version = "2.12.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.14'" },
+    { name = "python-on-whales" },
+    { name = "pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "idegym-api", editable = "api" },
+    { name = "idegym-common-utils", editable = "common-utils" },
+    { name = "jinja2", specifier = ">=3.1.5" },
+    { name = "pydantic", specifier = ">=2.10.6" },
+    { name = "python-on-whales", specifier = ">=0.78.0" },
+    { name = "pyyaml", specifier = ">=6.0.2" },
 ]
 
 [[package]]
@@ -920,6 +942,7 @@ dependencies = [
     { name = "idegym-api" },
     { name = "idegym-backend-utils" },
     { name = "idegym-common-utils" },
+    { name = "idegym-image-builder" },
     { name = "kubernetes-asyncio" },
     { name = "opentelemetry-instrumentation-aiohttp-client" },
     { name = "opentelemetry-instrumentation-asyncio" },
@@ -947,6 +970,7 @@ requires-dist = [
     { name = "idegym-api", editable = "api" },
     { name = "idegym-backend-utils", editable = "backend-utils" },
     { name = "idegym-common-utils", editable = "common-utils" },
+    { name = "idegym-image-builder", editable = "image-builder" },
     { name = "kubernetes-asyncio", specifier = ">=32.3.2" },
     { name = "opentelemetry-instrumentation-aiohttp-client", specifier = ">=0.57b0" },
     { name = "opentelemetry-instrumentation-asyncio", specifier = ">=0.57b0" },

@@ -1,9 +1,9 @@
-#!/usr/bin/env -S uv run --script
+#!/usr/bin/env -S uv run --project image-builder python
 
 import argparse
 from pathlib import Path
 
-from idegym.utils.dockerfile import render_dockerfile
+from idegym.image.dockerfile import render_dockerfile
 
 DEFAULT_COMMANDS = """
     USER root

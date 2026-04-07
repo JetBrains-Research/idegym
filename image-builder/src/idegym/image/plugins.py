@@ -54,7 +54,6 @@ class BaseSystem(PluginBase):
         if not self.packages:
             return ""
         package_list = " \\\n".join(f"                    {package}" for package in self.packages)
-        # language=dockerfile
         return dedent(
             f"""\
             # Install base system packages
@@ -311,7 +310,6 @@ class IdeGYMServer(PluginBase):
 
         user = ctx.current_user
         group = str(ctx.get_extra("idegym.user.group", user))
-        # language=dockerfile
         return dedent(
             f"""\
             COPY --from=ghcr.io/astral-sh/uv:0.10.11 /uv /uvx /bin/

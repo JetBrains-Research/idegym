@@ -3,7 +3,7 @@ from typing import Any, Optional, Self
 
 from idegym.api.docker import BaseImage
 from idegym.api.image_build import ImageBuildSpec
-from idegym.client.docker_api import IdeGYMDockerAPI
+from idegym.image.docker_api import IdeGYMDockerAPI
 from idegym.image.plugin import BuildContext, PluginBase
 from idegym.image.serialization import deserialize_plugin, dump_images, load_images, serialize_plugin
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator

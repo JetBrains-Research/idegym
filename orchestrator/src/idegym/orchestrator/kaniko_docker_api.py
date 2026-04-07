@@ -9,10 +9,10 @@ from idegym.api.download import Authorization, DownloadRequest
 from idegym.api.git import GitRepositoryResource, GitRepositorySnapshot
 from idegym.api.status import Status
 from idegym.backend.utils.kubernetes_client import build_and_push_image_with_kaniko, get_job_status
+from idegym.image.dockerfile import render_dockerfile
 from idegym.orchestrator.database.database import get_db_session, save_job_status, update_job_status
 from idegym.utils import __version__
 from idegym.utils.dict import walk
-from idegym.utils.dockerfile import render_dockerfile
 from idegym.utils.hashing import md5
 from idegym.utils.logging import get_logger
 from idegym.utils.path import get_base_filename

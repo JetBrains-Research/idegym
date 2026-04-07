@@ -12,10 +12,9 @@ requires-python = ">=3.12"
 dependencies = [
     "idegym-api",
     "idegym-common-utils",
+    "idegym-image-builder",
     "httpx>=0.28.1",
     "pydantic>=2.10.6",
-    "python-on-whales>=0.78.0",
-    "pyyaml>=6.0.2",
 ]
 
 [project.optional-dependencies]

@@ -37,6 +37,7 @@ idegym-backend-utils = { workspace = true }
 idegym-client = { workspace = true }
 idegym-common-utils = { workspace = true }
 idegym-e2e-tests = { workspace = true }
+idegym-image-builder = { workspace = true }
 idegym-orchestrator = { workspace = true }
 idegym-rewards = { workspace = true }
 idegym-server = { workspace = true }
@@ -49,6 +50,7 @@ members = [
     "client",
     "common-utils",
     "e2e-tests-minikube",
+    "image-builder",
     "orchestrator",
     "rewards",
     "server",

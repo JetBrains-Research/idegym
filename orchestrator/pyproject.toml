@@ -33,6 +33,7 @@ dependencies = [
     "idegym-api",
     "idegym-backend-utils",
     "idegym-common-utils",
+    "idegym-image-builder",
 ]
 
 [build-system]
