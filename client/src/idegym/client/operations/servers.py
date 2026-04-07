@@ -9,6 +9,7 @@ from idegym.api.orchestrator.servers import (
     FinishServerRequest,
     RestartServerRequest,
     ServerActionResponse,
+    ServerKind,
     ServerReuseStrategy,
     StartServerRequest,
     StartServerResponse,
@@ -44,6 +45,7 @@ class ServerOperations:
         retry_delay_in_seconds: int = 15,
         polling_config: PollingConfig = PollingConfig(),
         reuse_strategy: ServerReuseStrategy = ServerReuseStrategy.RESET,
+        server_kind: ServerKind = ServerKind.IDEGYM,
     ) -> StartServerResponse | ErrorResponse:
         client_id = self._utils.validate_client_id(client_id)
         namespace = self._utils.validate_namespace(namespace)
@@ -79,6 +81,7 @@ class ServerOperations:
                 node_selector=node_selector,
                 server_start_wait_timeout_in_seconds=server_start_wait_timeout_in_seconds,
                 reuse_strategy=reuse_strategy,
+                server_kind=server_kind,
             )
             response_raw = await self._utils.make_request(
                 "POST", "/api/idegym-servers", request, request_timeout=remaining_time

@@ -11,9 +11,15 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi[standard]>=0.115.8",
-    "uvicorn>=0.35.0",
+    "alembic>=1.16.4",
+    "asyncpg>=0.30.0",
+    "fastapi[standard]>=0.135.2",
+    "greenlet>=3.2.1",
     "httpx>=0.28.1",
+    "idegym-api",
+    "idegym-backend-utils",
+    "idegym-common-utils",
+    "kubernetes-asyncio>=32.3.2",
     "opentelemetry-instrumentation-aiohttp-client>=0.57b0",
     "opentelemetry-instrumentation-asyncio>=0.57b0",
     "opentelemetry-instrumentation-asyncpg>=0.57b0",
@@ -23,16 +29,11 @@ dependencies = [
     "opentelemetry-instrumentation-psycopg2>=0.57b0",
     "opentelemetry-instrumentation-sqlalchemy>=0.57b0",
     "opentelemetry-instrumentation-system-metrics>=0.57b0",
-    "kubernetes-asyncio>=32.3.2",
-    "sqlalchemy>=2.0.0",
-    "asyncpg>=0.30.0",
-    "greenlet>=3.2.1",
-    "psycopg2-binary>=2.9.9",
-    "pydantic>=2.0.0",
-    "alembic>=1.16.4",
-    "idegym-api",
-    "idegym-backend-utils",
-    "idegym-common-utils",
+    "psycopg2-binary>=2.9.10",
+    "pydantic>=2.10.6",
+    "sqlalchemy>=2.0.40",
+    "uvicorn>=0.35.0",
+    "websockets>=13.0",
 ]
 
 [build-system]

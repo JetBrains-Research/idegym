@@ -13,6 +13,11 @@ class ServerReuseStrategy(StrEnum):
     CHECKPOINT = "CHECKPOINT"
 
 
+class ServerKind(StrEnum):
+    IDEGYM = "idegym"
+    OPENENV = "openenv"
+
+
 class StartServerRequest(BaseModel):
     client_id: UUID = Field(description="Client ID")
     namespace: str = Field(default="idegym", description="Kubernetes namespace")
@@ -30,6 +35,7 @@ class StartServerRequest(BaseModel):
         default=60, description="Timeout to wait for server to be ready", ge=0
     )
     reuse_strategy: ServerReuseStrategy = Field(default=ServerReuseStrategy.RESET, description="Server reuse strategy")
+    server_kind: ServerKind = Field(default=ServerKind.IDEGYM, description="Server type (idegym or openenv)")
 
 
 class StopServerRequest(BaseModel):

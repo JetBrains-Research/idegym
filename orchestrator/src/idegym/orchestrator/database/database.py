@@ -459,6 +459,8 @@ async def save_idegym_server(
     cpu: float = 0.0,
     ram: float = 0.0,
     run_as_root: bool = False,
+    server_kind: str = "idegym",
+    service_port: int = 80,
 ) -> IdeGYMServer:
     """Create a new IdeGYM server."""
     # Create a server without generated_name first to get an ID
@@ -472,6 +474,8 @@ async def save_idegym_server(
         cpu=cpu,
         ram=ram,
         run_as_root=run_as_root,
+        server_kind=server_kind,
+        service_port=service_port,
     )
     db.add(server)
     await db.flush()  # This assigns an ID but doesn't commit yet
@@ -762,6 +766,8 @@ async def check_resources_and_save_server(
     image_tag: Optional[str] = None,
     container_runtime: Optional[str] = None,
     run_as_root: bool = False,
+    server_kind: str = "idegym",
+    service_port: int = 80,
 ) -> Optional[IdeGYMServer]:
     """
     Check resource availability and save a new server in a single atomic transaction.
@@ -818,6 +824,8 @@ async def check_resources_and_save_server(
             cpu=cpu_request,
             ram=ram_request,
             run_as_root=run_as_root,
+            server_kind=server_kind,
+            service_port=service_port,
         )
         db.add(server)
         await db.flush()  # This assigns an ID but doesn't commit yet

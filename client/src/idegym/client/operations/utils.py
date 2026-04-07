@@ -71,6 +71,11 @@ class HTTPUtils:
         self._current_client_id: Optional[UUID] = current_client_id
 
     @property
+    def base_url(self) -> str:
+        """Base URL of the HTTP client, without trailing slash."""
+        return str(self._http_client.base_url).rstrip("/")
+
+    @property
     def current_namespace(self) -> Optional[str]:
         return self._current_namespace
 

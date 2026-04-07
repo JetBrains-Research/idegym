@@ -10,6 +10,7 @@ from idegym.api.orchestrator.servers import (
     FinishServerRequest,
     RestartServerRequest,
     ServerActionResponse,
+    ServerKind,
     ServerReuseStrategy,
     StartServerRequest,
     StartServerResponse,
@@ -150,7 +151,7 @@ async def _task_start_server(config: Config, request: StartServerRequest, async_
             existing_server, client_name_from_request = await find_matching_finished_server_in_db(
                 request=request, enable_fifo_check=enable_fifo
             )
-            if request.reuse_strategy == ServerReuseStrategy.RESET:
+            if request.reuse_strategy == ServerReuseStrategy.RESET and request.server_kind != ServerKind.OPENENV:
                 used_reset_reuse = existing_server is not None
 
         # Mark as IN_PROGRESS only after FIFO check passes (to allow other requests to see this as SCHEDULED)
@@ -192,6 +193,8 @@ async def _task_start_server(config: Config, request: StartServerRequest, async_
                 ram_request=ram_request,
                 image_tag=request.image_tag,
                 container_runtime=request.runtime_class_name,
+                server_kind=request.server_kind,
+                service_port=request.service_port,
                 run_as_root=request.run_as_root,
             )
 
@@ -285,6 +288,7 @@ async def _task_start_server(config: Config, request: StartServerRequest, async_
                 node_selector=request.node_selector,
                 resources=request.resources,
                 environment_variables=environment_variables,
+                server_kind=request.server_kind,
             )
 
             # Wait for pods to be ready

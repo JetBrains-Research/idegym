@@ -1,10 +1,11 @@
 import asyncio
 from asyncio import CancelledError
 from os import environ as env
-from typing import Dict
+from typing import Dict, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Request, status
+import websockets
+from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect, status
 from httpx import AsyncClient, ConnectError
 from idegym.api.orchestrator.clients import AvailabilityStatus
 from idegym.api.orchestrator.operations import (
@@ -20,10 +21,13 @@ from idegym.orchestrator.database.helpers import (
     update_server_status,
     validate_server,
 )
-from idegym.orchestrator.util.decorators import handle_general_exceptions
+from idegym.orchestrator.util.decorators import handle_general_exceptions, handle_websocket_exceptions
 from idegym.orchestrator.util.errors import format_error
 from idegym.utils.decorators import executes_operation_in_background
 from idegym.utils.logging import get_logger
+from starlette.websockets import WebSocketState
+from websockets.exceptions import ConnectionClosed
+from websockets.protocol import State
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -47,7 +51,9 @@ async def forward_request_by_server_id(request: Request, client_id: UUID, server
         request=request,
         request_content=request_content,
         generated_name=server.generated_name,
+        namespace=server.namespace,
         server_id=server_id,
+        service_port=server.service_port,
     )
     async_operation_id = await create_async_operation(
         async_operation_type=AsyncOperationType.FORWARD_REQUEST,
@@ -70,11 +76,12 @@ def construct_forwarding_payload(
     request: Request,
     request_content: str,
     generated_name: str,
+    namespace: Optional[str],
     server_id: int,
+    service_port: int = 80,
 ):
     # Build target URL first
-    target_port = request.url.port or 80
-    target_url = f"http://{generated_name}:{target_port}/{path}"
+    target_url = f"http://{_build_server_host(generated_name, namespace)}:{service_port}/{path}"
     # Prepare headers for forwarding
     headers = request.headers.mutablecopy()
     del headers["Host"]
@@ -188,3 +195,66 @@ async def update_server_heartbeat_on_call(path: str, server_id: int):
     if path.startswith("api/tools") or path.startswith("api/rewards"):
         logger.info(f"Updating heartbeat for server ID {server_id} on tool or reward call")
         await update_server_status(server_id=server_id, availability_status=AvailabilityStatus.ALIVE)
+
+
+@handle_websocket_exceptions(error_message="Failed to forward WebSocket to IdeGYM server")
+@router.websocket("/api/ws-forward/{client_id}/{server_id}/ws")
+async def forward_websocket(websocket: WebSocket, client_id: UUID, server_id: int):
+    logger.info(f"Received WebSocket forwarding request for server ID {server_id} for client {client_id}")
+    server = await validate_server(client_id=client_id, server_id=server_id)
+    target_host = _build_server_host(server.generated_name, server.namespace)
+    target_url = f"ws://{target_host}:{server.service_port}/ws"
+    await websocket.accept()
+    # Update server heartbeat on WebSocket connection
+    await update_server_status(server_id=server_id, availability_status=AvailabilityStatus.ALIVE)
+
+    async with websockets.connect(target_url) as upstream:
+
+        async def relay_client_to_upstream():
+            try:
+                async for message in websocket.iter_text():
+                    await upstream.send(message)
+            except (WebSocketDisconnect, ConnectionClosed):
+                pass
+            finally:
+                if upstream.state != State.CLOSED:
+                    await upstream.close()
+
+        async def relay_upstream_to_client():
+            try:
+                async for message in upstream:
+                    await websocket.send_text(message if isinstance(message, str) else message.decode())
+                    # Update server heartbeat for every message received from the upstream server
+                    await update_server_status(server_id=server_id, availability_status=AvailabilityStatus.ALIVE)
+            except (WebSocketDisconnect, ConnectionClosed):
+                pass
+            finally:
+                if websocket.application_state != WebSocketState.DISCONNECTED:
+                    await websocket.close()
+
+        client_task = asyncio.create_task(relay_client_to_upstream())
+        upstream_task = asyncio.create_task(relay_upstream_to_client())
+        done, pending = await asyncio.wait(
+            [client_task, upstream_task],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+
+        for task in done:
+            if task.cancelled():
+                continue
+            exception = task.exception()
+            if exception and not isinstance(exception, ConnectionClosed):
+                raise exception
+
+
+def _build_server_host(generated_name: str, namespace: Optional[str]) -> str:
+    """
+    Build a DNS name for a server Service in Kubernetes.
+    Using namespace-qualified service names avoids cross-namespace lookup failures.
+    """
+    if namespace:
+        return f"{generated_name}.{namespace}.svc"
+    return generated_name

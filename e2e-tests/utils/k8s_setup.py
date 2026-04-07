@@ -13,7 +13,9 @@ from idegym.utils.logging import get_logger
 from utils import k8s_client
 from utils.constants import (
     BASE_URL,
+    DEFAULT_HEALTH_CHECK_TIMEOUT,
     DEFAULT_NAMESPACE,
+    HEALTH_CHECK_INTERVAL,
     INGRESS_CONTROLLER_SERVICE,
     INGRESS_NAMESPACE,
 )
@@ -124,7 +126,7 @@ def delete_namespace(namespace: str = "idegym-local") -> None:
         logger.warning(f"Could not delete namespace {namespace}: {exc}")
 
 
-def wait_for_service(timeout: int = 120, check_interval: int = 10) -> bool:
+def wait_for_service(timeout: int = DEFAULT_HEALTH_CHECK_TIMEOUT, check_interval: int = HEALTH_CHECK_INTERVAL) -> bool:
     """
     Wait for the orchestrator service to become responsive.
 
