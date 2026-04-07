@@ -72,18 +72,6 @@ def pytest_addoption(parser):
     )
 
 
-def pytest_configure(config):
-    config.addinivalue_line("markers", "e2e: marks end-to-end test suite")
-
-
-def pytest_collection_modifyitems(config, items):
-    del config
-
-    for item in items:
-        if item.nodeid.startswith("tests/") or item.nodeid.startswith("e2e-tests-minikube/tests/"):
-            item.add_marker(pytest.mark.e2e)
-
-
 @pytest.fixture(scope="session", autouse=True)
 def setup_and_cleanup_environment(request):
     """Set up e2e environment before session and clean it up afterwards."""
