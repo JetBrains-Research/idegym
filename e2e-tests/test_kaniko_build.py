@@ -6,7 +6,7 @@ from tempfile import NamedTemporaryFile
 import pytest
 from idegym.api.status import Status
 from kubernetes_asyncio.client import V1ResourceRequirements
-from utils.constants import PULL_LOCAL_REGISTRY_HOST, PUSH_LOCAL_REGISTRY_HOST
+from utils.constants import DEFAULT_SERVER_START_TIMEOUT, PULL_LOCAL_REGISTRY_HOST, PUSH_LOCAL_REGISTRY_HOST
 from utils.idegym_utils import create_http_client
 
 
@@ -37,9 +37,9 @@ images:
         memory: "500Mi"
         ephemeral-storage: "1Gi"
       limits:
-        cpu: "1"
-        memory: "1Gi"
-        ephemeral-storage: "2Gi"
+        cpu: "500m"
+        memory: "500Mi"
+        ephemeral-storage: "1Gi"
 """
 
     async with create_http_client(
@@ -87,9 +87,9 @@ images:
                 run_as_root=True,
                 resources=V1ResourceRequirements(
                     requests={"cpu": "500m", "memory": "500Mi", "ephemeral-storage": "1Gi"},
-                    limits={"cpu": "1", "memory": "1Gi", "ephemeral-storage": "2Gi"},
+                    limits={"cpu": "500m", "memory": "500Mi", "ephemeral-storage": "1Gi"},
                 ),
-                server_start_wait_timeout_in_seconds=600,
+                server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
             ) as server:
                 # Verify the server has the custom marker file from our Kaniko build
                 result = await server.execute_bash(script="cat /home/appuser/kaniko-test.txt", command_timeout=60.0)
