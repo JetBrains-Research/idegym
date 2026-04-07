@@ -95,9 +95,6 @@ def build_base_server_image() -> str:
 
         logger.info("✓ Base server image built and available in local Docker")
 
-    # Switch to default docker builder for local image access
-    switch_to_default_docker_builder()
-
     # Load into minikube
     logger.info("Loading base image into minikube...")
     subprocess.run(
@@ -114,6 +111,7 @@ def build_all_images() -> None:
     """Build all required images for e2e testing."""
     logger.info("Building all required images...")
 
+    switch_to_default_docker_builder()
     build_orchestrator_image()
     build_base_server_image()
 
