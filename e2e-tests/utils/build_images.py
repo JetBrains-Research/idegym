@@ -27,11 +27,11 @@ def _push_to_registry_from_cluster(source_image_tag: str) -> None:
     from importlib.resources import files
 
     import config as e2e_config
-    from utils.constants import KUBE_SYSTEM_NAMESPACE, LOCAL_REGISTRY_HOST
+    from utils.constants import KUBE_SYSTEM_NAMESPACE, PUSH_LOCAL_REGISTRY_HOST
     from utils.k8s_jobs import run_job_sync
 
     image_name = source_image_tag.split("/")[-1]  # Extract image:tag
-    dest_tag = f"{LOCAL_REGISTRY_HOST}/{image_name}"
+    dest_tag = f"{PUSH_LOCAL_REGISTRY_HOST}/{image_name}"
 
     logger.info(f"Creating registry push job for {source_image_tag} -> {dest_tag}")
 

@@ -11,7 +11,8 @@ REGISTRY_PUSH_JOB_NAME = "registry-push-job"
 REGISTRY_PULL_JOB_NAME = "registry-pull-job"
 
 # Registry configuration
-LOCAL_REGISTRY_HOST = "registry.kube-system.svc.cluster.local"
+PUSH_LOCAL_REGISTRY_HOST = "registry.kube-system.svc.cluster.local"
+PULL_LOCAL_REGISTRY_HOST = "localhost:5000"
 MINIKUBE_NODE_NAME = "minikube"
 
 # URLs

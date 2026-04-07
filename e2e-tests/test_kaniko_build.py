@@ -6,6 +6,7 @@ from tempfile import NamedTemporaryFile
 import pytest
 from idegym.api.status import Status
 from kubernetes_asyncio.client import V1ResourceRequirements
+from utils.constants import PULL_LOCAL_REGISTRY_HOST, PUSH_LOCAL_REGISTRY_HOST
 from utils.idegym_utils import create_http_client
 
 
@@ -66,7 +67,14 @@ images:
             assert job_result.status == Status.SUCCESS, f"Job status: {job_result.status}"
             assert job_result.tag is not None, "No image tag returned"
 
-            image_tag = job_result.tag
+            def to_runtime_tag(tag: str) -> str:
+                return tag.replace(
+                    PUSH_LOCAL_REGISTRY_HOST,
+                    PULL_LOCAL_REGISTRY_HOST,
+                    1,
+                )
+
+            image_tag = to_runtime_tag(job_result.tag)
 
             # Load the built image from registry into containerd so pods can use it
             await kaniko_image_loader(image_tag)
