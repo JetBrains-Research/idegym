@@ -62,7 +62,7 @@ jobs:
         if: matrix.suite == 'e2e'
         uses: medyagh/setup-minikube@v0.0.21
         with:
-          addons: gvisor,ingress
+          addons: gvisor,ingress,registry
           container-runtime: containerd
           kubernetes-version: v1.35.0
           start-args: --docker-opt containerd=/var/run/containerd/containerd.sock
