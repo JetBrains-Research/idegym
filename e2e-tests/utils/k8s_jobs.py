@@ -80,19 +80,22 @@ async def wait_for_job_completion(job_name: str, namespace: str = "kube-system",
         try:
             async with asyncio.timeout(timeout):
                 w = Watch()
-                async for event in w.stream(
-                    batch_api.list_namespaced_job,
-                    namespace=namespace,
-                    field_selector=f"metadata.name={job_name}",
-                    timeout_seconds=timeout,
-                ):
-                    job: V1Job = event["object"]
-                    if job.status.succeeded:
-                        logger.debug(f"Job {job_name} succeeded")
-                        return True
-                    elif job.status.failed:
-                        logger.warning(f"Job {job_name} failed")
-                        return False
+                try:
+                    async for event in w.stream(
+                        batch_api.list_namespaced_job,
+                        namespace=namespace,
+                        field_selector=f"metadata.name={job_name}",
+                        timeout_seconds=timeout,
+                    ):
+                        job: V1Job = event["object"]
+                        if job.status.succeeded:
+                            logger.debug(f"Job {job_name} succeeded")
+                            return True
+                        elif job.status.failed:
+                            logger.warning(f"Job {job_name} failed")
+                            return False
+                finally:
+                    await w.close()
         except asyncio.TimeoutError:
             logger.warning(f"Job {job_name} timed out after {timeout}s")
             return False

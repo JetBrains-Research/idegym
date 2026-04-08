@@ -1,5 +1,5 @@
-import os
 import secrets
+from os import environ as env
 
 from idegym.api.auth import BasicAuth
 from idegym.api.config import OTELConfig, TracingConfig
@@ -23,9 +23,9 @@ def generate_test_id(length: int = 8) -> str:
 
 def get_test_params():
     """Get the test parameters from environment variables."""
-    base_url = os.environ.get("IDEGYM_TEST_BASE_URL", "http://idegym-local.test")
-    username = os.environ.get("IDEGYM_TEST_USERNAME", "test")
-    password = os.environ.get("IDEGYM_TEST_PASSWORD", "test")
+    base_url = env.get("IDEGYM_TEST_BASE_URL", "http://idegym-local.test")
+    username = env.get("IDEGYM_TEST_USERNAME", "test")
+    password = env.get("IDEGYM_TEST_PASSWORD", "test")
 
     return base_url, username, password
 
