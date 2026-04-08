@@ -1,0 +1,20 @@
+images:
+  - project:
+      repository:
+        server: github.com
+        owner: realpython
+        name: python-scripts
+      reference: cb448c2dc3593dbfbe1ca47b49193b320115aae5
+    base: debian
+    commands: |
+      RUN echo "Kaniko test image" > /home/appuser/kaniko-test.txt
+    runtime_class_name: gvisor
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "500Mi"
+        ephemeral-storage: "1Gi"
+      limits:
+        cpu: "500m"
+        memory: "500Mi"
+        ephemeral-storage: "1Gi"

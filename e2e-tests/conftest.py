@@ -6,6 +6,7 @@ from importlib.resources import as_file, files
 
 import config as e2e_config
 import pytest
+import resources as e2e_resources
 import yaml
 from idegym.api.docker import BaseImage
 from idegym.api.git import GitRepository, GitRepositorySnapshot
@@ -27,18 +28,15 @@ from utils.k8s_setup import cleanup_kubernetes_environment, setup_kubernetes_env
 
 logger = get_logger(__name__)
 
-TEST_IMAGE_COMMANDS_PATH = "test_image_commands.Dockerfile"
-WEBSOCKET_TEST_IMAGE_COMMANDS_PATH = "openenv_websocket_test_image_commands.Dockerfile"
-
 
 def load_test_image_commands() -> str:
     """Load the Docker command snippet for the test image from packaged resources."""
-    return files(e2e_config).joinpath(TEST_IMAGE_COMMANDS_PATH).read_text(encoding="utf-8")
+    return files(e2e_resources).joinpath("test_image_commands.Dockerfile").read_text(encoding="utf-8")
 
 
 def load_websocket_test_image_commands() -> str:
     """Load the Docker command snippet for the OpenEnv websocket test image."""
-    return files(e2e_config).joinpath(WEBSOCKET_TEST_IMAGE_COMMANDS_PATH).read_text(encoding="utf-8")
+    return files(e2e_resources).joinpath("openenv_websocket_test_image_commands.Dockerfile").read_text(encoding="utf-8")
 
 
 def _test_project_snapshot() -> GitRepositorySnapshot:

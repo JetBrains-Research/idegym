@@ -1,9 +1,9 @@
 """Test Kaniko image building with local Minikube registry."""
 
-from pathlib import Path
-from tempfile import NamedTemporaryFile
+from importlib.resources import as_file, files
 
 import pytest
+import resources as e2e_resources
 from idegym.api.status import Status
 from kubernetes_asyncio.client import V1ResourceRequirements
 from utils.constants import DEFAULT_SERVER_START_TIMEOUT, PULL_LOCAL_REGISTRY_HOST, PUSH_LOCAL_REGISTRY_HOST
@@ -19,38 +19,10 @@ async def test_kaniko_build_and_deploy(test_id, kaniko_image_loader):
     3. Deploy a server using the built image
     4. Verify the server is running with the correct image
     """
-    yaml_content = """
-images:
-  - project:
-      repository:
-        server: github.com
-        owner: realpython
-        name: python-scripts
-      reference: cb448c2dc3593dbfbe1ca47b49193b320115aae5
-    base: debian
-    commands: |
-      RUN echo "Kaniko test image" > /home/appuser/kaniko-test.txt
-    runtime_class_name: gvisor
-    resources:
-      requests:
-        cpu: "500m"
-        memory: "500Mi"
-        ephemeral-storage: "1Gi"
-      limits:
-        cpu: "500m"
-        memory: "500Mi"
-        ephemeral-storage: "1Gi"
-"""
-
-    async with create_http_client(
-        name=f"kaniko-test-{test_id}", nodes_count=0, request_timeout_in_seconds=600
-    ) as client:
-        # Write YAML to temporary file
-        with NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            f.write(yaml_content)
-            yaml_path = Path(f.name)
-
-        try:
+    with as_file(files(e2e_resources).joinpath("kaniko_build_and_deploy.yaml")) as yaml_path:
+        async with create_http_client(
+            name=f"kaniko-test-{test_id}", nodes_count=0, request_timeout_in_seconds=600
+        ) as client:
             # Build and push image using Kaniko
             build_summary = await client.jobs.build_and_push_images(
                 path=yaml_path,
@@ -96,48 +68,16 @@ images:
                 assert result.exit_code == 0, f"Failed to read marker file: {result.stderr}"
                 assert "Kaniko test image" in result.stdout, f"Unexpected content: {result.stdout}"
 
-        finally:
-            # Clean up temporary file
-            yaml_path.unlink(missing_ok=True)
-
 
 @pytest.mark.asyncio
 async def test_kaniko_multiple_builds(test_id):
     """
     Test building multiple images concurrently with Kaniko.
     """
-    yaml_content = """
-images:
-  - project:
-      repository:
-        server: github.com
-        owner: realpython
-        name: python-scripts
-      reference: cb448c2dc3593dbfbe1ca47b49193b320115aae5
-    base: debian
-    commands: |
-      RUN echo "Image 1" > /home/appuser/image-id.txt
-    runtime_class_name: gvisor
-  - project:
-      repository:
-        server: github.com
-        owner: realpython
-        name: python-scripts
-      reference: cb448c2dc3593dbfbe1ca47b49193b320115aae5
-    base: debian
-    commands: |
-      RUN echo "Image 2" > /home/appuser/image-id.txt
-    runtime_class_name: gvisor
-"""
-
-    async with create_http_client(
-        name=f"kaniko-multi-{test_id}", nodes_count=0, request_timeout_in_seconds=900
-    ) as client:
-        with NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            f.write(yaml_content)
-            yaml_path = Path(f.name)
-
-        try:
+    with as_file(files(e2e_resources).joinpath("kaniko_multiple_builds.yaml")) as yaml_path:
+        async with create_http_client(
+            name=f"kaniko-multi-{test_id}", nodes_count=0, request_timeout_in_seconds=900
+        ) as client:
             # Build and push both images
             build_summary = await client.jobs.build_and_push_images(
                 path=yaml_path,
@@ -156,6 +96,3 @@ images:
             for job_result in build_summary.jobs_results:
                 assert job_result.status == Status.SUCCESS, f"Job {job_result.job_name} failed: {job_result.details}"
                 assert job_result.tag is not None, f"No tag for job {job_result.job_name}"
-
-        finally:
-            yaml_path.unlink(missing_ok=True)
