@@ -1,5 +1,6 @@
 from asyncio import CancelledError, gather, sleep, timeout
 from contextlib import asynccontextmanager
+from os import environ as env
 from random import getrandbits
 from typing import Any, AsyncGenerator, Awaitable, Callable, Dict, Iterable, Optional, Tuple, Union
 
@@ -712,13 +713,7 @@ async def build_and_push_image_with_kaniko(
         The job name
     """
     name = f"kaniko-build-{getrandbits(32):08x}"  # Generate a unique job name
-
-    # Determine registry URL for base images
-    # Extract registry from destination tag or use environment variable
-    from os import environ as env
-
     registry_url = env.get("DOCKER_REGISTRY", "ghcr.io/jetbrains-research/idegym")
-
     args = [
         "--dockerfile=/workspace/Dockerfile",
         f"--destination={tag}",

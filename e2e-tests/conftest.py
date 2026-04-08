@@ -1,5 +1,6 @@
 """Pytest configuration and shared fixtures for e2e testing."""
 
+import asyncio
 import subprocess
 from importlib.resources import as_file, files
 
@@ -13,9 +14,15 @@ from idegym.utils.logging import get_logger
 from kubernetes_asyncio import config as k8s_config
 from utils import k8s_client
 from utils.build_images import build_all_images
-from utils.constants import DEFAULT_NAMESPACE, ORCHESTRATOR_APP_LABEL
+from utils.constants import (
+    DEFAULT_NAMESPACE,
+    KUBE_SYSTEM_NAMESPACE,
+    ORCHESTRATOR_APP_LABEL,
+    REGISTRY_PULL_JOB_NAME,
+    REGISTRY_PUSH_JOB_NAME,
+)
 from utils.idegym_utils import generate_test_id
-from utils.k8s_jobs import run_job
+from utils.k8s_jobs import delete_job, run_job
 from utils.k8s_setup import cleanup_kubernetes_environment, setup_kubernetes_environment, wait_for_service
 
 logger = get_logger(__name__)
@@ -90,29 +97,9 @@ def pytest_addoption(parser):
 @pytest.fixture(scope="session", autouse=True)
 def k8s_config_loader():
     """Load Kubernetes configuration once per test session."""
-    import asyncio
-
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        loop.run_until_complete(k8s_config.load_kube_config())
-        logger.info("✓ Loaded Kubernetes configuration")
-        yield
-    finally:
-        try:
-            # Cancel all remaining tasks
-            pending = asyncio.all_tasks(loop)
-            for task in pending:
-                task.cancel()
-            # Wait for all tasks to be cancelled
-            if pending:
-                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
-            # Shutdown async generators
-            loop.run_until_complete(loop.shutdown_asyncgens())
-            # Shutdown default executor
-            loop.run_until_complete(loop.shutdown_default_executor())
-        finally:
-            loop.close()
+    asyncio.run(k8s_config.load_kube_config())
+    logger.info("✓ Loaded Kubernetes configuration")
+    yield
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -209,33 +196,16 @@ def cleanup_kaniko_jobs():
     - registry-push-job (pushes base image to registry)
     - registry-pull-job (pulls images from registry to containerd)
     """
-    import asyncio
-
-    from utils.constants import KUBE_SYSTEM_NAMESPACE, REGISTRY_PULL_JOB_NAME, REGISTRY_PUSH_JOB_NAME
-    from utils.k8s_jobs import delete_job
 
     async def _cleanup():
         await delete_job(REGISTRY_PUSH_JOB_NAME, namespace=KUBE_SYSTEM_NAMESPACE)
         await delete_job(REGISTRY_PULL_JOB_NAME, namespace=KUBE_SYSTEM_NAMESPACE)
 
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
     try:
-        loop.run_until_complete(_cleanup())
+        asyncio.run(_cleanup())
         logger.debug("✓ Kaniko jobs cleaned up")
     except Exception as e:
         logger.debug(f"Error during Kaniko job cleanup (may not exist): {e}")
-    finally:
-        try:
-            pending = asyncio.all_tasks(loop)
-            for task in pending:
-                task.cancel()
-            if pending:
-                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
-            loop.run_until_complete(loop.shutdown_asyncgens())
-            loop.run_until_complete(loop.shutdown_default_executor())
-        finally:
-            loop.close()
 
 
 @pytest.fixture(autouse=True)

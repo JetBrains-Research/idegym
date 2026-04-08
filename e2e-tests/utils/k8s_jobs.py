@@ -192,22 +192,4 @@ def run_job_sync(yaml_content: str, namespace: str = "kube-system", timeout: int
     Note:
         Assumes kubernetes config is already loaded (e.g., via pytest fixture).
     """
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        return loop.run_until_complete(run_job(yaml_content, namespace, timeout))
-    finally:
-        try:
-            # Cancel all remaining tasks
-            pending = asyncio.all_tasks(loop)
-            for task in pending:
-                task.cancel()
-            # Wait for all tasks to be cancelled
-            if pending:
-                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
-            # Shutdown async generators
-            loop.run_until_complete(loop.shutdown_asyncgens())
-            # Shutdown default executor
-            loop.run_until_complete(loop.shutdown_default_executor())
-        finally:
-            loop.close()
+    return asyncio.run(run_job(yaml_content, namespace, timeout))
