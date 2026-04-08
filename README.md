@@ -1,4 +1,4 @@
-# IdeGYM
+# IdeGYM!
 
 _IdeGYM_ is a framework offering disposable environments and tools for inspecting and modifying them.
 These tools benefit AI agents and machine learning tasks.
