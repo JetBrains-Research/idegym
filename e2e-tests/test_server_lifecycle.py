@@ -2,6 +2,7 @@
 
 import pytest
 from idegym.api.orchestrator.servers import ServerReuseStrategy
+from idegym.client.client import ServerCloseAction
 from kubernetes_asyncio.client import V1ResourceRequirements
 from utils.constants import DEFAULT_SERVER_START_TIMEOUT
 from utils.idegym_utils import create_http_client
@@ -32,7 +33,7 @@ async def test_server_lifecycle_with_reuse(test_image, test_id):
             ),
             server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
             reuse_strategy=ServerReuseStrategy.RESTART,
-            close_action="finish",  # Mark for reuse
+            close_action=ServerCloseAction.FINISH,  # Mark for reuse
         ) as server:
             server_id = server.server_id
 
@@ -59,7 +60,7 @@ async def test_server_lifecycle_with_reuse(test_image, test_id):
             ),
             server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
             reuse_strategy=ServerReuseStrategy.RESTART,
-            close_action="stop",  # Don't mark for reuse after this
+            close_action=ServerCloseAction.STOP,  # Don't mark for reuse after this
         ) as new_server:
             # Verify same server ID (reused)
             assert new_server.server_id == server_id
