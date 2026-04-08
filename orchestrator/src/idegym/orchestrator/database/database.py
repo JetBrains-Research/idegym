@@ -330,6 +330,7 @@ async def has_pending_start_server_operations(
     image_tag: str,
     container_runtime: str,
     run_as_root: bool,
+    server_kind: str,
     server_name: Optional[str] = None,
     scheduled_before: Optional[int] = None,
 ) -> bool:
@@ -367,6 +368,7 @@ async def has_pending_start_server_operations(
                     request_data.get("image_tag") == image_tag
                     and request_data.get("runtime_class_name") == container_runtime
                     and request_data.get("run_as_root") == run_as_root
+                    and request_data.get("server_kind") == server_kind
                 ):
                     # If server_name is specified, it must match too
                     if server_name is None or request_data.get("server_name") == server_name:
@@ -389,6 +391,7 @@ async def find_matching_finished_server(
     image_tag: str,
     container_runtime: Optional[str],
     run_as_root: bool,
+    server_kind: str,
     enable_fifo_check: bool = False,
 ) -> ServerReuseLookupResult:
     """Find a finished server that matches the given criteria.
@@ -407,6 +410,7 @@ async def find_matching_finished_server(
             IdeGYMServer.availability == AvailabilityStatus.FINISHED,
             IdeGYMServer.container_runtime == container_runtime,
             IdeGYMServer.run_as_root == run_as_root,
+            IdeGYMServer.server_kind == server_kind,
         )
         if server_name:
             query = query.filter(IdeGYMServer.server_name == server_name)
@@ -428,6 +432,7 @@ async def find_matching_finished_server(
             image_tag=image_tag,
             container_runtime=container_runtime,
             run_as_root=run_as_root,
+            server_kind=server_kind,
             server_name=server_name,
         )
         if has_pending:
