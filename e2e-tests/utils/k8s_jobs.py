@@ -88,10 +88,15 @@ async def wait_for_job_completion(job_name: str, namespace: str = "kube-system",
                         timeout_seconds=timeout,
                     ):
                         job: V1Job = event["object"]
-                        if job.status.succeeded:
+                        status = job.status
+                        if status is None:
+                            continue
+                        succeeded = getattr(status, "succeeded", 0) or 0
+                        failed = getattr(status, "failed", 0) or 0
+                        if succeeded > 0:
                             logger.debug(f"Job {job_name} succeeded")
                             return True
-                        elif job.status.failed:
+                        elif failed > 0:
                             logger.warning(f"Job {job_name} failed")
                             return False
                 finally:
@@ -157,9 +162,21 @@ async def run_job(yaml_content: str, namespace: str = "kube-system", timeout: in
     job_spec = safe_load(yaml_content)
     job_name = job_spec["metadata"]["name"]
 
-    # Delete any existing job
+    # Delete any existing job and wait until it's fully gone
     await delete_job(job_name, namespace)
-    await asyncio.sleep(2)
+
+    # Poll until job is actually deleted to avoid 409 AlreadyExists errors
+    async with client.ApiClient() as api:
+        batch_api = BatchV1Api(api)
+        while True:
+            try:
+                await batch_api.read_namespaced_job(name=job_name, namespace=namespace)
+                await asyncio.sleep(0.5)
+            except ApiException as e:
+                if e.status == 404:
+                    logger.debug(f"Job {job_name} fully deleted")
+                    break
+                raise
 
     # Create the job
     await create_job_from_yaml(yaml_content, namespace)

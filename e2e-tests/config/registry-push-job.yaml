@@ -11,7 +11,7 @@ spec:
       restartPolicy: Never
       containers:
       - name: skopeo-export
-        image: quay.io/skopeo/stable:latest
+        image: quay.io/skopeo/stable:v1.15.0
         command:
         - /bin/sh
         - -c
