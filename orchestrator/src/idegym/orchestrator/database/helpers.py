@@ -166,6 +166,7 @@ async def find_matching_finished_server_in_db(
         image_tag=request.image_tag,
         container_runtime=request.runtime_class_name,
         run_as_root=request.run_as_root,
+        server_kind=request.server_kind,
         enable_fifo_check=enable_fifo_check,
     )
 

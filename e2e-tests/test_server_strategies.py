@@ -1,9 +1,8 @@
-"""Test different server reuse strategies and advanced operations."""
-
 import pytest
 from idegym.api.orchestrator.servers import ServerReuseStrategy
 from idegym.client.client import ServerCloseAction
 from kubernetes_asyncio.client import V1ResourceRequirements
+from utils.constants import DEFAULT_SERVER_START_TIMEOUT
 from utils.idegym_utils import create_http_client
 
 
@@ -16,6 +15,7 @@ async def test_reuse_strategy_reset_vs_restart(test_image, test_id):
             image_tag=test_image,
             server_name=f"reset-{test_id}",
             runtime_class_name="gvisor",
+            server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
             reuse_strategy=ServerReuseStrategy.RESET,
             close_action=ServerCloseAction.FINISH,
         ) as srv:
@@ -26,6 +26,7 @@ async def test_reuse_strategy_reset_vs_restart(test_image, test_id):
             image_tag=test_image,
             server_name=f"reset-{test_id}",
             runtime_class_name="gvisor",
+            server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
             reuse_strategy=ServerReuseStrategy.RESET,
             close_action=ServerCloseAction.STOP,
         ) as srv:
@@ -38,6 +39,7 @@ async def test_reuse_strategy_reset_vs_restart(test_image, test_id):
             image_tag=test_image,
             server_name=f"restart-{test_id}",
             runtime_class_name="gvisor",
+            server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
             reuse_strategy=ServerReuseStrategy.RESTART,
             close_action=ServerCloseAction.FINISH,
         ) as srv:
@@ -48,6 +50,7 @@ async def test_reuse_strategy_reset_vs_restart(test_image, test_id):
             image_tag=test_image,
             server_name=f"restart-{test_id}",
             runtime_class_name="gvisor",
+            server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
             reuse_strategy=ServerReuseStrategy.RESTART,
             close_action=ServerCloseAction.STOP,
         ) as srv:
@@ -64,6 +67,7 @@ async def test_reuse_strategy_none(test_image, test_id):
             image_tag=test_image,
             server_name=f"none-{test_id}",
             runtime_class_name="gvisor",
+            server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
             reuse_strategy=ServerReuseStrategy.NONE,
             close_action=ServerCloseAction.FINISH,
         ) as srv:
@@ -73,6 +77,7 @@ async def test_reuse_strategy_none(test_image, test_id):
             image_tag=test_image,
             server_name=f"none-{test_id}",
             runtime_class_name="gvisor",
+            server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
             reuse_strategy=ServerReuseStrategy.NONE,
             close_action=ServerCloseAction.STOP,
         ) as srv:
@@ -92,6 +97,7 @@ async def test_reset_project(test_image, test_id):
             image_tag=test_image,
             server_name=f"reset-proj-{test_id}",
             runtime_class_name="gvisor",
+            server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
             close_action=ServerCloseAction.STOP,
         ) as server:
             # Modify a file in the cloned repo
@@ -160,12 +166,14 @@ async def test_concurrent_clients(test_image, test_id):
                 image_tag=test_image,
                 server_name=f"s1-{test_id}",
                 runtime_class_name="gvisor",
+                server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
                 close_action=ServerCloseAction.STOP,
             ) as s1,
             c2.with_server(
                 image_tag=test_image,
                 server_name=f"s2-{test_id}",
                 runtime_class_name="gvisor",
+                server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
                 close_action=ServerCloseAction.STOP,
             ) as s2,
         ):
@@ -180,6 +188,7 @@ async def test_bash_and_file_operations(test_image, test_id):
             image_tag=test_image,
             server_name=f"ops-{test_id}",
             runtime_class_name="gvisor",
+            server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
             close_action=ServerCloseAction.STOP,
         ) as server:
             # Bash: success
@@ -208,6 +217,7 @@ async def test_reward_operations(test_image, test_id):
             image_tag=test_image,
             server_name=f"reward-{test_id}",
             runtime_class_name="gvisor",
+            server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
             close_action=ServerCloseAction.STOP,
         ) as server:
             result = await server.setup_reward(setup_check_script="python --version")

@@ -1,0 +1,21 @@
+images:
+  - project:
+      repository:
+        server: github.com
+        owner: realpython
+        name: python-scripts
+      reference: cb448c2dc3593dbfbe1ca47b49193b320115aae5
+    base: debian
+    commands: |
+      RUN echo "Image 1" > /home/appuser/image-id.txt
+    runtime_class_name: gvisor
+  - project:
+      repository:
+        server: github.com
+        owner: realpython
+        name: python-scripts
+      reference: cb448c2dc3593dbfbe1ca47b49193b320115aae5
+    base: debian
+    commands: |
+      RUN echo "Image 2" > /home/appuser/image-id.txt
+    runtime_class_name: gvisor

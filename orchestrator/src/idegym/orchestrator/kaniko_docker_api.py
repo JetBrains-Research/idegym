@@ -20,7 +20,7 @@ from yaml import safe_load as parse
 
 logger = get_logger(__name__)
 
-__DOCKER_REPOSITORY__ = "ghcr.io/jetbrains-research/idegym"
+__DOCKER_REPOSITORY__ = env.get("DOCKER_REGISTRY", "ghcr.io/jetbrains-research/idegym")
 
 
 def isiterable(value: Any) -> bool:
@@ -32,9 +32,11 @@ class IdeGYMKanikoDockerAPI:
         self,
         namespace: str = "idegym",
         job_timeout: float = 2400,
+        insecure_registry: bool = False,
     ):
         self._namespace = namespace
         self._job_timeout = job_timeout
+        self._insecure_registry = insecure_registry
 
     @staticmethod
     def hash(project: GitRepositorySnapshot | GitRepositoryResource) -> str:
@@ -92,6 +94,7 @@ class IdeGYMKanikoDockerAPI:
             ttl_seconds_after_finished=300,
             runtime_class_name=runtime_class_name,
             resources=pod_resources,
+            insecure_registry=self._insecure_registry,
         )
 
         create_task(self.monitor_image_building_job(job_name, tag, request_id))
