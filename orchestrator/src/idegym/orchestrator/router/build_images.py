@@ -1,4 +1,5 @@
 import tempfile
+from os import environ as env
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, status
@@ -22,7 +23,9 @@ async def build_and_push(request: BuildFromYamlRequest):
         yaml_path = yaml_file.name
 
     try:
-        kaniko_api = IdeGYMKanikoDockerAPI(namespace=request.namespace)
+        # Check if insecure registry should be used (e.g., for local Minikube registry)
+        insecure_registry = env.get("KANIKO_INSECURE_REGISTRY", "false").lower() == "true"
+        kaniko_api = IdeGYMKanikoDockerAPI(namespace=request.namespace, insecure_registry=insecure_registry)
         job_names = await kaniko_api.build_and_push_images(path=Path(yaml_path))
 
         logger.info(f"Successfully started: {job_names}")

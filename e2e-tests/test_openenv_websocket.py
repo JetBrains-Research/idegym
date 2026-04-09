@@ -1,5 +1,3 @@
-"""E2E test for OpenEnv websocket forwarding through orchestrator."""
-
 import asyncio
 from urllib.parse import urlsplit, urlunsplit
 
@@ -7,6 +5,7 @@ import pytest
 import websockets
 from idegym.api.orchestrator.servers import ServerKind, ServerReuseStrategy
 from idegym.client.client import ServerCloseAction
+from utils.constants import DEFAULT_SERVER_START_TIMEOUT
 from utils.idegym_utils import create_http_client
 from websockets.exceptions import ConnectionClosed, ConnectionClosedOK
 from websockets.protocol import State
@@ -33,7 +32,7 @@ async def test_openenv_websocket_forwarding_commands(websocket_test_image, test_
             image_tag=websocket_test_image,
             server_name=f"openenv-ws-{test_id}",
             runtime_class_name="gvisor",
-            server_start_wait_timeout_in_seconds=600,
+            server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
             reuse_strategy=ServerReuseStrategy.NONE,
             close_action=ServerCloseAction.STOP,
             server_kind=ServerKind.OPENENV,
@@ -70,7 +69,7 @@ async def test_openenv_websocket_error_processing_and_closure(websocket_test_ima
             image_tag=websocket_test_image,
             server_name=f"openenv-ws-errors-{test_id}",
             runtime_class_name="gvisor",
-            server_start_wait_timeout_in_seconds=600,
+            server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
             reuse_strategy=ServerReuseStrategy.NONE,
             close_action=ServerCloseAction.STOP,
             server_kind=ServerKind.OPENENV,
@@ -110,7 +109,7 @@ async def test_openenv_websocket_non_graceful_server_closure(websocket_test_imag
             image_tag=websocket_test_image,
             server_name=f"openenv-ws-server-abort-{test_id}",
             runtime_class_name="gvisor",
-            server_start_wait_timeout_in_seconds=600,
+            server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
             reuse_strategy=ServerReuseStrategy.NONE,
             close_action=ServerCloseAction.STOP,
             server_kind=ServerKind.OPENENV,
@@ -143,7 +142,7 @@ async def test_openenv_websocket_non_graceful_client_closure(websocket_test_imag
             image_tag=websocket_test_image,
             server_name=f"openenv-ws-client-abort-{test_id}",
             runtime_class_name="gvisor",
-            server_start_wait_timeout_in_seconds=600,
+            server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
             reuse_strategy=ServerReuseStrategy.NONE,
             close_action=ServerCloseAction.STOP,
             server_kind=ServerKind.OPENENV,

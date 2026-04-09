@@ -1,0 +1,44 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: registry-push-job
+  namespace: kube-system
+spec:
+  ttlSecondsAfterFinished: 60
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: skopeo-export
+        image: quay.io/skopeo/stable:v1.15.0
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -ex
+          echo "Exporting image from containerd using ctr..."
+          /usr/bin/ctr -n k8s.io images export /tmp/image.tar {source_image}
+
+          echo "Pushing image to local registry using skopeo..."
+          skopeo copy --dest-tls-verify=false \
+            docker-archive:/tmp/image.tar \
+            docker://{dest_image}
+
+          echo "Successfully pushed {dest_image} to registry"
+        volumeMounts:
+        - name: containerd-socket
+          mountPath: /run/containerd
+        - name: ctr-bin
+          mountPath: /usr/bin/ctr
+        securityContext:
+          privileged: true
+      volumes:
+      - name: containerd-socket
+        hostPath:
+          path: /run/containerd
+      - name: ctr-bin
+        hostPath:
+          path: /usr/bin/ctr
+      nodeSelector:
+        kubernetes.io/hostname: minikube

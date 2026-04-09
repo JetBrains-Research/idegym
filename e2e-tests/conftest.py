@@ -1,35 +1,38 @@
-"""Pytest configuration and shared fixtures for e2e testing."""
-
+import asyncio
 import subprocess
 from importlib.resources import as_file, files
 
 import config as e2e_config
 import pytest
+import resources as e2e_resources
 import yaml
 from idegym.api.docker import BaseImage
 from idegym.api.git import GitRepository, GitRepositorySnapshot
 from idegym.client import IdeGYMDockerAPI
 from idegym.utils.logging import get_logger
+from kubernetes_asyncio import config as k8s_config
 from utils import k8s_client
 from utils.build_images import build_all_images
-from utils.constants import DEFAULT_NAMESPACE, ORCHESTRATOR_APP_LABEL
+from utils.constants import (
+    DEFAULT_NAMESPACE,
+    KUBE_SYSTEM_NAMESPACE,
+    ORCHESTRATOR_APP_LABEL,
+    REGISTRY_PULL_JOB_NAME,
+    REGISTRY_PUSH_JOB_NAME,
+)
 from utils.idegym_utils import generate_test_id
+from utils.k8s_jobs import delete_job, get_all_server_pod_logs, run_job
 from utils.k8s_setup import cleanup_kubernetes_environment, setup_kubernetes_environment, wait_for_service
 
 logger = get_logger(__name__)
 
-TEST_IMAGE_COMMANDS_PATH = "test_image_commands.Dockerfile"
-WEBSOCKET_TEST_IMAGE_COMMANDS_PATH = "openenv_websocket_test_image_commands.Dockerfile"
-
 
 def load_test_image_commands() -> str:
-    """Load the Docker command snippet for the test image from packaged resources."""
-    return files(e2e_config).joinpath(TEST_IMAGE_COMMANDS_PATH).read_text(encoding="utf-8")
+    return files(e2e_resources).joinpath("test_image_commands.Dockerfile").read_text(encoding="utf-8")
 
 
 def load_websocket_test_image_commands() -> str:
-    """Load the Docker command snippet for the OpenEnv websocket test image."""
-    return files(e2e_config).joinpath(WEBSOCKET_TEST_IMAGE_COMMANDS_PATH).read_text(encoding="utf-8")
+    return files(e2e_resources).joinpath("openenv_websocket_test_image_commands.Dockerfile").read_text(encoding="utf-8")
 
 
 def _test_project_snapshot() -> GitRepositorySnapshot:
@@ -41,12 +44,32 @@ def _test_project_snapshot() -> GitRepositorySnapshot:
 
 @pytest.fixture
 def test_id() -> str:
-    """Return a short unique ID for test resource names."""
     return generate_test_id()
 
 
+@pytest.fixture(autouse=True)
+async def log_server_pods_on_timeout(request):
+    """Catch TimeoutError and log all server pod logs."""
+    yield
+    if request.node.rep_call.failed and "TimeoutError" in str(request.node.rep_call.longrepr):
+        logger.error("Test failed with TimeoutError - collecting server pod logs...")
+        logs_dict = await get_all_server_pod_logs(namespace=DEFAULT_NAMESPACE)
+        if logs_dict:
+            for pod_name, logs in logs_dict.items():
+                logger.error(f"Server pod {pod_name} logs:\n{logs}")
+        else:
+            logger.warning("No server pod logs found")
+
+
+@pytest.hookimpl(tryfirst=True, hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Make test result available to fixtures."""
+    outcome = yield
+    rep = outcome.get_result()
+    setattr(item, f"rep_{rep.when}", rep)
+
+
 def pytest_addoption(parser):
-    """Add custom command-line options for e2e setup and cleanup behavior."""
     parser.addoption(
         "--skip-build",
         action="store_true",
@@ -86,8 +109,15 @@ def pytest_addoption(parser):
 
 
 @pytest.fixture(scope="session", autouse=True)
-def setup_and_cleanup_environment(request):
-    """Set up e2e environment before session and clean it up afterwards."""
+def k8s_config_loader():
+    """Load Kubernetes configuration once per test session."""
+    asyncio.run(k8s_config.load_kube_config())
+    logger.info("✓ Loaded Kubernetes configuration")
+    yield
+
+
+@pytest.fixture(scope="session", autouse=True)
+def setup_and_cleanup_environment(request, k8s_config_loader):
     skip_build = request.config.getoption("--skip-build")
     reuse_resources = request.config.getoption("--reuse-resources")
     clean_namespace = request.config.getoption("--clean-namespace")
@@ -128,7 +158,6 @@ def setup_and_cleanup_environment(request):
 
 
 def cleanup_servers():
-    """Delete server deployments in the test namespace."""
     logger.info("Cleaning up server deployments after test...")
 
     label_selector = "app.kubernetes.io/component=sandbox"
@@ -145,13 +174,11 @@ def cleanup_servers():
 
 
 def list_pods_by_label(app_label: str, namespace: str = DEFAULT_NAMESPACE) -> list[str]:
-    """Return pod names for a given app label."""
     selector = k8s_client.resolve_pod_selector(app_label, namespace=namespace)
     return k8s_client.list_pod_names(namespace=namespace, label_selector=selector)
 
 
 def redeploy_orchestrator():
-    """Redeploy orchestrator between tests."""
     logger.info("Redeploying orchestrator...")
 
     try:
@@ -171,16 +198,35 @@ def redeploy_orchestrator():
         raise
 
 
+def cleanup_kaniko_jobs():
+    """
+    Delete all Kaniko-related jobs in kube-system namespace.
+
+    This includes:
+    - registry-push-job (pushes base image to registry)
+    - registry-pull-job (pulls images from registry to containerd)
+    """
+
+    async def _cleanup():
+        await delete_job(REGISTRY_PUSH_JOB_NAME, namespace=KUBE_SYSTEM_NAMESPACE)
+        await delete_job(REGISTRY_PULL_JOB_NAME, namespace=KUBE_SYSTEM_NAMESPACE)
+
+    try:
+        asyncio.run(_cleanup())
+        logger.debug("✓ Kaniko jobs cleaned up")
+    except Exception as e:
+        logger.debug(f"Error during Kaniko job cleanup (may not exist): {e}")
+
+
 @pytest.fixture(autouse=True)
 def cleanup_after_test():
-    """Automatically cleanup server deployments and redeploy orchestrator/database after each test."""
     yield
     cleanup_servers()
+    cleanup_kaniko_jobs()
     redeploy_orchestrator()
 
 
 def delete_namespace():
-    """Delete the entire test namespace."""
     logger.info(f"Deleting {DEFAULT_NAMESPACE} namespace...")
     if k8s_client.delete_namespace(DEFAULT_NAMESPACE, timeout=120):
         logger.info("✓ Namespace deleted")
@@ -189,7 +235,6 @@ def delete_namespace():
 
 
 def _extract_service_names_from_kustomize(kustomize_output: str) -> set[str]:
-    """Extract service names from kustomize output YAML."""
     service_names: set[str] = set()
     for doc in yaml.safe_load_all(kustomize_output):
         if not isinstance(doc, dict):
@@ -204,7 +249,6 @@ def _extract_service_names_from_kustomize(kustomize_output: str) -> set[str]:
 
 
 def delete_kustomize_services():
-    """Delete only services defined in kustomization.yaml."""
     logger.info("Deleting kustomize services...")
     with as_file(files(e2e_config)) as config_dir:
         build_result = subprocess.run(
@@ -233,9 +277,38 @@ def delete_kustomize_services():
     logger.info(f"✓ Kustomize services deleted ({len(service_names)})")
 
 
+async def pull_image_from_registry_to_containerd(image_tag: str) -> None:
+    """
+    Pull an image from the local registry into Minikube's containerd.
+
+    This is needed because pods can't directly pull from registry.kube-system.svc.cluster.local
+    via standard imagePullPolicy - we need to explicitly import it into containerd.
+
+    Uses a privileged Kubernetes job with hostPath mounts to access the host's containerd socket.
+
+    Args:
+        image_tag: Full image tag in the registry (e.g., registry.kube-system.svc.cluster.local/image:tag)
+    """
+    from importlib.resources import files
+
+    import config as e2e_config
+    from utils.constants import KUBE_SYSTEM_NAMESPACE
+
+    logger.info(f"Pulling image from registry into containerd: {image_tag}")
+
+    # Load job template and substitute values
+    template_path = files(e2e_config).joinpath("registry-pull-job.yaml")
+    job_manifest = template_path.read_text(encoding="utf-8").format(image_tag=image_tag)
+
+    success = await run_job(job_manifest, namespace=KUBE_SYSTEM_NAMESPACE, timeout=120)
+    if not success:
+        logger.warning("Registry pull job had issues - image might already be available")
+    else:
+        logger.info("✓ Successfully pulled image from registry to containerd")
+
+
 @pytest.fixture(scope="session")
 def test_image():
-    """Build and cache test image for the entire test session."""
     logger.info("Building test image for session")
     docker_api = IdeGYMDockerAPI()
 
@@ -251,9 +324,18 @@ def test_image():
     return image_tag
 
 
+@pytest.fixture
+def kaniko_image_loader():
+    """
+    Fixture that returns a function to load Kaniko-built images into containerd.
+
+    Use this after building images with Kaniko to make them available for pod deployment.
+    """
+    return pull_image_from_registry_to_containerd
+
+
 @pytest.fixture(scope="session")
 def websocket_test_image():
-    """Build and cache websocket-capable OpenEnv test image for the entire test session."""
     logger.info("Building websocket test image for session")
     docker_api = IdeGYMDockerAPI()
 

@@ -1,5 +1,3 @@
-"""Synchronous helpers around kubernetes-asyncio for e2e tests."""
-
 import asyncio
 import inspect
 import threading
@@ -18,12 +16,8 @@ from kubernetes_asyncio.client import (
     V1ObjectMeta,
     V1Pod,
 )
-from kubernetes_asyncio.config import ConfigException, load_incluster_config, load_kube_config
 
 T = TypeVar("T")
-
-_config_loaded = False
-_config_lock = threading.Lock()
 
 
 async def _await_api_result(result: Awaitable[T] | T) -> T:
@@ -64,27 +58,11 @@ def _run_async(coro: Awaitable[T]) -> T:
     return result["value"]
 
 
-async def _ensure_config_loaded() -> None:
-    """Initialize Kubernetes config once per process."""
-    global _config_loaded
-
-    if _config_loaded:
-        return
-
-    with _config_lock:
-        if _config_loaded:
-            return
-
-        try:
-            load_incluster_config()
-        except ConfigException:
-            await load_kube_config()
-
-        _config_loaded = True
-
-
 async def _with_clients(func: Callable[[CoreV1Api, AppsV1Api, PolicyV1Api], Awaitable[T]]) -> T:
-    await _ensure_config_loaded()
+    """
+    Execute a function with Kubernetes API clients.
+    Assumes kubernetes config is already loaded (e.g., via pytest fixture).
+    """
     async with ApiClient() as api_client:
         core = CoreV1Api(api_client)
         apps = AppsV1Api(api_client)
@@ -186,16 +164,7 @@ def is_any_pod_ready(namespace: str, label_selector: str | None = None) -> bool:
 def resolve_pod_selector(app_label: str, namespace: str, label_key: str = "app.kubernetes.io/name") -> str:
     """
     Return a working label selector for pods, trying the preferred label key first.
-
     Falls back to the legacy 'app' label if no pods are found with the preferred key.
-
-    Args:
-        app_label: The value of the app label to match
-        namespace: Kubernetes namespace to search in
-        label_key: Preferred label key (default: app.kubernetes.io/name)
-
-    Returns:
-        A label selector string that matches existing pods, or the preferred selector if none found
     """
     selectors = [f"{label_key}={app_label}"]
     if label_key != "app":
@@ -235,7 +204,6 @@ def wait_for_pods_deleted(
     timeout: int = 120,
     check_interval: int = 2,
 ) -> bool:
-    """Wait until all given pods are removed from the namespace."""
     if not pod_names:
         return True
 
@@ -288,7 +256,6 @@ def delete_deployment(namespace: str, deployment_name: str) -> None:
 
 
 def delete_services(namespace: str, service_names: list[str]) -> None:
-    """Delete multiple services in a single API client session."""
     if not service_names:
         return
 
