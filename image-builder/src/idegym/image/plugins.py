@@ -1,3 +1,5 @@
+import json
+import re
 from pathlib import Path
 from shlex import quote
 from textwrap import dedent
@@ -7,7 +9,25 @@ from idegym.api.download import Authorization, DownloadRequest
 from idegym.api.git import GitRepository, GitRepositoryResource, GitRepositorySnapshot
 from idegym.api.type import AuthType
 from idegym.image.plugin import BuildContext, PluginBase, image_plugin
-from pydantic import Field
+from pydantic import Field, field_validator
+
+# Linux username/group: starts with letter or underscore, then letters/digits/hyphens/underscores, max 32 chars.
+_LINUX_IDENTIFIER_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
+# Valid Debian package name: starts with alphanumeric, rest are lowercase alphanumeric, +, -, .
+_DEBIAN_PACKAGE_RE = re.compile(r"^[a-z0-9][a-z0-9+.-]+$")
+# chmod mode: 3 or 4 octal digits
+_OCTAL_MODE_RE = re.compile(r"^[0-7]{3,4}$")
+# PyCharm version: YYYY.N or YYYY.N.N
+_PYCHARM_VERSION_RE = re.compile(r"^\d{4}\.\d+(\.\d+)?$")
+
+
+def _check_linux_id(value: str, field: str) -> str:
+    if not _LINUX_IDENTIFIER_RE.match(value):
+        raise ValueError(
+            f"Invalid Linux identifier for {field!r}: {value!r}. "
+            r"Must match ^[a-z_][a-z0-9_-]{0,31}$"
+        )
+    return value
 
 
 def _build_image_labels(value: GitRepository | GitRepositorySnapshot | GitRepositoryResource) -> dict[str, str]:
@@ -55,6 +75,17 @@ class BaseSystem(PluginBase):
     packages: tuple[str, ...] = DEFAULT_PACKAGES
     minimal: bool = False
 
+    @field_validator("packages")
+    @classmethod
+    def _validate_packages(cls, v: tuple[str, ...]) -> tuple[str, ...]:
+        for pkg in v:
+            if not _DEBIAN_PACKAGE_RE.match(pkg):
+                raise ValueError(
+                    f"Invalid Debian package name: {pkg!r}. "
+                    r"Must match ^[a-z0-9][a-z0-9+.-]+$"
+                )
+        return v
+
     def render(self, ctx: BuildContext) -> str:
         packages = self.MINIMAL_PACKAGES if self.minimal else self.packages
         if not packages:
@@ -89,6 +120,25 @@ class User(PluginBase):
     sudo: bool = True
     create_home: bool = True
     additional_groups: tuple[str, ...] = ()
+
+    @field_validator("username")
+    @classmethod
+    def _validate_username(cls, v: str) -> str:
+        return _check_linux_id(v, "username")
+
+    @field_validator("group")
+    @classmethod
+    def _validate_group(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            _check_linux_id(v, "group")
+        return v
+
+    @field_validator("additional_groups")
+    @classmethod
+    def _validate_additional_groups(cls, v: tuple[str, ...]) -> tuple[str, ...]:
+        for g in v:
+            _check_linux_id(g, "additional_groups")
+        return v
 
     @property
     def effective_group(self) -> str:
@@ -160,6 +210,19 @@ class User(PluginBase):
 class Permissions(PluginBase):
     paths: dict[str, dict[str, Optional[str]]]
 
+    @field_validator("paths")
+    @classmethod
+    def _validate_paths(cls, v: dict[str, dict[str, Optional[str]]]) -> dict[str, dict[str, Optional[str]]]:
+        for config in v.values():
+            for key in ("owner", "group"):
+                val = config.get(key)
+                if val is not None:
+                    _check_linux_id(val, key)
+            mode = config.get("mode")
+            if mode is not None and not _OCTAL_MODE_RE.match(mode):
+                raise ValueError(f"Invalid file mode: {mode!r}. Expected 3 or 4 octal digits (e.g. '755').")
+        return v
+
     def render(self, ctx: BuildContext) -> str:
         commands: list[str] = []
         for path, config in self.paths.items():
@@ -191,6 +254,20 @@ class Project(PluginBase):
     target: Optional[str] = None
     owner: Optional[str] = None
     group: Optional[str] = None
+
+    @field_validator("owner", "group")
+    @classmethod
+    def _validate_owner_group(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            _check_linux_id(v, "owner/group")
+        return v
+
+    @field_validator("path", "target")
+    @classmethod
+    def _validate_no_double_dash_prefix(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v.startswith("--"):
+            raise ValueError(f"Path must not start with '--': {v!r}")
+        return v
 
     @classmethod
     def from_git(
@@ -289,11 +366,13 @@ class Project(PluginBase):
     def render(self, ctx: BuildContext) -> str:
         if self.source == "local":
             src_path = self.path or "."
+            # JSON-array form handles paths with spaces; flags must precede the array.
+            copy_args = json.dumps([src_path, ctx.project_root])
             chown = ""
             if self.owner:
                 effective_group = self.group or self.owner
                 chown = f"--chown={self.owner}:{effective_group} "
-            return f"# Copy local project\nCOPY {chown}{src_path} {ctx.project_root}"
+            return f"# Copy local project\nCOPY {chown}{copy_args}"
 
         if ctx.request is None:
             raise ValueError("Project plugin must be applied before rendering")
@@ -405,6 +484,27 @@ class PyCharm(PluginBase):
     version: str = "2025.3"
     edition: str = "professional"
     user: Optional[str] = None
+
+    @field_validator("version")
+    @classmethod
+    def _validate_version(cls, v: str) -> str:
+        if not _PYCHARM_VERSION_RE.match(v):
+            raise ValueError(f"Invalid PyCharm version: {v!r}. Expected format: YYYY.N or YYYY.N.N")
+        return v
+
+    @field_validator("edition")
+    @classmethod
+    def _validate_edition(cls, v: str) -> str:
+        if v not in ("professional", "community"):
+            raise ValueError(f"Invalid PyCharm edition: {v!r}. Must be 'professional' or 'community'.")
+        return v
+
+    @field_validator("user")
+    @classmethod
+    def _validate_user(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            _check_linux_id(v, "user")
+        return v
 
     def render(self, ctx: BuildContext) -> str:
         user = self.user or ctx.current_user

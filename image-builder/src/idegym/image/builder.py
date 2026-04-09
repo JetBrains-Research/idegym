@@ -1,12 +1,18 @@
 from pathlib import Path
 from typing import Any, Optional, Self
 
+import idegym.image.plugins  # noqa: F401 — ensures built-in plugins are registered before deserialization
 from idegym.api.docker import BaseImage
 from idegym.api.image_build import ImageBuildSpec
+from idegym.api.type import OCIImageName
 from idegym.image.docker_api import IdeGYMDockerAPI
 from idegym.image.plugin import BuildContext, PluginBase
 from idegym.image.serialization import deserialize_plugin, dump_images, load_images, serialize_plugin
-from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_serializer, field_validator
+
+# TypeAdapter reuses the OCIImageName constraints without duplicating the regex.
+# Needed because model_copy() bypasses Pydantic field validation.
+_OCI_NAME_VALIDATOR = TypeAdapter(OCIImageName)
 
 
 def _run_block(commands: tuple[str, ...]) -> str:
@@ -19,7 +25,7 @@ def _run_block(commands: tuple[str, ...]) -> str:
 
 class Image(BaseModel):
     base: str = Field(min_length=1)
-    name: Optional[str] = Field(default=None)
+    name: Optional[OCIImageName] = Field(default=None)
     plugins: tuple[PluginBase, ...] = Field(default_factory=tuple)
     commands: tuple[str, ...] = Field(default_factory=tuple)
     platforms: tuple[str, ...] = Field(default_factory=tuple)
@@ -56,6 +62,7 @@ class Image(BaseModel):
         return cls(base=image, name=name)
 
     def named(self, name: str) -> Self:
+        _OCI_NAME_VALIDATOR.validate_python(name)
         return self.model_copy(update={"name": name})
 
     def with_plugin(self, plugin: PluginBase) -> Self:
@@ -69,6 +76,8 @@ class Image(BaseModel):
         return self.model_copy(update={"commands": (*self.commands, *commands)})
 
     def pip_install(self, *packages: str) -> Self:
+        if not packages:
+            return self
         return self.run_commands(f"pip install {' '.join(packages)}")
 
     def with_platforms(self, *platforms: str) -> Self:

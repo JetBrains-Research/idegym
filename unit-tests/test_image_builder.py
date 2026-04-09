@@ -1,3 +1,5 @@
+import subprocess
+import sys
 from textwrap import dedent
 
 from idegym.image.builder import Image
@@ -231,6 +233,34 @@ def test_image_named():
     assert image.name == "my-image"
 
 
+@mark.parametrize(
+    "name",
+    [
+        param("my-image", id="simple"),
+        param("my-image:latest", id="with-tag"),
+        param("registry.example.com/org/image:v1.2.3", id="full-reference"),
+        param("image@sha256:abcdef1234567890", id="digest"),
+    ],
+)
+def test_image_named_accepts_valid_oci_name(name):
+    image = Image.from_base("debian:bookworm-slim").named(name)
+    assert image.name == name
+
+
+@mark.parametrize(
+    "name",
+    [
+        param("MyImage", id="uppercase"),
+        param("my image", id="space"),
+        param("image:bad?tag", id="illegal-char"),
+        param("", id="empty"),
+    ],
+)
+def test_image_named_rejects_invalid_oci_name(name):
+    with raises(ValueError):
+        Image.from_base("debian:bookworm-slim").named(name)
+
+
 def test_image_with_plugin():
     plugin = BaseSystem()
     image = Image.from_base("debian:bookworm-slim").with_plugin(plugin)
@@ -378,6 +408,39 @@ def test_image_load_all_with_project_plugin():
     assert image.plugins[0].source == "git"
 
 
+def test_builtin_plugins_auto_registered_on_builder_import():
+    # Verify that importing only `idegym.image.builder` (without importing
+    # `idegym.image.plugins` explicitly) is sufficient for YAML deserialization
+    # of built-in plugin types to succeed.
+    script = dedent("""\
+        # Intentionally do NOT import idegym.image.plugins
+        from idegym.image.builder import Image
+
+        yaml_text = '''
+        images:
+          - base: debian:bookworm-slim
+            plugins:
+              - type: base-system
+                packages: [curl]
+              - type: user
+                username: appuser
+                uid: 1000
+                gid: 1000
+        '''
+        images = Image.load_all(yaml_text)
+        assert len(images) == 1
+        assert len(images[0].plugins) == 2
+        print("OK")
+    """)
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, f"Script failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    assert result.stdout.strip() == "OK"
+
+
 # ---------------------------------------------------------------------------
 # Plugin serialization
 # ---------------------------------------------------------------------------
@@ -494,11 +557,35 @@ def test_project_from_local_render_copy_directive():
     assert "download" not in fragment
 
 
+def test_project_from_local_render_uses_json_array_form():
+    plugin = Project.from_local("./src", target="/app")
+    ctx = plugin.apply(BuildContext(base="alpine:latest"))
+    fragment = plugin.render(ctx)
+    # JSON-array form: COPY ["src", "dest"] — brackets and quotes must be present
+    assert 'COPY ["./src", "/app"]' in fragment
+
+
+def test_project_from_local_render_handles_spaces_in_src_path():
+    plugin = Project.from_local("my project/src", target="/app")
+    ctx = plugin.apply(BuildContext(base="alpine:latest"))
+    fragment = plugin.render(ctx)
+    # JSON encoding preserves the space and produces a valid Dockerfile instruction
+    assert 'COPY ["my project/src", "/app"]' in fragment
+
+
+def test_project_from_local_render_handles_spaces_in_target():
+    plugin = Project.from_local("./src", target="/my app")
+    ctx = plugin.apply(BuildContext(base="alpine:latest"))
+    fragment = plugin.render(ctx)
+    assert 'COPY ["./src", "/my app"]' in fragment
+
+
 def test_project_from_local_render_with_owner():
     plugin = Project.from_local("./src", target="/app", owner="appuser")
     ctx = plugin.apply(BuildContext(base="alpine:latest"))
     fragment = plugin.render(ctx)
     assert "--chown=appuser:appuser" in fragment
+    assert 'COPY --chown=appuser:appuser ["./src", "/app"]' in fragment
 
 
 def test_project_from_local_render_without_explicit_owner_no_chown():
@@ -596,3 +683,158 @@ def test_pycharm_render_root_only_container():
     ctx = BuildContext(base="debian:bookworm-slim")  # default current_user="root"
     fragment = plugin.render(ctx)
     assert fragment.strip().endswith("USER root")
+
+
+# ---------------------------------------------------------------------------
+# Input validation (shell injection prevention)
+# ---------------------------------------------------------------------------
+
+
+@mark.parametrize(
+    "username",
+    [
+        param("root; rm -rf /", id="semicolon-injection"),
+        param("user name", id="space"),
+        param("user$(id)", id="command-substitution"),
+        param("user`id`", id="backtick"),
+        param("User", id="uppercase"),
+        param("1user", id="starts-with-digit"),
+        param("", id="empty"),
+        param("x" * 33, id="too-long"),
+        param("user\nroot", id="newline"),
+        param("user&&id", id="and-operator"),
+    ],
+)
+def test_user_rejects_invalid_username(username):
+    with raises(ValueError):
+        User(username=username, uid=1000, gid=1000)
+
+
+@mark.parametrize(
+    "username",
+    [
+        param("appuser", id="simple"),
+        param("test-user", id="hyphen"),
+        param("test_user", id="underscore"),
+        param("_user", id="starts-with-underscore"),
+        param("user1", id="with-digit"),
+        param("a" * 32, id="max-length"),
+    ],
+)
+def test_user_accepts_valid_username(username):
+    user = User(username=username, uid=1000, gid=1000)
+    assert user.username == username
+
+
+def test_user_rejects_invalid_group():
+    with raises(ValueError, match="group"):
+        User(username="appuser", uid=1000, gid=1000, group="bad group!")
+
+
+def test_user_rejects_invalid_additional_group():
+    with raises(ValueError, match="additional_groups"):
+        User(username="appuser", uid=1000, gid=1000, additional_groups=("valid", "bad; id"))
+
+
+def test_permissions_rejects_shell_injection_in_owner():
+    with raises(ValueError, match="owner"):
+        Permissions(paths={"/home/user": {"owner": "user; rm -rf /"}})
+
+
+def test_permissions_rejects_shell_injection_in_group():
+    with raises(ValueError, match="group"):
+        Permissions(paths={"/home/user": {"group": "group$(id)"}})
+
+
+@mark.parametrize(
+    "mode",
+    [
+        param("999", id="non-octal-digit"),
+        param("abc", id="non-numeric"),
+        param("75", id="too-short"),
+        param("77777", id="too-long"),
+        param("07 5", id="space"),
+    ],
+)
+def test_permissions_rejects_invalid_mode(mode):
+    with raises(ValueError, match="mode"):
+        Permissions(paths={"/home/user": {"mode": mode}})
+
+
+@mark.parametrize(
+    "mode",
+    [
+        param("755", id="three-digits"),
+        param("0755", id="four-digits"),
+        param("644", id="read-write"),
+        param("0440", id="sudoers"),
+    ],
+)
+def test_permissions_accepts_valid_mode(mode):
+    perm = Permissions(paths={"/home/user": {"mode": mode}})
+    assert perm.paths["/home/user"]["mode"] == mode
+
+
+def test_project_rejects_invalid_owner():
+    with raises(ValueError, match="owner"):
+        Project(source="git", url="https://example.com/repo.git", owner="user; id")
+
+
+def test_project_rejects_invalid_group():
+    with raises(ValueError, match="owner/group"):
+        Project(source="git", url="https://example.com/repo.git", group="bad group")
+
+
+def test_project_rejects_path_starting_with_double_dash():
+    with raises(ValueError, match="--"):
+        Project.from_local("--from=0")
+
+
+def test_project_rejects_target_starting_with_double_dash():
+    with raises(ValueError, match="--"):
+        Project.from_local("./src", target="--from=0")
+
+
+@mark.parametrize(
+    "package",
+    [
+        param("; rm -rf /", id="semicolon-injection"),
+        param("Curl", id="uppercase"),
+        param("curl git", id="space"),
+        param("curl\ngit", id="newline"),
+        param("a", id="too-short"),
+    ],
+)
+def test_basesystem_rejects_invalid_package(package):
+    with raises(ValueError, match="package"):
+        BaseSystem(packages=(package,))
+
+
+@mark.parametrize(
+    "version",
+    [
+        param("2025.3; rm -rf /", id="injection"),
+        param("latest", id="non-numeric"),
+        param("25.3", id="short-year"),
+        param("2025", id="no-minor"),
+        param("2025.3.1.2", id="too-many-parts"),
+    ],
+)
+def test_pycharm_rejects_invalid_version(version):
+    with raises(ValueError, match="version"):
+        PyCharm(version=version)
+
+
+@mark.parametrize("version", [param("2025.3", id="two-parts"), param("2025.3.1", id="three-parts")])
+def test_pycharm_accepts_valid_version(version):
+    assert PyCharm(version=version).version == version
+
+
+def test_pycharm_rejects_invalid_edition():
+    with raises(ValueError, match="edition"):
+        PyCharm(edition="enterprise")
+
+
+def test_pycharm_rejects_injection_in_user():
+    with raises(ValueError, match="user"):
+        PyCharm(user="root; id")
