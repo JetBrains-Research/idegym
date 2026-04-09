@@ -62,7 +62,6 @@ class BaseSystem(PluginBase):
         "curl",
         "dumb-init",
         "findutils",
-        "fontconfig",
         "git",
         "netcat-openbsd",
         "sudo",
@@ -103,7 +102,6 @@ class BaseSystem(PluginBase):
 
             # Refresh system caches
             RUN set -eux; \\
-                fc-cache -f -v || true; \\
                 update-ca-certificates
             """
         ).strip()

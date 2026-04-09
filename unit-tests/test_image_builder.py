@@ -507,7 +507,7 @@ def test_base_system_non_minimal_uses_packages():
     plugin = BaseSystem(minimal=False)
     fragment = plugin.render(BuildContext(base="debian:bookworm-slim"))
     assert "bash" in fragment
-    assert "fontconfig" in fragment
+    assert "git" in fragment
 
 
 # ---------------------------------------------------------------------------
