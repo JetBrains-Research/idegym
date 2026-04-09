@@ -8,9 +8,9 @@ from pydantic import BaseModel, ConfigDict
 @dataclass(frozen=True, slots=True)
 class BuildContext:
     base: str
-    current_user: str = "appuser"
-    home: str = "/home/appuser"
-    project_root: str = "/home/appuser/work"
+    current_user: str = "root"
+    home: str = "/root"
+    project_root: str = "/root/work"
     request: Optional[DownloadRequest] = None
     labels: dict[str, str] = field(default_factory=dict)
     context_path: str = "."
@@ -39,6 +39,9 @@ class PluginBase(BaseModel):
 
     def apply(self, ctx: BuildContext) -> BuildContext:
         return ctx
+
+    def render(self, ctx: BuildContext) -> str:
+        return ""
 
     def to_payload(self) -> dict[str, Any]:
         return self.model_dump(mode="json")

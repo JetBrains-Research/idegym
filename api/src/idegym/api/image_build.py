@@ -1,5 +1,5 @@
 from json import dumps as dump_json
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from idegym.api.download import DownloadRequest
 from idegym.utils.hashing import md5
@@ -10,11 +10,11 @@ class ImageBuildSpec(BaseModel):
     name: Optional[str] = None
     request: Optional[DownloadRequest] = Field(default=None, description="Optional project download request")
     dockerfile_content: str = Field(description="Fully rendered Dockerfile content", min_length=1)
-    labels: Dict[str, str] = Field(default_factory=dict, description="Image labels")
+    labels: dict[str, str] = Field(default_factory=dict, description="Image labels")
     context_path: str = Field(default=".", description="Docker build context path")
-    platforms: List[str] = Field(default_factory=list, description="Build target platforms")
+    platforms: list[str] = Field(default_factory=list, description="Build target platforms")
     runtime_class_name: str = Field(default="gvisor", description="Kubernetes runtime class name")
-    resources: Optional[Dict[str, Any]] = Field(default=None, description="Build resources")
+    resources: Optional[dict[str, Any]] = Field(default=None, description="Build resources")
 
     model_config = ConfigDict(extra="forbid")
 

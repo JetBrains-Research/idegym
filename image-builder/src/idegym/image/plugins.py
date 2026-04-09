@@ -47,13 +47,19 @@ class BaseSystem(PluginBase):
         "netcat-openbsd",
         "sudo",
     )
+    MINIMAL_PACKAGES: ClassVar[tuple[str, ...]] = (
+        "ca-certificates",
+        "curl",
+    )
 
     packages: tuple[str, ...] = DEFAULT_PACKAGES
+    minimal: bool = False
 
     def render(self, ctx: BuildContext) -> str:
-        if not self.packages:
+        packages = self.MINIMAL_PACKAGES if self.minimal else self.packages
+        if not packages:
             return ""
-        package_list = " \\\n".join(f"                    {package}" for package in self.packages)
+        package_list = " \\\n".join(f"                    {package}" for package in packages)
         return dedent(
             f"""\
             # Install base system packages
@@ -178,7 +184,7 @@ class Permissions(PluginBase):
 @image_plugin("project")
 class Project(PluginBase):
     source: str
-    url: str
+    url: Optional[str] = None
     ref: str = "HEAD"
     path: Optional[str] = None
     auth: Authorization = Field(default_factory=Authorization)
@@ -236,7 +242,20 @@ class Project(PluginBase):
             group=group,
         )
 
+    @classmethod
+    def from_local(
+        cls,
+        path: str,
+        *,
+        target: Optional[str] = None,
+        owner: Optional[str] = None,
+        group: Optional[str] = None,
+    ) -> "Project":
+        return cls(source="local", path=path, target=target, owner=owner, group=group)
+
     def project(self) -> GitRepositorySnapshot | GitRepositoryResource:
+        if self.url is None:
+            raise ValueError(f"Project source '{self.source}' requires a URL")
         repository = GitRepository.parse(self.url)
         snapshot = repository.at(self.ref)
         if self.source == "git":
@@ -248,6 +267,10 @@ class Project(PluginBase):
         raise ValueError(f"Unsupported project source: {self.source}")
 
     def apply(self, ctx: BuildContext) -> BuildContext:
+        if self.source == "local":
+            project_root = self.target or f"{ctx.home}/work"
+            return ctx.updated(project_root=project_root)
+
         if ctx.request is not None:
             raise ValueError("Only one Project plugin is supported")
 
@@ -264,6 +287,14 @@ class Project(PluginBase):
         )
 
     def render(self, ctx: BuildContext) -> str:
+        if self.source == "local":
+            src_path = self.path or "."
+            chown = ""
+            if self.owner:
+                effective_group = self.group or self.owner
+                chown = f"--chown={self.owner}:{effective_group} "
+            return f"# Copy local project\nCOPY {chown}{src_path} {ctx.project_root}"
+
         if ctx.request is None:
             raise ValueError("Project plugin must be applied before rendering")
 
@@ -272,7 +303,7 @@ class Project(PluginBase):
         commands = [
             f"mkdir -p {quote(ctx.project_root)}",
             "download $IDEGYM_PROJECT_ARCHIVE_URL $IDEGYM_PROJECT_ARCHIVE_PATH "
-            "--auth-type $IDEGYM_AUTH_TYPE --auth-token $IDEGYM_AUTH_TOKEN",
+            "--auth-type ${IDEGYM_AUTH_TYPE:-} --auth-token ${IDEGYM_AUTH_TOKEN:-}",
             "extract $IDEGYM_PROJECT_ARCHIVE_PATH $IDEGYM_PROJECT_ROOT",
         ]
         if owner is not None:
@@ -369,6 +400,50 @@ class IdeGYMServer(PluginBase):
         ).strip()
 
 
+@image_plugin("pycharm")
+class PyCharm(PluginBase):
+    version: str = "2025.3"
+    edition: str = "professional"
+    user: Optional[str] = None
+
+    def render(self, ctx: BuildContext) -> str:
+        user = self.user or ctx.current_user
+        return dedent(
+            f"""\
+            # Install PyCharm {self.edition} {self.version}
+            USER root
+            RUN set -eux; \\
+                apt-get update -qq; \\
+                apt-get install -y --no-install-recommends \\
+                    wget curl zip unzip \\
+                    libxtst6 libxrender1 libxi6 libfreetype6 fontconfig; \\
+                apt-get clean; \\
+                rm -rf /var/lib/apt/lists/*
+
+            # Install Java via SDKMAN (required for PyCharm)
+            RUN curl -s "https://get.sdkman.io" | bash && \\
+                bash -c "source /root/.sdkman/bin/sdkman-init.sh && sdk install java 21.0.5-tem"
+
+            ENV JAVA_HOME="/root/.sdkman/candidates/java/current"
+            ENV PATH="${{JAVA_HOME}}/bin:${{PATH}}"
+
+            # Download and install PyCharm
+            ENV PYCHARM_VERSION="{self.version}"
+            ENV PYCHARM_DIR="/opt/pycharm"
+            RUN wget -q "https://download.jetbrains.com/python/pycharm-{self.edition}-${{PYCHARM_VERSION}}.tar.gz" \\
+                    -O /tmp/pycharm.tar.gz && \\
+                mkdir -p ${{PYCHARM_DIR}} && \\
+                tar -xzf /tmp/pycharm.tar.gz -C ${{PYCHARM_DIR}} --strip-components=1 && \\
+                rm /tmp/pycharm.tar.gz
+
+            ENV PATH="${{PYCHARM_DIR}}/bin:${{PATH}}"
+            ENV DISPLAY=":99"
+
+            USER {user}
+            """
+        ).strip()
+
+
 __all__ = (
     "BuildContext",
     "BaseSystem",
@@ -376,5 +451,6 @@ __all__ = (
     "Permissions",
     "PluginBase",
     "Project",
+    "PyCharm",
     "User",
 )

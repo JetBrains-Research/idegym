@@ -1,6 +1,5 @@
 from asyncio import CancelledError, gather, sleep, timeout
 from contextlib import asynccontextmanager
-from os import environ as env
 from random import getrandbits
 from typing import Any, AsyncGenerator, Awaitable, Callable, Dict, Iterable, Optional, Tuple, Union
 
@@ -681,12 +680,11 @@ async def restart_pods(name: str, namespace: str, wait_timeout: int = 60, max_re
 
 
 async def build_and_push_image_with_kaniko(
-    request: DownloadRequest,
     tag: str,
-    base: str,
     service_version: str,
     dockerfile_content: str,
     namespace: str,
+    request: Optional[DownloadRequest] = None,
     labels: Optional[Dict[str, str]] = None,
     ttl_seconds_after_finished: int = 300,
     runtime_class_name: Optional[str] = None,
@@ -697,13 +695,12 @@ async def build_and_push_image_with_kaniko(
     Build a Docker image using kaniko in a Kubernetes job.
 
     Args:
-        request: Download request for the project
         tag: The full image tag to use for the built image
-        base: Base image to use for the build
         service_version: Version of the service
-        dockerfile_content: Content of the Dockerfile template
-        labels: Labels to add to the image
+        dockerfile_content: Content of the Dockerfile to build
         namespace: Kubernetes namespace
+        request: Optional download request for the project (provides archive URL/auth as build args)
+        labels: Labels to add to the image
         ttl_seconds_after_finished: Time in seconds to automatically delete the job after it finishes (default: 300)
         runtime_class_name: Kubernetes runtime class name (e.g., "gvisor") to use for the Kaniko pod
         resources: Kubernetes resource requirements (can be a V1ResourceRequirements object or a dictionary)
@@ -713,22 +710,23 @@ async def build_and_push_image_with_kaniko(
         The job name
     """
     name = f"kaniko-build-{getrandbits(32):08x}"  # Generate a unique job name
-    registry_url = env.get("DOCKER_REGISTRY", "ghcr.io/jetbrains-research/idegym")
     args = [
         "--dockerfile=/workspace/Dockerfile",
         f"--destination={tag}",
         "--context=dir:///workspace",
-        f"--build-arg=IDEGYM_BASE={base}",
-        f"--build-arg=IDEGYM_REGISTRY={registry_url}",
-        f"--build-arg=IDEGYM_VERSION={service_version}",
-        f"--build-arg=IDEGYM_PROJECT_ARCHIVE_URL={request.descriptor.url}",
-        f"--build-arg=IDEGYM_PROJECT_ARCHIVE_PATH={request.descriptor.name}",
     ]
 
-    if request.auth.type is not None:
-        args.append(f"--build-arg=IDEGYM_AUTH_TYPE={request.auth.type}")
-    if request.auth.token is not None:
-        args.append(f"--build-arg=IDEGYM_AUTH_TOKEN={request.auth.token}")
+    if request is not None:
+        args.extend(
+            [
+                f"--build-arg=IDEGYM_PROJECT_ARCHIVE_URL={request.descriptor.url}",
+                f"--build-arg=IDEGYM_PROJECT_ARCHIVE_PATH={request.descriptor.name}",
+            ]
+        )
+        if request.auth.type is not None:
+            args.append(f"--build-arg=IDEGYM_AUTH_TYPE={request.auth.type}")
+        if request.auth.token is not None:
+            args.append(f"--build-arg=IDEGYM_AUTH_TOKEN={request.auth.token}")
 
     if insecure_registry:
         args.append("--insecure")
@@ -763,32 +761,22 @@ async def build_and_push_image_with_kaniko(
         },
     )
 
+    container_env = [V1EnvVar(name="IDEGYM_VERSION", value=service_version)]
+    if request is not None:
+        container_env.extend(
+            [
+                V1EnvVar(name="IDEGYM_PROJECT_ARCHIVE_URL", value=request.descriptor.url),
+                V1EnvVar(name="IDEGYM_PROJECT_ARCHIVE_PATH", value=request.descriptor.name),
+                V1EnvVar(name="IDEGYM_AUTH_TYPE", value=request.auth.type),
+                V1EnvVar(name="IDEGYM_AUTH_TOKEN", value=request.auth.token),
+            ]
+        )
+
     container = V1Container(
         name="kaniko",
         image="gcr.io/kaniko-project/executor:v1.24.0",
         args=args,
-        env=[
-            V1EnvVar(
-                name="IDEGYM_VERSION",
-                value=service_version,
-            ),
-            V1EnvVar(
-                name="IDEGYM_PROJECT_ARCHIVE_URL",
-                value=request.descriptor.url,
-            ),
-            V1EnvVar(
-                name="IDEGYM_PROJECT_ARCHIVE_PATH",
-                value=request.descriptor.name,
-            ),
-            V1EnvVar(
-                name="IDEGYM_AUTH_TYPE",
-                value=request.auth.type,
-            ),
-            V1EnvVar(
-                name="IDEGYM_AUTH_TOKEN",
-                value=request.auth.token,
-            ),
-        ],
+        env=container_env,
         volume_mounts=[
             V1VolumeMount(
                 name="dockerfile-volume",

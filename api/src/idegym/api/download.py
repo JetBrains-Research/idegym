@@ -13,7 +13,7 @@ class Authorization(BaseModel):
     @model_validator(mode="after")
     def validate_auth(self):
         if self.type is not None and self.token is None:
-            raise ValueError("Can not specify token without type")
+            raise ValueError("Authorization token is required when type is specified")
         return self
 
 

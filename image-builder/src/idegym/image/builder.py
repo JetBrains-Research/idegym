@@ -68,6 +68,9 @@ class Image(BaseModel):
             return self
         return self.model_copy(update={"commands": (*self.commands, *commands)})
 
+    def pip_install(self, *packages: str) -> Self:
+        return self.run_commands(f"pip install {' '.join(packages)}")
+
     def with_platforms(self, *platforms: str) -> Self:
         return self.model_copy(update={"platforms": tuple(platforms)})
 
