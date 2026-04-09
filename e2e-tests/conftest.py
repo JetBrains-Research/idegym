@@ -1,5 +1,3 @@
-"""Pytest configuration and shared fixtures for e2e testing."""
-
 import asyncio
 import subprocess
 from importlib.resources import as_file, files
@@ -23,19 +21,17 @@ from utils.constants import (
     REGISTRY_PUSH_JOB_NAME,
 )
 from utils.idegym_utils import generate_test_id
-from utils.k8s_jobs import delete_job, run_job
+from utils.k8s_jobs import delete_job, get_all_server_pod_logs, run_job
 from utils.k8s_setup import cleanup_kubernetes_environment, setup_kubernetes_environment, wait_for_service
 
 logger = get_logger(__name__)
 
 
 def load_test_image_commands() -> str:
-    """Load the Docker command snippet for the test image from packaged resources."""
     return files(e2e_resources).joinpath("test_image_commands.Dockerfile").read_text(encoding="utf-8")
 
 
 def load_websocket_test_image_commands() -> str:
-    """Load the Docker command snippet for the OpenEnv websocket test image."""
     return files(e2e_resources).joinpath("openenv_websocket_test_image_commands.Dockerfile").read_text(encoding="utf-8")
 
 
@@ -48,12 +44,32 @@ def _test_project_snapshot() -> GitRepositorySnapshot:
 
 @pytest.fixture
 def test_id() -> str:
-    """Return a short unique ID for test resource names."""
     return generate_test_id()
 
 
+@pytest.fixture(autouse=True)
+async def log_server_pods_on_timeout(request):
+    """Catch TimeoutError and log all server pod logs."""
+    yield
+    if request.node.rep_call.failed and "TimeoutError" in str(request.node.rep_call.longrepr):
+        logger.error("Test failed with TimeoutError - collecting server pod logs...")
+        logs_dict = await get_all_server_pod_logs(namespace=DEFAULT_NAMESPACE)
+        if logs_dict:
+            for pod_name, logs in logs_dict.items():
+                logger.error(f"Server pod {pod_name} logs:\n{logs}")
+        else:
+            logger.warning("No server pod logs found")
+
+
+@pytest.hookimpl(tryfirst=True, hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Make test result available to fixtures."""
+    outcome = yield
+    rep = outcome.get_result()
+    setattr(item, f"rep_{rep.when}", rep)
+
+
 def pytest_addoption(parser):
-    """Add custom command-line options for e2e setup and cleanup behavior."""
     parser.addoption(
         "--skip-build",
         action="store_true",
@@ -102,7 +118,6 @@ def k8s_config_loader():
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_and_cleanup_environment(request, k8s_config_loader):
-    """Set up e2e environment before session and clean it up afterwards."""
     skip_build = request.config.getoption("--skip-build")
     reuse_resources = request.config.getoption("--reuse-resources")
     clean_namespace = request.config.getoption("--clean-namespace")
@@ -143,7 +158,6 @@ def setup_and_cleanup_environment(request, k8s_config_loader):
 
 
 def cleanup_servers():
-    """Delete server deployments in the test namespace."""
     logger.info("Cleaning up server deployments after test...")
 
     label_selector = "app.kubernetes.io/component=sandbox"
@@ -160,13 +174,11 @@ def cleanup_servers():
 
 
 def list_pods_by_label(app_label: str, namespace: str = DEFAULT_NAMESPACE) -> list[str]:
-    """Return pod names for a given app label."""
     selector = k8s_client.resolve_pod_selector(app_label, namespace=namespace)
     return k8s_client.list_pod_names(namespace=namespace, label_selector=selector)
 
 
 def redeploy_orchestrator():
-    """Redeploy orchestrator between tests."""
     logger.info("Redeploying orchestrator...")
 
     try:
@@ -208,7 +220,6 @@ def cleanup_kaniko_jobs():
 
 @pytest.fixture(autouse=True)
 def cleanup_after_test():
-    """Automatically cleanup server deployments and redeploy orchestrator/database after each test."""
     yield
     cleanup_servers()
     cleanup_kaniko_jobs()
@@ -216,7 +227,6 @@ def cleanup_after_test():
 
 
 def delete_namespace():
-    """Delete the entire test namespace."""
     logger.info(f"Deleting {DEFAULT_NAMESPACE} namespace...")
     if k8s_client.delete_namespace(DEFAULT_NAMESPACE, timeout=120):
         logger.info("✓ Namespace deleted")
@@ -225,7 +235,6 @@ def delete_namespace():
 
 
 def _extract_service_names_from_kustomize(kustomize_output: str) -> set[str]:
-    """Extract service names from kustomize output YAML."""
     service_names: set[str] = set()
     for doc in yaml.safe_load_all(kustomize_output):
         if not isinstance(doc, dict):
@@ -240,7 +249,6 @@ def _extract_service_names_from_kustomize(kustomize_output: str) -> set[str]:
 
 
 def delete_kustomize_services():
-    """Delete only services defined in kustomization.yaml."""
     logger.info("Deleting kustomize services...")
     with as_file(files(e2e_config)) as config_dir:
         build_result = subprocess.run(
@@ -301,7 +309,6 @@ async def pull_image_from_registry_to_containerd(image_tag: str) -> None:
 
 @pytest.fixture(scope="session")
 def test_image():
-    """Build and cache test image for the entire test session."""
     logger.info("Building test image for session")
     docker_api = IdeGYMDockerAPI()
 
@@ -329,7 +336,6 @@ def kaniko_image_loader():
 
 @pytest.fixture(scope="session")
 def websocket_test_image():
-    """Build and cache websocket-capable OpenEnv test image for the entire test session."""
     logger.info("Building websocket test image for session")
     docker_api = IdeGYMDockerAPI()
 

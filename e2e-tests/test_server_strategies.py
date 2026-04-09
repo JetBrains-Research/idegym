@@ -1,5 +1,3 @@
-"""Test different server reuse strategies and advanced operations."""
-
 import pytest
 from idegym.api.orchestrator.servers import ServerReuseStrategy
 from idegym.client.client import ServerCloseAction

@@ -1,5 +1,3 @@
-"""Synchronous helpers around kubernetes-asyncio for e2e tests."""
-
 import asyncio
 import inspect
 import threading
@@ -63,9 +61,7 @@ def _run_async(coro: Awaitable[T]) -> T:
 async def _with_clients(func: Callable[[CoreV1Api, AppsV1Api, PolicyV1Api], Awaitable[T]]) -> T:
     """
     Execute a function with Kubernetes API clients.
-
-    Note:
-        Assumes kubernetes config is already loaded (e.g., via pytest fixture).
+    Assumes kubernetes config is already loaded (e.g., via pytest fixture).
     """
     async with ApiClient() as api_client:
         core = CoreV1Api(api_client)
@@ -168,16 +164,7 @@ def is_any_pod_ready(namespace: str, label_selector: str | None = None) -> bool:
 def resolve_pod_selector(app_label: str, namespace: str, label_key: str = "app.kubernetes.io/name") -> str:
     """
     Return a working label selector for pods, trying the preferred label key first.
-
     Falls back to the legacy 'app' label if no pods are found with the preferred key.
-
-    Args:
-        app_label: The value of the app label to match
-        namespace: Kubernetes namespace to search in
-        label_key: Preferred label key (default: app.kubernetes.io/name)
-
-    Returns:
-        A label selector string that matches existing pods, or the preferred selector if none found
     """
     selectors = [f"{label_key}={app_label}"]
     if label_key != "app":
@@ -217,7 +204,6 @@ def wait_for_pods_deleted(
     timeout: int = 120,
     check_interval: int = 2,
 ) -> bool:
-    """Wait until all given pods are removed from the namespace."""
     if not pod_names:
         return True
 
@@ -270,7 +256,6 @@ def delete_deployment(namespace: str, deployment_name: str) -> None:
 
 
 def delete_services(namespace: str, service_names: list[str]) -> None:
-    """Delete multiple services in a single API client session."""
     if not service_names:
         return
 

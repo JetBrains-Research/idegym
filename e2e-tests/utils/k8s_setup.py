@@ -1,5 +1,3 @@
-"""Kubernetes and minikube setup utilities for e2e testing."""
-
 import subprocess
 import time
 from collections.abc import Iterator
@@ -52,7 +50,6 @@ def ensure_ingress_loadbalancer() -> None:
 
 
 def apply_kubernetes_resources() -> None:
-    """Apply all Kubernetes resources using kustomize."""
     logger.info("Applying Kubernetes resources...")
 
     with get_config_dir() as kustomization_dir:
@@ -63,7 +60,6 @@ def apply_kubernetes_resources() -> None:
 
 
 def delete_kubernetes_resources() -> None:
-    """Delete all Kubernetes resources defined in kustomization.yaml."""
     logger.info("Deleting Kubernetes resources from kustomization...")
 
     with get_config_dir() as kustomization_dir:
@@ -79,7 +75,6 @@ def delete_kubernetes_resources() -> None:
 
 
 def ensure_namespace_exists() -> None:
-    """Ensure idegym-local namespace exists."""
     try:
         existed_before = k8s_client.namespace_exists(DEFAULT_NAMESPACE)
         k8s_client.ensure_namespace_exists(DEFAULT_NAMESPACE)
@@ -92,7 +87,6 @@ def ensure_namespace_exists() -> None:
 
 
 def recreate_namespace() -> None:
-    """Recreate idegym-local namespace to clean up everything completely."""
     logger.info(f"Recreating {DEFAULT_NAMESPACE} namespace...")
 
     namespace = DEFAULT_NAMESPACE
@@ -115,7 +109,6 @@ def recreate_namespace() -> None:
 
 
 def delete_namespace(namespace: str = "idegym-local") -> None:
-    """Delete a namespace and wait until it is fully removed."""
     logger.info(f"Deleting namespace {namespace}...")
     try:
         if k8s_client.delete_namespace(namespace, timeout=180):
@@ -127,16 +120,6 @@ def delete_namespace(namespace: str = "idegym-local") -> None:
 
 
 def wait_for_service(timeout: int = DEFAULT_HEALTH_CHECK_TIMEOUT, check_interval: int = HEALTH_CHECK_INTERVAL) -> bool:
-    """
-    Wait for the orchestrator service to become responsive.
-
-    Args:
-        timeout: Maximum time to wait in seconds
-        check_interval: Time between checks in seconds
-
-    Returns:
-        bool: True if service is responsive, False if timeout reached
-    """
     logger.info(f"Waiting for service at {BASE_URL}/health...")
 
     start_time = time.time()
@@ -167,21 +150,9 @@ def wait_for_service(timeout: int = DEFAULT_HEALTH_CHECK_TIMEOUT, check_interval
 
 
 def setup_kubernetes_environment(reuse_resources: bool = False, clean_namespace: bool = False) -> bool:
-    """
-    Set up the complete Kubernetes environment for testing.
-
-    Args:
-        reuse_resources: If True, skip resource creation and reuse existing ones
-        clean_namespace: If True, recreate idegym-local namespace before setup
-
-    Returns:
-        bool: True if setup successful, False otherwise
-    """
-    # Clean namespace if requested
     if clean_namespace:
         recreate_namespace()
     else:
-        # Ensure namespace exists
         ensure_namespace_exists()
 
     if not reuse_resources:
@@ -200,18 +171,6 @@ def wait_for_pod_deleted(
     timeout: int = 60,
     label_key: str = "app.kubernetes.io/name",
 ) -> bool:
-    """
-    Wait for all pods with the given app label to be deleted.
-
-    Args:
-        app_label: The app label to filter pods
-        namespace: Kubernetes namespace
-        timeout: Maximum time to wait in seconds
-        label_key: Label key to use for pod selection (falls back to app label if needed)
-
-    Returns:
-        bool: True if pods are deleted, False if timeout reached
-    """
     logger.info(f"Waiting for {app_label} pod to be deleted...")
     start_time = time.time()
 
@@ -237,19 +196,6 @@ def wait_for_pod_ready(
     check_interval: int = 2,
     label_key: str = "app.kubernetes.io/name",
 ) -> bool:
-    """
-    Wait for a pod with the given app label to become ready.
-
-    Args:
-        app_label: The app label to filter pods
-        namespace: Kubernetes namespace
-        timeout: Maximum time to wait in seconds
-        check_interval: Time between checks in seconds
-        label_key: Label key to use for pod selection (falls back to app label if needed)
-
-    Returns:
-        bool: True if pod is ready, False if timeout reached
-    """
     logger.info(f"Waiting for {app_label} pod to be ready...")
     start_time = time.time()
 
@@ -270,12 +216,6 @@ def wait_for_pod_ready(
 
 
 def cleanup_kubernetes_environment(clean_namespace: bool = False) -> None:
-    """
-    Clean up the Kubernetes environment.
-
-    Args:
-        clean_namespace: If True, delete entire namespace; otherwise just delete kustomization resources
-    """
     logger.info("Cleaning up Kubernetes environment...")
     if clean_namespace:
         delete_namespace()

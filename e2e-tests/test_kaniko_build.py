@@ -1,5 +1,3 @@
-"""Test Kaniko image building with local Minikube registry."""
-
 from importlib.resources import as_file, files
 
 import pytest

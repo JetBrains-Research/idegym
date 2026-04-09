@@ -1,5 +1,3 @@
-"""Image building utilities for e2e testing."""
-
 import subprocess
 import tempfile
 
@@ -144,7 +142,6 @@ def build_base_server_image() -> str:
     )
 
     # Load both tags into minikube
-
     logger.info("Loading base image into minikube...")
     subprocess.run(
         ["minikube", "image", "load", image_tag],
@@ -164,7 +161,6 @@ def build_base_server_image() -> str:
 
 
 def build_all_images() -> None:
-    """Build all required images for e2e testing."""
     logger.info("Building all required images...")
 
     switch_to_default_docker_builder()

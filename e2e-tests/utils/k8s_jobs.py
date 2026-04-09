@@ -1,5 +1,3 @@
-"""Kubernetes job management utilities for e2e tests."""
-
 import asyncio
 from typing import Optional
 
@@ -13,19 +11,6 @@ logger = get_logger(__name__)
 
 
 async def create_job_from_yaml(yaml_content: str, namespace: str = "kube-system") -> V1Job:
-    """
-    Create a Kubernetes job from YAML content.
-
-    Args:
-        yaml_content: YAML string defining the job
-        namespace: Kubernetes namespace
-
-    Returns:
-        The created V1Job object
-
-    Note:
-        Assumes kubernetes config is already loaded (e.g., via pytest fixture).
-    """
     job_spec = safe_load(yaml_content)
 
     async with client.ApiClient() as api:
@@ -34,16 +19,6 @@ async def create_job_from_yaml(yaml_content: str, namespace: str = "kube-system"
 
 
 async def delete_job(job_name: str, namespace: str = "kube-system") -> None:
-    """
-    Delete a Kubernetes job if it exists.
-
-    Args:
-        job_name: Name of the job to delete
-        namespace: Kubernetes namespace
-
-    Note:
-        Assumes kubernetes config is already loaded (e.g., via pytest fixture).
-    """
     async with client.ApiClient() as api:
         batch_api = BatchV1Api(api)
         try:
@@ -61,20 +36,6 @@ async def delete_job(job_name: str, namespace: str = "kube-system") -> None:
 
 
 async def wait_for_job_completion(job_name: str, namespace: str = "kube-system", timeout: int = 120) -> bool:
-    """
-    Wait for a Kubernetes job to complete.
-
-    Args:
-        job_name: Name of the job
-        namespace: Kubernetes namespace
-        timeout: Timeout in seconds
-
-    Returns:
-        True if job succeeded, False if failed or timed out
-
-    Note:
-        Assumes kubernetes config is already loaded (e.g., via pytest fixture).
-    """
     async with client.ApiClient() as api:
         batch_api = BatchV1Api(api)
         try:
@@ -110,19 +71,6 @@ async def wait_for_job_completion(job_name: str, namespace: str = "kube-system",
 
 
 async def get_job_logs(job_name: str, namespace: str = "kube-system") -> Optional[str]:
-    """
-    Get logs from a job's pod.
-
-    Args:
-        job_name: Name of the job
-        namespace: Kubernetes namespace
-
-    Returns:
-        Pod logs as a string, or None if not available
-
-    Note:
-        Assumes kubernetes config is already loaded (e.g., via pytest fixture).
-    """
     async with client.ApiClient() as api:
         core_api = CoreV1Api(api)
         try:
@@ -147,18 +95,40 @@ async def get_job_logs(job_name: str, namespace: str = "kube-system") -> Optiona
             return None
 
 
+async def get_all_server_pod_logs(namespace: str = "default") -> dict[str, str]:
+    async with client.ApiClient() as api:
+        core_api = CoreV1Api(api)
+        logs_dict = {}
+        try:
+            # Find all pods by component label
+            pods = await core_api.list_namespaced_pod(
+                namespace=namespace,
+                label_selector="app.kubernetes.io/component=sandbox",
+            )
+
+            if not pods.items:
+                logger.warning(f"No sandbox pods found in namespace {namespace}")
+                return logs_dict
+
+            # Get logs for each pod
+            for pod in pods.items:
+                try:
+                    logs = await core_api.read_namespaced_pod_log(
+                        name=pod.metadata.name,
+                        namespace=namespace,
+                    )
+                    logs_dict[pod.metadata.name] = logs
+                except ApiException as e:
+                    logger.warning(f"Failed to get logs for pod {pod.metadata.name}: {e}")
+                    logs_dict[pod.metadata.name] = f"Error: {e}"
+
+            return logs_dict
+        except ApiException as e:
+            logger.warning(f"Failed to list sandbox pods: {e}")
+            return logs_dict
+
+
 async def run_job(yaml_content: str, namespace: str = "kube-system", timeout: int = 120) -> bool:
-    """
-    Create a job, wait for completion, and get logs.
-
-    Args:
-        yaml_content: YAML string defining the job
-        namespace: Kubernetes namespace
-        timeout: Timeout in seconds
-
-    Returns:
-        True if job succeeded, False otherwise
-    """
     job_spec = safe_load(yaml_content)
     job_name = job_spec["metadata"]["name"]
 
@@ -200,16 +170,5 @@ def run_job_sync(yaml_content: str, namespace: str = "kube-system", timeout: int
 
     This should only be called from synchronous code outside of an async event loop
     (e.g., from build_images.py during test setup).
-
-    Args:
-        yaml_content: YAML string defining the job
-        namespace: Kubernetes namespace
-        timeout: Timeout in seconds
-
-    Returns:
-        True if job succeeded, False otherwise
-
-    Note:
-        Assumes kubernetes config is already loaded (e.g., via pytest fixture).
     """
     return asyncio.run(run_job(yaml_content, namespace, timeout))

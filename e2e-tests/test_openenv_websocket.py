@@ -1,5 +1,3 @@
-"""E2E test for OpenEnv websocket forwarding through orchestrator."""
-
 import asyncio
 from urllib.parse import urlsplit, urlunsplit
 

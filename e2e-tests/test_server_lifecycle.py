@@ -1,5 +1,3 @@
-"""Test complete server lifecycle: start, operations, finish, reuse."""
-
 import pytest
 from idegym.api.orchestrator.servers import ServerReuseStrategy
 from idegym.client.client import ServerCloseAction

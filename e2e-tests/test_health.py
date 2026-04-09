@@ -1,5 +1,3 @@
-"""Test orchestrator health endpoint."""
-
 import pytest
 from utils.idegym_utils import create_http_client
 
