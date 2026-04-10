@@ -17,7 +17,6 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/*
 
 RUN set -eux; \
-    fc-cache -f -v; \
     update-ca-certificates
 
 SHELL ["/bin/bash", "-c"]
