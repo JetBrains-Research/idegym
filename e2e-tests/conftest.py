@@ -156,7 +156,13 @@ def cleanup_servers():
     for deployment_name in deployment_names:
         k8s_client.delete_deployment(namespace=DEFAULT_NAMESPACE, deployment_name=deployment_name)
 
-    logger.info(f"✓ Server deployments cleaned up ({len(deployment_names)} servers)")
+    logger.info(f"✓ Server deployments deleted ({len(deployment_names)} servers), waiting for pods to terminate...")
+    if not k8s_client.wait_for_pods_by_label_deleted(
+        namespace=DEFAULT_NAMESPACE, label_selector=label_selector, timeout=120
+    ):
+        logger.warning("Timed out waiting for sandbox pods to fully terminate")
+    else:
+        logger.info("✓ Sandbox pods terminated")
 
 
 def list_pods_by_label(app_label: str, namespace: str = DEFAULT_NAMESPACE) -> list[str]:

@@ -101,15 +101,40 @@ async def _get_all_server_pod_logs(core: CoreV1Api, namespace: str) -> dict[str,
             logger.warning(f"No sandbox pods found in namespace {namespace}")
             return logs_dict
         for pod in pods.items:
+            pod_name = pod.metadata.name
+            phase = pod.status.phase if pod.status else "Unknown"
+
+            # Collect pod conditions for scheduling/readiness diagnosis
+            conditions_info = ""
+            if pod.status and pod.status.conditions:
+                condition_lines = [
+                    f"  {c.type}={c.status} reason={c.reason} msg={c.message}" for c in pod.status.conditions
+                ]
+                conditions_info = "\n".join(condition_lines)
+
+            # Collect recent pod events
+            events_info = ""
             try:
-                logs = await core.read_namespaced_pod_log(
-                    name=pod.metadata.name,
+                events = await core.list_namespaced_event(
                     namespace=namespace,
+                    field_selector=f"involvedObject.name={pod_name}",
                 )
-                logs_dict[pod.metadata.name] = logs
+                if events.items:
+                    event_lines = [
+                        f"  [{e.reason}] {e.message}"
+                        for e in sorted(events.items, key=lambda x: x.last_timestamp or x.event_time or "")[-10:]
+                    ]
+                    events_info = "\n".join(event_lines)
             except ApiException as e:
-                logger.warning(f"Failed to get logs for pod {pod.metadata.name}: {e}")
-                logs_dict[pod.metadata.name] = f"Error: {e}"
+                events_info = f"  (failed to collect events: {e})"
+
+            try:
+                logs = await core.read_namespaced_pod_log(name=pod_name, namespace=namespace)
+            except ApiException as e:
+                logs = f"(failed to get logs: {e})"
+
+            entry = f"phase={phase}\nconditions:\n{conditions_info or '  (none)'}\nevents:\n{events_info or '  (none)'}\nlogs:\n{logs or '  (empty)'}"
+            logs_dict[pod_name] = entry
         return logs_dict
     except ApiException as e:
         logger.warning(f"Failed to list sandbox pods: {e}")

@@ -372,7 +372,7 @@ def extract_resources_request(config: Config, request: StartServerRequest):
     cpu_request = config.orchestrator.resources.default_cpu_request
     ram_request = config.orchestrator.resources.default_ram_request
     if request.resources:
-        if "requests" in request.resources:
+        if "limits" in request.resources:
             requests = request.resources["limits"]
             if "cpu" in requests:
                 cpu_decimal = parse_quantity(requests["cpu"])
