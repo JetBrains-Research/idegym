@@ -352,11 +352,11 @@ async def test_local_docker_build_from_idegym_server_plugin(test_id):
             resources=_DEFAULT_RESOURCES,
             server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
         ) as server:
-            # IdeGYM should be installed at $IDEGYM_PATH from local source
-            result = await server.execute_bash(script="ls $IDEGYM_PATH/server", command_timeout=30.0)
+            # IdeGYM should be installed at /opt/idegym from local source
+            result = await server.execute_bash(script="ls /opt/idegym/server", command_timeout=30.0)
             assert result.exit_code == 0, f"IdeGYM server dir missing: {result.stderr}"
             assert result.stdout.strip(), "IdeGYM server directory is empty"
 
             # uv sync should have created a virtual environment
-            result = await server.execute_bash(script="ls $IDEGYM_PATH/.venv/bin/python", command_timeout=30.0)
+            result = await server.execute_bash(script="ls /opt/idegym/.venv/bin/python", command_timeout=30.0)
             assert result.exit_code == 0, f"Python venv not found: {result.stderr}"
