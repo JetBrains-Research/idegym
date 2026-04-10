@@ -1,5 +1,5 @@
 from enum import StrEnum
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 from idegym.api.data import DataSize
 from pydantic import BaseModel, Field, model_serializer, model_validator
@@ -57,7 +57,7 @@ class ContainerConfig(BaseModel):
     )
 
     @model_serializer(mode="wrap")
-    def serialize_model(self, nxt: SerializerFunctionWrapHandler) -> Dict[str, Any]:
+    def serialize_model(self, nxt: SerializerFunctionWrapHandler) -> dict[str, Any]:
         return {
             key: (str(value) if key in ("memory", "memory_reservation") and value is not None else value)
             for key, value in nxt(self).items()

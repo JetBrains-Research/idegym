@@ -5,8 +5,8 @@ import yaml
 from idegym.api.docker import BaseImage
 from idegym.api.download import Authorization, DownloadRequest
 from idegym.api.git import GitRepositoryResource, GitRepositorySnapshot
-from idegym.client.docker_service import DockerService
-from python_on_whales import Image
+from idegym.image.docker_service import DockerService
+from python_on_whales import Image as DockerImage
 
 
 class IdeGYMDockerAPI:
@@ -25,7 +25,7 @@ class IdeGYMDockerAPI:
         auth: Optional[Authorization] = None,
         commands: Union[None, str, Iterable[str]] = None,
         platforms: Optional[List[str]] = None,
-    ) -> Image:
+    ) -> DockerImage:
         request = DownloadRequest(
             descriptor=project.descriptor(),
             auth=auth if auth is not None else Authorization(),
@@ -41,7 +41,17 @@ class IdeGYMDockerAPI:
             platforms=platforms,
         )
 
-    def push(self, *image: Image) -> None:
+    def build_image(
+        self,
+        image,
+        push: bool = False,
+    ) -> DockerImage:
+        built_image = self._docker_service.build_image(image)
+        if push:
+            self.push(built_image)
+        return built_image
+
+    def push(self, *image: DockerImage) -> None:
         images = tuple(image)
         self._docker_service.push(images)
 
@@ -50,7 +60,7 @@ class IdeGYMDockerAPI:
         path: Path,
         multiplatform: bool = True,
         push: bool = False,
-    ) -> List[Image]:
+    ) -> List[DockerImage]:
         images = []
         with open(path, "r") as file:
             pipeline: Dict[str, List[Dict[str, ...]]] = yaml.safe_load(file)

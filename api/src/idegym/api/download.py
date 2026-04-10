@@ -5,15 +5,25 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class Authorization(BaseModel):
-    type: Optional[AuthType] = Field(description="Authorization type", default=None, exclude=True)
-    token: Optional[str] = Field(description="Authorization token", default=None, exclude=True)
+    type: Optional[AuthType] = Field(
+        description="Authorization type",
+        default=None,
+        exclude=True,
+        repr=False,
+    )
+    token: Optional[str] = Field(
+        description="Authorization token",
+        default=None,
+        exclude=True,
+        repr=False,
+    )
 
     model_config = ConfigDict(frozen=True)
 
     @model_validator(mode="after")
     def validate_auth(self):
         if self.type is not None and self.token is None:
-            raise ValueError("Can not specify token without type")
+            raise ValueError("Authorization token is required when type is specified")
         return self
 
 

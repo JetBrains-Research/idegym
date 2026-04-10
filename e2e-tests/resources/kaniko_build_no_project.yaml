@@ -1,12 +1,7 @@
 images:
   - base: registry.kube-system.svc.cluster.local/server-debian-bookworm-20250520-slim:latest
-    plugins:
-      - type: project
-        source: git
-        url: https://github.com/realpython/python-scripts.git
-        ref: cb448c2dc3593dbfbe1ca47b49193b320115aae5
     commands:
-      - echo "Kaniko test image" > /home/appuser/kaniko-test.txt
+      - echo "no-project-test" > /home/appuser/no-project-test.txt
     runtime_class_name: gvisor
     resources:
       requests:

@@ -14,8 +14,6 @@ dependencies = [
     "idegym-api",
     "idegym-common-utils",
     "pydantic>=2.10.6",
-    "python-on-whales>=0.81.0",
-    "pyyaml>=6.0.2",
 ]
 
 [project.optional-dependencies]

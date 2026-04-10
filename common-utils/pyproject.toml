@@ -10,9 +10,7 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "hydra-core>=1.3.2",
-    "idegym-api",
-    "jinja2>=3.1.6",
-    "pyyaml>=6.0.2",
+    "pydantic>=2.10.6",
     "structlog>=25.4.0",
 ]
 

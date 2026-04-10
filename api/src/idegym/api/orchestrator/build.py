@@ -1,5 +1,3 @@
-from typing import List
-
 from idegym.api.orchestrator.jobs import JobPollResult
 from pydantic import BaseModel, Field, field_validator, model_validator
 from yaml import YAMLError
@@ -20,14 +18,14 @@ class BuildFromYamlRequest(BaseModel):
 
 
 class BuildFromYamlResponse(BaseModel):
-    job_names: List[str] = Field(description="Started kubernetes job names")
+    job_names: list[str] = Field(description="Started kubernetes job names")
 
 
 class BuildJobsSummary(BaseModel):
     total_jobs: int = Field(description="Total number of started build jobs", ge=0)
     failed_jobs: int = Field(description="Number of failed build jobs", ge=0)
     total_time: str = Field(description="Total time elapsed to complete all jobs (e.g., '12.34s')")
-    jobs_results: List[JobPollResult] = Field(description="Final poll results for each job")
+    jobs_results: list[JobPollResult] = Field(description="Final poll results for each job")
 
     @model_validator(mode="after")
     def validate_jobs_results(self):

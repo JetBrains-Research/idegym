@@ -8,7 +8,7 @@ import resources as e2e_resources
 import yaml
 from idegym.api.docker import BaseImage
 from idegym.api.git import GitRepository, GitRepositorySnapshot
-from idegym.client import IdeGYMDockerAPI
+from idegym.image.docker_api import IdeGYMDockerAPI
 from idegym.utils.logging import get_logger
 from kubernetes_asyncio import config as k8s_config
 from utils import k8s_client
@@ -45,20 +45,6 @@ def _test_project_snapshot() -> GitRepositorySnapshot:
 @pytest.fixture
 def test_id() -> str:
     return generate_test_id()
-
-
-@pytest.fixture(autouse=True)
-async def log_server_pods_on_timeout(request):
-    """Catch TimeoutError and log all server pod logs."""
-    yield
-    if request.node.rep_call.failed and "TimeoutError" in str(request.node.rep_call.longrepr):
-        logger.error("Test failed with TimeoutError - collecting server pod logs...")
-        logs_dict = await get_all_server_pod_logs(namespace=DEFAULT_NAMESPACE)
-        if logs_dict:
-            for pod_name, logs in logs_dict.items():
-                logger.error(f"Server pod {pod_name} logs:\n{logs}")
-        else:
-            logger.warning("No server pod logs found")
 
 
 @pytest.hookimpl(tryfirst=True, hookwrapper=True)
@@ -224,6 +210,28 @@ def cleanup_after_test():
     cleanup_servers()
     cleanup_kaniko_jobs()
     redeploy_orchestrator()
+
+
+@pytest.fixture(autouse=True)
+async def log_server_pods_on_timeout(request):
+    """On TimeoutError, log all server pod logs for diagnosis.
+
+    Defined after cleanup_after_test so that it tears down first (pytest LIFO order),
+    collecting logs before the cleanup fixture deletes the pods.
+    """
+    yield
+    rep_call = getattr(request.node, "rep_call", None)
+    if rep_call is None or not rep_call.failed:
+        return
+    if "TimeoutError" not in str(rep_call.longrepr):
+        return
+    logger.error("Test failed with TimeoutError - collecting server pod logs...")
+    logs_dict = await get_all_server_pod_logs(namespace=DEFAULT_NAMESPACE)
+    if logs_dict:
+        for pod_name, logs in logs_dict.items():
+            logger.error(f"Server pod {pod_name} logs:\n{logs}")
+    else:
+        logger.warning("No server pod logs found")
 
 
 def delete_namespace():

@@ -1,11 +1,4 @@
-#!/usr/bin/env -S uv run --script --quiet
-# /// script
-# requires-python = ">=3.12"
-# dependencies = [
-#   "jinja2",
-#   "python-on-whales",
-# ]
-# ///
+#!/usr/bin/env -S uv run --project image-builder python
 from argparse import ArgumentParser, Namespace
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -126,7 +119,7 @@ if __name__ == "__main__":
         "-t",
         "--template",
         help="Path to the `.jinja` template",
-        default=Path("Dockerfile.jinja"),
+        default=Path("image-builder/src/idegym/image/templates/server.Dockerfile.jinja"),
         type=Path,
     )
     parser.add_argument(

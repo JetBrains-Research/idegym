@@ -40,6 +40,7 @@ idegym-api = { workspace = true }
 idegym-backend-utils = { workspace = true }
 idegym-client = { workspace = true }
 idegym-common-utils = { workspace = true }
+idegym-image-builder = { workspace = true }
 idegym-orchestrator = { workspace = true }
 idegym-rewards = { workspace = true }
 idegym-server = { workspace = true }
@@ -51,6 +52,7 @@ members = [
     "backend-utils",
     "client",
     "common-utils",
+    "image-builder",
     "orchestrator",
     "rewards",
     "server",

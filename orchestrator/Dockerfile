@@ -29,6 +29,7 @@ COPY .python-version pyproject.toml uv.lock ./
 COPY api api/
 COPY backend-utils backend-utils/
 COPY common-utils common-utils/
+COPY image-builder image-builder/
 COPY orchestrator orchestrator/
 COPY scripts/kill_supervisor.py /usr/local/bin/kill-supervisor
 

@@ -1,19 +1,21 @@
 [project]
-name = "idegym-api"
+name = "idegym-image-builder"
 version = "0.0.0.dev0"
-description = "IdeGYM API"
+description = "IdeGYM Image Builder"
 authors = [
-    { name = "Daniil Mironov", email = "daniil.mironov@jetbrains.com" },
     { name = "Ozren Dabić", email = "ozren.dabic@jetbrains.com" },
     { name = "Vladimir Poliakov", email = "vladimir.poliakov@jetbrains.com" },
     { name = "Vseslav Kasatskii", email = "vseslav.kasatskii@jetbrains.com" },
+    { name = "Daniil Mironov", email = "daniil.mironov@jetbrains.com" },
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "idegym-api",
     "idegym-common-utils",
+    "jinja2>=3.1.5",
     "pydantic>=2.10.6",
+    "python-on-whales>=0.78.0",
     "pyyaml>=6.0.2",
-    "structlog>=25.4.0",
 ]
 
 [build-system]

@@ -9,13 +9,14 @@ from uuid import uuid4
 from idegym.api.docker import BaseImage, ContainerConfig
 from idegym.api.download import DownloadRequest
 from idegym.api.git import GitRepository, GitRepositoryResource, GitRepositorySnapshot
+from idegym.image.dockerfile import render_dockerfile
 from idegym.utils import __version__ as library_version
 from idegym.utils.dict import walk
-from idegym.utils.dockerfile import render_dockerfile
 from idegym.utils.hashing import md5
 from idegym.utils.logging import get_logger
 from idegym.utils.path import get_base_filename
-from python_on_whales import Container, DockerClient, Image
+from python_on_whales import Container, DockerClient
+from python_on_whales import Image as DockerImage
 
 __CONTAINER_PORT__ = "8000/tcp"
 __CONTAINER_VOLUME_PATH__ = "/docker-entrypoint.d"
@@ -30,11 +31,8 @@ def isiterable(value: Any) -> bool:
 
 class DockerService:
     CLIENT: Final[DockerClient] = DockerClient()
-    """Default Docker client instance."""
     REGISTRY: Final[str] = "ghcr.io/jetbrains-research/idegym"
-    """Default Docker registry."""
     PATTERN: Final[Pattern] = regex("(?:\x1b[@-_]|[\x80-\x9f])[0-?]*[ -/]*[@-~]")
-    """Pattern used for removing ANSI escape sequences from Docker logs."""
 
     def __init__(self, client: DockerClient = CLIENT, registry: str = REGISTRY):
         self._client: DockerClient = client
@@ -74,43 +72,70 @@ class DockerService:
             case _:
                 raise ValueError("Unsupported type!")
 
+    def build_image(
+        self,
+        image,
+    ) -> DockerImage:
+        compiled = image.compile()
+        return self.build(
+            request=compiled.request,
+            image_version=compiled.image_version(),
+            image_base=None,
+            labels=compiled.labels,
+            image_name=compiled.name,
+            context_path=compiled.context_path,
+            platforms=compiled.platforms,
+            dockerfile_content=compiled.dockerfile_content,
+        )
+
     def build(
         self,
-        request: DownloadRequest,
+        request: Optional[DownloadRequest],
         image_version: str,
-        image_base: str = BaseImage.DEFAULT.value,
+        image_base: Optional[str] = BaseImage.DEFAULT.value,
         service_version: str = library_version,
         commands: Union[None, str, Iterable[str]] = None,
         labels: Optional[Dict[str, str]] = None,
         registry: Optional[str] = None,
+        image_name: Optional[str] = None,
+        context_path: str = ".",
         platforms: Optional[List[str]] = None,
-    ) -> Image:
-        # Coerce commands into `str`
-        commands: Union[str, Iterable[str]] = [] if commands is None else commands
-        commands: str = "\n".join(commands) if isiterable(commands) else commands
-        # Coerce platforms into either None or a non-empty list
+        dockerfile_content: Optional[str] = None,
+    ) -> DockerImage:
+        commands = [] if commands is None else commands
+        commands = "\n".join(commands) if isiterable(commands) else commands
         platforms = None if not platforms else platforms
         labels = {} if labels is None else labels
-        rendered = render_dockerfile(commands=commands)
-        with NamedTemporaryFile(mode="w", prefix="Dockerfile.", delete=True) as dockerfile:
+        rendered = dockerfile_content if dockerfile_content else render_dockerfile(commands=commands)
+        temporary_dir = context_path if context_path != "." else None
+        with NamedTemporaryFile(mode="w", prefix="Dockerfile.", dir=temporary_dir, delete=True) as dockerfile:
             dockerfile.write(rendered)
             dockerfile.flush()
 
-            image_name = get_base_filename(request.descriptor.name)
-            tag = f"{self._registry}/{image_name}:{image_version}"
+            resolved_image_name = image_name or (get_base_filename(request.descriptor.name) if request else None)
+            if resolved_image_name is None:
+                raise ValueError("Image name is required when build request is not provided")
+
+            tag = f"{self._registry}/{resolved_image_name}:{image_version}"
             build_args = {
-                "IDEGYM_BASE": image_base,
                 "IDEGYM_REGISTRY": registry,
                 "IDEGYM_VERSION": service_version,
-                "IDEGYM_PROJECT_ARCHIVE_URL": request.descriptor.url,
-                "IDEGYM_PROJECT_ARCHIVE_PATH": request.descriptor.name,
-                "IDEGYM_AUTH_TYPE": request.auth.type,
-                "IDEGYM_AUTH_TOKEN": request.auth.token,
             }
+            if request is not None:
+                build_args.update(
+                    {
+                        "IDEGYM_PROJECT_ARCHIVE_URL": request.descriptor.url,
+                        "IDEGYM_PROJECT_ARCHIVE_PATH": request.descriptor.name,
+                        "IDEGYM_AUTH_TYPE": request.auth.type,
+                        "IDEGYM_AUTH_TOKEN": request.auth.token,
+                    }
+                )
+            if image_base is not None:
+                build_args["IDEGYM_BASE"] = image_base
 
-            build_args = {k: v for k, v in build_args.items() if v is not None}  # Filter None args
+            build_args = {k: v for k, v in build_args.items() if v is not None}
             logs: Iterable[str] = self._client.build(
-                context_path=".",
+                context_path=context_path,
                 file=dockerfile.name,
                 tags=[tag],
                 build_args=build_args,
@@ -134,7 +159,7 @@ class DockerService:
 
             return image
 
-    def push(self, images: Iterable[Image]):
+    def push(self, images: Iterable[DockerImage]):
         tags = [tag for image in images for tag in image.repo_tags]
         logger.info(f"Pushing image tags: {tags}")
         if generator := self._client.image.push(tags, stream_logs=True):
@@ -145,7 +170,7 @@ class DockerService:
 
     def run(
         self,
-        image: Image,
+        image: DockerImage,
         port: Optional[Port] = None,
         scripts: Optional[List[Path]] = None,
         config: Optional[ContainerConfig] = None,
@@ -154,7 +179,7 @@ class DockerService:
         configs = {} if config is None else config.model_dump()
         volumes = [(path, f"{__CONTAINER_VOLUME_PATH__}/{path.name}", "ro") for path in scripts]
 
-        ports = [(port, __CONTAINER_PORT__)] if port else [(__CONTAINER_PORT__,)]  # `None` binds to a random port
+        ports = [(port, __CONTAINER_PORT__)] if port else [(__CONTAINER_PORT__,)]
 
         return self._client.run(
             image=image,

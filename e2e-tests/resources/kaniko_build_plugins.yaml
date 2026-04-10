@@ -1,0 +1,30 @@
+images:
+  - base: registry.kube-system.svc.cluster.local/server-debian-bookworm-20250520-slim:latest
+    plugins:
+      - type: base-system
+        packages:
+          - ca-certificates
+          - curl
+          - jq
+      - type: user
+        username: testuser
+        uid: 2000
+        gid: 2000
+        sudo: true
+      - type: permissions
+        paths:
+          /home/testuser:
+            owner: testuser
+            mode: "755"
+    commands:
+      - echo "plugins-test" > /home/testuser/plugins-test.txt
+    runtime_class_name: gvisor
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "500Mi"
+        ephemeral-storage: "1Gi"
+      limits:
+        cpu: "500m"
+        memory: "500Mi"
+        ephemeral-storage: "1Gi"
