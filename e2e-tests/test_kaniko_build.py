@@ -4,7 +4,12 @@ import pytest
 import resources as e2e_resources
 from idegym.api.status import Status
 from kubernetes_asyncio.client import V1ResourceRequirements
-from utils.constants import DEFAULT_SERVER_START_TIMEOUT, PULL_LOCAL_REGISTRY_HOST, PUSH_LOCAL_REGISTRY_HOST
+from utils.constants import (
+    DEFAULT_NAMESPACE,
+    DEFAULT_SERVER_START_TIMEOUT,
+    PULL_LOCAL_REGISTRY_HOST,
+    PUSH_LOCAL_REGISTRY_HOST,
+)
 from utils.idegym_utils import create_http_client
 
 
@@ -29,7 +34,7 @@ async def test_kaniko_build_and_deploy(test_id, kaniko_image_loader):
             # Build and push image using Kaniko
             build_summary = await client.jobs.build_and_push_images(
                 path=yaml_path,
-                namespace="idegym-local",
+                namespace=DEFAULT_NAMESPACE,
                 timeout=600,
                 poll_interval=10,
             )
@@ -77,7 +82,7 @@ async def test_kaniko_multiple_builds(test_id):
             # Build and push both images
             build_summary = await client.jobs.build_and_push_images(
                 path=yaml_path,
-                namespace="idegym-local",
+                namespace=DEFAULT_NAMESPACE,
                 timeout=900,
                 poll_interval=10,
             )
@@ -111,7 +116,7 @@ async def test_kaniko_build_plugins(test_id, kaniko_image_loader):
         ) as client:
             build_summary = await client.jobs.build_and_push_images(
                 path=yaml_path,
-                namespace="idegym-local",
+                namespace=DEFAULT_NAMESPACE,
                 timeout=600,
                 poll_interval=10,
             )
@@ -173,7 +178,7 @@ async def test_kaniko_build_minimal(test_id):
         ) as client:
             build_summary = await client.jobs.build_and_push_images(
                 path=yaml_path,
-                namespace="idegym-local",
+                namespace=DEFAULT_NAMESPACE,
                 timeout=600,
                 poll_interval=10,
             )
@@ -205,7 +210,7 @@ async def test_kaniko_build_without_project(test_id, kaniko_image_loader):
         ) as client:
             build_summary = await client.jobs.build_and_push_images(
                 path=yaml_path,
-                namespace="idegym-local",
+                namespace=DEFAULT_NAMESPACE,
                 timeout=600,
                 poll_interval=10,
             )

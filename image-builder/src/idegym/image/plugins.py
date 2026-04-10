@@ -423,6 +423,7 @@ class IdeGYMServer(PluginBase):
             COPY --from=ghcr.io/astral-sh/uv:0.10.11 /uv /uvx /bin/
 
             ENV IDEGYM_PATH=/opt/idegym \\
+                IDEGYM_PROJECT_ROOT={ctx.home}/work \\
                 PYTHONDONTWRITEBYTECODE=0 \\
                 PYTHONUNBUFFERED=1 \\
                 PYTHONHASHSEED=random

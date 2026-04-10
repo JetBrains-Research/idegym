@@ -18,12 +18,18 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from from_root import from_root
 from idegym.api.status import Status
 from idegym.image.builder import Image
 from idegym.image.docker_api import IdeGYMDockerAPI
-from idegym.image.plugins import BaseSystem, Permissions, Project, User
+from idegym.image.plugins import BaseSystem, IdeGYMServer, Permissions, Project, User
 from kubernetes_asyncio.client import V1ResourceRequirements
-from utils.constants import DEFAULT_SERVER_START_TIMEOUT, PULL_LOCAL_REGISTRY_HOST, PUSH_LOCAL_REGISTRY_HOST
+from utils.constants import (
+    DEFAULT_NAMESPACE,
+    DEFAULT_SERVER_START_TIMEOUT,
+    PULL_LOCAL_REGISTRY_HOST,
+    PUSH_LOCAL_REGISTRY_HOST,
+)
 from utils.idegym_utils import create_http_client
 
 # Used by Kaniko (in-cluster) builds — only reachable from inside minikube
@@ -101,7 +107,7 @@ async def test_python_api_build_and_deploy(test_id, kaniko_image_loader):
         ) as client:
             build_summary = await client.jobs.build_and_push_images(
                 path=yaml_path,
-                namespace="idegym-local",
+                namespace=DEFAULT_NAMESPACE,
                 timeout=600,
                 poll_interval=10,
             )
@@ -175,7 +181,7 @@ async def test_python_api_base_system_plugin(test_id, kaniko_image_loader):
         ) as client:
             build_summary = await client.jobs.build_and_push_images(
                 path=yaml_path,
-                namespace="idegym-local",
+                namespace=DEFAULT_NAMESPACE,
                 timeout=600,
                 poll_interval=10,
             )
@@ -288,3 +294,69 @@ async def test_local_docker_build_and_deploy(test_id):
             result = await server.execute_bash(script="cat /home/localuser/local-test.txt", command_timeout=60.0)
             assert result.exit_code == 0, f"Marker file missing: {result.stderr}"
             assert "local-docker-test" in result.stdout, f"Unexpected content: {result.stdout}"
+
+
+@pytest.mark.asyncio
+async def test_local_docker_build_from_idegym_server_plugin(test_id):
+    """
+    Build an IdeGYM server image from a plain Debian base using IdeGYMServer.from_local(),
+    without relying on a pre-built server image that already has IdeGYM code inside.
+
+    Build path:
+      debian:bookworm-20250520-slim
+        → BaseSystem   (apt packages: dumb-init, netcat-openbsd, etc.)
+        → User         (create appuser uid=1000)
+        → IdeGYMServer.from_local()  (copy local source, uv sync, supervisor)
+      IdeGYMDockerAPI.build_image()  →  minikube image load  →  client.with_server()
+
+    Verifies that:
+    - IdeGYM is installed at $IDEGYM_PATH from local source
+    - The Python virtual environment was created by uv sync
+    - The server starts and accepts requests
+    """
+    image = (
+        Image.from_base("debian:bookworm-20250520-slim")
+        .named(f"idegym-from-local-{test_id}")
+        .with_plugin(BaseSystem())
+        .with_plugin(User(username="appuser", uid=1000, gid=1000, sudo=True))
+        .with_plugin(IdeGYMServer.from_local(root=from_root()))
+        .with_runtime(
+            runtime_class_name="gvisor",
+            resources={
+                "requests": {"cpu": "500m", "memory": "500Mi", "ephemeral-storage": "1Gi"},
+                "limits": {"cpu": "500m", "memory": "500Mi", "ephemeral-storage": "1Gi"},
+            },
+        )
+    )
+
+    built = IdeGYMDockerAPI().build_image(image)
+    image_tag = str(built.repo_tags[0])
+
+    subprocess.run(
+        ["minikube", "image", "load", image_tag],
+        check=True,
+        capture_output=True,
+        timeout=120,
+    )
+
+    async with create_http_client(
+        name=f"idegym-from-local-{test_id}",
+        nodes_count=0,
+        request_timeout_in_seconds=300,
+    ) as client:
+        async with client.with_server(
+            image_tag=image_tag,
+            server_name=f"idegym-from-local-server-{test_id}",
+            runtime_class_name="gvisor",
+            run_as_root=True,
+            resources=_DEFAULT_RESOURCES,
+            server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
+        ) as server:
+            # IdeGYM should be installed at $IDEGYM_PATH from local source
+            result = await server.execute_bash(script="ls $IDEGYM_PATH/server", command_timeout=30.0)
+            assert result.exit_code == 0, f"IdeGYM server dir missing: {result.stderr}"
+            assert result.stdout.strip(), "IdeGYM server directory is empty"
+
+            # uv sync should have created a virtual environment
+            result = await server.execute_bash(script="ls $IDEGYM_PATH/.venv/bin/python", command_timeout=30.0)
+            assert result.exit_code == 0, f"Python venv not found: {result.stderr}"

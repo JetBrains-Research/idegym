@@ -47,20 +47,6 @@ def test_id() -> str:
     return generate_test_id()
 
 
-@pytest.fixture(autouse=True)
-async def log_server_pods_on_timeout(request):
-    """Catch TimeoutError and log all server pod logs."""
-    yield
-    if request.node.rep_call.failed and "TimeoutError" in str(request.node.rep_call.longrepr):
-        logger.error("Test failed with TimeoutError - collecting server pod logs...")
-        logs_dict = await get_all_server_pod_logs(namespace=DEFAULT_NAMESPACE)
-        if logs_dict:
-            for pod_name, logs in logs_dict.items():
-                logger.error(f"Server pod {pod_name} logs:\n{logs}")
-        else:
-            logger.warning("No server pod logs found")
-
-
 @pytest.hookimpl(tryfirst=True, hookwrapper=True)
 def pytest_runtest_makereport(item, call):
     """Make test result available to fixtures."""
@@ -224,6 +210,28 @@ def cleanup_after_test():
     cleanup_servers()
     cleanup_kaniko_jobs()
     redeploy_orchestrator()
+
+
+@pytest.fixture(autouse=True)
+async def log_server_pods_on_timeout(request):
+    """On TimeoutError, log all server pod logs for diagnosis.
+
+    Defined after cleanup_after_test so that it tears down first (pytest LIFO order),
+    collecting logs before the cleanup fixture deletes the pods.
+    """
+    yield
+    rep_call = getattr(request.node, "rep_call", None)
+    if rep_call is None or not rep_call.failed:
+        return
+    if "TimeoutError" not in str(rep_call.longrepr):
+        return
+    logger.error("Test failed with TimeoutError - collecting server pod logs...")
+    logs_dict = await get_all_server_pod_logs(namespace=DEFAULT_NAMESPACE)
+    if logs_dict:
+        for pod_name, logs in logs_dict.items():
+            logger.error(f"Server pod {pod_name} logs:\n{logs}")
+    else:
+        logger.warning("No server pod logs found")
 
 
 def delete_namespace():

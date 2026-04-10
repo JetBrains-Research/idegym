@@ -147,6 +147,7 @@ cython_debug/
 .idea/**/dataSources/
 .idea/**/dataSources.ids
 .idea/**/dataSources.local.xml
+.idea/**/dataSources.xml
 .idea/**/sqlDataSources.xml
 .idea/**/dynamic.xml
 .idea/**/uiDesigner.xml
@@ -155,6 +156,15 @@ cython_debug/
 # Gradle
 .idea/**/gradle.xml
 .idea/**/libraries
+
+# Module files
+*.iml
+
+# Project structure
+.idea/**/misc.xml
+.idea/**/modules.xml
+.idea/**/inspectionProfiles/
+.idea/**/runConfigurations/
 
 # CMake
 cmake-build-*/

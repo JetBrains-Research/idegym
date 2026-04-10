@@ -5,6 +5,7 @@ from idegym.api.auth import BasicAuth
 from idegym.api.config import OTELConfig, TracingConfig
 from idegym.client.client import IdeGYMClient
 from idegym.utils.logging import get_logger
+from utils.constants import DEFAULT_NAMESPACE
 
 logger = get_logger(__name__)
 
@@ -44,7 +45,7 @@ def create_http_client(
         heartbeat_interval_in_seconds=heartbeat_interval_in_seconds,
         request_timeout_in_seconds=request_timeout_in_seconds,
         name=name,
-        namespace="idegym-local",
+        namespace=DEFAULT_NAMESPACE,
         nodes_count=nodes_count,
         otel_config=OTELConfig(
             service_name=None,
