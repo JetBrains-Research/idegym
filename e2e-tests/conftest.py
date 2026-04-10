@@ -22,7 +22,12 @@ from utils.constants import (
 )
 from utils.idegym_utils import generate_test_id
 from utils.k8s_jobs import delete_job, get_all_server_pod_logs, run_job
-from utils.k8s_setup import cleanup_kubernetes_environment, setup_kubernetes_environment, wait_for_service
+from utils.k8s_setup import (
+    cleanup_kubernetes_environment,
+    reset_orchestrator_db,
+    setup_kubernetes_environment,
+    wait_for_service,
+)
 
 logger = get_logger(__name__)
 
@@ -91,6 +96,12 @@ def pytest_addoption(parser):
         action="store_true",
         default=False,
         help="Delete only services defined in kustomization.yaml after all tests complete",
+    )
+    parser.addoption(
+        "--redeploy-orchestrator",
+        action="store_true",
+        default=False,
+        help="Redeploy orchestrator between tests instead of resetting the database",
     )
 
 
@@ -211,11 +222,18 @@ def cleanup_kaniko_jobs():
 
 
 @pytest.fixture(autouse=True)
-def cleanup_after_test():
+def cleanup_after_test(request):
     yield
     cleanup_servers()
     cleanup_kaniko_jobs()
-    redeploy_orchestrator()
+    if request.config.getoption("--redeploy-orchestrator"):
+        redeploy_orchestrator()
+    else:
+        try:
+            reset_orchestrator_db()
+        except Exception as e:
+            logger.warning(f"Database reset failed ({e}), falling back to orchestrator redeploy")
+            redeploy_orchestrator()
 
 
 @pytest.fixture(autouse=True)

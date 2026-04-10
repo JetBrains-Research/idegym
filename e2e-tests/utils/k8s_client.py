@@ -16,6 +16,7 @@ from kubernetes_asyncio.client import (
     V1ObjectMeta,
     V1Pod,
 )
+from kubernetes_asyncio.stream import WsApiClient
 
 T = TypeVar("T")
 
@@ -289,3 +290,27 @@ def delete_services(namespace: str, service_names: list[str]) -> None:
                     raise
 
     _run_async(_with_clients(_op))
+
+
+def exec_in_pod(pod_name: str, namespace: str, command: list[str]) -> str:
+    async def _op() -> str:
+        async with WsApiClient() as ws_client:
+            core = CoreV1Api(ws_client)
+            ws = await core.connect_get_namespaced_pod_exec(
+                name=pod_name,
+                namespace=namespace,
+                command=command,
+                stderr=True,
+                stdin=False,
+                stdout=True,
+                tty=False,
+                _preload_content=False,
+            )
+            await ws.run_until_complete()
+            stdout = ws.read_stdout()
+            stderr = ws.read_stderr()
+            if ws.returncode != 0:
+                raise RuntimeError(f"exec in pod {pod_name} failed (rc={ws.returncode}): {stderr.strip()}")
+            return stdout
+
+    return _run_async(_op())
