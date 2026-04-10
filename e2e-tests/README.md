@@ -1,24 +1,44 @@
-# E2E Tests on Minikube
+# E2E Tests
 
-Integration tests for IdeGYM that run on a local minikube cluster without requiring remote registry access.
+End-to-end tests for IdeGYM running on a local Minikube cluster.
+The tests cover the full stack: image building (via Kaniko and local Docker),
+server lifecycle, request forwarding, and the WebSocket protocol.
+
+For the broader deployment context see [Local Deployment](../documentation/local_deployment.md).
 
 ## Prerequisites
 
-### 1. Install Required Tools
-
-Install Docker, kubectl, minikube, and uv.
-For Docker, install either Docker Desktop or the Docker formula:
+### 1. Install required tools
 
 ```bash
+# macOS with Homebrew
 brew install --cask docker-desktop
 # or
 brew install docker
+
 brew install kubernetes-cli minikube uv
 ```
 
-### 2. Start Minikube Cluster
+Verify:
 
-Start the cluster with required addons:
+```bash
+docker version
+kubectl version --client
+minikube version
+uv --version
+```
+
+### 2. Install project dependencies
+
+From the repository root:
+
+```bash
+uv python install
+uv venv --seed
+uv sync --all-packages --all-extras --all-groups
+```
+
+### 3. Start the Minikube cluster
 
 ```bash
 minikube start \
@@ -28,426 +48,339 @@ minikube start \
   --kubernetes-version=v1.35.0
 ```
 
-This will:
-- Create a new Kubernetes cluster
-- Install the gvisor, ingress, and registry addons
-- Set up the containerd container runtime
+The `registry` addon creates a cluster-internal Docker registry at
+`registry.kube-system.svc.cluster.local`. Kaniko uses this registry to push built images.
 
-The registry addon creates a local Docker registry that can be used by Kaniko for building and pushing images without requiring remote registry access.
-
-**Registry Access:**
-- **From inside cluster (Kaniko pods):** `registry.kube-system.svc.cluster.local:80` ✅ This is what we use
-- **From outside cluster (host machine):** Port forwarding required (registry is ClusterIP only)
-
-**Note:** The Minikube registry addon with Docker driver mentions port 64216, but this port is not reliably accessible from the host. All registry operations should go through the cluster-internal DNS name.
-
-To verify the registry is running:
+Verify the registry is running:
 
 ```bash
-# Check the registry addon is enabled
 minikube addons list | grep registry
-
-# Test from inside cluster (this is the reliable way)
-kubectl run curl --rm -it --image=curlimages/curl --restart=Never -- curl http://registry.kube-system.svc.cluster.local/v2/
+kubectl run curl --rm -it --image=curlimages/curl --restart=Never -- \
+  curl http://registry.kube-system.svc.cluster.local/v2/
 ```
 
-### 3. Configure Host Access
+### 4. Configure host access
 
-Add the orchestrator hostname to `/etc/hosts`:
+Add the test hostname to `/etc/hosts` (only needs to be done once):
 
 ```bash
 echo "127.0.0.1 idegym-local.test" | sudo tee -a /etc/hosts
 ```
 
-> **Note:** This only needs to be done once. The entry persists across cluster restarts.
+### 5. Start the Minikube tunnel
 
-### 4. Start Minikube Tunnel
-
-In a **separate terminal window**, start the tunnel (required for LoadBalancer services):
+In a **separate terminal window** (keep it open while running tests):
 
 ```bash
 sudo minikube tunnel
 ```
 
-> **Important:** Keep this terminal open while running tests. The tunnel must stay active.
+---
 
-### 5. Namespace Management
+## Running Tests
 
-Pytest session setup creates the `idegym-local` namespace automatically when needed.
-
-## Quick Start
-
-Run all tests:
+### Run all e2e tests
 
 ```bash
 uv run pytest -m e2e
 ```
 
-This will:
-1. Build orchestrator and base server images
-2. Load images into minikube
+This will automatically:
+1. Build the orchestrator and base server images
+2. Load images into Minikube
 3. Deploy all Kubernetes resources
 4. Wait for services to become ready
-5. Run e2e tests
+5. Run all tests
 6. Clean up resources
 
-## Usage
-
-### Basic Commands
+### Useful flags
 
 ```bash
-# Run all tests
-uv run pytest -m e2e
-
-# Run specific tests (pytest -k expression)
-uv run pytest -m e2e -k health
-uv run pytest -m e2e -k "reuse and not limits"
-
-# Skip image building (use existing images)
+# Skip image building (use already-loaded images)
 uv run pytest -m e2e --skip-build
 
-# Reuse existing Kubernetes resources
+# Reuse existing Kubernetes resources (skip kubectl apply)
 uv run pytest -m e2e --reuse-resources
 
-# Recreate namespace before setup
-uv run pytest -m e2e --clean-namespace
+# Both flags together — fastest iteration when nothing changed
+uv run pytest -m e2e --skip-build --reuse-resources
 
-# Keep resources after tests (for debugging)
+# Run a specific test by keyword
+uv run pytest -m e2e -k health
+uv run pytest -m e2e -k "python_api"
+
+# Run a single test file
+uv run pytest -m e2e e2e-tests/test_health.py::test_orchestrator_health
+
+# Keep resources after tests (useful for debugging)
 uv run pytest -m e2e --no-cleanup
 
-# Delete full namespace after all tests
+# Clean up namespace before deployment
+uv run pytest -m e2e --clean-namespace
+
+# Delete the namespace after tests
 uv run pytest -m e2e --delete-namespace
-
-# Delete only kustomize services after all tests
-uv run pytest -m e2e --delete-kustomize-services
 ```
 
-### Running Specific Tests
-
-Run by test name/expression (`-k`):
-
-```bash
-uv run pytest -m e2e -k health
-uv run pytest -m e2e -k "reuse and not limits"
-```
-
-Run a single test by node ID:
-
-```bash
-uv run pytest -m e2e e2e-tests/test_health.py::test_orchestrator_health
-```
-
-### Showing All Logs
-
-Use:
+### Verbose output
 
 ```bash
 uv run pytest -m e2e -vv -s -o log_cli=true --log-cli-level=INFO
 ```
 
-What each flag does:
-- `-vv`: very verbose pytest output (shows test IDs and more details)
-- `-s`: disable output capture so stdout/stderr is printed live
-- `-o log_cli=true`: enable live logging to console
-- `--log-cli-level=INFO`: show logs at INFO level and above
+---
 
-### Cleanup Behavior
+## CLI Parameters Reference
 
-The post-test cleanup mode is selected by flags:
+| Flag | Description |
+|------|-------------|
+| `--skip-build` | Skip building orchestrator and base server images |
+| `--reuse-resources` | Skip `kubectl apply -k` — reuse current cluster resources |
+| `--no-cleanup` | Skip teardown after tests (keeps resources for inspection) |
+| `--clean-namespace` | Delete and recreate `idegym-local` namespace before setup |
+| `--delete-namespace` | Delete `idegym-local` namespace in pytest teardown |
+| `--delete-kustomize-services` | Delete only kustomize-managed services in pytest teardown |
 
-- Default (no cleanup flags): delete kustomization resources (`kubectl delete -k ...`)
-- `--no-cleanup`: skip post-test cleanup
-- `--delete-namespace`: pytest session teardown deletes `idegym-local` namespace
-- `--delete-kustomize-services`: pytest session teardown deletes only services rendered by kustomize
-
-Important:
-- `--clean-namespace` is a pre-test setup option only (it resets namespace before deployment)
-- If `--delete-namespace` or `--delete-kustomize-services` is set, pytest teardown skips default cleanup to avoid duplicate deletion paths
-
-### CLI Parameters
-
-- `--skip-build`: Skip building orchestrator and base server images
-- `--reuse-resources`: Skip `kubectl apply -k` and reuse current cluster resources
-- `-k <expr>`: Run only tests matching a keyword expression
-- `--no-cleanup`: Skip pytest teardown cleanup after tests
-- `--clean-namespace`: Recreate `idegym-local` before deployment (setup phase)
-- `--delete-namespace`: After tests, pytest teardown deletes `idegym-local`
-- `--delete-kustomize-services`: After tests, pytest teardown deletes services from rendered kustomization
-
-### Development Workflow
-
-When iterating on tests:
-
-```bash
-# First run - builds everything
-uv run pytest -m e2e
-
-# Subsequent runs - reuse infrastructure
-uv run pytest -m e2e --skip-build --reuse-resources
-
-# After code changes - rebuild and test
-uv run pytest -m e2e --reuse-resources
-```
-
-## How It Works
-
-### Image Building
-
-All images are built locally and loaded into minikube - no remote registry required:
-
-**Orchestrator Image:**
-- Built from local source code using top-level `scripts/build_orchestrator_image.py`
-- Tagged as `ghcr.io/jetbrains-research/idegym/orchestrator:latest`
-- Loaded into minikube with `minikube image load`
-
-**Base Server Image:**
-- Built from `Dockerfile.jinja` (debian:bookworm base)
-- Tagged as `ghcr.io/jetbrains-research/idegym/server-debian-bookworm-20250520-slim:latest`
-- Available in local Docker for `IdeGYMDockerAPI` to use as base
-- Loaded into minikube for pod execution
-
-**Test Images:**
-- Built during tests using `IdeGYMDockerAPI.build()`
-- Uses the local base server image (no registry pull)
-- Automatically loaded into minikube
-
-> **Key:** The `default` docker builder has access to local images. Containerized buildx builders don't, so the test runner switches to `default` before running tests.
-
-### Kubernetes Deployment
-
-Uses kustomize to deploy resources with local customizations:
-- **Namespace:** `idegym-local` (isolated from other deployments)
-- **Image pull policy:** `IfNotPresent` (uses local images)
-- **Ingress host:** `idegym-local.test`
-- **Ingress controller:** LoadBalancer type (works with minikube tunnel)
-
-Deployed resources:
-- PostgreSQL database
-- Orchestrator API
-- Prometheus (metrics)
-- Grafana (visualization)
-- Tempo (tracing)
-
-### Kubernetes API Usage
-
-- `kubernetes-asyncio` is used for namespace, pod, deployment, service, PDB, and ReplicaSet operations in test setup/teardown code.
-- `kubectl` is still used for kustomize workflows (`kubectl apply -k`, `kubectl delete -k`, `kubectl kustomize`) because the Python client does not provide native kustomize rendering/apply behavior.
-
-### Network Access
-
-Tests connect to `http://idegym-local.test`:
-1. `/etc/hosts` maps `idegym-local.test` → `127.0.0.1`
-2. `minikube tunnel` assigns `127.0.0.1` as external IP for LoadBalancer
-3. Ingress controller routes requests to orchestrator service
-
-## Privileged Containers and Security Considerations
-
-### Why Privileged Containers Are Needed
-
-The test infrastructure uses privileged Kubernetes jobs with hostPath mounts to interact with Minikube's containerd runtime. This is required for:
-
-1. **Pushing base images to the local registry** (`registry-push-job` in `utils/build_images.py`):
-   - Mounts `/run/containerd` socket and `/usr/bin/ctr` from the host
-   - Uses `ctr` to export images from containerd and `skopeo` to push to the registry
-
-2. **Pulling images from registry into containerd** (`registry-pull-job` in `tests/conftest.py`):
-   - Mounts `/run/containerd` socket and `/usr/bin/ctr` from the host
-   - Uses `ctr` to pull images from the registry into the k8s.io namespace
-
-### CI and Production Implications
-
-**Important**: These privileged containers with hostPath mounts may not work in restricted CI environments or production clusters that enforce security policies like:
-- Pod Security Standards (PSS) with `restricted` profile
-- PodSecurityPolicy (deprecated but still used in some clusters)
-- OPA/Gatekeeper policies that block privileged containers or hostPath mounts
-
-**Alternatives for restricted environments**:
-1. Use a real container registry (e.g., GitLab Container Registry, GitHub Container Registry)
-2. Use a registry accessible from both the host and cluster (e.g., kind's registry or a NodePort-exposed registry)
-3. Pre-load all images before running tests using `minikube image load`
-4. Use a CI-specific runner with Docker-in-Docker or similar capabilities
-
-**For local development**: Minikube with the Docker driver allows these privileged operations, which is why this approach works for local e2e testing.
+---
 
 ## Environment Variables
 
-Configure test behavior with environment variables:
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `IDEGYM_TEST_BASE_URL` | `http://idegym-local.test` | Orchestrator URL |
+| `IDEGYM_TEST_USERNAME` | `test` | Auth username |
+| `IDEGYM_TEST_PASSWORD` | `test` | Auth password |
+| `DOCKER_REGISTRY` | `registry.kube-system.svc.cluster.local` | Kaniko push registry |
+| `KANIKO_INSECURE_REGISTRY` | `true` | Enable HTTP registry for Kaniko |
 
-```bash
-# Orchestrator URL (default: http://idegym-local.test)
-export IDEGYM_TEST_BASE_URL=http://idegym-local.test
+The kustomize overlay (`e2e-tests/config/`) sets `DOCKER_REGISTRY` and `KANIKO_INSECURE_REGISTRY`
+automatically — no manual configuration needed.
 
-# Authentication credentials (default: test/test)
-export IDEGYM_TEST_USERNAME=test
-export IDEGYM_TEST_PASSWORD=test
+---
 
-# Docker registry for Kaniko (default: ghcr.io/jetbrains-research/idegym)
-# Use cluster-internal DNS name for Kaniko pods
-export DOCKER_REGISTRY=registry.kube-system.svc.cluster.local
+## How It Works
 
-# Kaniko insecure registry (set to "true" for local Minikube registry)
-export KANIKO_INSECURE_REGISTRY=true
+### Image building
+
+All images are built locally and loaded into Minikube — no external registry or credentials required.
+
+**Orchestrator image:**
+- Built from local source using `scripts/build_orchestrator_image.py`
+- Tagged as `ghcr.io/jetbrains-research/idegym/orchestrator:latest`
+- Loaded into Minikube with `minikube image load`
+
+**Base server image:**
+- Built from `Dockerfile.jinja` (Debian bookworm)
+- Tagged as `ghcr.io/jetbrains-research/idegym/server-debian-bookworm-20250520-slim:latest`
+- Loaded into Minikube for pod execution
+- Also pushed to the cluster-internal registry so Kaniko can use it as a base
+
+**Test images (Kaniko path):**
+- Built inside the cluster by Kaniko jobs
+- Pushed to the cluster-internal registry (`registry.kube-system.svc.cluster.local`)
+- Pulled into Minikube's containerd before pods start
+
+**Test images (local Docker path):**
+- Built on the developer machine using `IdeGYMDockerAPI.build_image()`
+- Loaded directly into Minikube with `minikube image load`
+- No registry involved
+
+> **Important:** The `default` Docker builder must be active (not a containerized buildx builder)
+> so that local images are accessible during builds. The test setup handles this automatically.
+
+### Kubernetes deployment
+
+The `e2e-tests/config/` kustomize overlay customizes the base manifests for local testing:
+
+- **Namespace:** `idegym-local`
+- **Image pull policy:** `IfNotPresent` (uses locally loaded images)
+- **Ingress host:** `idegym-local.test`
+
+Deployed resources:
+- PostgreSQL (database)
+- Orchestrator (API server)
+- Prometheus (metrics)
+- Grafana (dashboards)
+- Tempo (distributed traces)
+
+### Network access
+
+```
+test code → http://idegym-local.test
+             ↓
+          /etc/hosts: idegym-local.test → 127.0.0.1
+             ↓
+          minikube tunnel: LoadBalancer external IP = 127.0.0.1
+             ↓
+          ingress-nginx → orchestrator service
 ```
 
-### Using Local Minikube Registry with Kaniko
+---
 
-The local Minikube registry is accessible at different addresses depending on context:
-- **From Kaniko pods:** `registry.kube-system.svc.cluster.local` (cluster-internal DNS)
-- **From host machine:** `localhost:64216` (Docker driver) or `localhost:5000` (other drivers)
+## Privileged Containers
 
-The e2e test kustomization automatically configures the orchestrator with:
-- `DOCKER_REGISTRY=registry.kube-system.svc.cluster.local` - Cluster-internal registry address for Kaniko
-- `KANIKO_INSECURE_REGISTRY=true` - Enables `--insecure` flag for HTTP registry access
+The test infrastructure uses privileged Kubernetes jobs with `hostPath` mounts to interact with
+Minikube's containerd runtime. This is needed for:
 
-No manual configuration is needed for e2e tests. The kustomize overlay automatically sets these environment variables.
+1. **Pushing the base server image to the cluster registry** (`registry-push-job` in `utils/build_images.py`):
+   - Mounts `/run/containerd` and `/usr/bin/ctr` from the Minikube node
+   - Uses `ctr` to export the image and `skopeo` to push it to the registry
+
+2. **Pulling Kaniko-built images into containerd** (`registry-pull-job` in `conftest.py`):
+   - Pulls the built image from the registry into the `k8s.io` containerd namespace
+
+> **Note:** Privileged containers with `hostPath` mounts may be blocked in production clusters
+> that enforce Pod Security Standards or OPA/Gatekeeper policies. These are only used in local
+> Minikube development. For alternatives in restricted environments, use a real container registry
+> accessible from both the host and cluster.
+
+---
+
+## Test Files
+
+| File | Description |
+|------|-------------|
+| `test_health.py` | Orchestrator health check |
+| `test_kaniko_build.py` | Kaniko image build and push |
+| `test_python_api_build.py` | Python fluent API build + deploy (Kaniko and local Docker) |
+| `test_server_lifecycle.py` | Server start, stop, restart |
+| `test_server_strategies.py` | Server scheduling strategies |
+| `test_openenv_websocket.py` | WebSocket protocol tests |
+
+---
+
+## Module Architecture
+
+### `utils/constants.py`
+
+Centralized configuration used across the test suite:
+
+```python
+DEFAULT_NAMESPACE = "idegym-local"
+INGRESS_NAMESPACE = "ingress-nginx"
+BASE_URL = "http://idegym-local.test"
+DEFAULT_REQUEST_TIMEOUT = 60        # seconds
+DEFAULT_SERVER_START_TIMEOUT = 600  # seconds
+```
+
+### `utils/k8s_client.py`
+
+Synchronous wrappers around `kubernetes-asyncio` for namespace, pod, deployment, and service operations.
+Handles both `app` and `app.kubernetes.io/name` label selectors.
+
+### `utils/k8s_setup.py`
+
+High-level setup/teardown:
+- `setup_kubernetes_environment()` — complete cluster setup
+- `cleanup_kubernetes_environment()` — resource cleanup
+- `wait_for_service()` — wait for orchestrator to respond
+- `wait_for_pod_ready()` / `wait_for_pod_deleted()` — pod lifecycle helpers
+
+### `utils/idegym_utils.py`
+
+Test utilities:
+- `create_http_client(name, ...)` — create a configured IdeGYM client for a test
+- `generate_test_id()` — generate a unique ID for test isolation
+
+### `utils/build_images.py`
+
+Image building and loading:
+- `build_orchestrator_image()` — build and load orchestrator
+- `build_base_server_image()` — build and load base server image
+- `switch_to_default_docker_builder()` — ensure local Docker builder is active
+
+---
 
 ## Troubleshooting
 
 ### Service not responding
 
-1. Check minikube tunnel is running:
+1. Check the tunnel is running:
    ```bash
    ps aux | grep "minikube tunnel"
    ```
-
-2. Verify external IP is assigned:
+2. Verify the ingress controller has an external IP:
    ```bash
    kubectl get svc -n ingress-nginx ingress-nginx-controller
+   # EXTERNAL-IP should be 127.0.0.1
    ```
-   Should show `EXTERNAL-IP: 127.0.0.1`
-
-3. Test connection:
+3. Test connectivity:
    ```bash
    curl http://idegym-local.test/health
    ```
-   Should return `{"status":"healthy"}`
 
 ### Image build fails with authorization error
 
-Docker is trying to pull the base image from registry instead of using local.
+Docker is trying to pull the base image from a registry instead of using the local copy.
+Check the active builder:
 
-Verify the docker builder:
 ```bash
-docker buildx ls
-# Should show "default" with a "*" next to it
+docker buildx ls   # "default *" should be active
 ```
 
-If not, manually switch:
+If not, switch manually:
+
 ```bash
 docker context use default
 docker buildx use default
 ```
 
-### Pods stuck in ImagePullBackOff
+### Pods stuck in `ImagePullBackOff`
 
-Images weren't loaded into minikube. Check:
+The image is not available in Minikube's containerd. Check:
+
 ```bash
 minikube image ls | grep idegym
 ```
 
-Rebuild with:
+Rebuild and reload with a full run:
+
 ```bash
-uv run pytest -m e2e --no-cleanup
+uv run pytest -m e2e
 ```
 
 ### Tests fail with SSL errors
 
-Ensure the base URL uses `http://` not `https://`:
+Use `http://` not `https://` for local development:
+
 ```bash
 export IDEGYM_TEST_BASE_URL=http://idegym-local.test
 ```
 
 ### IDE shows `utils.k8s_setup` as unresolved
 
-If PyCharm highlights `from utils.k8s_setup import ...` in `conftest.py`:
+Mark `e2e-tests/` as a Source Root in your IDE, or always run tests from the project root using
+`uv run pytest -m e2e`.
 
-- Mark `e2e-tests` as a Source Root in the IDE
-- Use a pytest run configuration with working directory set to `e2e-tests`
-- Run tests via `uv run pytest -m e2e` from the project root
+---
 
-## Contributing
+## Adding New Tests
 
-### Adding New Tests
-
-1. Create test file in the `e2e-tests/` directory
+1. Create a test file in `e2e-tests/` following the `test_*.py` naming convention
 2. Use `create_http_client()` from `utils/idegym_utils.py`
-3. Follow naming convention: `test_*.py`
-4. Add docstring explaining what the test validates
-
-Example:
+3. Mark with `@pytest.mark.asyncio` for async tests
+4. Add a docstring explaining what the test validates
 
 ```python
 # e2e-tests/test_my_feature.py
-from utils.idegym_utils import create_http_client
 import pytest
+from utils.idegym_utils import create_http_client
 
 
 @pytest.mark.asyncio
-async def test_my_feature():
-    """Test that my feature works correctly."""
-    async with create_http_client(name="test-client") as client:
-        # Your test code
-        result = await client.some_operation()
-        assert result.success
+async def test_my_feature(test_id):
+    """Verify that my feature works end-to-end."""
+    async with create_http_client(name=f"my-feature-{test_id}") as client:
+        # test code
+        pass
 ```
 
-### Modifying Infrastructure
+## Modifying Infrastructure
 
-- **Kubernetes changes:** Update `config/kustomization.yaml`
-- **Image building:** Update `utils/build_images.py`
-- **Deployment logic:** Update `utils/k8s_setup.py`
-- **Shared constants:** Update `utils/constants.py` (namespaces, timeouts, labels, URLs)
-- **Kubernetes API helpers:** Update `utils/k8s_client.py`
-- **Documentation:** Update this README
-
-## Module Architecture
-
-### utils/constants.py
-
-Centralized configuration values used across the test suite:
-
-```python
-# Kubernetes configuration
-DEFAULT_NAMESPACE = "idegym-local"
-INGRESS_NAMESPACE = "ingress-nginx"
-
-# URLs
-BASE_URL = "http://idegym-local.test"
-
-# Timeouts (in seconds)
-DEFAULT_REQUEST_TIMEOUT = 60
-DEFAULT_SERVER_START_TIMEOUT = 600
-
-# Pod labels
-ORCHESTRATOR_APP_LABEL = "orchestrator"
-SERVER_CONTAINER_NAME = "server"
-```
-
-### utils/k8s_client.py
-
-Synchronous wrappers around `kubernetes-asyncio` for:
-- Namespace operations (create, delete, check existence)
-- Pod operations (list, delete, wait for deletion)
-- Deployment and service cleanup
-- Pod selector resolution (handles both `app` and `app.kubernetes.io/name` labels)
-
-### utils/k8s_setup.py
-
-High-level setup and teardown functions:
-- `setup_kubernetes_environment()` - Complete environment setup
-- `wait_for_service()` - Wait for orchestrator to become responsive
-- `wait_for_pod_ready()` / `wait_for_pod_deleted()` - Pod lifecycle helpers
-- `cleanup_kubernetes_environment()` - Resource cleanup
-
-### utils/idegym_utils.py
-
-Test utilities:
-- `create_http_client()` - Create configured IdeGYM client for tests
-- `generate_test_id()` - Generate unique IDs for test isolation
-
-### utils/build_images.py
-
-Image building:
-- `build_orchestrator_image()` - Build and load orchestrator image
-- `build_base_server_image()` - Build and load base server image
-- `switch_to_default_docker_builder()` - Ensure local image access
+| What | Where |
+|------|-------|
+| Kubernetes resource changes | `e2e-tests/config/kustomization.yaml` |
+| Image building logic | `e2e-tests/utils/build_images.py` |
+| Cluster setup/teardown | `e2e-tests/utils/k8s_setup.py` |
+| Shared constants | `e2e-tests/utils/constants.py` |
+| Kubernetes API helpers | `e2e-tests/utils/k8s_client.py` |
