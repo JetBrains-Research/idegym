@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import Awaitable, Callable
+from datetime import datetime
 from typing import Optional, TypeVar
 
 from idegym.utils.logging import get_logger
@@ -122,7 +123,9 @@ async def _get_all_server_pod_logs(core: CoreV1Api, namespace: str) -> dict[str,
                 if events.items:
                     event_lines = [
                         f"  [{e.reason}] {e.message}"
-                        for e in sorted(events.items, key=lambda x: x.last_timestamp or x.event_time or "")[-10:]
+                        for e in sorted(events.items, key=lambda x: x.last_timestamp or x.event_time or datetime.min)[
+                            -10:
+                        ]
                     ]
                     events_info = "\n".join(event_lines)
             except ApiException as e:

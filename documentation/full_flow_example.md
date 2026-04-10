@@ -72,12 +72,14 @@ from pathlib import Path
 import tempfile
 
 from idegym.client.client import IdeGYMClient
+from idegym.api.auth import BasicAuth
 
 async def main():
     async with IdeGYMClient(
-        base_url="http://idegym-local.test",
-        username="test",
-        password="test",
+        orchestrator_url="http://idegym-local.test",
+        name="my-client",
+        namespace="idegym-local",
+        auth=BasicAuth(username="test", password="test"),
     ) as client:
 
         # Submit a Kaniko build job and wait for it to finish.
@@ -177,12 +179,14 @@ from pathlib import Path
 import tempfile
 
 from idegym.client.client import IdeGYMClient
+from idegym.api.auth import BasicAuth
 
 async def main():
     async with IdeGYMClient(
-        base_url="http://idegym-local.test",
-        username="test",
-        password="test",
+        orchestrator_url="http://idegym-local.test",
+        name="my-client",
+        namespace="idegym-local",
+        auth=BasicAuth(username="test", password="test"),
     ) as client:
 
         with tempfile.TemporaryDirectory() as tmp:

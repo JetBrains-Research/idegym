@@ -113,7 +113,7 @@ async with client.with_server(
 | `resources` | Kubernetes resource requests/limits |
 | `node_selector` | Node affinity labels |
 | `server_start_wait_timeout_in_seconds` | How long to wait for the server pod to become ready |
-| `reuse_strategy` | What to do if a server with this name already exists: `RESET` (reset project state), `REUSE` (attach without reset) |
+| `reuse_strategy` | What to do if a server with this name already exists: `NONE` (recreate the server from scratch), `RESTART` (restart the server), `RESET` (reset project state), `CHECKPOINT` (restore from checkpoint; not yet supported) |
 | `close_action` | `FINISH` — release the server but leave it running for the next client; `STOP` — stop and delete the server |
 
 ### `start_server(...)` / `stop_server(...)` / `finish_server(...)`

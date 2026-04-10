@@ -295,13 +295,21 @@ kubectl exec -it statefulset/postgresql -n idegym -- \
 The orchestrator uses HTTP Basic Authentication. Use the `idegym` client library:
 
 ```python
+import asyncio
 from idegym.client.client import IdeGYMClient
+from idegym.api.auth import BasicAuth
 
-client = IdeGYMClient(
-    base_url="https://idegym.yourdomain.com",
-    username="admin",
-    password="your-password",
-)
+async def main():
+    async with IdeGYMClient(
+        orchestrator_url="https://idegym.yourdomain.com",
+        name="my-client",
+        namespace="idegym",
+        auth=BasicAuth(username="admin", password="your-password"),
+    ) as client:
+        response = await client.health_check()
+        print(response.status)  # → "healthy"
+
+asyncio.run(main())
 ```
 
 Or make raw HTTP requests with a `Basic` `Authorization` header:

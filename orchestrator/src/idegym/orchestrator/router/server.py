@@ -372,15 +372,14 @@ def extract_resources_request(config: Config, request: StartServerRequest):
     cpu_request = config.orchestrator.resources.default_cpu_request
     ram_request = config.orchestrator.resources.default_ram_request
     if request.resources:
-        if "limits" in request.resources:
-            requests = request.resources["limits"]
-            if "cpu" in requests:
-                cpu_decimal = parse_quantity(requests["cpu"])
-                cpu_request = float(cpu_decimal)
-
-            if "memory" in requests:
-                memory_decimal = parse_quantity(requests["memory"])
-                ram_request = float(memory_decimal) / (1024 * 1024 * 1024)
+        limits = request.resources.get("limits", {})
+        reqs = request.resources.get("requests", {})
+        cpu_value = limits.get("cpu") or reqs.get("cpu")
+        memory_value = limits.get("memory") or reqs.get("memory")
+        if cpu_value:
+            cpu_request = float(parse_quantity(cpu_value))
+        if memory_value:
+            ram_request = float(parse_quantity(memory_value)) / (1024 * 1024 * 1024)
 
     return cpu_request, ram_request
 
