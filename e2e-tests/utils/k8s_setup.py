@@ -16,6 +16,9 @@ from utils.constants import (
     HEALTH_CHECK_INTERVAL,
     INGRESS_CONTROLLER_SERVICE,
     INGRESS_NAMESPACE,
+    POSTGRESQL_APP_LABEL,
+    POSTGRESQL_DB,
+    POSTGRESQL_USER,
 )
 
 logger = get_logger(__name__)
@@ -147,6 +150,40 @@ def wait_for_service(timeout: int = DEFAULT_HEALTH_CHECK_TIMEOUT, check_interval
 
     logger.error(f"Service did not become responsive within {timeout}s")
     return False
+
+
+_DB_RESET_SQL = (
+    "TRUNCATE async_operations, job_statuses, servers, clients RESTART IDENTITY CASCADE; "
+    "DELETE FROM resource_limit_rules WHERE client_name_regex != '.*'; "
+    "UPDATE resource_limit_rules SET used_cpu = 0, used_ram = 0, current_pods = 0 WHERE client_name_regex = '.*';"
+)
+
+
+def reset_orchestrator_db() -> None:
+    logger.info("Resetting orchestrator database...")
+    pod_names = k8s_client.list_pod_names(
+        namespace=DEFAULT_NAMESPACE, label_selector=f"app.kubernetes.io/name={POSTGRESQL_APP_LABEL}"
+    )
+    if not pod_names:
+        raise RuntimeError(f"No postgresql pod found in namespace {DEFAULT_NAMESPACE}")
+    output = k8s_client.exec_in_pod(
+        pod_name=pod_names[0],
+        namespace=DEFAULT_NAMESPACE,
+        command=[
+            "psql",
+            "-h",
+            "localhost",
+            "-p",
+            "5432",
+            "-U",
+            POSTGRESQL_USER,
+            "-d",
+            POSTGRESQL_DB,
+            "-c",
+            _DB_RESET_SQL,
+        ],
+    )
+    logger.info(f"✓ Database reset complete: {output.strip()}")
 
 
 def setup_kubernetes_environment(reuse_resources: bool = False, clean_namespace: bool = False) -> bool:

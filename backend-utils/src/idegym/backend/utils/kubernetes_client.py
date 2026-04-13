@@ -387,14 +387,27 @@ async def wait_for_pods_ready(
         Exception: If image pull errors are detected max_image_pull_attempts times in a row
     """
     consecutive_image_pull_errors = 0
+    consecutive_unschedulable = 0
+    max_consecutive_unschedulable = 15  # ~30s at 2s poll interval
 
     async with timeout(wait_timeout):
         while True:
-            pods_ready, has_image_pull_error, has_terminating_pods = await pods_are_ready(label_selector, namespace)
+            pods_ready, has_image_pull_error, has_terminating_pods, has_unschedulable_pods = await pods_are_ready(
+                label_selector, namespace
+            )
 
             if pods_ready and not has_terminating_pods:
                 logger.info(f"Pods with label '{label_selector}' are ready and stable.")
                 return
+
+            if has_unschedulable_pods:
+                consecutive_unschedulable += 1
+                if consecutive_unschedulable >= max_consecutive_unschedulable:
+                    raise Exception(
+                        f"Failed to start pods: Unschedulable condition detected {consecutive_unschedulable} times in a row"
+                    )
+            else:
+                consecutive_unschedulable = 0
 
             if has_image_pull_error:
                 consecutive_image_pull_errors += 1
@@ -411,7 +424,7 @@ async def wait_for_pods_ready(
             await sleep(2)
 
 
-async def pods_are_ready(label_selector: str, namespace: str) -> tuple[bool, bool, bool]:
+async def pods_are_ready(label_selector: str, namespace: str) -> tuple[bool, bool, bool, bool]:
     """
     Check if pods are ready.
 
@@ -420,9 +433,11 @@ async def pods_are_ready(label_selector: str, namespace: str) -> tuple[bool, boo
         namespace: Kubernetes namespace
 
     Returns:
-        Tuple of (pods_ready, has_image_pull_error):
+        Tuple of (pods_ready, has_image_pull_error, has_terminating_pods, has_unschedulable_pods):
         - pods_ready: True if all pods are ready, False otherwise
         - has_image_pull_error: True if any pod has an image pull error, False otherwise
+        - has_terminating_pods: True if any pod is being terminated
+        - has_unschedulable_pods: True if any pod cannot be scheduled
     """
 
     async with async_kube_api() as (_, _, core, _):
@@ -430,6 +445,7 @@ async def pods_are_ready(label_selector: str, namespace: str) -> tuple[bool, boo
 
     has_image_pull_error = False
     has_terminating_pods = False
+    has_unschedulable_pods = False
 
     if len(pods) > 0:
         for pod in pods:
@@ -437,6 +453,16 @@ async def pods_are_ready(label_selector: str, namespace: str) -> tuple[bool, boo
                 has_terminating_pods = True
                 logger.debug(f"Pod {pod.metadata.name} is terminating")
                 continue
+
+            if pod.status.conditions:
+                for condition in pod.status.conditions:
+                    if (
+                        condition.type == "PodScheduled"
+                        and condition.status == "False"
+                        and condition.reason == "Unschedulable"
+                    ):
+                        has_unschedulable_pods = True
+                        logger.warning(f"Pod {pod.metadata.name} is unschedulable: {condition.message}")
 
             if pod.status.container_statuses:
                 for container in pod.status.container_statuses:
@@ -456,7 +482,7 @@ async def pods_are_ready(label_selector: str, namespace: str) -> tuple[bool, boo
         for pod in non_terminating_pods
     )
 
-    return pods_ready, has_image_pull_error, has_terminating_pods
+    return pods_ready, has_image_pull_error, has_terminating_pods, has_unschedulable_pods
 
 
 async def are_any_pods_alive(label_selector: str, namespace: str) -> bool:

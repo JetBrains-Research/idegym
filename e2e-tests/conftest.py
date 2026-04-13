@@ -22,7 +22,12 @@ from utils.constants import (
 )
 from utils.idegym_utils import generate_test_id
 from utils.k8s_jobs import delete_job, get_all_server_pod_logs, run_job
-from utils.k8s_setup import cleanup_kubernetes_environment, setup_kubernetes_environment, wait_for_service
+from utils.k8s_setup import (
+    cleanup_kubernetes_environment,
+    reset_orchestrator_db,
+    setup_kubernetes_environment,
+    wait_for_service,
+)
 
 logger = get_logger(__name__)
 
@@ -92,6 +97,12 @@ def pytest_addoption(parser):
         default=False,
         help="Delete only services defined in kustomization.yaml after all tests complete",
     )
+    parser.addoption(
+        "--redeploy-orchestrator",
+        action="store_true",
+        default=False,
+        help="Redeploy orchestrator between tests instead of resetting the database",
+    )
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -156,7 +167,13 @@ def cleanup_servers():
     for deployment_name in deployment_names:
         k8s_client.delete_deployment(namespace=DEFAULT_NAMESPACE, deployment_name=deployment_name)
 
-    logger.info(f"✓ Server deployments cleaned up ({len(deployment_names)} servers)")
+    logger.info(f"✓ Server deployments deleted ({len(deployment_names)} servers), waiting for pods to terminate...")
+    if not k8s_client.wait_for_pods_by_label_deleted(
+        namespace=DEFAULT_NAMESPACE, label_selector=label_selector, timeout=120
+    ):
+        logger.warning("Timed out waiting for sandbox pods to fully terminate")
+    else:
+        logger.info("✓ Sandbox pods terminated")
 
 
 def list_pods_by_label(app_label: str, namespace: str = DEFAULT_NAMESPACE) -> list[str]:
@@ -205,11 +222,18 @@ def cleanup_kaniko_jobs():
 
 
 @pytest.fixture(autouse=True)
-def cleanup_after_test():
+def cleanup_after_test(request):
     yield
     cleanup_servers()
     cleanup_kaniko_jobs()
-    redeploy_orchestrator()
+    if request.config.getoption("--redeploy-orchestrator"):
+        redeploy_orchestrator()
+    else:
+        try:
+            reset_orchestrator_db()
+        except Exception as e:
+            logger.warning(f"Database reset failed ({e}), falling back to orchestrator redeploy")
+            redeploy_orchestrator()
 
 
 @pytest.fixture(autouse=True)

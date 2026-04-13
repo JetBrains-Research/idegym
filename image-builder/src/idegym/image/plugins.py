@@ -328,6 +328,29 @@ class Project(PluginBase):
     ) -> "Project":
         return cls(source="local", path=path, target=target, owner=owner, group=group)
 
+    @classmethod
+    def from_archive(
+        cls,
+        url: str,
+        *,
+        target: Optional[str] = None,
+        owner: Optional[str] = None,
+        group: Optional[str] = None,
+    ) -> "Project":
+        return cls(source="archive", url=url, target=target, owner=owner, group=group)
+
+    @classmethod
+    def from_git_clone(
+        cls,
+        *,
+        url: str,
+        ref: str = "HEAD",
+        target: Optional[str] = None,
+        owner: Optional[str] = None,
+        group: Optional[str] = None,
+    ) -> "Project":
+        return cls(source="git-clone", url=url, ref=ref, target=target, owner=owner, group=group)
+
     def project(self) -> GitRepositorySnapshot | GitRepositoryResource:
         if self.url is None:
             raise ValueError(f"Project source '{self.source}' requires a URL")
@@ -342,7 +365,7 @@ class Project(PluginBase):
         raise ValueError(f"Unsupported project source: {self.source}")
 
     def apply(self, ctx: BuildContext) -> BuildContext:
-        if self.source == "local":
+        if self.source in ("local", "archive", "git-clone"):
             project_root = self.target or f"{ctx.home}/work"
             return ctx.updated(project_root=project_root)
 
@@ -372,6 +395,35 @@ class Project(PluginBase):
                 chown = f"--chown={self.owner}:{effective_group} "
             return f"# Copy local project\nCOPY {chown}{copy_args}"
 
+        if self.source == "archive":
+            if self.url is None:
+                raise ValueError("archive source requires a URL")
+            owner = self.owner or ctx.current_user
+            group = self.group or owner
+            commands = [
+                f"mkdir -p {quote(ctx.project_root)}",
+                f"curl -fsSL {quote(self.url)} -o /tmp/project-archive",
+                f"extract /tmp/project-archive {quote(ctx.project_root)}",
+                "rm -f /tmp/project-archive",
+            ]
+            if owner:
+                commands.append(f"chown -R {owner}:{group} {quote(ctx.project_root)}")
+            return _render_run_block(commands, comment="Download and extract project archive")
+
+        if self.source == "git-clone":
+            if self.url is None:
+                raise ValueError("git-clone source requires a URL")
+            owner = self.owner or ctx.current_user
+            group = self.group or owner
+            commands = [
+                f"git clone {quote(self.url)} {quote(ctx.project_root)}",
+            ]
+            if self.ref and self.ref != "HEAD":
+                commands.append(f"git -C {quote(ctx.project_root)} checkout {quote(self.ref)}")
+            if owner:
+                commands.append(f"chown -R {owner}:{group} {quote(ctx.project_root)}")
+            return _render_run_block(commands, comment=f"Clone {self.url}")
+
         if ctx.request is None:
             raise ValueError("Project plugin must be applied before rendering")
 
@@ -387,6 +439,54 @@ class Project(PluginBase):
             commands.append(f"chown -R {owner}:{group} {quote(ctx.project_root)}")
 
         return _render_run_block(commands, comment="Fetch and unpack the project")
+
+
+def _idegym_server_env(home: str) -> str:
+    return dedent(
+        f"""\
+        COPY --from=ghcr.io/astral-sh/uv:0.10.11 /uv /uvx /bin/
+
+        ENV IDEGYM_PATH=/opt/idegym \\
+            IDEGYM_PROJECT_ROOT={home}/work \\
+            PYTHONDONTWRITEBYTECODE=0 \\
+            PYTHONUNBUFFERED=1 \\
+            PYTHONHASHSEED=random
+        ENV PYTHONPATH="$IDEGYM_PATH"
+        """
+    ).rstrip()
+
+
+def _idegym_server_uv_sync() -> str:
+    return dedent(
+        """\
+        RUN set -eux; \\
+            uv python install; \\
+            uv sync --project server \\
+                --frozen \\
+                --no-cache \\
+                --no-dev; \\
+            uv pip install supervisor
+        """
+    ).rstrip()
+
+
+def _idegym_server_tail() -> str:
+    return dedent(
+        """\
+        VOLUME /docker-entrypoint.d
+        EXPOSE 8000
+
+        ENTRYPOINT ["dumb-init", "--"]
+        CMD ["entrypoint", ".venv/bin/supervisord", "-c", "supervisord.conf"]
+
+        HEALTHCHECK \\
+            --start-period=10s \\
+            --interval=60s \\
+            --timeout=30s \\
+            --retries=5 \\
+        CMD nc -z 127.0.0.1 8000 || exit 1
+        """
+    ).rstrip()
 
 
 @image_plugin("idegym-server")
@@ -407,28 +507,66 @@ class IdeGYMServer(PluginBase):
 
     def apply(self, ctx: BuildContext) -> BuildContext:
         if self.source == "git":
-            raise NotImplementedError("IdeGYMServer.from_git(...) is not implemented yet")
+            # No host build context needed; everything is cloned inside the container.
+            return ctx
         if self.root is None:
             raise ValueError("IdeGYMServer.from_local(...) requires a workspace root")
         return ctx.updated(context_path=self.root)
 
     def render(self, ctx: BuildContext) -> str:
-        if self.source == "git":
-            raise NotImplementedError("IdeGYMServer.from_git(...) is not implemented yet")
-
         user = ctx.current_user
         group = str(ctx.get_extra("idegym.user.group", user))
-        return dedent(
+        if self.source == "git":
+            if self.url is None:
+                raise ValueError("IdeGYMServer.from_git(...) requires a URL")
+            return self._render_from_git(ctx, user, group)
+        return self._render_from_local(ctx, user, group)
+
+    def _render_from_git(self, ctx: BuildContext, user: str, group: str) -> str:
+        ref = self.ref or "HEAD"
+        clone_lines = [f"git clone {quote(self.url)} /tmp/idegym-src"]
+        if ref != "HEAD":
+            clone_lines.append(f"git -C /tmp/idegym-src checkout {quote(ref)}")
+        clone_run = _render_run_block(clone_lines, comment=f"Clone IdeGYM from {self.url}")
+        setup = dedent(
             f"""\
-            COPY --from=ghcr.io/astral-sh/uv:0.10.11 /uv /uvx /bin/
+            RUN set -eux; \\
+                mkdir -p $IDEGYM_PATH $IDEGYM_PROJECT_ROOT; \\
+                cp -r /tmp/idegym-src/scripts/. /usr/local/bin/; \\
+                cp /tmp/idegym-src/entrypoint.py $IDEGYM_PATH/; \\
+                cp /tmp/idegym-src/entrypoint.sh /tmp/idegym-src/idegym.sh /usr/local/bin/; \\
+                chmod 755 /usr/local/bin/* $IDEGYM_PATH/entrypoint.py; \\
+                chown {user}:{group} /usr/local/bin/* $IDEGYM_PATH/entrypoint.py; \\
+                for script in /usr/local/bin/*.{{py,sh}}; do \\
+                    [ -f "$script" ] || continue; \\
+                    mv "$script" "$(echo "${{script%.*}}" | tr "_" "-")"; \\
+                done; \\
+                cp /tmp/idegym-src/.python-version /tmp/idegym-src/pyproject.toml \\
+                    /tmp/idegym-src/supervisord.conf /tmp/idegym-src/uv.lock $IDEGYM_PATH/; \\
+                cp -r /tmp/idegym-src/api $IDEGYM_PATH/api; \\
+                cp -r /tmp/idegym-src/backend-utils $IDEGYM_PATH/backend-utils; \\
+                cp -r /tmp/idegym-src/common-utils $IDEGYM_PATH/common-utils; \\
+                cp -r /tmp/idegym-src/rewards $IDEGYM_PATH/rewards; \\
+                cp -r /tmp/idegym-src/tools $IDEGYM_PATH/tools; \\
+                cp -r /tmp/idegym-src/server $IDEGYM_PATH/server; \\
+                chown -R {user}:{group} $IDEGYM_PATH $IDEGYM_PROJECT_ROOT; \\
+                rm -rf /tmp/idegym-src
+            """
+        ).rstrip()
+        return "\n\n".join(
+            [
+                _idegym_server_env(ctx.home),
+                clone_run,
+                setup,
+                f"USER {user}\nWORKDIR $IDEGYM_PATH",
+                _idegym_server_uv_sync(),
+                _idegym_server_tail(),
+            ]
+        )
 
-            ENV IDEGYM_PATH=/opt/idegym \\
-                IDEGYM_PROJECT_ROOT={ctx.home}/work \\
-                PYTHONDONTWRITEBYTECODE=0 \\
-                PYTHONUNBUFFERED=1 \\
-                PYTHONHASHSEED=random
-            ENV PYTHONPATH="$IDEGYM_PATH"
-
+    def _render_from_local(self, ctx: BuildContext, user: str, group: str) -> str:
+        local_setup = dedent(
+            f"""\
             RUN set -eux; \\
                 mkdir -p $IDEGYM_PATH $IDEGYM_PROJECT_ROOT; \\
                 chown -R {user}:{group} $IDEGYM_PATH $IDEGYM_PROJECT_ROOT
@@ -442,10 +580,10 @@ class IdeGYMServer(PluginBase):
                     [ -f "$script" ] || continue; \\
                     mv "$script" "$(echo "${{script%.*}}" | tr "_" "-")"; \\
                 done
-
-            USER {user}
-            WORKDIR $IDEGYM_PATH
-
+            """
+        ).rstrip()
+        workspace_copies = dedent(
+            f"""\
             COPY --chown={user}:{group} .python-version pyproject.toml supervisord.conf uv.lock ./
             COPY --chown={user}:{group} api api/
             COPY --chown={user}:{group} backend-utils backend-utils/
@@ -453,29 +591,18 @@ class IdeGYMServer(PluginBase):
             COPY --chown={user}:{group} rewards rewards/
             COPY --chown={user}:{group} tools tools/
             COPY --chown={user}:{group} server server/
-
-            RUN set -eux; \\
-                uv python install; \\
-                uv sync --project server \\
-                    --frozen \\
-                    --no-cache \\
-                    --no-dev; \\
-                uv pip install supervisor
-
-            VOLUME /docker-entrypoint.d
-            EXPOSE 8000
-
-            ENTRYPOINT ["dumb-init", "--"]
-            CMD ["entrypoint", ".venv/bin/supervisord", "-c", "supervisord.conf"]
-
-            HEALTHCHECK \\
-                --start-period=10s \\
-                --interval=60s \\
-                --timeout=30s \\
-                --retries=5 \\
-            CMD nc -z 127.0.0.1 8000 || exit 1
             """
-        ).strip()
+        ).rstrip()
+        return "\n\n".join(
+            [
+                _idegym_server_env(ctx.home),
+                local_setup,
+                f"USER {user}\nWORKDIR $IDEGYM_PATH",
+                workspace_copies,
+                _idegym_server_uv_sync(),
+                _idegym_server_tail(),
+            ]
+        )
 
 
 @image_plugin("pycharm")

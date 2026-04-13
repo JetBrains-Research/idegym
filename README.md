@@ -1,85 +1,111 @@
 # IdeGYM
 
-_IdeGYM_ is a framework offering disposable environments and tools for inspecting and modifying them.
-These tools benefit AI agents and machine learning tasks.
-They are useful for project work and for reinforcement learning, evaluation, and other pipelines.
-Think of it as codespaces for AI agents.
+_IdeGYM_ is a framework for creating **disposable, scalable development environments** for training
+reinforcement learning models. It provides tools for inspecting and modifying those environments,
+and can also be used for running AI agents or any workflow that requires clean, reproducible workspaces.
 
-IdeGYM prioritizes **scalability** and **speed**.
-It aims to quickly create environments, which include a checked-out repository and a functioning IntelliJ IDEA instance,
-while handling thousands of parallel environments, given sufficient infrastructure.
+Think of it as **GitHub Codespaces for RL training** — but designed for thousands of parallel, short-lived environments.
 
-## Setting Up the Project
+## Key Features
+
+- **Scalable orchestration** — spin up and tear down Kubernetes-based environments on demand
+- **Plugin-based image builder** — compose Docker images from reusable plugins via a Python API or YAML
+- **Flexible project loading** — clone from Git, download and extract a project archive, or mount a volume with a project directly into the image
+- **HTTP and WebSocket forwarding** — the orchestrator proxies requests directly to running server pods; WebSocket support enables integration with [OpenEnv](https://github.com/openenv)-compatible environments
+- **Persistent request history** — every forwarded request and its response is stored in the database and retrievable later, enabling offline reward computation and reproducible evaluation
+- **Automatic resource cleanup** — a background watcher periodically reconciles the database against live Kubernetes state, evicting stale servers and reclaiming resources without manual intervention
+- **Full observability** — built-in Prometheus metrics, Grafana dashboards, and distributed tracing via Tempo
+- **Fast iteration** — local development with Minikube mirrors the production Kubernetes setup
+
+## Documentation
+
+| Guide | Description |
+|---|---|
+| [Getting Started](documentation/getting_started.md) | Prerequisites, installation, and running tests locally |
+| [Local Deployment](documentation/local_deployment.md) | Run the full stack on Minikube (with GHCR images or local builds) |
+| [Remote Deployment](documentation/remote_deployment.md) | Deploy to a production Kubernetes cluster |
+| [Image Builder](documentation/image_builder.md) | Build custom environment images with the plugin API |
+| [Client Library](documentation/client.md) | Python client API reference |
+| [Full Flow Example](documentation/full_flow_example.md) | End-to-end walkthrough: build an image, start a server, run a command |
+| [E2E Tests](e2e-tests/README.md) | Running the end-to-end test suite on Minikube |
+| [Orchestrator API](orchestrator/README.md) | REST API reference for the orchestrator service |
+
+## Quick Start
 
 ### Prerequisites
 
-- Ensure you have [`uv`](https://github.com/astral-sh/uv) installed on your system.
-- Ensure Docker is installed and running on your machine.
+- [`uv`](https://github.com/astral-sh/uv) >= 0.10.0 — Python package and project manager
+- Python 3.12 (installed automatically by `uv`)
+- [Docker](https://docs.docker.com/get-docker/) — for integration tests and local image builds
 
-### Set Up Python
-
-This project uses Python version `3.12`.
-You can install it manually using your system package manager.
-However, it's more convenient to run the following:
+### Install
 
 ```sh
+# Clone the repository
+git clone https://github.com/JetBrains-Research/idegym.git
+cd idegym
+
+# Install Python 3.12 and project dependencies
 uv python install
-```
-
-### Create Virtual Environment
-
-```sh
 uv venv --seed
-```
-
-### Install Project Dependencies
-
-```sh
 uv sync --all-packages --all-extras --all-groups
-```
 
-### Install Pre-Commit Hooks
-
-```sh
+# Install pre-commit hooks
 pre-commit install
 ```
 
-## Development
-
-### Checking Code Style
-
-You can check code style and auto-fix issues with [`ruff`](https://github.com/astral-sh/ruff):
+### Run Tests
 
 ```sh
-uv run ruff format
-```
-
-### Running Tests
-
-Run the fast local default suite (unit + integration, excluding e2e):
-
-```sh
-uv run pytest
-```
-
-Run a specific suite with markers:
-
-```sh
+# Unit tests only (no external dependencies)
 uv run pytest -m unit
+
+# Integration tests (requires Docker with a registry on localhost:5000)
 uv run pytest -m integration
+
+# End-to-end tests (requires a running Minikube cluster)
 uv run pytest -m e2e
 ```
 
-For e2e, orchestration is handled by pytest fixtures. You can pass e2e setup flags directly:
+See [Getting Started](documentation/getting_started.md) for per-suite prerequisites.
+
+### Check Code Style
 
 ```sh
-uv run pytest -m e2e --skip-build --reuse-resources
+uv run ruff format
+uv run ruff check
 ```
 
-### Running Pre-Commit Hooks
+## Project Structure
 
-To test `pre-commit` hooks:
-
-```sh
-pre-commit run
 ```
+idegym/
+├── api/                  # Pydantic API models
+├── backend-utils/        # Shared backend utilities (Kubernetes, telemetry)
+├── client/               # Python client library
+├── common-utils/         # Shared utilities (config, logging)
+├── image-builder/        # Plugin-based Docker image building system
+├── orchestrator/         # Kubernetes orchestrator service (FastAPI + PostgreSQL)
+├── rewards/              # Reward calculation for agent evaluation
+├── server/               # IdeGYM server (runs inside containers)
+├── tools/                # Tool implementations (bash, file operations)
+├── unit-tests/           # Unit test suite
+├── integration-tests/    # Docker-based integration tests
+├── e2e-tests/            # Kubernetes end-to-end tests
+├── scripts/              # Build and deployment scripts
+└── documentation/        # Extended documentation
+```
+
+## Contributing
+
+We welcome contributions! Please open an issue or pull request on
+[GitHub](https://github.com/JetBrains-Research/idegym).
+
+Before submitting a pull request:
+1. Run `uv run ruff format && uv run ruff check` to fix style issues
+2. Run `uv run pytest -m "unit or integration"` to verify tests pass
+3. Ensure pre-commit hooks pass: `pre-commit run --all-files`
+
+## License
+
+See [LICENSE](LICENSE) for details.

@@ -4,7 +4,7 @@ from textwrap import dedent
 
 from idegym.image.builder import Image
 from idegym.image.plugin import BuildContext, PluginBase
-from idegym.image.plugins import BaseSystem, Permissions, Project, PyCharm, User
+from idegym.image.plugins import BaseSystem, IdeGYMServer, Permissions, Project, PyCharm, User
 from idegym.image.serialization import deserialize_plugin, serialize_plugin
 from pytest import mark, param, raises
 
@@ -838,3 +838,278 @@ def test_pycharm_rejects_invalid_edition():
 def test_pycharm_rejects_injection_in_user():
     with raises(ValueError, match="user"):
         PyCharm(user="root; id")
+
+
+# ---------------------------------------------------------------------------
+# Project.from_archive
+# ---------------------------------------------------------------------------
+
+
+def test_project_from_archive():
+    plugin = Project.from_archive("https://example.com/project.tar.gz")
+    assert plugin.source == "archive"
+    assert plugin.url == "https://example.com/project.tar.gz"
+    assert plugin.target is None
+    assert plugin.owner is None
+
+
+def test_project_from_archive_apply_sets_project_root():
+    plugin = Project.from_archive("https://example.com/project.tar.gz", target="/opt/project")
+    ctx = plugin.apply(BuildContext(base="debian:bookworm-slim"))
+    assert ctx.project_root == "/opt/project"
+
+
+def test_project_from_archive_apply_defaults_target_to_home_work():
+    plugin = Project.from_archive("https://example.com/project.tar.gz")
+    ctx = plugin.apply(BuildContext(base="debian:bookworm-slim"))
+    assert ctx.project_root == "/root/work"
+
+
+def test_project_from_archive_apply_uses_user_home():
+    user_plugin = User(username="devuser", uid=1000, gid=1000)
+    ctx = user_plugin.apply(BuildContext(base="debian:bookworm-slim"))
+    plugin = Project.from_archive("https://example.com/project.tar.gz")
+    ctx = plugin.apply(ctx)
+    assert ctx.project_root == "/home/devuser/work"
+
+
+def test_project_from_archive_apply_no_download_request():
+    plugin = Project.from_archive("https://example.com/project.tar.gz")
+    ctx = plugin.apply(BuildContext(base="debian:bookworm-slim"))
+    assert ctx.request is None
+
+
+def test_project_from_archive_render_uses_curl_and_extract():
+    plugin = Project.from_archive("https://example.com/project.tar.gz")
+    ctx = plugin.apply(BuildContext(base="debian:bookworm-slim"))
+    fragment = plugin.render(ctx)
+    assert "curl" in fragment
+    assert "extract" in fragment
+    assert "https://example.com/project.tar.gz" in fragment
+
+
+def test_project_from_archive_render_cleans_up_tmp_file():
+    plugin = Project.from_archive("https://example.com/project.tar.gz")
+    ctx = plugin.apply(BuildContext(base="debian:bookworm-slim"))
+    fragment = plugin.render(ctx)
+    assert "rm" in fragment
+    assert "/tmp/project-archive" in fragment
+
+
+def test_project_from_archive_render_with_owner():
+    plugin = Project.from_archive("https://example.com/project.tar.gz", owner="devuser")
+    ctx = plugin.apply(BuildContext(base="debian:bookworm-slim"))
+    fragment = plugin.render(ctx)
+    assert "chown" in fragment
+    assert "devuser" in fragment
+
+
+def test_project_from_archive_render_without_owner_uses_current_user():
+    user_plugin = User(username="devuser", uid=1000, gid=1000)
+    ctx = user_plugin.apply(BuildContext(base="debian:bookworm-slim"))
+    plugin = Project.from_archive("https://example.com/project.tar.gz")
+    fragment = plugin.render(plugin.apply(ctx))
+    assert "chown" in fragment
+    assert "devuser" in fragment
+
+
+def test_project_from_archive_yaml_round_trip():
+    yaml_content = dedent("""\
+        images:
+          - base: debian:bookworm-slim
+            plugins:
+              - type: project
+                source: archive
+                url: https://example.com/project.tar.gz
+                target: /opt/project
+    """)
+    images = Image.load_all(yaml_content)
+    plugin = images[0].plugins[0]
+    assert isinstance(plugin, Project)
+    assert plugin.source == "archive"
+    assert plugin.url == "https://example.com/project.tar.gz"
+    assert plugin.target == "/opt/project"
+
+
+def test_project_from_archive_serialize_round_trip():
+    plugin = Project.from_archive("https://example.com/project.tar.gz", target="/opt/project", owner="devuser")
+    payload = serialize_plugin(plugin)
+    restored = deserialize_plugin(payload)
+    assert type(restored) is Project
+    assert restored == plugin
+
+
+# ---------------------------------------------------------------------------
+# Project.from_git_clone
+# ---------------------------------------------------------------------------
+
+
+def test_project_from_git_clone():
+    plugin = Project.from_git_clone(url="https://github.com/owner/repo.git", ref="main")
+    assert plugin.source == "git-clone"
+    assert plugin.url == "https://github.com/owner/repo.git"
+    assert plugin.ref == "main"
+
+
+def test_project_from_git_clone_default_ref():
+    plugin = Project.from_git_clone(url="https://github.com/owner/repo.git")
+    assert plugin.ref == "HEAD"
+
+
+def test_project_from_git_clone_apply_sets_project_root():
+    plugin = Project.from_git_clone(url="https://github.com/owner/repo.git", target="/opt/repo")
+    ctx = plugin.apply(BuildContext(base="debian:bookworm-slim"))
+    assert ctx.project_root == "/opt/repo"
+
+
+def test_project_from_git_clone_apply_no_download_request():
+    plugin = Project.from_git_clone(url="https://github.com/owner/repo.git")
+    ctx = plugin.apply(BuildContext(base="debian:bookworm-slim"))
+    assert ctx.request is None
+
+
+def test_project_from_git_clone_render_contains_git_clone():
+    plugin = Project.from_git_clone(url="https://github.com/owner/repo.git", target="/opt/repo")
+    ctx = plugin.apply(BuildContext(base="debian:bookworm-slim"))
+    fragment = plugin.render(ctx)
+    assert "git clone" in fragment
+    assert "https://github.com/owner/repo.git" in fragment
+    assert "/opt/repo" in fragment
+
+
+def test_project_from_git_clone_render_non_head_ref_adds_checkout():
+    plugin = Project.from_git_clone(url="https://github.com/owner/repo.git", ref="abc123", target="/opt/repo")
+    ctx = plugin.apply(BuildContext(base="debian:bookworm-slim"))
+    fragment = plugin.render(ctx)
+    assert "checkout" in fragment
+    assert "abc123" in fragment
+
+
+def test_project_from_git_clone_render_head_ref_no_checkout():
+    plugin = Project.from_git_clone(url="https://github.com/owner/repo.git", ref="HEAD", target="/opt/repo")
+    ctx = plugin.apply(BuildContext(base="debian:bookworm-slim"))
+    fragment = plugin.render(ctx)
+    assert "checkout" not in fragment
+
+
+def test_project_from_git_clone_render_with_owner():
+    plugin = Project.from_git_clone(url="https://github.com/owner/repo.git", target="/opt/repo", owner="devuser")
+    ctx = plugin.apply(BuildContext(base="debian:bookworm-slim"))
+    fragment = plugin.render(ctx)
+    assert "chown" in fragment
+    assert "devuser" in fragment
+
+
+def test_project_from_git_clone_render_without_owner_uses_current_user():
+    user_plugin = User(username="devuser", uid=1000, gid=1000)
+    ctx = user_plugin.apply(BuildContext(base="debian:bookworm-slim"))
+    plugin = Project.from_git_clone(url="https://github.com/owner/repo.git")
+    fragment = plugin.render(plugin.apply(ctx))
+    assert "chown" in fragment
+    assert "devuser" in fragment
+
+
+def test_project_from_git_clone_serialize_round_trip():
+    plugin = Project.from_git_clone(url="https://github.com/owner/repo.git", ref="main", target="/opt/repo")
+    payload = serialize_plugin(plugin)
+    restored = deserialize_plugin(payload)
+    assert type(restored) is Project
+    assert restored == plugin
+
+
+# ---------------------------------------------------------------------------
+# IdeGYMServer.from_git (Dockerfile generation only — no real git clone)
+# ---------------------------------------------------------------------------
+
+
+def test_idegym_server_from_git():
+    plugin = IdeGYMServer.from_git(url="https://github.com/owner/idegym.git", ref="main")
+    assert plugin.source == "git"
+    assert plugin.url == "https://github.com/owner/idegym.git"
+    assert plugin.ref == "main"
+
+
+def test_idegym_server_from_git_default_ref():
+    plugin = IdeGYMServer.from_git(url="https://github.com/owner/idegym.git")
+    assert plugin.ref == "HEAD"
+
+
+def test_idegym_server_from_git_apply_returns_ctx_unchanged():
+    plugin = IdeGYMServer.from_git(url="https://github.com/owner/idegym.git")
+    ctx = BuildContext(base="debian:bookworm-slim")
+    result = plugin.apply(ctx)
+    assert result is ctx
+
+
+def test_idegym_server_from_git_render_contains_git_clone():
+    plugin = IdeGYMServer.from_git(url="https://github.com/owner/idegym.git")
+    ctx = BuildContext(base="debian:bookworm-slim")
+    fragment = plugin.render(ctx)
+    assert "git clone" in fragment
+    assert "https://github.com/owner/idegym.git" in fragment
+
+
+def test_idegym_server_from_git_render_non_head_ref_adds_checkout():
+    plugin = IdeGYMServer.from_git(url="https://github.com/owner/idegym.git", ref="v1.2.3")
+    ctx = BuildContext(base="debian:bookworm-slim")
+    fragment = plugin.render(ctx)
+    assert "checkout" in fragment
+    assert "v1.2.3" in fragment
+
+
+def test_idegym_server_from_git_render_head_ref_no_checkout():
+    plugin = IdeGYMServer.from_git(url="https://github.com/owner/idegym.git", ref="HEAD")
+    ctx = BuildContext(base="debian:bookworm-slim")
+    fragment = plugin.render(ctx)
+    assert "checkout" not in fragment
+
+
+def test_idegym_server_from_git_render_contains_idegym_env():
+    plugin = IdeGYMServer.from_git(url="https://github.com/owner/idegym.git")
+    ctx = BuildContext(base="debian:bookworm-slim")
+    fragment = plugin.render(ctx)
+    assert "IDEGYM_PATH" in fragment
+    assert "PYTHONPATH" in fragment
+    assert "uv" in fragment
+
+
+def test_idegym_server_from_git_render_contains_uv_sync():
+    plugin = IdeGYMServer.from_git(url="https://github.com/owner/idegym.git")
+    ctx = BuildContext(base="debian:bookworm-slim")
+    fragment = plugin.render(ctx)
+    assert "uv sync" in fragment
+    assert "supervisor" in fragment
+
+
+def test_idegym_server_from_git_render_contains_entrypoint():
+    plugin = IdeGYMServer.from_git(url="https://github.com/owner/idegym.git")
+    ctx = BuildContext(base="debian:bookworm-slim")
+    fragment = plugin.render(ctx)
+    assert "ENTRYPOINT" in fragment
+    assert "dumb-init" in fragment
+    assert "HEALTHCHECK" in fragment
+    assert "EXPOSE 8000" in fragment
+
+
+def test_idegym_server_from_git_render_uses_current_user():
+    user_plugin = User(username="devuser", uid=1000, gid=1000)
+    ctx = user_plugin.apply(BuildContext(base="debian:bookworm-slim"))
+    plugin = IdeGYMServer.from_git(url="https://github.com/owner/idegym.git")
+    fragment = plugin.render(ctx)
+    assert "devuser" in fragment
+    assert "USER devuser" in fragment
+
+
+def test_idegym_server_from_git_render_requires_url():
+    plugin = IdeGYMServer(source="git", url=None)
+    ctx = BuildContext(base="debian:bookworm-slim")
+    with raises(ValueError, match="requires a URL"):
+        plugin.render(ctx)
+
+
+def test_idegym_server_from_git_serialize_round_trip():
+    plugin = IdeGYMServer.from_git(url="https://github.com/owner/idegym.git", ref="main")
+    payload = serialize_plugin(plugin)
+    restored = deserialize_plugin(payload)
+    assert type(restored) is IdeGYMServer
+    assert restored == plugin

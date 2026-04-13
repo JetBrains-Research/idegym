@@ -6,6 +6,7 @@ from idegym.api.docker import BaseImage
 from idegym.api.download import Authorization, DownloadRequest
 from idegym.api.git import GitRepositoryResource, GitRepositorySnapshot
 from idegym.image.docker_service import DockerService
+from idegym.utils.hashing import md5
 from python_on_whales import Image as DockerImage
 
 
@@ -31,7 +32,8 @@ class IdeGYMDockerAPI:
             auth=auth if auth is not None else Authorization(),
         )
         labels = self._docker_service.labels(project)
-        image_version = self._docker_service.hash(project)
+        commands_str = "\n".join(commands) if commands and not isinstance(commands, str) else (commands or "")
+        image_version = md5(self._docker_service.hash(project), base.value, commands_str)
         return self._docker_service.build(
             request=request,
             image_version=image_version,

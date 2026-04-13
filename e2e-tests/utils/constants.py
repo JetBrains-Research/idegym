@@ -38,3 +38,8 @@ HEALTH_CHECK_INTERVAL = 10
 
 # Pod labels
 ORCHESTRATOR_APP_LABEL = "orchestrator"
+
+# PostgreSQL
+POSTGRESQL_APP_LABEL = "postgresql"
+POSTGRESQL_USER = "postgres"
+POSTGRESQL_DB = "idegym"
