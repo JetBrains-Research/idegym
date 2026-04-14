@@ -44,7 +44,7 @@ logger = get_logger(__name__)
 
 
 @executes_operation_in_background
-@router.post("/api/idegym-servers")
+@router.post("/api/idegym-servers", status_code=status.HTTP_202_ACCEPTED)
 @handle_server_exceptions(server_operation_description="starting IdeGYM server")
 async def start_server(request: StartServerRequest, low_level_request: Request):
     logger.info(f"Received start request for {request.image_tag} for client ID {request.client_id}")
@@ -64,7 +64,7 @@ async def start_server(request: StartServerRequest, low_level_request: Request):
 
 
 @executes_operation_in_background
-@router.delete("/api/idegym-servers")
+@router.delete("/api/idegym-servers", status_code=status.HTTP_202_ACCEPTED)
 @handle_server_exceptions(server_operation_description="stopping IdeGYM server")
 async def stop_server(request: StopServerRequest):
     logger.info(f"Received stop request for server ID {request.client_id} for client ID {request.client_id}")
@@ -106,7 +106,7 @@ async def finish_server(request: FinishServerRequest):
 
 
 @executes_operation_in_background
-@router.post("/api/idegym-servers/restart")
+@router.post("/api/idegym-servers/restart", status_code=status.HTTP_202_ACCEPTED)
 @handle_server_exceptions("restarting IdeGYM server")
 async def restart_server(request: RestartServerRequest):
     server = await validate_server(client_id=request.client_id, server_id=request.server_id)

@@ -29,6 +29,7 @@ Think of it as **GitHub Codespaces for RL training** — but designed for thousa
 | [Full Flow Example](documentation/full_flow_example.md) | End-to-end walkthrough: build an image, start a server, run a command |
 | [E2E Tests](e2e-tests/README.md) | Running the end-to-end test suite on Minikube |
 | [Orchestrator API](orchestrator/README.md) | REST API reference for the orchestrator service |
+| [HTTP Error Codes](documentation/http_error_codes.md) | HTTP status codes for orchestrator and server endpoints |
 
 ## Quick Start
 

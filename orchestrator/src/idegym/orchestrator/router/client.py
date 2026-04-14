@@ -2,7 +2,7 @@ import asyncio
 from os import environ as env
 from uuid import UUID
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Response, status
 from idegym.api.orchestrator.clients import (
     AvailabilityStatus,
     FinishClientRequest,
@@ -20,6 +20,7 @@ from idegym.orchestrator.database.helpers import (
     safely_register_new_client_in_db,
     update_client_status,
     update_operation_status,
+    update_operation_with_error,
     update_server_status,
     validate_client,
 )
@@ -43,11 +44,11 @@ async def accept_client_heartbeat(request: SendClientHeartbeatRequest):
 @executes_operation_in_background
 @router.post("/api/clients")
 @handle_general_exceptions(error_message="Failed to register client")
-async def register_client(request: RegisterClientRequest, low_level_request: Request):
+async def register_client(request: RegisterClientRequest, low_level_request: Request, http_response: Response):
     client, spin_up_nodes = await safely_register_new_client_in_db(
         name=request.name, nodes_count=request.nodes_count, namespace=request.namespace
     )
-    response = RegisteredClientResponse.model_validate(client, from_attributes=True)
+    client_response = RegisteredClientResponse.model_validate(client, from_attributes=True)
     if spin_up_nodes:
         async_operation_id = await create_async_operation(
             async_operation_type=AsyncOperationType.REGISTER_CLIENT_WITH_NODES,
@@ -62,12 +63,13 @@ async def register_client(request: RegisterClientRequest, low_level_request: Req
                 async_operation_id=async_operation_id,
             )
         )
-        return response.model_copy(update={"operation_id": async_operation_id})
-    return response
+        http_response.status_code = status.HTTP_202_ACCEPTED
+        return client_response.model_copy(update={"operation_id": async_operation_id})
+    return client_response
 
 
 @executes_operation_in_background
-@router.delete("/api/clients")
+@router.delete("/api/clients", status_code=status.HTTP_202_ACCEPTED)
 @handle_general_exceptions(error_message="Failed to stop client")
 async def stop_client(request: StopClientRequest):
     await validate_client(client_id=request.client_id)
@@ -93,12 +95,12 @@ async def stop_client(request: StopClientRequest):
 async def finish_client(request: FinishClientRequest):
     await validate_client(client_id=request.client_id)
     servers_info = await find_alive_servers(client_id=request.client_id)
-    for server_id, server_name in servers_info:
+    for server_info in servers_info:
         try:
-            await update_server_status(server_id=server_id, availability_status=AvailabilityStatus.FINISHED)
+            await update_server_status(server_id=server_info["id"], availability_status=AvailabilityStatus.FINISHED)
         except Exception:
             logger.exception(
-                f"Error finishing IdeGYM server {server_name} with ID {server_id} for client ID {request.client_id}"
+                f"Error finishing IdeGYM server {server_info['generated_name']} with ID {server_info['id']} for client ID {request.client_id}"
             )
 
     updated_client = await update_client_status(
@@ -163,11 +165,18 @@ async def _task_stop_client(servers_info, client_id: UUID, namespace: str, async
     failed_to_release_nodes = await change_number_of_spun_nodes(client_id=client_id, namespace=namespace)
     has_deletion_errors = has_deletion_errors | failed_to_release_nodes
 
-    status = AvailabilityStatus.DELETION_FAILED if has_deletion_errors else AvailabilityStatus.STOPPED
+    client_status = AvailabilityStatus.DELETION_FAILED if has_deletion_errors else AvailabilityStatus.STOPPED
 
-    updated_client = await update_client_status(client_id=client_id, availability_status=status)
-    await update_operation_status(
-        async_operation_id=async_operation_id,
-        async_operation_status=AsyncOperationStatus.SUCCEEDED,
-        result=RegisteredClientResponse.model_validate(updated_client, from_attributes=True),
-    )
+    updated_client = await update_client_status(client_id=client_id, availability_status=client_status)
+    if has_deletion_errors:
+        await update_operation_with_error(
+            async_operation_id=async_operation_id,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            body="One or more servers or nodes failed to stop. Check individual server statuses for details.",
+        )
+    else:
+        await update_operation_status(
+            async_operation_id=async_operation_id,
+            async_operation_status=AsyncOperationStatus.SUCCEEDED,
+            result=RegisteredClientResponse.model_validate(updated_client, from_attributes=True),
+        )
