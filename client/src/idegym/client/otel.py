@@ -26,7 +26,7 @@ def instrument(
     config: OTELConfig,
 ):
     if not config.tracing.enabled:
-        logger.info("Endpoint for sending traces not specified! Skipping instrumentation...")
+        logger.info("Tracing not enabled. Skipping instrumentation.")
         return
 
     if not http_client_instrumentor:

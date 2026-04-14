@@ -8,10 +8,6 @@ class APIPath(StrEnum):
 
 
 class ActuatorPath(APIPath):
-    """
-    API path constants for the actuator API.
-    """
-
     HEALTH = "/health"
     LOG = "/log"
     METRICS = "/metrics"
@@ -19,19 +15,12 @@ class ActuatorPath(APIPath):
 
 
 class OpenenvPath(APIPath):
-    """
-    API path constants for the OpenEnv server API.
-    These are used to deploy OpenEnv servers with IdeGYM without using the IdeGYM API.
-    """
+    """Path constants for OpenEnv servers deployed alongside IdeGYM without the IdeGYM API."""
 
     HEALTH = "/health"
 
 
 class FSPath(APIPath):
-    """
-    API path constants for the filesystem API.
-    """
-
     LIST_DIRECTORY = "/fs/ls"
     READ_FILE = "/fs/cat"
     CREATE_FILE = "/fs/touch"
@@ -40,28 +29,16 @@ class FSPath(APIPath):
 
 
 class ProjectPath(APIPath):
-    """
-    API path constants for the project API.
-    """
-
     RESET = "/project/reset"
 
 
 class RewardsPath(APIPath):
-    """
-    API path constants for the rewards API.
-    """
-
     SETUP = "/rewards/setup"
     COMPILATION = "/rewards/compilation"
     TEST = "/rewards/test"
 
 
 class ToolsPath(APIPath):
-    """
-    API path constants for the tools API.
-    """
-
     BASH = "/tools/bash"
     CREATE_FILE = "/tools/file/create"
     EDIT_FILE = "/tools/file/edit"

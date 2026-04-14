@@ -1,5 +1,6 @@
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Union
+from typing import Optional
 
 import yaml
 from idegym.api.docker import BaseImage
@@ -11,10 +12,6 @@ from python_on_whales import Image as DockerImage
 
 
 class IdeGYMDockerAPI:
-    """
-    API for Docker operations including building and pushing images.
-    """
-
     def __init__(self, registry: Optional[str] = None):
         self._docker_service = DockerService(registry=registry) if registry else DockerService()
         self._docker_service.login()
@@ -24,8 +21,8 @@ class IdeGYMDockerAPI:
         project: GitRepositoryResource | GitRepositorySnapshot,
         base: BaseImage = BaseImage.DEFAULT,
         auth: Optional[Authorization] = None,
-        commands: Union[None, str, Iterable[str]] = None,
-        platforms: Optional[List[str]] = None,
+        commands: None | str | Iterable[str] = None,
+        platforms: Optional[list[str]] = None,
     ) -> DockerImage:
         request = DownloadRequest(
             descriptor=project.descriptor(),
@@ -62,10 +59,10 @@ class IdeGYMDockerAPI:
         path: Path,
         multiplatform: bool = True,
         push: bool = False,
-    ) -> List[DockerImage]:
+    ) -> list[DockerImage]:
         images = []
         with open(path, "r") as file:
-            pipeline: Dict[str, List[Dict[str, ...]]] = yaml.safe_load(file)
+            pipeline: dict[str, list[dict]] = yaml.safe_load(file)
             items = pipeline.get("images", [])
             for item in items:
                 auth = item.pop("auth", {})

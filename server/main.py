@@ -59,7 +59,6 @@ HTTPXClientInstrumentor().instrument()
 FastAPIInstrumentor().instrument_app(app)
 UvicornInstrumentor().instrument()
 
-
 # TODO: Load traceback inclusion from an environment variable
 
 

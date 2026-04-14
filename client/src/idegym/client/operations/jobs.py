@@ -2,7 +2,7 @@ import asyncio
 import time
 from asyncio import sleep
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 from idegym.api.orchestrator.build import BuildFromYamlRequest, BuildFromYamlResponse, BuildJobsSummary
 from idegym.api.orchestrator.jobs import JobPollResult, JobStatusResponse
@@ -45,7 +45,7 @@ class JobOperations:
 
         logger.info(f"Started {len(job_names)} build jobs")
 
-        jobs_results: List[JobPollResult] = []
+        jobs_results: list[JobPollResult] = []
         for job_name in job_names:
             jobs_results.append(await self.wait_for_job(job_name, poll_interval, timeout))
 

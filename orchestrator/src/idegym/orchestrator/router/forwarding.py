@@ -1,7 +1,7 @@
 import asyncio
 from asyncio import CancelledError
 from os import environ as env
-from typing import Dict, Optional
+from typing import Optional
 from uuid import UUID
 
 import websockets
@@ -81,9 +81,7 @@ def construct_forwarding_payload(
     server_id: int,
     service_port: int = 80,
 ):
-    # Build target URL first
     target_url = f"http://{_build_server_host(generated_name, namespace)}:{service_port}/{path}"
-    # Prepare headers for forwarding
     headers = request.headers.mutablecopy()
     del headers["Host"]
     del headers["Authorization"]
@@ -99,9 +97,8 @@ def construct_forwarding_payload(
 
 async def parse_request_body(request: Request) -> str:
     if request.method not in ["POST", "PUT", "PATCH"]:
-        return ""  # Methods without body have nothing to read
+        return ""
 
-    # Read body for logging and persistence
     body = await request.body()
     logger.info(f"Request body size: {len(body)} bytes")
 
@@ -126,7 +123,7 @@ async def _task_forward_request(
         )
 
         if status_code >= 400:
-            if status_code < 500:  # IdeGYM responded that request is incorrect
+            if status_code < 500:  # 4xx means the server processed the request; update heartbeat
                 need_to_update_server_heartbeat = True
 
             await update_operation_with_error(
@@ -157,7 +154,7 @@ async def _task_forward_request(
         await update_operation_with_error(
             async_operation_id=async_operation_id,
             async_operation_status=AsyncOperationStatus.CANCELLED,
-            status_code=499,  # there is no HTTPStatus code for 499 - client closed the request
+            status_code=499,  # non-standard: client closed the connection
             body=message,
         )
 
@@ -176,7 +173,7 @@ async def _task_forward_request(
 
 async def forward_request_internally(
     forward_payload: ForwardRequestPayload, http_client: AsyncClient
-) -> tuple[int, Dict[str, str], str]:
+) -> tuple[int, dict[str, str], str]:
     logger.info(f"Forwarding to: {forward_payload.target_url}")
 
     async with http_client.stream(
@@ -206,7 +203,6 @@ async def forward_websocket(websocket: WebSocket, client_id: UUID, server_id: in
     target_host = _build_server_host(server.generated_name, server.namespace)
     target_url = f"ws://{target_host}:{server.service_port}/ws"
     await websocket.accept()
-    # Update server heartbeat on WebSocket connection
     await update_server_status(server_id=server_id, availability_status=AvailabilityStatus.ALIVE)
 
     async with websockets.connect(target_url) as upstream:
@@ -225,7 +221,6 @@ async def forward_websocket(websocket: WebSocket, client_id: UUID, server_id: in
             try:
                 async for message in upstream:
                     await websocket.send_text(message if isinstance(message, str) else message.decode())
-                    # Update server heartbeat for every message received from the upstream server
                     await update_server_status(server_id=server_id, availability_status=AvailabilityStatus.ALIVE)
             except (WebSocketDisconnect, ConnectionClosed):
                 pass

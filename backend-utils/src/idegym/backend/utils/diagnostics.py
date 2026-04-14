@@ -1,13 +1,13 @@
 from asyncio import Task, all_tasks, sleep
 from types import FrameType
-from typing import Dict, Iterable, Union
+from typing import Iterable, Union
 
 from idegym.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-FrameDump = Dict[str, Union[int, str, ...]]
-TaskDump = Dict[str, Union[bool, str, Iterable[FrameDump]]]
+FrameDump = dict[str, Union[int, str, ...]]
+TaskDump = dict[str, Union[bool, str, Iterable[FrameDump]]]
 
 
 def dump_tasks() -> Iterable[TaskDump]:
@@ -18,9 +18,7 @@ def dump_task(task: Task) -> TaskDump:
     coroutine = task.get_coro()
     stack = [dump_frame(frame) for frame in task.get_stack()]
 
-    # Try to extract the coroutine name if available.
-    # For coroutine objects, `cr_code` is typically present.
-    # But we fall back to qualified or class name just in case...
+    # cr_code is present on coroutine objects but not all awaitables; fall back to qualname/class name
     coroutine_name: str = (
         coroutine.cr_code.co_name
         if getattr(coroutine, "cr_code", None)

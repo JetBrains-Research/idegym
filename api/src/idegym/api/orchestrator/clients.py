@@ -30,36 +30,38 @@ class AvailabilityStatus(StrEnum):
 
 
 class RegisterClientRequest(BaseModel):
-    name: str = Field(description="Generic name for the client")
-    nodes_count: int = Field(default=0, description="Number of nodes to spin up for the client", ge=0)
-    namespace: str = Field(default="idegym", description="Kubernetes namespace for the client")
+    name: str = Field(description="Human-readable name for the client")
+    nodes_count: int = Field(default=0, ge=0, description="Number of nodes to spin up for the client")
+    namespace: str = Field(default="idegym")
 
 
 class SendClientHeartbeatRequest(BaseModel):
-    client_id: UUID = Field(description="Client ID")
-    availability: AvailabilityStatus = Field(default=AvailabilityStatus.ALIVE, description="Client availability status")
+    client_id: UUID
+    availability: AvailabilityStatus = Field(default=AvailabilityStatus.ALIVE)
 
 
 class StopClientRequest(BaseModel):
-    client_id: UUID = Field(description="Client ID")
-    namespace: str = Field(default="idegym", description="Kubernetes namespace for the client")
+    client_id: UUID
+    namespace: str = Field(default="idegym")
 
 
 class StopClientResponse(BaseModel):
-    operation_id: Optional[int] = Field(default=None, description="Async operation ID related to this response")
+    operation_id: Optional[int] = Field(default=None, description="Async operation ID to poll for client stop status")
 
 
 class FinishClientRequest(BaseModel):
-    client_id: UUID = Field(description="Client ID")
-    namespace: str = Field(default="idegym", description="Kubernetes namespace for the client")
+    client_id: UUID
+    namespace: str = Field(default="idegym")
 
 
 class RegisteredClientResponse(BaseModel):
-    id: UUID = Field(description="Client ID")
-    name: str = Field(default=None, description="Client name")
-    nodes_count: int = Field(description="Nodes count", ge=0)
-    namespace: str = Field(description="Namespace")
-    last_heartbeat_time: int = Field(description="Last heartbeat time (ms)")
-    availability: str = Field(description="Availability")
-    created_at: int = Field(description="Creation time (ms)")
-    operation_id: Optional[int] = Field(default=None, description="Async operation ID related to this response")
+    id: UUID
+    name: str = Field(default=None)
+    nodes_count: int = Field(ge=0)
+    namespace: str
+    last_heartbeat_time: int = Field(description="Epoch milliseconds")
+    availability: str
+    created_at: int = Field(description="Epoch milliseconds")
+    operation_id: Optional[int] = Field(
+        default=None, description="Async operation ID to poll for client registration status"
+    )

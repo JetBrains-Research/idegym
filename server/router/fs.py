@@ -1,8 +1,6 @@
 from typing import Annotated, Optional
 
 from anyio import Path
-
-# noinspection PyShadowingBuiltins
 from anyio import open_file as open
 from dependency_injector.wiring import Provide, inject
 from fastapi import APIRouter, Depends, HTTPException, status

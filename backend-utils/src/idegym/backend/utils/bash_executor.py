@@ -6,7 +6,7 @@ from asyncio import TimeoutError as AsyncTimeoutError
 from asyncio.subprocess import Process
 from importlib.resources import files
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional
 
 from idegym.backend import resources
 from idegym.backend.utils.environment import cleanenv
@@ -18,14 +18,10 @@ __BASH_INIT_FILEPATH__ = files(resources).joinpath("bash-integration.bash")
 
 
 class BashExecutorError(Exception):
-    """Base exception for BashExecutor errors."""
-
     pass
 
 
 class BashCommandExecutionTimeoutError(BashExecutorError):
-    """Raised when bash command execution times out."""
-
     pass
 
 
@@ -51,17 +47,17 @@ class BashExecutor:
         command: str,
         timeout: Optional[float] = 600.0,
         graceful_termination_timeout: float = 2.0,
-    ) -> Tuple[str, str, int]:
+    ) -> tuple[str, str, int]:
         """
-        Executes a bash command asynchronously with optional timeout.
+        Execute a bash command asynchronously.
 
-        Args:
-            command: The command to execute.
-            timeout: Timeout in seconds.
-            graceful_termination_timeout: Timeout in seconds for graceful process termination.
+        The command runs inside a bash-integration environment (sourced from a
+        bundled init script) in a clean subprocess environment with IdeGYM-specific
+        variables stripped. The process is started in its own process group so the
+        entire group can be killed on timeout.
 
-        Returns:
-            A tuple of (stdout, stderr, exit_code).
+        Returns a tuple of (stdout, stderr, exit_code).
+        Raises BashCommandExecutionTimeoutError if the timeout is exceeded.
         """
         logger.info(f"Executing bash command: {command}")
 

@@ -19,5 +19,6 @@ class CompilationChecker:
         if exit_code == 0:
             return {"status": Status.SUCCESS, "output": ""}
         else:
+            # "e:" prefix is the Kotlin compiler error marker; filters noise from Gradle output
             error_lines = "\n".join(line for line in stderr.splitlines() if line.startswith("e:"))
             return {"status": Status.FAILURE, "output": error_lines}

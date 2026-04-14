@@ -1,7 +1,7 @@
 from asyncio import CancelledError, gather, sleep, timeout
 from contextlib import asynccontextmanager
 from random import getrandbits
-from typing import Any, AsyncGenerator, Awaitable, Callable, Dict, Iterable, Optional, Tuple, Union
+from typing import Any, AsyncGenerator, Awaitable, Callable, Iterable, Optional, Union
 
 from idegym.api import __version__
 from idegym.api.download import DownloadRequest
@@ -63,14 +63,14 @@ from kubernetes_asyncio.config import (
     load_kube_config,
 )
 
-KubernetesV1Apis = Tuple[AppsV1Api, BatchV1Api, CoreV1Api, PolicyV1Api]
+KubernetesV1Apis = tuple[AppsV1Api, BatchV1Api, CoreV1Api, PolicyV1Api]
 
 V1ResourceList = Union[V1ConfigMapList, V1DeploymentList, V1PodDisruptionBudgetList, V1ServiceList]
 
 logger = get_logger(__name__)
 
 
-def get_server_probe_config(server_kind: ServerKind, container_port: int) -> Tuple[str, Dict[str, str]]:
+def get_server_probe_config(server_kind: ServerKind, container_port: int) -> tuple[str, dict[str, str]]:
     """
     Return health probe path and Prometheus annotations for a server deployment.
     OpenEnv servers use a different health path and have no metrics endpoint.
@@ -110,19 +110,13 @@ async def create_clients() -> KubernetesV1Apis:
 
 @asynccontextmanager
 async def async_kube_api() -> AsyncGenerator[KubernetesV1Apis, Any]:
-    """
-    Load all Kubernetes API clients.
-
-    Returns:
-        Tuple of AppsV1Api, BatchV1Api, CoreV1Api, and PolicyV1Api clients
-    """
     yield await create_clients()
 
 
-def to_env_var(dictionary: Dict[str, Any]) -> V1EnvVar:
+def to_env_var(dictionary: dict[str, Any]) -> V1EnvVar:
     name: Optional[str] = dictionary.get("name")
     value: Optional[str] = dictionary.get("value")
-    value_from: Optional[Dict[str, Any]] = dictionary.get("valueFrom")
+    value_from: Optional[dict[str, Any]] = dictionary.get("valueFrom")
 
     if not value_from:
         return V1EnvVar(
@@ -130,7 +124,7 @@ def to_env_var(dictionary: Dict[str, Any]) -> V1EnvVar:
             value=value,
         )
 
-    kwargs: Dict[str, Any] = {}
+    kwargs: dict[str, Any] = {}
 
     if "secretKeyRef" in value_from and value_from["secretKeyRef"]:
         secret_key_ref = value_from["secretKeyRef"]
@@ -171,13 +165,12 @@ def to_env_var(dictionary: Dict[str, Any]) -> V1EnvVar:
 
 
 async def load_kubernetes_config():
-    """Initialize the Kubernetes configurations."""
     try:
         load_incluster_config()
         logger.info("Loaded in-cluster Kubernetes configuration!")
         return
     except ConfigException:
-        pass  # In-cluster config wasn't found, try local instead...
+        pass
 
     try:
         loader = await load_kube_config()
@@ -200,25 +193,16 @@ async def deploy_server(
     container_port: int = 8000,
     runtime_class_name: Optional[str] = None,
     run_as_root: bool = False,
-    node_selector: Optional[Dict[str, str]] = None,
-    resources: Union[V1ResourceRequirements, Dict[str, Any], None] = None,
-    environment_variables: Iterable[Union[V1EnvVar, Dict[str, Any]]] = (),
+    node_selector: Optional[dict[str, str]] = None,
+    resources: Union[V1ResourceRequirements, dict[str, Any], None] = None,
+    environment_variables: Iterable[Union[V1EnvVar, dict[str, Any]]] = (),
     server_kind: ServerKind = ServerKind.IDEGYM,
 ):
     """
-    Deploy a server in Kubernetes.
+    Create a Kubernetes Deployment, Service, and PodDisruptionBudget for a server.
 
-    Args:
-        image_tag: Docker image tag
-        server_name: Name for the server
-        service_port: Service port
-        container_port: Container port
-        namespace: Kubernetes namespace
-        runtime_class_name: Kubernetes runtime class name
-        run_as_root: Run container as root
-        node_selector: Node selector for deployment
-        resources: Kubernetes resource requirements (can be a V1ResourceRequirements object or a dictionary)
-        environment_variables: Environment variables to set in the container (can be a V1EnvVar object or a dictionary)
+    The Service and PDB are created with the Deployment as their owner reference so
+    they are garbage-collected when the Deployment is deleted.
     """
     logger.debug(f"Deploying '{server_name}' in namespace '{namespace}' with runtime class '{runtime_class_name}'.")
 
@@ -229,11 +213,9 @@ async def deploy_server(
         run_as_group=uid,
     )
 
-    # Convert dictionary resources to V1ResourceRequirements if needed
     if resources and isinstance(resources, dict):
         resources = V1ResourceRequirements(**resources)
 
-    # Convert environment variables to V1EnvVar objects if needed
     env = [
         environment_variable if isinstance(environment_variable, V1EnvVar) else to_env_var(environment_variable)
         for environment_variable in environment_variables
@@ -373,18 +355,11 @@ async def wait_for_pods_ready(
     label_selector: str, namespace: str, wait_timeout: int = 60, max_image_pull_attempts: int = 3
 ):
     """
-    Wait for pods to be ready.
+    Poll until all matching pods are Running and ready.
 
-    Will fail fast if image pull errors are detected 3 times in a row.
-
-    Args:
-        label_selector: Label selector for pods
-        namespace: Kubernetes namespace
-        wait_timeout: Timeout in seconds
-        max_image_pull_attempts: How many consecutive image pull errors are allowed before failing fast
-
-    Raises:
-        Exception: If image pull errors are detected max_image_pull_attempts times in a row
+    Fails fast if image pull errors occur `max_image_pull_attempts` times in a row,
+    or if pods remain Unschedulable for ~30 seconds (~15 consecutive checks at 2 s interval).
+    Raises asyncio.TimeoutError if `wait_timeout` seconds elapse without all pods becoming ready.
     """
     consecutive_image_pull_errors = 0
     consecutive_unschedulable = 0
@@ -418,7 +393,6 @@ async def wait_for_pods_ready(
                         f"Failed to start pods: Image pull errors detected {max_image_pull_attempts} times in a row"
                     )
             else:
-                # Reset counter if no image pull errors
                 consecutive_image_pull_errors = 0
 
             await sleep(2)
@@ -426,18 +400,10 @@ async def wait_for_pods_ready(
 
 async def pods_are_ready(label_selector: str, namespace: str) -> tuple[bool, bool, bool, bool]:
     """
-    Check if pods are ready.
+    Return (pods_ready, has_image_pull_error, has_terminating_pods, has_unschedulable_pods).
 
-    Args:
-        label_selector: Label selector for pods
-        namespace: Kubernetes namespace
-
-    Returns:
-        Tuple of (pods_ready, has_image_pull_error, has_terminating_pods, has_unschedulable_pods):
-        - pods_ready: True if all pods are ready, False otherwise
-        - has_image_pull_error: True if any pod has an image pull error, False otherwise
-        - has_terminating_pods: True if any pod is being terminated
-        - has_unschedulable_pods: True if any pod cannot be scheduled
+    Terminating pods are excluded from the readiness check but their presence is reported
+    so callers can wait for them to disappear before considering the deployment stable.
     """
 
     async with async_kube_api() as (_, _, core, _):
@@ -486,16 +452,7 @@ async def pods_are_ready(label_selector: str, namespace: str) -> tuple[bool, boo
 
 
 async def are_any_pods_alive(label_selector: str, namespace: str) -> bool:
-    """
-    Check if any pods are alive and keeping resources.
-
-    Args:
-        label_selector: Label selector for pods
-        namespace: Kubernetes namespace
-
-    Returns:
-        If there are any pods that are alive, return True. Otherwise, return False.
-    """
+    """Return True if at least one non-terminating Running pod matches the selector."""
 
     async with async_kube_api() as (_, _, core, _):
         pods = (await core.list_namespaced_pod(namespace=namespace, label_selector=label_selector)).items
@@ -516,17 +473,10 @@ async def delete_with_retries(
     max_retries: int = 3,
 ) -> bool:
     """
-    Generic function to delete a Kubernetes resource with retries and exponential backoff.
+    Delete a Kubernetes resource with exponential-backoff retries.
 
-    Args:
-        delete_func: The function to call to delete the resource
-        resource_type: Type of resource (for logging)
-        resource_name: Name of the resource
-        namespace: Kubernetes namespace
-        max_retries: Maximum number of retry attempts
-
-    Returns:
-        bool: True if deletion was successful, False otherwise
+    Returns True on success or if the resource was already gone (404). Returns False
+    if all attempts are exhausted. Re-raises CancelledError immediately.
     """
     for attempt in range(max_retries):
         try:
@@ -547,7 +497,7 @@ async def delete_with_retries(
                 return True
 
             if attempt < max_retries - 1:
-                backoff = 2**attempt  # Exponential backoff
+                backoff = 2**attempt
                 logger.warning(
                     f"Error deleting {resource_type} '{resource_name}': "
                     f"{ex.__class__.__name__}: {str(ex)}. "
@@ -567,17 +517,10 @@ async def exists_with_retries(
     max_retries: int = 3,
 ) -> bool:
     """
-    Generic function to query a Kubernetes resource with retries and exponential backoff.
+    Check whether a named Kubernetes resource exists, with exponential-backoff retries.
 
-    Args:
-        query_func: The function to call to query the resource
-        resource_name: Name of the resource
-        resource_type: Type of resource (for logging)
-        namespace: Kubernetes namespace
-        max_retries: Maximum number of retry attempts
-
-    Returns:
-        bool: True if the resource exists, False otherwise
+    Returns True if found, False if not found or all attempts are exhausted.
+    Re-raises CancelledError immediately.
     """
     for attempt in range(max_retries):
         try:
@@ -590,7 +533,7 @@ async def exists_with_retries(
             raise
         except Exception as ex:
             if attempt < max_retries - 1:
-                backoff = 2**attempt  # Exponential backoff
+                backoff = 2**attempt
                 logger.warning(
                     f"Error querying {resource_type} '{resource_name}': "
                     f"{ex.__class__.__name__}: {str(ex)}. "
@@ -610,20 +553,7 @@ async def check_and_delete(
     namespace: str,
     max_retries: int = 3,
 ) -> bool:
-    """
-    Checks if a resource exists and deletes it if it does.
-
-    Args:
-        query_func: The function to call to query the resource
-        delete_func: The function to call to delete the resource
-        resource_name: Name of the resource
-        resource_type: Type of resource (for logging)
-        namespace: Kubernetes namespace
-        max_retries: Maximum number of retry attempts for each operation
-
-    Returns:
-        bool: True if deletion was successful, False otherwise
-    """
+    """Delete a resource if it exists. Returns True if absent or successfully deleted."""
     exists = await exists_with_retries(
         query_func=query_func,
         resource_name=resource_name,
@@ -647,12 +577,9 @@ async def check_and_delete(
 
 async def clean_up_server(name: str, namespace: str, max_retries: int = 3):
     """
-    Clean up a created server: delete the deployment, service, and pod disruption budget.
+    Delete the Deployment for a server (Service and PDB are garbage-collected via owner references).
 
-    Args:
-        name: Name of the server
-        namespace: Kubernetes namespace
-        max_retries: Maximum number of retry attempts for each operation
+    Raises ResourceDeletionFailedException if the Deployment cannot be deleted.
     """
     async with async_kube_api() as (apps, _, _, _):
         if not await check_and_delete(
@@ -668,20 +595,13 @@ async def clean_up_server(name: str, namespace: str, max_retries: int = 3):
 
 async def restart_pods(name: str, namespace: str, wait_timeout: int = 60, max_retries: int = 3):
     """
-    Restart pods associated with a deployment without deleting the service or deployment.
+    Restart pods for a deployment by deleting them individually and waiting for replacements.
 
-    This deletes each pod individually and waits for Kubernetes to create new pods,
-    maintaining the same service and deployment configuration.
-
-    Args:
-        name: Name of the deployment
-        namespace: Kubernetes namespace
-        wait_timeout: Timeout in seconds for waiting for pods to be ready
-        max_retries: Maximum number of retry attempts for each pod deletion
+    The Deployment and Service are left intact; only the pods are deleted so Kubernetes
+    recreates them from the existing Deployment spec.
     """
     try:
         async with async_kube_api() as (apps, _, core, _):
-            # Get pods with the label selector app=name (matching the deployment's selector)
             label_selector = f"app={name}"
             pods = (await core.list_namespaced_pod(namespace=namespace, label_selector=label_selector)).items
 
@@ -689,13 +609,11 @@ async def restart_pods(name: str, namespace: str, wait_timeout: int = 60, max_re
                 logger.warning(f"No pods found for deployment '{name}' in namespace '{namespace}'")
                 return
 
-            # Delete each pod individually with retries
             for pod in pods:
                 pod_name = pod.metadata.name
                 logger.info(f"Deleting pod '{pod_name}' in namespace '{namespace}'")
                 await delete_with_retries(core.delete_namespaced_pod, "pod", pod_name, namespace, max_retries)
 
-            # Wait for new pods to be ready using wait_for_pods_ready
             await wait_for_pods_ready(label_selector=label_selector, namespace=namespace, wait_timeout=wait_timeout)
 
         logger.info(f"Successfully restarted pods for deployment '{name}' in namespace '{namespace}'")
@@ -711,31 +629,27 @@ async def build_and_push_image_with_kaniko(
     dockerfile_content: str,
     namespace: str,
     request: Optional[DownloadRequest] = None,
-    labels: Optional[Dict[str, str]] = None,
+    labels: Optional[dict[str, str]] = None,
     ttl_seconds_after_finished: int = 300,
     runtime_class_name: Optional[str] = None,
     resources: Optional[Any] = None,
     insecure_registry: bool = False,
 ) -> str:
     """
-    Build a Docker image using kaniko in a Kubernetes job.
+    Build a Docker image using Kaniko in a Kubernetes Job and push it to a registry.
 
-    Args:
-        tag: The full image tag to use for the built image
-        service_version: Version of the service
-        dockerfile_content: Content of the Dockerfile to build
-        namespace: Kubernetes namespace
-        request: Optional download request for the project (provides archive URL/auth as build args)
-        labels: Labels to add to the image
-        ttl_seconds_after_finished: Time in seconds to automatically delete the job after it finishes (default: 300)
-        runtime_class_name: Kubernetes runtime class name (e.g., "gvisor") to use for the Kaniko pod
-        resources: Kubernetes resource requirements (can be a V1ResourceRequirements object or a dictionary)
-        insecure_registry: Allow pushing to insecure (HTTP) registries like localhost:5000 (default: False)
+    The Dockerfile is delivered via a ConfigMap mounted at /workspace. When `request` is
+    provided, the archive URL and auth credentials are passed as both build args and
+    container env vars. The ConfigMap and a PodDisruptionBudget are created as children of
+    the Job (owner references) so they are garbage-collected automatically.
 
-    Returns:
-        The job name
+    When `insecure_registry` is True the regcred secret volume is omitted and --insecure is
+    passed to Kaniko, which allows pushing to plain-HTTP registries (e.g. in-cluster registries
+    used during tests).
+
+    Returns the Job name.
     """
-    name = f"kaniko-build-{getrandbits(32):08x}"  # Generate a unique job name
+    name = f"kaniko-build-{getrandbits(32):08x}"
     args = [
         "--dockerfile=/workspace/Dockerfile",
         f"--destination={tag}",
@@ -917,16 +831,7 @@ async def build_and_push_image_with_kaniko(
 
 
 async def get_job_status(job_name: str, namespace: str) -> Status:
-    """
-    Get the status of a Kubernetes job.
-
-    Args:
-        job_name: Name of the job
-        namespace: Kubernetes namespace
-
-    Returns:
-        Status enum value representing the job status
-    """
+    """Return SUCCESS, FAILURE, or IN_PROGRESS for a Kubernetes Job. Returns FAILURE on API errors."""
     try:
         async with async_kube_api() as (_, batch, _, _):
             job = await batch.read_namespaced_job(name=job_name, namespace=namespace)

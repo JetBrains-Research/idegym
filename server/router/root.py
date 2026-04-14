@@ -3,7 +3,6 @@ from os import getpid, kill
 from signal import SIGTERM
 from typing import Annotated
 
-# noinspection PyShadowingBuiltins
 from anyio import open_file as open
 from dependency_injector.wiring import Provide, inject
 from fastapi import APIRouter, Depends, status

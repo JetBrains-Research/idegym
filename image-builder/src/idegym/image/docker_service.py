@@ -1,9 +1,9 @@
+import re
+from collections.abc import Iterable
 from os import environ as env
 from pathlib import Path
-from re import Pattern
-from re import compile as regex
 from tempfile import NamedTemporaryFile
-from typing import Any, Dict, Final, Iterable, List, Optional, Tuple, Union
+from typing import Any, Final, Optional
 from uuid import uuid4
 
 from idegym.api.docker import BaseImage, ContainerConfig
@@ -18,10 +18,10 @@ from idegym.utils.path import get_base_filename
 from python_on_whales import Container, DockerClient
 from python_on_whales import Image as DockerImage
 
-__CONTAINER_PORT__ = "8000/tcp"
-__CONTAINER_VOLUME_PATH__ = "/docker-entrypoint.d"
+_CONTAINER_PORT = "8000/tcp"
+_CONTAINER_VOLUME_PATH = "/docker-entrypoint.d"
 
-Port = Union[int, List[int], Tuple[str, int], None]
+Port = int | list[int] | tuple[str, int] | None
 logger = get_logger(__name__)
 
 
@@ -32,7 +32,7 @@ def isiterable(value: Any) -> bool:
 class DockerService:
     CLIENT: Final[DockerClient] = DockerClient()
     REGISTRY: Final[str] = "ghcr.io/jetbrains-research/idegym"
-    PATTERN: Final[Pattern] = regex("(?:\x1b[@-_]|[\x80-\x9f])[0-?]*[ -/]*[@-~]")
+    PATTERN: Final[re.Pattern] = re.compile("(?:\x1b[@-_]|[\x80-\x9f])[0-?]*[ -/]*[@-~]")
 
     def __init__(self, client: DockerClient = CLIENT, registry: str = REGISTRY):
         self._client: DockerClient = client
@@ -59,7 +59,7 @@ class DockerService:
         return md5(*identifiers)
 
     @staticmethod
-    def labels(value: GitRepository | GitRepositorySnapshot | GitRepositoryResource) -> Dict[str, str]:
+    def labels(value: GitRepository | GitRepositorySnapshot | GitRepositoryResource) -> dict[str, str]:
         match value:
             case repository if isinstance(value, GitRepository):
                 return {"idegym.repository.url": repository.url}
@@ -70,13 +70,13 @@ class DockerService:
                 labels = DockerService.labels(resource.snapshot)
                 return {**labels, "idegym.repository.resource": resource.path}
             case _:
-                raise ValueError("Unsupported type!")
+                raise ValueError(f"Unsupported type: {type(value).__name__}")
 
     def build_image(
         self,
         image,
     ) -> DockerImage:
-        compiled = image.compile()
+        compiled = image.to_spec()
         return self.build(
             request=compiled.request,
             image_version=compiled.image_version(),
@@ -94,12 +94,12 @@ class DockerService:
         image_version: str,
         image_base: Optional[str] = BaseImage.DEFAULT.value,
         service_version: str = library_version,
-        commands: Union[None, str, Iterable[str]] = None,
-        labels: Optional[Dict[str, str]] = None,
+        commands: None | str | Iterable[str] = None,
+        labels: Optional[dict[str, str]] = None,
         registry: Optional[str] = None,
         image_name: Optional[str] = None,
         context_path: str = ".",
-        platforms: Optional[List[str]] = None,
+        platforms: Optional[list[str]] = None,
         dockerfile_content: Optional[str] = None,
     ) -> DockerImage:
         commands = [] if commands is None else commands
@@ -172,14 +172,14 @@ class DockerService:
         self,
         image: DockerImage,
         port: Optional[Port] = None,
-        scripts: Optional[List[Path]] = None,
+        scripts: Optional[list[Path]] = None,
         config: Optional[ContainerConfig] = None,
     ) -> Container:
         scripts = [] if scripts is None else scripts
         configs = {} if config is None else config.model_dump()
-        volumes = [(path, f"{__CONTAINER_VOLUME_PATH__}/{path.name}", "ro") for path in scripts]
+        volumes = [(path, f"{_CONTAINER_VOLUME_PATH}/{path.name}", "ro") for path in scripts]
 
-        ports = [(port, __CONTAINER_PORT__)] if port else [(__CONTAINER_PORT__,)]
+        ports = [(port, _CONTAINER_PORT)] if port else [(_CONTAINER_PORT,)]
 
         return self._client.run(
             image=image,

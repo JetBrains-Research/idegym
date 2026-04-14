@@ -3,7 +3,7 @@ import math
 import random
 from asyncio import CancelledError, sleep
 from json import JSONDecodeError, loads
-from typing import Any, Dict, List, Optional, Type, TypeVar, Union
+from typing import Any, Optional, Type, TypeVar, Union
 from uuid import UUID
 
 from httpx import AsyncClient, HTTPStatusError
@@ -37,7 +37,9 @@ S = TypeVar("S", bound=BaseModel)
 E = TypeVar("E", bound=BaseModel)
 
 
-def retry_with_backoff(attempts: int, base_delay=0.5):
+def retry_with_backoff(attempts: int, base_delay: float = 0.5):
+    """Decorator that retries an async function with exponential backoff on any exception."""
+
     def decorator(func):
         async def wrapper(*args, **kwargs):
             retries = 0
@@ -58,12 +60,7 @@ def retry_with_backoff(attempts: int, base_delay=0.5):
 
 
 class HTTPUtils:
-    """
-    HTTP utility helper that wraps low-level request/response handling and async operation polling.
-
-    Note: This class is independent of IdeGYMHTTPClient and receives all dependencies explicitly
-    through its constructor.
-    """
+    """HTTP utility helper for request/response handling and async operation polling."""
 
     def __init__(self, http_client: AsyncClient, current_namespace: Optional[str], current_client_id: Optional[UUID]):
         self._http_client: AsyncClient = http_client
@@ -104,9 +101,9 @@ class HTTPUtils:
         method: str,
         url: str,
         body: Optional[BaseModel] = None,
-        headers: Optional[Dict[str, str]] = None,
+        headers: Optional[dict[str, str]] = None,
         request_timeout: Optional[int] = None,
-    ) -> Dict[str, Any] | List[Dict[str, Any]]:
+    ) -> dict[str, Any] | list[dict[str, Any]]:
         try:
             response = await self._http_client.request(
                 method=method,
@@ -141,7 +138,7 @@ class HTTPUtils:
             logger.exception(f"Request error: url={url} type='{ex.__class__.__name__}' error='{str(ex)}'")
             raise ex
 
-    def parse_response(self, response_raw: Dict[str, Any], model_class: Type[S]) -> S:
+    def parse_response(self, response_raw: dict[str, Any], model_class: Type[S]) -> S:
         return model_class.model_validate(response_raw)
 
     async def wait_for_async_operation_to_end(
@@ -151,6 +148,13 @@ class HTTPUtils:
         error_response_model: Type[E] = None,
         polling_config: PollingConfig = PollingConfig(),
     ) -> Union[S, E, Optional[str]]:
+        """
+        Poll ``/api/operations/status/{operation_id}`` until the operation reaches a terminal state.
+
+        Returns an instance of ``success_response_model`` on success, ``error_response_model`` on
+        failure or cancellation, or the raw result string if no model is provided.
+        Raises ``asyncio.TimeoutError`` if ``polling_config.wait_timeout_in_sec`` is exceeded.
+        """
         logger.debug(f"Polling async operation status with ID {operation_id}")
 
         async with asyncio.timeout(polling_config.wait_timeout_in_sec):

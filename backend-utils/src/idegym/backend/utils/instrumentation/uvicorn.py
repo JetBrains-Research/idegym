@@ -36,9 +36,7 @@ class UvicornInstrumentor(BaseInstrumentor):
         )
 
     def _uninstrument(self, **kwargs: Any):
-        # Keep gauges allocated.
-        # Callbacks will not yield anything
-        # if servers are not tracked.
+        # Gauges are kept allocated; callbacks simply yield nothing when no servers are tracked.
         with self._lock:
             if not self._instrumented:
                 return
@@ -51,19 +49,16 @@ class UvicornInstrumentor(BaseInstrumentor):
             if self._instrumented:
                 return
 
-            # Store original initializer to allow un-instrumenting
             self._original_server_init = Server.__init__
 
-            # Closure reference
+            # Capture self in a closure variable to avoid relying on Server.__init__ being
+            # looked up at call time (it will already be patched by then).
             instrumentor = self
 
             def patched_server_init(_self, *_args, **_kwargs):
-                # Call the original `__init__` first
                 instrumentor._original_server_init(_self, *_args, **_kwargs)
-                # Then register the instance
                 instrumentor._register_server(_self)
 
-            # Patch `Server.__init__` to register instances
             Server.__init__ = patched_server_init
 
             self._meter = get_meter(

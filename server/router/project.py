@@ -28,23 +28,21 @@ async def reset(
             status=Status.FAILURE,
             output="Can not reset project without an archive!",
         )
-    else:
-        mark = time()
-        # language=sh
-        stdout, stderr, exit_code = await bash_executor.execute_bash_command(
-            command=(
-                f"set -euo pipefail; "
-                f"mkdir -p {quote(path)}; "
-                f"find {quote(path)} -mindepth 1 -maxdepth 1 -exec rm -rf -- {{}} +; "
-                f"extract {quote(archive)} {quote(path)}"
-            ),
-            timeout=request.timeout,
-            graceful_termination_timeout=request.graceful_termination_timeout,
-        )
-        elapsed = time() - mark
-        status = Status.SUCCESS if exit_code == 0 else Status.FAILURE
-        output = f"Reset project in {elapsed:.3f} seconds." if exit_code == 0 else stderr
-        return ResetResult(
-            status=status,
-            output=output,
-        )
+    mark = time()
+    _, stderr, exit_code = await bash_executor.execute_bash_command(
+        command=(
+            f"set -euo pipefail; "
+            f"mkdir -p {quote(path)}; "
+            f"find {quote(path)} -mindepth 1 -maxdepth 1 -exec rm -rf -- {{}} +; "
+            f"extract {quote(archive)} {quote(path)}"
+        ),
+        timeout=request.timeout,
+        graceful_termination_timeout=request.graceful_termination_timeout,
+    )
+    elapsed = time() - mark
+    status = Status.SUCCESS if exit_code == 0 else Status.FAILURE
+    output = f"Reset project in {elapsed:.3f} seconds." if exit_code == 0 else stderr
+    return ResetResult(
+        status=status,
+        output=output,
+    )

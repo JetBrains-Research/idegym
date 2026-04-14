@@ -3,17 +3,17 @@ from pydantic import BaseModel, Field
 
 
 class CompilationRequest(BaseModel):
-    compilation_script: str = Field(description="Compilation script", default="./gradlew assemble")
-    timeout: float = Field(description="Timeout for the compilation", default=600.0)
+    compilation_script: str = Field(default="./gradlew assemble")
+    timeout: float = Field(default=600.0, description="Timeout for the compilation in seconds")
     graceful_termination_timeout: float = Field(
-        description="Timeout in seconds for graceful process termination", default=2.0
+        default=2.0, description="Timeout in seconds for graceful process termination"
     )
 
 
 class CompilationResult(BaseModel):
-    status: Status = Field(description="Compilation status")
-    output: str = Field(description="Compilation output")
+    status: Status
+    output: str
 
 
 class CompilationError(BaseModel):
-    message: str = Field(description="Error message")
+    message: str

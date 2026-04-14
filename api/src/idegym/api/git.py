@@ -12,9 +12,9 @@ class GitServer(StrEnum):
 
 
 class GitRepository(BaseModel):
-    server: GitServer = Field(description="Server hosting the repository")
-    owner: str = Field(description="Individual, team or organization that owns the repository", min_length=1)
-    name: str = Field(description="Name of the repository", min_length=1)
+    server: GitServer
+    owner: str = Field(min_length=1)
+    name: str = Field(min_length=1)
 
     model_config = ConfigDict(frozen=True)
 
@@ -48,9 +48,9 @@ class GitRepository(BaseModel):
 
 
 class GitRepositorySnapshot(BaseModel):
-    repository: GitRepository = Field(description="Git repository details")
+    repository: GitRepository
     reference: str = Field(
-        description="Particular reference within the repository's history, such as a branch, commit hash or tag",
+        description="Branch, tag, commit hash, or HEAD",
         pattern=r"^(HEAD|([\w\-.]+)(/[\w\-.]+)?|refs/(heads|tags|remotes)/[\w\-./]+)$",
         default="HEAD",
     )
@@ -78,8 +78,8 @@ class GitRepositorySnapshot(BaseModel):
 
 
 class GitRepositoryResource(BaseModel):
-    snapshot: GitRepositorySnapshot = Field(description="The specific snapshot of a repository")
-    path: str = Field(description="Relative path to the repository resource")
+    snapshot: GitRepositorySnapshot
+    path: str = Field(description="Relative path within the repository")
 
     model_config = ConfigDict(frozen=True)
 

@@ -58,24 +58,20 @@ def prepare_prometheus_multiprocess_dir(config: Config) -> None:
 async def lifespan(app: FastAPI):
     config: Config = app.state.config
 
-    # Load Kubernetes config
     await load_kubernetes_config()
 
-    # Initialize database
     await init_db(
         db_url=config.orchestrator.database.url,
         config=config.orchestrator.sqlalchemy,
         clean_database=config.orchestrator.database.clean_database,
     )
 
-    # Schedule cleaning task first, as it should not depend on the client...
     cleanup_task = create_task(
         name="idegym-inactive-pods-cleanup",
         coro=cleanup_inactive_pods(config.orchestrator.watcher),
     )
     logger.info("Started background task to cleanup inactive pods!")
 
-    # Start a background task to dump asyncio coroutines periodically...
     get_event_loop().set_debug(config.orchestrator.asyncio.debug)
     coroutine_dump_task = create_task(
         name="idegym-coroutine-dump",
@@ -86,7 +82,6 @@ async def lifespan(app: FastAPI):
         ),
     )
 
-    # Create the HTTP client in an `async` context manager and `yield` the `lifespan`...
     async with AsyncClient(
         timeout=Timeout(
             timeout=config.orchestrator.client_request_timeout,
@@ -106,7 +101,6 @@ async def lifespan(app: FastAPI):
         logger.info("Closing HTTP client...")
     logger.info("HTTP client closed!")
 
-    # Cancel the background tasks
     cleanup_task.cancel()
     coroutine_dump_task.cancel()
     await gather(cleanup_task, coroutine_dump_task)

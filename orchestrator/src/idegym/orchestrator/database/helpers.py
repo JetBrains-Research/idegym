@@ -33,7 +33,7 @@ logger = get_logger(__name__)
 
 
 def with_db_session(func):
-    """Decorator that provides a database session as the first argument."""
+    """Decorator that injects a database session as the first positional argument."""
 
     @wraps(func)
     async def wrapper(*args, **kwargs):
@@ -43,12 +43,8 @@ def with_db_session(func):
     return wrapper
 
 
-##### CLIENT HELPERS #####
-
-
 @with_db_session
 async def validate_client(db: AsyncSession, client_id: UUID):
-    """Validate that a client exists."""
     client = await get_client(db, client_id)
     if not client:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Client with ID {client_id} not found")
@@ -57,7 +53,7 @@ async def validate_client(db: AsyncSession, client_id: UUID):
 
 @with_db_session
 async def safely_register_new_client_in_db(db: AsyncSession, name: str, nodes_count: int, namespace: str):
-    # lock clients table during create to avoid race
+    # Table-level exclusive lock prevents two concurrent registrations for the same client name.
     await db.execute(text("LOCK TABLE clients IN EXCLUSIVE MODE"))
 
     client = await create_client(db, name, nodes_count, namespace)
@@ -80,12 +76,9 @@ async def update_client_status(db: AsyncSession, client_id: UUID, availability_s
     return client
 
 
-##### SERVER HELPERS #####
-
-
 @with_db_session
 async def validate_server(db: AsyncSession, client_id: UUID, server_id: int):
-    """Validate that a client exists and has access to a server and return server info."""
+    """Validate that the client owns the server and that it is in a usable state (ALIVE or REUSED)."""
     client = await get_client(db, client_id)
     if not client:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Client with ID {client_id} not found")
@@ -158,7 +151,6 @@ async def find_matching_finished_server_in_db(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Client with ID {request.client_id} not found"
         )
 
-    # First, check if there's an existing finished server we can reuse
     lookup_result = await find_matching_finished_server(
         db=db,
         client_name=client_name,
@@ -173,7 +165,6 @@ async def find_matching_finished_server_in_db(
     if lookup_result.server:
         logger.info(f"Found existing finished server {lookup_result.server.generated_name} that can be reused")
     elif lookup_result.blocked_by_fifo:
-        # Server exists but blocked by FIFO queue
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Server reuse blocked due to pending START_SERVER operations scheduled earlier (FIFO queue)",
@@ -204,15 +195,9 @@ async def update_server_owner(db: AsyncSession, server_id: int, client_id: UUID)
     logger.info(f"Updated IdeGYM server with ID {server_id} owner to {client_id}")
 
 
-##### BUILD HELPERS #####
-
-
 @with_db_session
 async def find_kaniko_job_status(db: AsyncSession, job_name: str):
     return await get_job_status(db, job_name)
-
-
-##### ASYNC OPERATIONS HELPERS #####
 
 
 @with_db_session
@@ -223,7 +208,6 @@ async def create_async_operation(
     server_id: Optional[int] = None,
     request: Optional[Any] = None,
 ):
-    """Create and return an id of a created async operation."""
     operation = await save_async_operation(
         db=db, async_operation_type=async_operation_type, client_id=client_id, server_id=server_id, request=request
     )

@@ -5,8 +5,8 @@ from yaml import safe_load as parse_yaml
 
 
 class BuildFromYamlRequest(BaseModel):
-    namespace: str = Field(default="idegym", description="Kubernetes namespace")
-    yaml_content: str = Field(description="YAML content containing build jobs")
+    namespace: str = Field(default="idegym")
+    yaml_content: str = Field(description="YAML content containing image build job definitions")
 
     @field_validator("yaml_content")
     def validate_yaml_content(cls, value: str) -> str:
@@ -18,14 +18,14 @@ class BuildFromYamlRequest(BaseModel):
 
 
 class BuildFromYamlResponse(BaseModel):
-    job_names: list[str] = Field(description="Started kubernetes job names")
+    job_names: list[str] = Field(description="Names of started Kubernetes build jobs")
 
 
 class BuildJobsSummary(BaseModel):
-    total_jobs: int = Field(description="Total number of started build jobs", ge=0)
-    failed_jobs: int = Field(description="Number of failed build jobs", ge=0)
-    total_time: str = Field(description="Total time elapsed to complete all jobs (e.g., '12.34s')")
-    jobs_results: list[JobPollResult] = Field(description="Final poll results for each job")
+    total_jobs: int = Field(ge=0)
+    failed_jobs: int = Field(ge=0)
+    total_time: str = Field(description="Total elapsed time, e.g. '12.34s'")
+    jobs_results: list[JobPollResult]
 
     @model_validator(mode="after")
     def validate_jobs_results(self):

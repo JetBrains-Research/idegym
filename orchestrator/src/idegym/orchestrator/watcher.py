@@ -32,14 +32,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = get_logger(__name__)
 
-# Advisory lock ID for cleanup operation.
 CLEANUP_ADVISORY_LOCK_ID = 16082
 
 
 async def _handle_server_deletion_failure(db: AsyncSession, server_id, generated_name, namespace):
     """
-    Common handler for failed Kubernetes deletion of a server's resources.
-    Decides the resulting availability status based on whether pods are still alive.
+    Determine the resulting status after a failed Kubernetes deletion attempt.
+    Sets DELETION_FAILED if pods are still alive, CRASHED if they have already gone.
     """
     any_pods_alive = await are_any_pods_alive(f"app={generated_name}", namespace)
     if any_pods_alive:
@@ -53,9 +52,8 @@ async def _handle_server_deletion_failure(db: AsyncSession, server_id, generated
 @log_exceptions("Error cleaning up servers", logger, swallow=True)
 async def cleanup_servers(db: AsyncSession, current_time: int, inactive_timeout: Duration, finished_timeout: Duration):
     """
-    Check for IdeGYM servers and remove them if they've not been active for longer than the timeout.
-    A server is considered ready for cleanup if its last heartbeat time is older than the timeout
-    or its status was set to FINISHED a long time ago.
+    Remove servers that have exceeded their inactivity or finished-state timeout.
+    FINISHED servers use a separate (typically shorter) timeout from ALIVE/REUSED ones.
     """
     statuses = {AvailabilityStatus.ALIVE, AvailabilityStatus.FINISHED, AvailabilityStatus.REUSED}
     servers = await get_idegym_servers_by_status(db, statuses)
@@ -90,10 +88,7 @@ async def cleanup_servers(db: AsyncSession, current_time: int, inactive_timeout:
 
 @log_exceptions("Error cleaning up clients", logger, swallow=True)
 async def cleanup_clients(db: AsyncSession, current_time: int, inactive_timeout: Duration):
-    """
-    Clean finished clients without finished servers linked to them.
-    Clean inactive clients if their last heartbeat time is older than the timeout.
-    """
+    """Remove clients that have been inactive or finished beyond the configured timeout."""
     statuses = {AvailabilityStatus.ALIVE, AvailabilityStatus.FINISHED}
     clients = await get_clients_by_status(db, statuses)
     logger.info(f"Found {len(clients)} clients in database with availability in {statuses}")
@@ -139,9 +134,7 @@ async def cleanup_clients(db: AsyncSession, current_time: int, inactive_timeout:
 @log_exceptions("Error cleaning up async operations", logger, swallow=True)
 async def cleanup_requests(db: AsyncSession, current_time: int, max_age: Duration, stale_inprogress: Duration):
     """
-    Cleanup async operations per policy:
-    - Remove async operations older than max_age.
-    - For IN_PROGRESS async operations older than stale_inprogress, mark as FINISHED_BY_WATCHER.
+    Delete async operations older than max_age and mark stale IN_PROGRESS ones as FINISHED_BY_WATCHER.
     """
 
     await delete_old_async_operations(db, current_time, max_age)
@@ -151,11 +144,11 @@ async def cleanup_requests(db: AsyncSession, current_time: int, max_age: Duratio
 @log_exceptions("Error checking orphaned kaniko jobs", logger, swallow=True)
 async def check_orphaned_kaniko_jobs(db: AsyncSession, namespace: str):
     """
-    Check for orphaned kaniko jobs (jobs that are marked as IN_PROGRESS in DB but have actually finished/failed in k8s).
-    This handles cases where monitor_image_building_job fails or the orchestrator restarts.
-    Also cleans up associated resources (PDB and ConfigMaps) for finished jobs.
+    Reconcile Kaniko jobs whose DB status is IN_PROGRESS but have already finished in Kubernetes.
+
+    This handles the case where monitor_image_building_job failed or the orchestrator restarted
+    before it could record the final status.
     """
-    # Get all jobs with IN_PROGRESS status from database
     query = select(JobStatusRecord).filter(JobStatusRecord.status == Status.IN_PROGRESS)
     result = await db.execute(query)
     in_progress_jobs = result.scalars().all()
@@ -165,10 +158,8 @@ async def check_orphaned_kaniko_jobs(db: AsyncSession, namespace: str):
     for job_record in in_progress_jobs:
         job_name = job_record.job_name
         try:
-            # Check actual status in Kubernetes
             k8s_status = await get_job_status(job_name, namespace)
 
-            # If status differs from IN_PROGRESS, update the database and clean up resources
             if k8s_status != Status.IN_PROGRESS:
                 logger.warning(
                     f"Orphaned job detected: '{job_name}' is IN_PROGRESS in DB but {k8s_status} in k8s. Updating..."
@@ -190,18 +181,6 @@ async def perform_cleanup_operations(
     requests_stale: Duration,
     namespace: str,
 ):
-    """
-    Perform all cleanup operations within the advisory lock.
-
-    Args:
-        db: Database session
-        current_time: Current time in milliseconds
-        inactive_timeout: Inactivity timeout (Duration)
-        finished_timeout: Timeout for finished servers (Duration)
-        requests_max_age: Max age for requests to keep (Duration)
-        requests_stale: Duration after which IN_PROGRESS requests are marked finished by watcher (Duration)
-        namespace: Kubernetes namespace to check for orphaned jobs
-    """
     # TODO: Parallelize these operations, but be aware of database sessions
     await cleanup_clients(db, current_time=current_time, inactive_timeout=inactive_timeout)
     await cleanup_servers(
@@ -212,7 +191,7 @@ async def perform_cleanup_operations(
 
 
 async def _wait_for_jitter():
-    # Add a small randomized jitter to avoid synchronized retries across replicas
+    # Randomized jitter to avoid synchronized retries across replicas when the lock is contended.
     jitter = 0.5
     try:
         jitter = random.uniform(0.2, 1.0)
@@ -224,11 +203,9 @@ async def _wait_for_jitter():
 
 async def cleanup_inactive_pods(watcher_config: WatcherConfig):
     """
-    Background task to periodically check for inactive and finished IdeGYM servers and clients and remove them.
-    Configuration is provided via WatcherConfig
-    Uses advisory locking to ensure only one cleanup process runs at a time.
+    Background loop that periodically removes inactive/finished servers and clients.
+    Uses a PostgreSQL advisory lock so that only one orchestrator replica performs cleanup at a time.
     """
-
     while True:
         logger.debug(
             f"Inactive server cleanup timeout: {watcher_config.inactive_timeout}, "
@@ -243,7 +220,6 @@ async def cleanup_inactive_pods(watcher_config: WatcherConfig):
         current_time = int(time.time() * 1000)
 
         async with get_db_session() as db:
-            # Try to acquire advisory lock
             lock_acquired = await acquire_advisory_lock(db, CLEANUP_ADVISORY_LOCK_ID)
 
             if not lock_acquired:
@@ -266,5 +242,4 @@ async def cleanup_inactive_pods(watcher_config: WatcherConfig):
             except Exception:
                 logger.exception("Error during cleanup operations")
             finally:
-                # Try to release the lock
                 await release_advisory_lock(db, CLEANUP_ADVISORY_LOCK_ID)

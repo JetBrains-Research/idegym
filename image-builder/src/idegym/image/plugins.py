@@ -3,7 +3,7 @@ import re
 from pathlib import Path
 from shlex import quote
 from textwrap import dedent
-from typing import ClassVar, Optional, Union
+from typing import ClassVar, Optional
 
 from idegym.api.download import Authorization, DownloadRequest
 from idegym.api.git import GitRepository, GitRepositoryResource, GitRepositorySnapshot
@@ -55,6 +55,16 @@ def _render_run_block(commands: list[str], *, comment: Optional[str] = None) -> 
 
 @image_plugin("base-system")
 class BaseSystem(PluginBase):
+    """Install base system packages via ``apt-get``.
+
+    Emits an ``apt-get install`` block followed by ``update-ca-certificates``.
+
+    Attributes:
+        packages: Tuple of Debian package names to install. Defaults to ``DEFAULT_PACKAGES``.
+        minimal: When ``True``, installs only ``ca-certificates`` and ``curl`` regardless of
+            the ``packages`` field.
+    """
+
     DEFAULT_PACKAGES: ClassVar[tuple[str, ...]] = (
         "bash",
         "ca-certificates",
@@ -109,6 +119,25 @@ class BaseSystem(PluginBase):
 
 @image_plugin("user")
 class User(PluginBase):
+    """Create or update a Linux user and group inside the image.
+
+    Uses idempotent shell commands: if the user/group already exists it is updated in-place,
+    so images can be layered on top of each other without conflicts.
+
+    Updates ``BuildContext.current_user`` and ``BuildContext.home`` after ``apply()``.
+
+    Attributes:
+        username: Linux username (must match ``^[a-z_][a-z0-9_-]{0,31}$``).
+        uid: Numeric user ID. Defaults to ``1000``.
+        gid: Numeric group ID. Defaults to ``1000``.
+        group: Primary group name. Defaults to ``username``.
+        home: Home directory. Defaults to ``/home/<username>``.
+        shell: Login shell. Defaults to ``/bin/bash``.
+        sudo: Add a passwordless sudoers entry when ``True`` (default).
+        create_home: Create the home directory and set ownership when ``True`` (default).
+        additional_groups: Extra groups to add the user to.
+    """
+
     username: str
     uid: int = 1000
     gid: int = 1000
@@ -206,6 +235,16 @@ class User(PluginBase):
 
 @image_plugin("permissions")
 class Permissions(PluginBase):
+    """Set file ownership and permissions inside the image.
+
+    Emits ``chown`` and ``chmod`` commands for the specified paths.
+
+    Attributes:
+        paths: Mapping from path to a config dict with optional keys ``owner``, ``group``,
+            and ``mode`` (3- or 4-digit octal string, e.g. ``"755"``). If ``group`` is
+            omitted but ``owner`` is set, the group defaults to the owner value.
+    """
+
     paths: dict[str, dict[str, Optional[str]]]
 
     @field_validator("paths")
@@ -244,6 +283,23 @@ class Permissions(PluginBase):
 
 @image_plugin("project")
 class Project(PluginBase):
+    """Fetch and place a project inside the image.
+
+    Supports several ``source`` modes:
+
+    - ``"git"`` / ``"resource"`` — download via the IdeGYM download service at runtime;
+      sets ``BuildContext.request`` and emits download+extract commands using build-arg env vars.
+      Only one ``Project`` plugin with these modes is allowed per image.
+    - ``"local"`` — emit a ``COPY`` directive from the Docker build context. No download request.
+    - ``"archive"`` — ``curl`` a static archive URL and extract it inside the container.
+    - ``"git-clone"`` — ``git clone`` directly inside the container at build time.
+
+    Use the class methods (``from_git``, ``from_resource``, ``from_local``, ``from_archive``,
+    ``from_git_clone``) rather than constructing directly.
+
+    Updates ``BuildContext.project_root`` to ``target`` (or ``<home>/work`` if unset).
+    """
+
     source: str
     url: Optional[str] = None
     ref: str = "HEAD"
@@ -491,13 +547,23 @@ def _idegym_server_tail() -> str:
 
 @image_plugin("idegym-server")
 class IdeGYMServer(PluginBase):
+    """Embed the IdeGYM server into the image.
+
+    Installs the server runtime, supervisord configuration, entrypoint scripts, and sets
+    up the container's ``CMD`` / ``HEALTHCHECK``. This plugin must be the last one in the
+    pipeline as it emits the full container entrypoint.
+
+    Use ``from_local()`` to copy from a local workspace (the build context is set to
+    ``root``), or ``from_git()`` to clone from a remote repository inside the container.
+    """
+
     source: str
     root: Optional[str] = None
     url: Optional[str] = None
     ref: Optional[str] = None
 
     @classmethod
-    def from_local(cls, root: Optional[Union[str, Path]] = None) -> "IdeGYMServer":
+    def from_local(cls, root: Optional[str | Path] = None) -> "IdeGYMServer":
         root_path = Path.cwd() if root is None else Path(root)
         return cls(source="local", root=str(root_path.expanduser().resolve()))
 
@@ -607,6 +673,18 @@ class IdeGYMServer(PluginBase):
 
 @image_plugin("pycharm")
 class PyCharm(PluginBase):
+    """Install PyCharm IDE and Java (via SDKMAN) into the image.
+
+    Installs dependencies, downloads and extracts PyCharm, then switches back to the
+    active user. The ``USER root`` / ``USER <user>`` framing means this plugin can be
+    placed anywhere in the pipeline regardless of the current user.
+
+    Attributes:
+        version: PyCharm version string in ``YYYY.N`` or ``YYYY.N.N`` format.
+        edition: ``"professional"`` (default) or ``"community"``.
+        user: Target user to switch back to after installation. Defaults to ``ctx.current_user``.
+    """
+
     version: str = "2025.3"
     edition: str = "professional"
     user: Optional[str] = None
@@ -668,15 +746,3 @@ class PyCharm(PluginBase):
             USER {user}
             """
         ).strip()
-
-
-__all__ = (
-    "BuildContext",
-    "BaseSystem",
-    "IdeGYMServer",
-    "Permissions",
-    "PluginBase",
-    "Project",
-    "PyCharm",
-    "User",
-)

@@ -176,7 +176,7 @@ class DataSize:
                 core_schema.chain_schema(
                     [
                         core_schema.int_schema(),
-                        core_schema.no_info_plain_validator_function(cls.__init__),
+                        core_schema.no_info_plain_validator_function(cls.validate),
                     ]
                 ),
                 core_schema.chain_schema(

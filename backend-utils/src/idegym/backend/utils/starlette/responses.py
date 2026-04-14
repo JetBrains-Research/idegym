@@ -1,19 +1,21 @@
 from datetime import UTC, datetime
 from traceback import format_tb
-from typing import Mapping
+from typing import Mapping, Optional
 
 from starlette.background import BackgroundTask
 from starlette.responses import JSONResponse
 
 
 class ErrorResponse(JSONResponse):
+    """JSON error response with a timestamp, message, and optional formatted traceback."""
+
     def __init__(
         self,
         exception: Exception,
         traceback: bool = True,
         status_code: int = 500,
-        headers: Mapping[str, str] | None = None,
-        background: BackgroundTask | None = None,
+        headers: Optional[Mapping[str, str]] = None,
+        background: Optional[BackgroundTask] = None,
     ) -> None:
         message = str(exception)
         timestamp = datetime.now(UTC).isoformat()

@@ -47,10 +47,10 @@ class IdeGYMServer:
     @property
     def openenv_url(self) -> str:
         """
-        Base URL for an OpenEnv EnvClient. The client will append /ws automatically.
-        OpenEnv implements a different API for each environment, and this API is contained
-        within the OpenEnvClient that each environment implements. For this reason we do not implement
-        methods to call the OpenEnv API directly - OpenEnvClient handles all the API calls.
+        Base URL for an OpenEnv ``EnvClient``. The ``EnvClient`` appends ``/ws`` automatically.
+
+        OpenEnv defines a separate API per environment type, exposed through the environment's
+        own ``EnvClient`` implementation. Use that client rather than calling this URL directly.
         """
         return f"{self._http_utils.base_url}/api/ws-forward/{self.client_id}/{self.server_id}"
 
@@ -58,7 +58,6 @@ class IdeGYMServer:
         self,
         polling_config: Optional[PollingConfig] = None,
     ) -> ServerActionResponse:
-        """Stop an IdeGYM server."""
         return await self.server.stop_server(
             server_id=self.server_id,
             client_id=self.client_id,
@@ -71,7 +70,7 @@ class IdeGYMServer:
         server_start_wait_timeout_in_seconds: int = 60,
         polling_config: Optional[PollingConfig] = None,
     ) -> ServerActionResponse:
-        """Restart an IdeGYM server."""
+        """Restart the server container."""
         return await self.server.restart_server(
             server_id=self.server_id,
             client_id=self.client_id,
@@ -81,7 +80,6 @@ class IdeGYMServer:
         )
 
     async def _finish_server(self) -> ServerActionResponse:
-        """Finish working with an IdeGYM server without stopping it."""
         return await self.server.finish_server(
             server_id=self.server_id, client_id=self.client_id, namespace=self.namespace
         )
@@ -93,10 +91,7 @@ class IdeGYMServer:
         request_timeout: Optional[float] = None,
         polling_config: Optional[PollingConfig] = None,
     ) -> ResetResult:
-        """
-        Reset a project on a server.
-        Currently implemented by unarchiving the project and replacing the previous stat with it.
-        """
+        """Reset the project on the server to its initial state."""
         return await self.project.reset_project(
             server_id=self.server_id,
             reset_timeout=reset_timeout,
@@ -114,7 +109,7 @@ class IdeGYMServer:
         request_timeout: Optional[int] = None,
         polling_config: Optional[PollingConfig] = None,
     ) -> BashCommandResponse:
-        """Execute a bash script on a server."""
+        """Execute a bash script on the server."""
         return await self.tools.execute_bash(
             server_id=self.server_id,
             script=script,
@@ -132,7 +127,7 @@ class IdeGYMServer:
         request_timeout: Optional[int] = None,
         polling_config: PollingConfig = PollingConfig(),
     ) -> FileResult:
-        """Create a file on a server."""
+        """Create a file on the server."""
         return await self.files.create_file(
             server_id=self.server_id,
             file_path=file_path,
@@ -151,7 +146,7 @@ class IdeGYMServer:
         request_timeout: Optional[int] = None,
         polling_config: Optional[PollingConfig] = None,
     ) -> FileResult:
-        """Edit a file on a server."""
+        """Edit a range of lines in a file on the server."""
         return await self.files.edit_file(
             server_id=self.server_id,
             file_path=file_path,
@@ -170,7 +165,7 @@ class IdeGYMServer:
         request_timeout: Optional[int] = None,
         polling_config: Optional[PollingConfig] = None,
     ) -> FileResult:
-        """Patch a file on a server."""
+        """Apply a unified diff patch to a file on the server."""
         return await self.files.patch_file(
             server_id=self.server_id,
             file_path=file_path,
@@ -188,7 +183,7 @@ class IdeGYMServer:
         request_timeout: Optional[float] = None,
         polling_config: Optional[PollingConfig] = None,
     ) -> CompilationResult:
-        """Get compilation reward from a server."""
+        """Run the compilation script and return a reward result."""
         return await self.rewards.compilation_reward(
             server_id=self.server_id,
             compilation_script=compilation_script,
@@ -207,7 +202,7 @@ class IdeGYMServer:
         request_timeout: Optional[float] = None,
         polling_config: Optional[PollingConfig] = None,
     ) -> SetupResult:
-        """Get setup reward from a server."""
+        """Run the setup check script and return a reward result."""
         return await self.rewards.setup_reward(
             server_id=self.server_id,
             setup_check_script=setup_check_script,
@@ -226,7 +221,7 @@ class IdeGYMServer:
         request_timeout: Optional[float] = None,
         polling_config: Optional[PollingConfig] = None,
     ) -> TestReport:
-        """Get test reward from a server."""
+        """Run the test script and return a reward report."""
         return await self.rewards.test_reward(
             server_id=self.server_id,
             test_script=test_script,

@@ -70,21 +70,24 @@ class IdeGYMClient:
         Initialize the IdeGYM HTTP client.
 
         Args:
-            orchestrator_url: URL of the orchestrator API
-            name: Name identifying the client (used for quota assignment)
-            nodes_count: Number of nodes requested by the client (default: 0)
-            auth: Authentication credentials (optional, defaults to `IDEGYM_AUTH_USERNAME` and `IDEGYM_AUTH_PASSWORD` environment variables)
-            client_id: If provided, the client will work as a client with the given ID, but it will not send heartbeats.
-            heartbeat_interval_in_seconds: Interval in seconds for sending heartbeats (default: 60)
-            request_timeout_in_seconds: Default timeout in seconds for every HTTP client operation (default: 60)
-            otel_config: OpenTelemetry configuration for tracing HTTP requests
+            orchestrator_url: URL of the orchestrator API. Scheme defaults to ``https://`` if omitted;
+                use ``idegym.test`` for local testing (mapped to ``http://``).
+            name: Name identifying the client (used for quota assignment).
+            namespace: Kubernetes namespace to operate in.
+            nodes_count: Number of nodes requested by the client.
+            auth: Authentication credentials. Falls back to ``IDEGYM_AUTH_USERNAME`` /
+                ``IDEGYM_AUTH_PASSWORD`` environment variables when not provided.
+            client_id: If provided, the client operates under this existing ID without registering
+                or sending heartbeats.
+            heartbeat_interval_in_seconds: Interval between heartbeat requests.
+            request_timeout_in_seconds: Default timeout for every HTTP request.
+            otel_config: OpenTelemetry configuration for tracing. Falls back to ``IDEGYM_OTEL_*``
+                environment variables when not provided.
         """
         if orchestrator_url == "idegym.test":
             orchestrator_url = f"http://{orchestrator_url}"
         elif not orchestrator_url.startswith(("http://", "https://")):
             orchestrator_url = f"https://{orchestrator_url}"
-        else:
-            orchestrator_url = orchestrator_url
 
         auth = auth or BasicAuth(
             username=env.get("IDEGYM_AUTH_USERNAME"),
@@ -150,7 +153,6 @@ class IdeGYMClient:
             raise RuntimeError("Client not registered yet")
         return client_id
 
-    ##### HEARTBEAT TASK METHODS #####
     def _stop_heartbeat(self):
         task = self._heartbeat_task
         if not task:
@@ -162,7 +164,6 @@ class IdeGYMClient:
     async def _send_heartbeat(
         self, availability: AvailabilityStatus, client_id: Optional[UUID] = None
     ) -> RegisteredClientResponse:
-        """Send availability status of a client."""
         return await self.clients.send_heartbeat(client_id=client_id, availability=availability)
 
     async def _heartbeat_worker(self):
@@ -184,13 +185,11 @@ class IdeGYMClient:
                 coro=self._heartbeat_worker(),
             )
 
-    ##### CONTEXT MANAGER #####
     async def __aenter__(self):
         assert not self._http_client.is_closed, "Can not communicate using a closed client!"
         registration_response = await self._register_client(self.name, self._utils.current_namespace, self.nodes_count)
         if isinstance(registration_response, RegisteredClientResponse) and registration_response.id:
             self._utils.client_id = registration_response.id
-            # Start a heartbeat task if the client was registered successfully
             if self._utils.client_id and not self._heartbeat_task:
                 self._start_heartbeat_task()
         else:
@@ -206,15 +205,10 @@ class IdeGYMClient:
         )
         await self._http_client.aclose()
 
-    ##### ORCHESTRATOR API METHODS
-
-    # Internal
     async def health_check(self) -> HealthCheckResponse:
-        """Check the health of the orchestrator."""
         response_raw = await self._utils.make_request("GET", "/health")
         return HealthCheckResponse.model_validate(response_raw)
 
-    ##### ORCHESTRATOR CLIENTS API #####
     async def _register_client(
         self,
         name: str,
@@ -222,7 +216,6 @@ class IdeGYMClient:
         nodes_count: int = 0,
         polling_config: PollingConfig = PollingConfig(wait_timeout_in_sec=600),
     ) -> RegisteredClientResponse | ErrorResponse:
-        """Register a new client with the orchestrator and spin up the required resources for it."""
         response = await self.clients.register_client(
             name=name, namespace=namespace, nodes_count=nodes_count, polling_config=polling_config
         )
@@ -235,9 +228,7 @@ class IdeGYMClient:
         namespace: Optional[str] = None,
         polling_config: PollingConfig = PollingConfig(),
     ) -> RegisteredClientResponse | ErrorResponse:
-        """
-        Stop working with a client, stopping all its servers and marking it as stopped.
-        """
+        """Stop the client, terminating all its running servers in the process."""
         if not client_id:
             self._stop_heartbeat()
         return await self.clients.stop_client(client_id=client_id, namespace=namespace, polling_config=polling_config)
@@ -261,6 +252,13 @@ class IdeGYMClient:
         close_action: ServerCloseAction = ServerCloseAction.FINISH,
         server_kind: ServerKind = ServerKind.IDEGYM,
     ):
+        """
+        Async context manager that starts a server and yields an :class:`IdeGYMServer` handle.
+
+        On exit, the server is either finished (``FINISH``) or stopped and its resources deleted
+        (``STOP``) depending on ``close_action``. Exceptions from the body are re-raised after
+        the cleanup.
+        """
         server = await self.start_server(
             image_tag=image_tag,
             server_name=server_name,
@@ -314,7 +312,7 @@ class IdeGYMClient:
             logger.exception(f"Exception while finishing server id={server.server_id}: {e}")
             raise
 
-    # TODO distinguish 400s and 500s in terms of retry
+    # TODO: distinguish 400s and 500s in terms of retry
     async def start_server(
         self,
         image_tag: OCIImageName,
@@ -332,6 +330,12 @@ class IdeGYMClient:
         reuse_strategy=ServerReuseStrategy.RESET,
         server_kind: ServerKind = ServerKind.IDEGYM,
     ) -> IdeGYMServer:
+        """
+        Start an IdeGYM server and return an :class:`IdeGYMServer` handle.
+
+        Raises ``RuntimeError`` if the orchestrator returns an error response.
+        Prefer :meth:`with_server` for automatic cleanup.
+        """
         logger.info(f"Starting IdeGYM server: name={server_name}, image={image_tag}")
         server_response = await self.server.start_server(
             image_tag=image_tag,
@@ -365,7 +369,6 @@ class IdeGYMClient:
         else:
             raise RuntimeError(f"Unexpected response from server start: {server_response.model_dump()}")
 
-    ##### ORCHESTRATOR DOCKER IMAGES API #####
     async def build_and_push_images(
         self,
         path: Path,
@@ -378,7 +381,7 @@ class IdeGYMClient:
         )
 
     async def get_job_status(self, job_name: str, timeout: Optional[int] = None) -> JobStatusResponse:
-        """Get the status of a Kaniko job that builds a Docker image."""
+        """Get the status of a Kaniko build job."""
         return await self.jobs.get_job_status(job_name=job_name, timeout=timeout)
 
     async def wait_for_job(

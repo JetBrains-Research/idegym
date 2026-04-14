@@ -3,7 +3,6 @@ from logging import getLevelNamesMapping as get_level_names_mapping
 from logging import getLogger as create_or_get_logger
 from logging.handlers import RotatingFileHandler
 from sys import stdout
-from typing import Dict, List
 
 from idegym.api.config import LoggingConfig
 from idegym.api.type import LogLevel as Level
@@ -21,22 +20,22 @@ from structlog.stdlib import add_logger_name as LoggerName
 from structlog.stdlib import filter_by_level as FilterByLevel
 from structlog.types import Processor
 
-DefaultProcessors: List[Processor] = [
-    MergeContextVars,  # Add all `structlog_`-prefixed context vars
-    LoggerName,  # Add logger name to logs
-    LogLevel,  # Add log level (INFO, DEBUG, etc.)
-    TimeStamper(fmt="iso"),  # Add timestamp to logs
-    ProcessID,  # Add PID for multiple workers
-    OTELTraceContext,  # Add OpenTelemetry trace/span IDs
+DefaultProcessors: list[Processor] = [
+    MergeContextVars,
+    LoggerName,
+    LogLevel,
+    TimeStamper(fmt="iso"),
+    ProcessID,
+    OTELTraceContext,
 ]
 
-ConsoleProcessors: List[Processor] = [
-    *DefaultProcessors,  # Include default processors
+ConsoleProcessors: list[Processor] = [
+    *DefaultProcessors,
 ]
 
-JSONProcessors: List[Processor] = [
-    *DefaultProcessors,  # Include default processors
-    DictTracebacks,  # Add tracebacks as dictionaries
+JSONProcessors: list[Processor] = [
+    *DefaultProcessors,
+    DictTracebacks,
 ]
 
 
@@ -69,7 +68,7 @@ def configure_logging(config: LoggingConfig = LoggingConfig()):
 
 
 def configure_sqlalchemy_logging(config: LoggingConfig = LoggingConfig()):
-    level_names_mapping: Dict[str, Level] = get_level_names_mapping()
+    level_names_mapping: dict[str, Level] = get_level_names_mapping()
     if level_names_mapping[config.level] == DEBUG:
         create_or_get_logger("sqlalchemy.engine").setLevel(config.level)
         create_or_get_logger("sqlalchemy.pool").setLevel(config.level)

@@ -2,15 +2,19 @@ import re
 from decimal import Decimal
 
 
-def parse_quantity(quantity_str):
-    """
-    Parse Kubernetes quantity strings like '100Mi', '2Gi', '500m', etc.
-    Returns the value in base units.
+def parse_quantity(quantity_str: str) -> int | float:
+    """Parse a Kubernetes quantity string into a plain numeric value.
+
+    Supports binary suffixes (Ki, Mi, Gi, Ti, Pi, Ei) returning ``int``,
+    decimal suffixes (m, k, M, G, T, P, E) returning ``float``,
+    and bare numeric strings returning ``int`` or ``float`` depending on
+    whether the value is whole.
+
+    Raises ``ValueError`` for unrecognised formats or unknown suffixes.
     """
     if not quantity_str:
         return 0
 
-    # Binary suffixes (base 1024)
     binary_suffixes = {
         "Ki": 1024,
         "Mi": 1024**2,
@@ -20,7 +24,6 @@ def parse_quantity(quantity_str):
         "Ei": 1024**6,
     }
 
-    # Decimal suffixes (base 1000)
     decimal_suffixes = {
         "m": Decimal("0.001"),
         "k": Decimal("1000"),
@@ -31,7 +34,6 @@ def parse_quantity(quantity_str):
         "E": Decimal("1000000000000000000"),
     }
 
-    # Parse the quantity
     match = re.match(r"^(\d*\.?\d+)([a-zA-Z]*)$", quantity_str.strip())
     if not match:
         raise ValueError(f"Invalid quantity format: {quantity_str}")
@@ -43,7 +45,7 @@ def parse_quantity(quantity_str):
         return int(value * binary_suffixes[suffix])
     elif suffix in decimal_suffixes:
         return float(value * decimal_suffixes[suffix])
-    elif suffix == "":
+    elif not suffix:
         return int(value) if value == int(value) else float(value)
     else:
         raise ValueError(f"Unknown suffix: {suffix}")
