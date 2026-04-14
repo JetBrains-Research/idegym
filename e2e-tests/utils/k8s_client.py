@@ -17,6 +17,7 @@ from kubernetes_asyncio.client import (
     V1Pod,
 )
 from kubernetes_asyncio.stream import WsApiClient
+from kubernetes_asyncio.stream.ws_client import ERROR_CHANNEL, STDERR_CHANNEL, STDOUT_CHANNEL
 
 T = TypeVar("T")
 
@@ -296,7 +297,7 @@ def exec_in_pod(pod_name: str, namespace: str, command: list[str]) -> str:
     async def _op() -> str:
         async with WsApiClient() as ws_client:
             core = CoreV1Api(ws_client)
-            ws = await core.connect_get_namespaced_pod_exec(
+            ws_cm = await core.connect_get_namespaced_pod_exec(
                 name=pod_name,
                 namespace=namespace,
                 command=command,
@@ -306,11 +307,27 @@ def exec_in_pod(pod_name: str, namespace: str, command: list[str]) -> str:
                 tty=False,
                 _preload_content=False,
             )
-            await ws.run_until_complete()
-            stdout = ws.read_stdout()
-            stderr = ws.read_stderr()
-            if ws.returncode != 0:
-                raise RuntimeError(f"exec in pod {pod_name} failed (rc={ws.returncode}): {stderr.strip()}")
+            stdout = ""
+            stderr = ""
+            returncode = None
+            async with ws_cm as ws:
+                async for msg in ws:
+                    data = msg.data
+                    if not isinstance(data, bytes) or len(data) < 2:
+                        continue
+                    channel = data[0]
+                    content = data[1:].decode("utf-8", errors="replace")
+                    if channel == STDOUT_CHANNEL:
+                        stdout += content
+                    elif channel == STDERR_CHANNEL:
+                        stderr += content
+                    elif channel == ERROR_CHANNEL:
+                        try:
+                            returncode = WsApiClient.parse_error_data(content)
+                        except Exception:
+                            pass
+            if returncode is not None and returncode != 0:
+                raise RuntimeError(f"exec in pod {pod_name} failed (rc={returncode}): {stderr.strip()}")
             return stdout
 
     return _run_async(_op())
