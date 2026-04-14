@@ -3,17 +3,17 @@ from pydantic import BaseModel, Field
 
 
 class SetupRequest(BaseModel):
-    setup_check_script: str = Field(description="Setup check script", default="true")
-    timeout: float = Field(description="Timeout for the setup", default=600.0)
+    setup_check_script: str = Field(default="true")
+    timeout: float = Field(default=600.0, description="Timeout for the setup in seconds")
     graceful_termination_timeout: float = Field(
-        description="Timeout in seconds for graceful process termination", default=2.0
+        default=2.0, description="Timeout in seconds for graceful process termination"
     )
 
 
 class SetupResult(BaseModel):
-    status: Status = Field(description="Setup status")
-    output: str = Field(description="Setup output")
+    status: Status
+    output: str
 
 
 class SetupError(BaseModel):
-    message: str = Field(description="Error message")
+    message: str

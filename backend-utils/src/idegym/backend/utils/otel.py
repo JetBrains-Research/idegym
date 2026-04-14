@@ -1,6 +1,6 @@
 from pathlib import Path
 from socket import gethostname
-from typing import Dict, List, Optional
+from typing import Optional
 
 import psutil
 from idegym.api.config import OTELConfig
@@ -17,7 +17,7 @@ from opentelemetry.semconv.attributes.service_attributes import SERVICE_NAME, SE
 
 logger = get_logger(__name__)
 
-system_metrics_config: Dict[str, Optional[List[str]]] = {
+system_metrics_config: dict[str, Optional[list[str]]] = {
     # process
     "process.context_switches": ["involuntary", "voluntary"],
     "process.cpu.time": ["user", "system"],

@@ -6,7 +6,7 @@ from unittest import TestCase, main
 
 from idegym.api.download import DownloadRequest
 from idegym.api.git import GitRepository, GitServer
-from idegym.image.docker_service import __CONTAINER_VOLUME_PATH__, DockerService
+from idegym.image.docker_service import _CONTAINER_VOLUME_PATH, DockerService
 from idegym.utils.path import get_base_filename
 from python_on_whales import DockerClient, DockerException, Image
 
@@ -147,7 +147,7 @@ class TestDockerService(TestCase):
         self.assertEqual(len(container.mounts), len(self.scripts))
         for mount in container.mounts:
             self.assertIn(mount.source, [script.name for script in self.scripts])
-            self.assertIn(__CONTAINER_VOLUME_PATH__, mount.destination)
+            self.assertIn(_CONTAINER_VOLUME_PATH, mount.destination)
             self.assertEqual(mount.mode, "ro")
             self.assertEqual(mount.type, "bind")
 

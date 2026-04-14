@@ -14,7 +14,6 @@ def current_time_millis():
     return int(time.time() * 1000)
 
 
-# Database models
 class Base(AsyncAttrs, DeclarativeBase):
     pass
 
@@ -50,8 +49,8 @@ class IdeGYMServer(Base):
 
     image_tag = Column(String, nullable=True)
     container_runtime = Column(String, nullable=True)
-    cpu = Column(Float, default=0.0)  # CPU cores requested
-    ram = Column(Float, default=0.0)  # RAM in GB requested
+    cpu = Column(Float, default=0.0)  # cores
+    ram = Column(Float, default=0.0)  # GB
     run_as_root = Column(Boolean, default=False, nullable=False)
     server_kind = Column(String, default="idegym", nullable=False)
     service_port = Column(Integer, default=80, nullable=False)
@@ -64,12 +63,12 @@ class ResourceLimitRule(Base):
 
     client_name_regex = Column(String, index=True, unique=True, nullable=False)
     pods_limit = Column(Integer, nullable=False)
-    cpu_limit = Column(Float, nullable=False)  # CPU cores
-    ram_limit = Column(Float, nullable=False)  # RAM in GB
-    used_cpu = Column(Float, default=0.0, nullable=False)  # Used CPU cores
-    used_ram = Column(Float, default=0.0, nullable=False)  # Used RAM in GB
-    current_pods = Column(Integer, default=0, nullable=False)  # Current number of pods
-    priority = Column(Integer, default=0, nullable=False)  # Higher priority rules are applied first
+    cpu_limit = Column(Float, nullable=False)  # cores
+    ram_limit = Column(Float, nullable=False)  # GB
+    used_cpu = Column(Float, default=0.0, nullable=False)
+    used_ram = Column(Float, default=0.0, nullable=False)
+    current_pods = Column(Integer, default=0, nullable=False)
+    priority = Column(Integer, default=0, nullable=False)  # higher priority rules win over lower ones
 
 
 class JobStatusRecord(Base):

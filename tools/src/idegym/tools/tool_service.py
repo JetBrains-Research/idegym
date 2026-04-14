@@ -1,8 +1,19 @@
 from enum import StrEnum
-from typing import Any, Dict
+from typing import Any
 
 from idegym.backend.utils.bash_executor import BashExecutor
 from idegym.tools.file_manager import FileManager
+
+
+class ToolName(StrEnum):
+    BASH = "bash"
+    FILE = "file"
+
+
+class FileToolActionName(StrEnum):
+    CREATE = "create"
+    EDIT = "edit"
+    PATCH = "patch"
 
 
 class ToolService:
@@ -10,7 +21,7 @@ class ToolService:
         self.file_manager = file_manager
         self.bash_executor = bash_executor
 
-    async def execute_tool(self, tool_name: str, parameters: Dict[str, Any]):
+    async def execute_tool(self, tool_name: str, parameters: dict[str, Any]):
         match tool_name:
             case ToolName.BASH:
                 command = parameters.get("command")
@@ -32,6 +43,7 @@ class ToolService:
                             raise ValueError("Missing 'path' in parameters for file creation")
                         self.file_manager.create_file(file_path, content)
                     case FileToolActionName.EDIT:
+                        # Line range is encoded in the path as "file.py#L100-123" (GitHub-style anchor)
                         file_path = (
                             parameters.get("path").split("#L")[0] if "#L" in parameters.get("path", "") else None
                         )
@@ -55,21 +67,9 @@ class ToolService:
                 raise ValueError(f"Unsupported tool '{tool_name}'")
 
     @staticmethod
-    def _parse_line_range(line_range: str):
-        # Helper method to parse line range string (e.g., "100-123") to start and end line numbers
+    def _parse_line_range(line_range: str) -> tuple[int, int]:
         try:
             start, end = line_range.split("-")
             return int(start), int(end)
         except ValueError:
             raise ValueError(f"Invalid line range format: '{line_range}'")
-
-
-class ToolName(StrEnum):
-    BASH = "bash"
-    FILE = "file"
-
-
-class FileToolActionName(StrEnum):
-    CREATE = "create"
-    EDIT = "edit"
-    PATCH = "patch"

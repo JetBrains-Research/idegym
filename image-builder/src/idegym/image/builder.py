@@ -24,6 +24,27 @@ def _run_block(commands: tuple[str, ...]) -> str:
 
 
 class Image(BaseModel):
+    """Fluent, immutable builder for container images.
+
+    Construct an ``Image`` with a base image reference, chain builder methods to attach plugins
+    and commands, then call ``to_spec()`` to compile a ``ImageBuildSpec`` that can be passed to
+    a build backend (Kaniko, Docker, etc.).
+
+    Images can be serialized to/from YAML (``to_yaml`` / ``from_yaml`` / ``load_all``) and to/from
+    plain dicts (``to_dict`` / ``from_dict``).
+
+    Example::
+
+        image = (
+            Image.from_base("debian:bookworm-slim", name="my-image")
+            .with_plugin(BaseSystem())
+            .with_plugin(User(username="dev"))
+            .with_plugin(Project.from_git(url="https://github.com/org/repo.git", ref="main"))
+            .run_commands("cd ~/work && pip install -e .")
+        )
+        spec = image.to_spec()
+    """
+
     base: str = Field(min_length=1)
     name: Optional[OCIImageName] = Field(default=None)
     plugins: tuple[PluginBase, ...] = Field(default_factory=tuple)
@@ -58,29 +79,40 @@ class Image(BaseModel):
 
     @classmethod
     def from_base(cls, base: str | BaseImage, *, name: Optional[str] = None) -> Self:
+        """Create an image from a base image reference or ``BaseImage`` enum value."""
         image = base.value if isinstance(base, BaseImage) else base
         return cls(base=image, name=name)
 
     def named(self, name: str) -> Self:
+        """Return a copy with the image name set, validating OCI naming rules."""
         _OCI_NAME_VALIDATOR.validate_python(name)
         return self.model_copy(update={"name": name})
 
     def with_plugin(self, plugin: PluginBase) -> Self:
+        """Return a copy with ``plugin`` appended to the plugin list."""
         if not isinstance(plugin, PluginBase):
             raise TypeError("Plugin must inherit from PluginBase")
         return self.model_copy(update={"plugins": (*self.plugins, plugin)})
 
     def run_commands(self, *commands: str) -> Self:
+        """Return a copy with additional shell commands appended.
+
+        Commands are emitted as a single ``RUN set -eux`` block at the end of the Dockerfile,
+        after all plugin fragments. Each command is a bare shell statement — do not include a
+        ``RUN`` prefix.
+        """
         if not commands:
             return self
         return self.model_copy(update={"commands": (*self.commands, *commands)})
 
     def pip_install(self, *packages: str) -> Self:
+        """Return a copy with a ``pip install`` command for the given packages appended."""
         if not packages:
             return self
         return self.run_commands(f"pip install {' '.join(packages)}")
 
     def with_platforms(self, *platforms: str) -> Self:
+        """Return a copy targeting the given build platforms (e.g. ``linux/amd64``)."""
         return self.model_copy(update={"platforms": tuple(platforms)})
 
     def with_runtime(
@@ -89,6 +121,7 @@ class Image(BaseModel):
         runtime_class_name: Optional[str] = None,
         resources: Optional[dict[str, Any]] = None,
     ) -> Self:
+        """Return a copy with Kubernetes runtime settings overridden."""
         return self.model_copy(
             update={
                 "runtime_class_name": runtime_class_name or self.runtime_class_name,
@@ -97,6 +130,12 @@ class Image(BaseModel):
         )
 
     def to_spec(self) -> ImageBuildSpec:
+        """Compile the image definition into an ``ImageBuildSpec``.
+
+        Runs the plugin pipeline: each plugin's ``apply()`` is called in order to accumulate the
+        final ``BuildContext``, then each plugin's ``render()`` produces a Dockerfile fragment.
+        The fragments and any ``run_commands`` are assembled into a complete Dockerfile.
+        """
         ctx = BuildContext(base=self.base)
         fragments: list[str] = []
         for plugin in self.plugins:
@@ -160,6 +199,11 @@ class Image(BaseModel):
 
     @classmethod
     def from_yaml(cls, value: str | bytes | dict[str, Any]) -> Self:
+        """Load a single image from a YAML document or pre-parsed dict.
+
+        The document must contain exactly one entry under the ``images`` key.
+        Use ``load_all`` if the document may contain multiple images.
+        """
         images = load_images(value, cls)
         if len(images) != 1:
             raise ValueError(f"Expected exactly one image definition, got {len(images)}")
@@ -167,18 +211,18 @@ class Image(BaseModel):
 
     @classmethod
     def load_all(cls, value: str | bytes | dict[str, Any]) -> tuple[Self, ...]:
+        """Load all images from a YAML document or pre-parsed dict."""
         return load_images(value, cls)
 
     def to_yaml(self) -> str:
         return dump_images((self,))
 
     def write_yaml(self, path: str | Path) -> Path:
+        """Serialize the image to YAML and write it to ``path``. Returns the resolved path."""
         target = Path(path)
         target.write_text(self.to_yaml())
         return target
 
     def build(self, registry: Optional[str] = None) -> Any:
+        """Build the image locally using Docker. Returns a ``DockerImage``."""
         return IdeGYMDockerAPI(registry=registry).build_image(self)
-
-    def compile(self) -> ImageBuildSpec:
-        return self.to_spec()

@@ -154,7 +154,7 @@ async def _task_start_server(config: Config, request: StartServerRequest, async_
             if request.reuse_strategy == ServerReuseStrategy.RESET and request.server_kind != ServerKind.OPENENV:
                 used_reset_reuse = existing_server is not None
 
-        # Mark as IN_PROGRESS only after FIFO check passes (to allow other requests to see this as SCHEDULED)
+        # Delay marking IN_PROGRESS until after FIFO check so earlier SCHEDULED operations remain visible.
         await update_operation_status(
             async_operation_id=async_operation_id,
             async_operation_status=AsyncOperationStatus.IN_PROGRESS,
@@ -178,7 +178,7 @@ async def _task_start_server(config: Config, request: StartServerRequest, async_
             server_server_name = existing_server.server_name
             server_image_tag = existing_server.image_tag
 
-            # For RESTART, we'll mark ALIVE later below; for RESET we skip marking ALIVE
+            # RESTART transitions to ALIVE below; RESET leaves the server in FINISHED for the client to reset.
         else:
             if client_name is None:
                 client = await validate_client(request.client_id)
@@ -276,7 +276,6 @@ async def _task_start_server(config: Config, request: StartServerRequest, async_
                 },
             )
 
-            # Deploy the server
             await deploy_server(
                 image_tag=request.image_tag,
                 server_name=server_generated_name,
@@ -291,14 +290,12 @@ async def _task_start_server(config: Config, request: StartServerRequest, async_
                 server_kind=request.server_kind,
             )
 
-            # Wait for pods to be ready
             await wait_for_pods_ready(
                 label_selector=f"app={server_generated_name}",
                 namespace=request.namespace,
                 wait_timeout=request.server_start_wait_timeout_in_seconds,
             )
 
-        # Update availability to ALIVE unless we're in RESET reuse case with an existing finished server
         if not used_reset_reuse:
             await update_server_status(server_id=server_id, availability_status=AvailabilityStatus.ALIVE)
 
@@ -324,7 +321,7 @@ async def _task_start_server(config: Config, request: StartServerRequest, async_
         await update_operation_with_error(
             async_operation_id=async_operation_id,
             async_operation_status=AsyncOperationStatus.CANCELLED,
-            status_code=499,  # there is no HTTPStatus code for 499 - client closed the request
+            status_code=499,  # non-standard: client closed the connection
             body=f"Server creation with operation ID {async_operation_id} was cancelled",
         )
 
@@ -348,7 +345,7 @@ async def _task_start_server(config: Config, request: StartServerRequest, async_
             body=format_error(message=message, exception=e),
         )
 
-        # TODO: Theoretically it may raise an exception from the db, keep an eye on that
+        # TODO: this update_server_status call may itself raise; investigate
         if server_id:
             await update_server_status(
                 server_id=server_id,
@@ -398,7 +395,6 @@ async def _task_stop_server(server_id: int, server_generated_name: str, namespac
         server_id=server_id,
         availability_status=AvailabilityStatus.STOPPED,
     )
-    # cleaning
     await clean_up_server(
         name=server_generated_name,
         namespace=namespace,
@@ -429,7 +425,6 @@ async def _task_restart_server(
         async_operation_status=AsyncOperationStatus.IN_PROGRESS,
         orchestrator_pod=env.get("__POD_NAME"),
     )
-    # restarting
     await restart_pods(
         name=server_generated_name,
         namespace=namespace,

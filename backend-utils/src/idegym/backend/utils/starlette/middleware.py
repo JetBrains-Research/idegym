@@ -56,9 +56,6 @@ class ShutdownMiddleware(BaseHTTPMiddleware):
 
 
 class TracingMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app: Starlette):
-        super().__init__(app)
-
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         response = await call_next(request)
 

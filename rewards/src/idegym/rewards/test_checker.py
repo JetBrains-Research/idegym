@@ -1,5 +1,3 @@
-from typing import Dict
-
 from idegym.api.status import Status
 from idegym.backend.utils.bash_executor import BashExecutor
 from idegym.utils.logging import get_logger
@@ -17,7 +15,7 @@ class TestChecker:
         test_script: str = "python -m pytest --junitxml=test-results.xml",
         timeout: float = 600.0,
         graceful_termination_timeout: float = 2.0,
-    ) -> Dict:
+    ) -> dict:
         _, _, exit_code = await self.bash_executor.execute_bash_command(
             test_script, timeout, graceful_termination_timeout
         )
@@ -50,7 +48,7 @@ class TestChecker:
             },
         }
 
-    def _extract_report_files(self, output):
+    def _extract_report_files(self, output: str) -> list[str]:
         if not output:
             return []
 

@@ -1,6 +1,6 @@
 from http import HTTPStatus
 from json import loads
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 from uuid import UUID
 
 from idegym.api.exceptions import InspectionsNotReadyException
@@ -24,7 +24,7 @@ class ForwardingOperations:
         client_id: Optional[UUID] = None,
         request_timeout: Optional[int] = None,
         polling_config: PollingConfig = PollingConfig(),
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         client_id = self._utils.validate_client_id(client_id)
 
         url = f"/api/forward/{client_id}/{server_id}/{API_BASE_PATH.lstrip('/')}/{path.lstrip('/')}"

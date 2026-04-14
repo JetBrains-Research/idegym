@@ -10,5 +10,5 @@ class ResetRequest(BaseModel):
 
 
 class ResetResult(BaseModel):
-    status: Status = Field(description="Reset status")
-    output: str = Field(description="Reset output")
+    status: Status
+    output: str

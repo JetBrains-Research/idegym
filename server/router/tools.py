@@ -1,8 +1,7 @@
 from typing import Annotated
 
 from dependency_injector.wiring import Provide, inject
-from fastapi import APIRouter
-from fastapi.params import Depends
+from fastapi import APIRouter, Depends
 from idegym.api.paths import ToolsPath
 from idegym.api.status import Status
 from idegym.api.tools.bash import BashCommandRequest, BashCommandResponse

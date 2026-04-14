@@ -1,7 +1,7 @@
 from asyncio import CancelledError
 from functools import wraps
 from types import NoneType
-from typing import Any, Dict
+from typing import Any
 
 from fastapi import HTTPException, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import HTMLResponse
@@ -22,11 +22,7 @@ logger = get_logger(__name__)
 
 
 def handle_general_exceptions(error_message: str):
-    """
-    Decorator to handle common exceptions in endpoints.
-
-    Note: This decorator works only on methods with keyword arguments.
-    """
+    """Catch unhandled exceptions in a FastAPI endpoint and convert them to HTTP 500 responses."""
 
     def decorator(func):
         @wraps(func)
@@ -35,7 +31,6 @@ def handle_general_exceptions(error_message: str):
                 return await func(*args, **kwargs)
 
             except HTTPException:
-                # Re-raise an HTTP exception because it already has all the information
                 raise
 
             except Exception as e:
@@ -57,9 +52,11 @@ def handle_general_exceptions(error_message: str):
 
 def handle_websocket_exceptions(error_message: str, close_code: int = status.WS_1011_INTERNAL_ERROR):
     """
-    Decorator to handle exceptions in WebSocket endpoints.
+    Handle exceptions in WebSocket endpoints.
 
-    It keeps expected disconnections silent and closes the socket on serious errors.
+    Normal disconnections (WebSocketDisconnect, CancelledError) are silenced.
+    Unexpected exceptions close the socket with the given error code.
+    HTTPExceptions raised before the handshake are re-raised unchanged.
     """
 
     def decorator(func):
@@ -72,11 +69,9 @@ def handle_websocket_exceptions(error_message: str, close_code: int = status.WS_
                 return
 
             except HTTPException:
-                # Preserve handshake-time HTTP semantics before websocket acceptance.
                 raise
 
             except (WebSocketDisconnect, CancelledError):
-                # Expected shutdown paths should not be converted to internal errors.
                 return
 
             except Exception:
@@ -97,11 +92,7 @@ def handle_websocket_exceptions(error_message: str, close_code: int = status.WS_
 
 
 def handle_server_exceptions(server_operation_description: str):
-    """
-    Decorator to handle common exceptions in server operations.
-
-    Note: This decorator works only on methods with keyword arguments.
-    """
+    """Catch unhandled exceptions in a server-operation endpoint, include client/server IDs in the error detail."""
 
     def decorator(func):
         @wraps(func)
@@ -110,11 +101,9 @@ def handle_server_exceptions(server_operation_description: str):
                 return await func(*args, **kwargs)
 
             except HTTPException:
-                # Re-raise an HTTP exception because it already has all the information
                 raise
 
             except Exception as e:
-                # Extract relevant IDs from args/kwargs for better error messages
                 client_id = kwargs.get("client_id", None)
                 server_id = kwargs.get("server_id", None)
 
@@ -136,9 +125,11 @@ def handle_server_exceptions(server_operation_description: str):
 
 def handle_async_task_exceptions(operation_description: str, error_availability_status: AvailabilityStatus = None):
     """
-    Decorator for handling exceptions in async task functions.
+    Handle exceptions in background asyncio tasks that track their progress via AsyncOperation records.
 
-    Note: This decorator works only on methods with keyword arguments.
+    On CancelledError or HTTPException the operation is marked accordingly and the exception is re-raised.
+    On unexpected exceptions the operation is marked FAILED and, if error_availability_status is set,
+    the associated server or client is also updated to that status.
     """
 
     def decorator(func):
@@ -155,7 +146,7 @@ def handle_async_task_exceptions(operation_description: str, error_availability_
                 await update_operation_with_error(
                     async_operation_id=async_operation_id,
                     async_operation_status=AsyncOperationStatus.CANCELLED,
-                    status_code=499,  # there is no HTTPStatus code for 499 for cancelled operations
+                    status_code=499,  # non-standard: client closed the connection
                     body=f"Operation {operation_description} with ID {async_operation_id} was cancelled",
                 )
                 raise
@@ -191,22 +182,20 @@ def handle_async_task_exceptions(operation_description: str, error_availability_
     return decorator
 
 
-def _extract_relevant_kwargs(kwargs: Dict[str, Any]) -> Dict[str, Any]:
-    """Extract kwargs that are primitives or BaseModel subclasses."""
+def _extract_relevant_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Return only the kwargs that are primitives or Pydantic models (safe to log/serialize)."""
     relevant_kwargs = {}
 
     for key, value in kwargs.items():
-        # Check if value is a primitive type
         if isinstance(value, (str, int, float, bool, NoneType)):
             relevant_kwargs[key] = value
-        # Check if value is a BaseModel subclass
         elif isinstance(value, BaseModel):
             relevant_kwargs[key] = value.model_dump() if hasattr(value, "model_dump") else str(value)
 
     return relevant_kwargs
 
 
-def _extract_websocket(args: tuple[Any, ...], kwargs: Dict[str, Any]) -> WebSocket | None:
+def _extract_websocket(args: tuple[Any, ...], kwargs: dict[str, Any]) -> WebSocket | None:
     for arg in args:
         if isinstance(arg, WebSocket):
             return arg
@@ -227,8 +216,7 @@ async def _close_websocket_if_needed(websocket: WebSocket | None, code: int, rea
         logger.exception("Failed to close WebSocket after an internal error")
 
 
-def _format_kwargs_for_logging(kwargs: Dict[str, Any]) -> str:
-    """Format kwargs for logging purposes."""
+def _format_kwargs_for_logging(kwargs: dict[str, Any]) -> str:
     if not kwargs:
         return ""
 
@@ -241,16 +229,10 @@ def _format_kwargs_for_logging(kwargs: Dict[str, Any]) -> str:
 
 def render_dashboard_error(message: str, back_url: str = "/", log_message: str | None = None):
     """
-    Decorator for FastAPI HTML dashboard endpoints: catches any exception and renders error.html.
+    Catch any exception in an HTML dashboard endpoint and render error.html instead.
 
-    Usage:
-        @render_dashboard_error("Failed to load Alive Clients")
-        async def dashboard_clients(request: Request):
-            ...
-
-    Requirements:
-        - The wrapped function must accept a fastapi.Request argument (positional or keyword).
-        - Templates directory is resolved relative to this module's package (../templates).
+    The wrapped function must accept a fastapi.Request as a positional or keyword argument.
+    Falls back to a minimal inline HTMLResponse if the Request object cannot be located.
     """
 
     def decorator(func):
@@ -259,7 +241,6 @@ def render_dashboard_error(message: str, back_url: str = "/", log_message: str |
             try:
                 return await func(*args, **kwargs)
             except Exception as e:
-                # Locate Request from args/kwargs
                 req: Request | None = None
                 for a in args:
                     if isinstance(a, Request):
@@ -269,14 +250,11 @@ def render_dashboard_error(message: str, back_url: str = "/", log_message: str |
                     candidate = kwargs.get("request")
                     if isinstance(candidate, Request):
                         req = candidate
-                # Prepare templates
-                # Compute templates directory relative to orchestrator/router/ -> orchestrator/templates
-                # This mirrors dashboard.py setup to avoid import cycles.
+
+                # Resolve templates dir relative to this file (orchestrator/util/ -> orchestrator/templates/).
                 templates_dir = str(__file__).rsplit("/util/", 1)[0] + "/templates"
                 templates = Jinja2Templates(directory=templates_dir)
-                # Log and render
                 logger.exception(log_message or message)
-                # Note: if Request is missing, return plain HTMLResponse
                 context = {
                     "message": message,
                     "details": f"{type(e).__name__}: {str(e)}",
@@ -290,8 +268,6 @@ def render_dashboard_error(message: str, back_url: str = "/", log_message: str |
                         status_code=500,
                     )
                 else:
-                    # Fallback without request
-                    # Render minimal HTML if template cannot be used
                     return HTMLResponse(
                         status_code=500,
                         content=(

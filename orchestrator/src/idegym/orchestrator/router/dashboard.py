@@ -1,6 +1,5 @@
 from datetime import datetime
 from os import environ as env
-from typing import List
 from urllib.parse import quote_plus
 
 from fastapi import APIRouter, Request
@@ -20,20 +19,17 @@ from starlette.templating import Jinja2Templates
 router = APIRouter()
 logger = get_logger(__name__)
 
-# Set up Jinja2 templates directory relative to this package
 templates = Jinja2Templates(directory=str(__file__).rsplit("/router/", 1)[0] + "/templates")
 
 
-# Register a custom filter for timestamp formatting (supports millis or datetime)
 def _format_ts(value):
+    """Format a millisecond timestamp or datetime object as a human-readable string."""
     if not value:
         return ""
     try:
-        # Support datetime objects straight from k8s client
         if isinstance(value, datetime):
             dt = value
         else:
-            # Assume milliseconds timestamp
             dt = datetime.fromtimestamp(value / 1000)
         return dt.strftime("%Y-%m-%d %H:%M:%S")
     except Exception:
@@ -62,7 +58,7 @@ async def dashboard_redirect():
 @render_dashboard_error("Failed to load Alive Servers", back_url="/")
 async def dashboard_servers(request: Request):
     async with get_db_session() as db:
-        running_servers: List[IdeGYMServer] = await get_running_idegym_servers(db)
+        running_servers: list[IdeGYMServer] = await get_running_idegym_servers(db)
     return templates.TemplateResponse(
         request=request,
         name="servers.html",
@@ -76,7 +72,7 @@ async def dashboard_servers(request: Request):
 @render_dashboard_error("Failed to load Alive Clients", back_url="/")
 async def dashboard_clients(request: Request):
     async with get_db_session() as db:
-        alive_clients: List[Client] = await get_alive_clients(db)
+        alive_clients: list[Client] = await get_alive_clients(db)
     return templates.TemplateResponse(
         request=request,
         name="clients.html",
@@ -180,7 +176,7 @@ async def dashboard_rules(request: Request):
         result = await db.execute(
             select(ResourceLimitRule).order_by(ResourceLimitRule.priority.desc(), ResourceLimitRule.id)
         )
-        rules: List[ResourceLimitRule] = list(result.scalars().all())
+        rules: list[ResourceLimitRule] = list(result.scalars().all())
     return templates.TemplateResponse(
         request=request,
         name="rules.html",

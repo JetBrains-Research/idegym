@@ -5,14 +5,14 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class Authorization(BaseModel):
+    """Authorization credentials. Both fields are excluded from serialization."""
+
     type: Optional[AuthType] = Field(
-        description="Authorization type",
         default=None,
         exclude=True,
         repr=False,
     )
     token: Optional[str] = Field(
-        description="Authorization token",
         default=None,
         exclude=True,
         repr=False,
@@ -28,14 +28,14 @@ class Authorization(BaseModel):
 
 
 class ArchiveDescriptor(BaseModel):
-    name: str = Field(description="Archive name", pattern=r"^.+\.(?:zip|tar\.gz)$")
-    url: HttpUrl = Field(description="Archive URL")
+    name: str = Field(pattern=r"^.+\.(?:zip|tar\.gz)$")
+    url: HttpUrl
 
     model_config = ConfigDict(frozen=True)
 
 
 class DownloadRequest(BaseModel):
-    descriptor: ArchiveDescriptor = Field(description="Download task subject")
-    auth: Authorization = Field(description="Authorization details", default_factory=Authorization)
+    descriptor: ArchiveDescriptor
+    auth: Authorization = Field(default_factory=Authorization)
 
     model_config = ConfigDict(frozen=True)

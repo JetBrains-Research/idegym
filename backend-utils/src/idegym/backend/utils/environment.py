@@ -1,19 +1,16 @@
 from os import environ as procenv
 from os import pathsep
-from typing import Dict
 
 IDEGYM_PATH = "IDEGYM_PATH"
 PYTHONPATH = "PYTHONPATH"
 
 
-def cleanenv() -> Dict[str, str]:
+def cleanenv() -> dict[str, str]:
     """
-    Return a clean environment for subprocesses.
-    Variables and values are copied from the current process' environment,
-    while those specific to IdeGYM are removed.
+    Return a copy of the current process environment with IdeGYM-specific entries removed.
 
-    Returns:
-        Dict[str, str]: Cleaned copy of the environment
+    Strips IDEGYM_PATH and removes the IdeGYM path entry from PYTHONPATH so that
+    subprocesses do not inherit internal IdeGYM modules.
     """
     env = procenv.copy()
     idegym_path = env.pop(IDEGYM_PATH, "")

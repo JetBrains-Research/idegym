@@ -31,7 +31,6 @@ T = TypeVar("T", V1Deployment, V1PodDisruptionBudget)
 logger = get_logger(__name__)
 
 component = "node-holder"
-"""Name of the component. Value is used as a common, multi-purpose label or prefix for operations."""
 
 
 async def create_or_patch_resource(
@@ -42,7 +41,6 @@ async def create_or_patch_resource(
     body: T,
     resource_type: str,
 ) -> T:
-    """Helper function to create or patch a Kubernetes resource."""
     try:
         resource = await create_resource_method(
             namespace=namespace,
@@ -52,7 +50,7 @@ async def create_or_patch_resource(
         return resource
     except ApiException as ex:
         if ex.status == HTTPStatus.CONFLICT:
-            pass  # Resource already exists, try patching it instead
+            pass
         else:
             logger.exception(f"Failed to create {resource_type} {resource_name}")
             raise
@@ -78,10 +76,10 @@ async def spin_up_or_update_nodes_for_client(
     wait_timeout: int = 600,
 ):
     """
-    Spin up a set of nodes for a client.
+    Create or update a Deployment that holds nodes for a client.
 
-    This creates a deployment with pods that are scheduled on different nodes
-    using podAntiAffinity and a PodDisruptionBudget to ensure they are not killed.
+    Uses podAntiAffinity to spread pods across distinct nodes, and a PodDisruptionBudget
+    to prevent the cluster autoscaler from evicting them.
     """
     if nodes_count <= 0:
         logger.debug(f"No nodes requested for client {client_name}, skipping.")
@@ -214,10 +212,7 @@ async def spin_up_or_update_nodes_for_client(
         )
         logger.info(f"All {nodes_count} nodes for client {client_name} are ready")
     else:
-        logger.info(
-            f"No need to wait for nodes to be ready for client {client_name}"
-            f" because nodes count is downscaled to {nodes_count}."
-        )
+        logger.info(f"Skipping readiness wait for client {client_name} (nodes={nodes_count})")
 
 
 async def release_nodes_for_client(
@@ -225,9 +220,6 @@ async def release_nodes_for_client(
     namespace: str,
     max_retries: int = 3,
 ):
-    """
-    Delete the deployment and PodDisruptionBudget that were created for a client to hold its nodes.
-    """
     client_hash = md5(client_name)
     name = f"{component}-{client_hash}"
     logger.info(f"Releasing nodes for client {client_name} in namespace {namespace}")
@@ -256,13 +248,13 @@ async def change_number_of_spun_nodes(client_id: UUID, namespace: str):
 
     if client_nodes.nodes < 0:
         logger.info(
-            f"Do not release nodes for client {client_id} "
-            f"because there are other clients {client_nodes.name} with higher requests, skipping."
+            f"Skipping node release for client {client_id}: "
+            f"other clients with name '{client_nodes.name}' have higher node requests."
         )
         return False
 
     had_errors = False
-    if client_nodes.nodes == 0:  # Clean everything
+    if client_nodes.nodes == 0:
         try:
             nodes_released = await release_nodes_for_client(client_name=client_nodes.name, namespace=namespace)
             if not nodes_released:
@@ -271,7 +263,7 @@ async def change_number_of_spun_nodes(client_id: UUID, namespace: str):
             logger.exception(f"Error deleting client nodes for client ID {client_id}: {str(e)}")
             had_errors = True
 
-    if client_nodes.nodes > 0:  # Update node holders
+    if client_nodes.nodes > 0:
         try:
             nodes_released = await spin_up_or_update_nodes_for_client(
                 client_name=client_nodes.name,

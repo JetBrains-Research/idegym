@@ -1,7 +1,7 @@
 import asyncio
 import json
 from contextlib import asynccontextmanager
-from typing import Any, List, NamedTuple, Optional, Set, cast
+from typing import Any, NamedTuple, Optional, cast
 from uuid import UUID
 
 from idegym.api.config import SQLAlchemyConfig
@@ -24,14 +24,11 @@ from opentelemetry.instrumentation.asyncpg import AsyncPGInstrumentor
 from opentelemetry.instrumentation.psycopg2 import Psycopg2Instrumentor
 from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 from sqlalchemy import Text, delete, func, select, text, update
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
-
-# noinspection PyPep8Naming
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine  # noqa: N812
 from sqlalchemy.ext.asyncio import async_sessionmaker as AsyncSessionMaker
 
 logger = get_logger(__name__)
 
-# Global variables
 SessionFactory: Optional[AsyncSessionMaker[AsyncSession]] = None
 
 
@@ -41,8 +38,6 @@ class ClientNodes(NamedTuple):
 
 
 async def init_db(db_url: str, config: SQLAlchemyConfig, clean_database: bool = False):
-    """Initialize the database connection."""
-
     global SessionFactory
     db_engine: AsyncEngine = create_async_engine(
         url=db_url,
@@ -55,23 +50,20 @@ async def init_db(db_url: str, config: SQLAlchemyConfig, clean_database: bool = 
     SQLAlchemyInstrumentor().instrument(engine=db_engine.sync_engine)
 
     migration_manager = MigrationManager(engine=db_engine, db_url=db_url)
-    # Check if cleaning is needed before migrations
     if clean_database:
         logger.warning("Database cleanup requested before migrations")
         await migration_manager.clean_database()
         logger.warning("Cleaned database before migrations")
 
-    # Run database migrations
     logger.info("Running database migrations...")
     ran_migrations = await migration_manager.run_migrations()
 
-    # If another process is running migrations, wait for them to complete
     if not ran_migrations:
+        # Another replica holds the migration lock; poll alembic_version until it catches up.
         logger.info("Waiting for migrations to complete...")
-        max_wait_time = 300  # 5 minutes timeout
-        poll_interval = 1  # Check every second
+        max_wait_time = 300
+        poll_interval = 1
 
-        # Get the expected migration version from Alembic
         expected_version = migration_manager.get_expected_version()
         loop = asyncio.get_running_loop()
         start_time = loop.time()
@@ -81,7 +73,6 @@ async def init_db(db_url: str, config: SQLAlchemyConfig, clean_database: bool = 
                 await asyncio.sleep(poll_interval)
                 elapsed = int(loop.time() - start_time)
 
-                # Check if migrations are complete by verifying the alembic_version table
                 try:
                     async with migration_manager.engine.begin() as conn:
                         result = await conn.execute(text("SELECT version_num FROM alembic_version"))
@@ -90,19 +81,16 @@ async def init_db(db_url: str, config: SQLAlchemyConfig, clean_database: bool = 
                         if current_version == expected_version:
                             logger.info(f"Migrations completed successfully at version {current_version}")
                             break
-                        elif elapsed % 10 == 0:  # Log every 10 seconds
+                        elif elapsed % 10 == 0:
                             logger.info(
                                 f"Still waiting for migrations... (current: {current_version}, expected: {expected_version}, {elapsed}s elapsed)"
                             )
                 except Exception:
-                    # Alembic version table doesn't exist yet or other error, migrations still running
-                    if elapsed % 10 == 0:  # Log every 10 seconds
+                    if elapsed % 10 == 0:
                         logger.info(f"Still waiting for migrations... ({elapsed}s elapsed)")
                     continue
 
     logger.info("Database migrations completed")
-
-    # Note: We no longer create tables here as this will be handled by Alembic migrations
 
     SessionFactory = AsyncSessionMaker(
         bind=db_engine,
@@ -111,30 +99,26 @@ async def init_db(db_url: str, config: SQLAlchemyConfig, clean_database: bool = 
         autoflush=False,
     )
 
-    # Create default resource limit rule if it doesn't exist
     async with get_db_session() as db:
         default_rule_query = select(ResourceLimitRule).filter(ResourceLimitRule.client_name_regex == ".*")
         default_rule_result = await db.execute(default_rule_query)
         default_rule_exists = default_rule_result.scalar_one_or_none()
 
         if not default_rule_exists:
-            logger.info("Creating default resource limit rule with '.*' regex during database initialization")
+            logger.info("Creating default resource limit rule ('.*')")
             await create_resource_limit_rule(
                 db=db,
-                client_name_regex=".*",  # Match all clients
+                client_name_regex=".*",
                 pods_limit=50,
                 cpu_limit=100.0,
                 ram_limit=100.0,
-                priority=-1,  # Lowest priority
+                priority=-1,  # lowest priority — catches all clients not matched by a more specific rule
             )
-        logger.info("Default resource limit rule with '.*' regex already exists or successfully created")
+        logger.info("Default resource limit rule ('.*') is present")
 
 
 async def get_db():
-    """
-    Get a database session.
-    Intended for use with FastAPI's `Depends`.
-    """
+    """Yield a database session. Intended for use with FastAPI's ``Depends``."""
     assert SessionFactory is not None, "Database engine not initialized!"
     factory = cast(AsyncSessionMaker[AsyncSession], SessionFactory)
     async with factory() as db:
@@ -145,15 +129,7 @@ async def get_db():
 
 @asynccontextmanager
 async def get_db_session():
-    """
-    Get a database session.
-    Intended for use with context managers:
-
-    ```python
-    async with get_db_session() as db:
-        # Do something with the database session
-    ```
-    """
+    """Async context-manager variant of get_db for use outside of FastAPI dependency injection."""
     assert SessionFactory is not None, "Database engine not initialized!"
     factory = cast(AsyncSessionMaker[AsyncSession], SessionFactory)
     async with factory() as db:
@@ -163,49 +139,42 @@ async def get_db_session():
 
 
 async def get_client(db: AsyncSession, client_id: UUID) -> Optional[Client]:
-    """Get a client by ID."""
     query = select(Client).filter(Client.id == client_id)
     result = await db.execute(query)
     return result.scalar_one_or_none()
 
 
 async def get_client_name(db: AsyncSession, client_id: UUID) -> Optional[str]:
-    """Get a client name by its ID."""
     query = select(Client.name).filter(Client.id == client_id)
     result = await db.execute(query)
     return result.scalar_one_or_none()
 
 
 async def get_client_by_name(db: AsyncSession, name: str) -> Optional[Client]:
-    """Get a client by name."""
     query = select(Client).filter(Client.name == name)
     result = await db.execute(query)
     return result.scalar_one_or_none()
 
 
-async def get_alive_clients(db: AsyncSession) -> List[Client]:
-    """Get all clients with ALIVE status."""
+async def get_alive_clients(db: AsyncSession) -> list[Client]:
     query = select(Client).filter(Client.availability == AvailabilityStatus.ALIVE)
     result = await db.execute(query)
     return result.scalars().all()
 
 
-async def get_finished_clients(db: AsyncSession) -> List[Client]:
-    """Get all clients with FINISHED status."""
+async def get_finished_clients(db: AsyncSession) -> list[Client]:
     query = select(Client).filter(Client.availability == AvailabilityStatus.FINISHED)
     result = await db.execute(query)
     return result.scalars().all()
 
 
-async def get_clients_by_status(db: AsyncSession, statuses: Set[AvailabilityStatus]) -> List[Client]:
-    """Get all clients with status in the given list."""
+async def get_clients_by_status(db: AsyncSession, statuses: set[AvailabilityStatus]) -> list[Client]:
     query = select(Client).filter(Client.availability.in_(statuses))
     result = await db.execute(query)
     return result.scalars().all()
 
 
 async def create_client(db: AsyncSession, name: str, nodes_count: int = 0, namespace: str = "idegym") -> Client:
-    """Create a new client."""
     client = Client(name=name, nodes_count=nodes_count, namespace=namespace)
     db.add(client)
     await db.commit()
@@ -213,7 +182,6 @@ async def create_client(db: AsyncSession, name: str, nodes_count: int = 0, names
 
 
 async def need_to_spin_up_nodes(db: AsyncSession, client_id: UUID) -> bool:
-    """Check if a client needs to spin up nodes."""
     client = await get_client(db, client_id)
     if not client:
         return False
@@ -236,12 +204,18 @@ async def need_to_spin_up_nodes(db: AsyncSession, client_id: UUID) -> bool:
 
 
 async def need_to_release_nodes(db: AsyncSession, client_id: UUID) -> Optional[ClientNodes]:
-    """Check if a client needs to release nodes."""
+    """
+    Determine how many nodes should remain for the client's name after this client is removed.
+
+    Returns None if the client doesn't exist or holds no nodes.
+    Returns ClientNodes with nodes=0 if this was the last client with that name.
+    Returns ClientNodes with nodes=-1 if another client with a higher count still exists (no action needed).
+    Returns ClientNodes with nodes=N if the holder count should be reduced to N.
+    """
     client = await get_client(db, client_id)
     if not client or client.nodes_count == 0:
-        return None  # Nothing should be done because the client does not exist or does not hold any nodes
+        return None
 
-    # Get maximum nodes count from other clients with the same name but different ID with ALIVE or FINISHED status
     max_nodes_query = select(func.max(Client.nodes_count)).filter(
         Client.availability.in_([AvailabilityStatus.ALIVE, AvailabilityStatus.FINISHED]),
         Client.name == client.name,
@@ -251,22 +225,17 @@ async def need_to_release_nodes(db: AsyncSession, client_id: UUID) -> Optional[C
     max_nodes = max_nodes_result.scalar()
 
     if max_nodes is None:
-        return ClientNodes(
-            name=client.name, nodes=0
-        )  # Everything should be cleaned, it was the last client with this name
+        return ClientNodes(name=client.name, nodes=0)
 
     if max_nodes < client.nodes_count:
-        return ClientNodes(name=client.name, nodes=max_nodes)  # Max nodes should remain
+        return ClientNodes(name=client.name, nodes=max_nodes)
 
-    return ClientNodes(
-        name=client.name, nodes=-1
-    )  # Nothing should be done because there are other clients with higher requests
+    return ClientNodes(name=client.name, nodes=-1)
 
 
 async def update_client_heartbeat(
     db: AsyncSession, client_id: UUID, availability: str = AvailabilityStatus.ALIVE
 ) -> Optional[Client]:
-    """Update a client's heartbeat time and availability."""
     client = await get_client(db, client_id)
     if not client:
         return None
@@ -281,28 +250,24 @@ async def update_client_heartbeat(
 
 
 async def get_idegym_server(db: AsyncSession, server_id: int) -> Optional[IdeGYMServer]:
-    """Get an IdeGYM server by ID."""
     query = select(IdeGYMServer).filter(IdeGYMServer.id == server_id)
     result = await db.execute(query)
     return result.scalar_one_or_none()
 
 
 async def get_idegym_server_by_generated_name(db: AsyncSession, generated_name: str) -> Optional[IdeGYMServer]:
-    """Get an IdeGYM server by generated name."""
     query = select(IdeGYMServer).filter(IdeGYMServer.generated_name == generated_name)
     result = await db.execute(query)
     return result.scalar_one_or_none()
 
 
-async def get_idegym_servers_by_client_id(db: AsyncSession, client_id: UUID) -> List[IdeGYMServer]:
-    """Get all IdeGYM servers for a client."""
+async def get_idegym_servers_by_client_id(db: AsyncSession, client_id: UUID) -> list[IdeGYMServer]:
     query = select(IdeGYMServer).filter(IdeGYMServer.client_id == client_id)
     result = await db.execute(query)
     return result.scalars().all()
 
 
-async def get_running_idegym_servers(db: AsyncSession) -> List[IdeGYMServer]:
-    """Get all running IdeGYM servers (ALIVE or REUSED status)."""
+async def get_running_idegym_servers(db: AsyncSession) -> list[IdeGYMServer]:
     query = select(IdeGYMServer).filter(
         IdeGYMServer.availability.in_([AvailabilityStatus.ALIVE, AvailabilityStatus.REUSED])
     )
@@ -310,15 +275,13 @@ async def get_running_idegym_servers(db: AsyncSession) -> List[IdeGYMServer]:
     return result.scalars().all()
 
 
-async def get_finished_idegym_servers(db: AsyncSession) -> List[IdeGYMServer]:
-    """Get all IdeGYM servers with FINISHED status."""
+async def get_finished_idegym_servers(db: AsyncSession) -> list[IdeGYMServer]:
     query = select(IdeGYMServer).filter(IdeGYMServer.availability == AvailabilityStatus.FINISHED)
     result = await db.execute(query)
     return result.scalars().all()
 
 
-async def get_idegym_servers_by_status(db: AsyncSession, statuses: Set[AvailabilityStatus]) -> List[IdeGYMServer]:
-    """Get all IdeGYM servers with status in the given list."""
+async def get_idegym_servers_by_status(db: AsyncSession, statuses: set[AvailabilityStatus]) -> list[IdeGYMServer]:
     query = select(IdeGYMServer).filter(IdeGYMServer.availability.in_(statuses))
     result = await db.execute(query)
     return result.scalars().all()
@@ -334,19 +297,16 @@ async def has_pending_start_server_operations(
     server_name: Optional[str] = None,
     scheduled_before: Optional[int] = None,
 ) -> bool:
-    """Check if there are SCHEDULED START_SERVER operations for matching servers scheduled before given time."""
+    """Check whether any SCHEDULED START_SERVER operation for matching criteria was scheduled before the given time."""
     if scheduled_before is None:
         scheduled_before = current_time_millis()
 
-    # First, get the client by name to get its ID
     client_result = await db.execute(select(Client).filter(Client.name == client_name))
     client = client_result.scalar_one_or_none()
 
     if not client:
-        # No client with this name, so no pending operations
         return False
 
-    # Build query to find SCHEDULED START_SERVER operations for this client
     query = select(AsyncOperation).filter(
         AsyncOperation.request_type == AsyncOperationType.START_SERVER,
         AsyncOperation.status == AsyncOperationStatus.SCHEDULED,
@@ -357,13 +317,11 @@ async def has_pending_start_server_operations(
     result = await db.execute(query)
     operations = result.scalars().all()
 
-    # Check if any operation matches our server criteria
     for op in operations:
         if op.request:
             try:
                 request_data = json.loads(op.request)
-                # Match the server criteria from the request
-                # Note: StartServerRequest has runtime_class_name, not container_runtime
+                # StartServerRequest uses runtime_class_name, mapped here as container_runtime
                 if (
                     request_data.get("image_tag") == image_tag
                     and request_data.get("runtime_class_name") == container_runtime
@@ -394,15 +352,18 @@ async def find_matching_finished_server(
     server_kind: str,
     enable_fifo_check: bool = False,
 ) -> ServerReuseLookupResult:
-    """Find a finished server that matches the given criteria.
+    """
+    Find a FINISHED server that can be reused, optionally respecting FIFO ordering.
 
-    Returns:
-        ServerReuseLookupResult with:
-        - server: The matched server if found and not blocked, None otherwise
-        - blocked_by_fifo: True if server exists but blocked by pending operations, False otherwise
+    When enable_fifo_check is True, a SCHEDULED START_SERVER operation that was created
+    before this call will block reuse and signal the caller to wait its turn in the queue.
+    The selected server is locked with FOR UPDATE SKIP LOCKED to prevent two concurrent
+    callers from claiming the same server.
+
+    Returns a ServerReuseLookupResult where blocked_by_fifo=True means a matching server
+    exists but this request must wait for older queued operations to proceed first.
     """
 
-    # Build base query for finished servers matching criteria
     def build_query(with_lock: bool = False):
         query = select(IdeGYMServer).filter(
             IdeGYMServer.client_name == client_name,
@@ -416,15 +377,13 @@ async def find_matching_finished_server(
             query = query.filter(IdeGYMServer.server_name == server_name)
 
         if with_lock:
-            # Use SKIP LOCKED to prevent workers from blocking each other but lock selected rows
-            # Order by last_heartbeat_time to get the freshest reusable server
+            # SKIP LOCKED lets concurrent callers each pick a different server rather than blocking.
             query = query.order_by(IdeGYMServer.last_heartbeat_time.desc()).limit(1).with_for_update(skip_locked=True)
         else:
             query = query.limit(1)
 
         return query
 
-    # FIFO queue check: if enabled, check for pending START_SERVER operations
     if enable_fifo_check:
         has_pending = await has_pending_start_server_operations(
             db=db,
@@ -436,13 +395,10 @@ async def find_matching_finished_server(
             server_name=server_name,
         )
         if has_pending:
-            # Check if there's actually a finished server available (that we're blocking)
             result = await db.execute(build_query(with_lock=False))
             has_finished_server = result.scalar_one_or_none() is not None
-            # Return blocked status only if there's actually a server to block
             return ServerReuseLookupResult(server=None, blocked_by_fifo=has_finished_server)
 
-    # Execute query with locking to claim the server
     result = await db.execute(build_query(with_lock=True))
     server = result.scalar_one_or_none()
 
@@ -467,8 +423,7 @@ async def save_idegym_server(
     server_kind: str = "idegym",
     service_port: int = 80,
 ) -> IdeGYMServer:
-    """Create a new IdeGYM server."""
-    # Create a server without generated_name first to get an ID
+    # Insert first to obtain an auto-increment ID, then derive generated_name from it.
     server = IdeGYMServer(
         client_id=client_id,
         client_name=client_name,
@@ -483,14 +438,10 @@ async def save_idegym_server(
         service_port=service_port,
     )
     db.add(server)
-    await db.flush()  # This assigns an ID but doesn't commit yet
+    await db.flush()  # assigns ID without committing
 
-    # Generate the name based on the pattern {client_server_name|idegym-server}-{server_id}
     base_name = server_name if server_name else "idegym-server"
-    generated_name = f"{base_name}-{server.id}"
-
-    # Update the server with the generated name
-    server.generated_name = generated_name
+    server.generated_name = f"{base_name}-{server.id}"
     await db.commit()
     return server
 
@@ -498,7 +449,6 @@ async def save_idegym_server(
 async def update_idegym_server_heartbeat(
     db: AsyncSession, server_id: int, availability: str = AvailabilityStatus.ALIVE
 ) -> Optional[IdeGYMServer]:
-    """Update an IdeGYM server's heartbeat time and availability."""
     server = await get_idegym_server(db, server_id)
     if not server:
         return None
@@ -509,7 +459,7 @@ async def update_idegym_server_heartbeat(
     server.last_heartbeat_time = current_time_millis()
     server.availability = availability
 
-    # If the server is being stopped or killed (but not finished), subtract its resources from the matching rule
+    # Release the server's resource quota when it transitions to a terminal non-FINISHED state.
     if availability in {
         AvailabilityStatus.STOPPED,
         AvailabilityStatus.KILLED,
@@ -526,12 +476,9 @@ async def update_idegym_server_heartbeat(
 async def subtract_resources_from_rule(
     db: AsyncSession, client_name: str, cpu_amount: float, ram_amount: float
 ) -> None:
-    """Subtract resources from the matching resource limit rule."""
-    # Find the matching rule and lock it with FOR UPDATE
     matching_rule = await find_matching_resource_limit_rule(db, client_name, for_update=True)
 
     if matching_rule:
-        # Subtract the resources, ensuring we don't go below zero
         matching_rule.used_cpu = max(0.0, matching_rule.used_cpu - cpu_amount)
         matching_rule.used_ram = max(0.0, matching_rule.used_ram - ram_amount)
         matching_rule.current_pods = max(0, matching_rule.current_pods - 1)
@@ -544,7 +491,6 @@ async def subtract_resources_from_rule(
 
 
 async def update_idegym_server_owner(db: AsyncSession, server_id: int, client_id: UUID) -> Optional[IdeGYMServer]:
-    """Update an IdeGYM server's owner."""
     server = await get_idegym_server(db, server_id)
     if not server:
         return None
@@ -555,7 +501,6 @@ async def update_idegym_server_owner(db: AsyncSession, server_id: int, client_id
 
 
 async def get_async_operation(db: AsyncSession, async_operation_id: int) -> Optional[AsyncOperation]:
-    """Get an AsyncOperation by ID."""
     result = await db.execute(select(AsyncOperation).filter(AsyncOperation.id == async_operation_id))
     return result.scalar_one_or_none()
 
@@ -567,7 +512,6 @@ async def save_async_operation(
     server_id: Optional[int] = None,
     request: Optional[Any] = None,
 ) -> AsyncOperation:
-    """Create a new AsyncOperation record. Serializes the full request payload to JSON when possible."""
     async_operation = AsyncOperation(
         request_type=str(async_operation_type),
         status=AsyncOperationStatus.SCHEDULED,
@@ -587,7 +531,6 @@ async def update_async_operation(
     orchestrator_pod: Optional[str] = None,
     result: Optional[Any] = None,
 ) -> Optional[AsyncOperation]:
-    """Update an AsyncOperation with result and status."""
     query = select(AsyncOperation).filter(AsyncOperation.id == async_operation_id).with_for_update()
     result_query = await db.execute(query)
     async_operation = result_query.scalar_one_or_none()
@@ -615,14 +558,12 @@ async def update_async_operation(
 
 
 async def get_job_status(db: AsyncSession, job_name: str) -> Optional[JobStatusRecord]:
-    """Get a job status by job name."""
     query = select(JobStatusRecord).filter(JobStatusRecord.job_name == job_name)
     result = await db.execute(query)
     return result.scalar_one_or_none()
 
 
 async def get_job_status_by_id(db: AsyncSession, job_id: int) -> Optional[JobStatusRecord]:
-    """Get a job status by ID."""
     query = select(JobStatusRecord).filter(JobStatusRecord.id == job_id)
     result = await db.execute(query)
     return result.scalar_one_or_none()
@@ -636,8 +577,6 @@ async def save_job_status(
     details: Optional[str] = None,
     request_id: Optional[str] = None,
 ) -> JobStatusRecord:
-    """Create a new job status record."""
-    # Check if a record with this job_name already exists
     existing_record = await get_job_status(db, job_name)
     if existing_record:
         return await update_job_status(db, job_name, status, tag, details, request_id)
@@ -656,7 +595,6 @@ async def update_job_status(
     details: Optional[str] = None,
     request_id: Optional[str] = None,
 ) -> Optional[JobStatusRecord]:
-    """Update a job status record."""
     job_status = await get_job_status(db, job_name)
     if not job_status:
         return None
@@ -686,7 +624,6 @@ async def create_resource_limit_rule(
     used_ram: float = 0.0,
     current_pods: int = 0,
 ) -> ResourceLimitRule:
-    """Create a new resource limit rule."""
     rule = ResourceLimitRule(
         client_name_regex=client_name_regex,
         pods_limit=pods_limit,
@@ -703,7 +640,6 @@ async def create_resource_limit_rule(
 
 
 async def get_resource_limit_rule(db: AsyncSession, rule_id: int) -> Optional[ResourceLimitRule]:
-    """Get a resource limit rule by ID."""
     query = select(ResourceLimitRule).filter(ResourceLimitRule.id == rule_id)
     result = await db.execute(query)
     return result.scalar_one_or_none()
@@ -712,7 +648,6 @@ async def get_resource_limit_rule(db: AsyncSession, rule_id: int) -> Optional[Re
 async def update_resource_limit_rule(
     db: AsyncSession, rule_id: int, pods_limit: int, cpu_limit: float, ram_limit: float, priority: int
 ) -> Optional[ResourceLimitRule]:
-    """Update a resource limit rule."""
     rule = await get_resource_limit_rule(db, rule_id)
     if not rule:
         return None
@@ -730,19 +665,12 @@ async def find_matching_resource_limit_rule(
     db: AsyncSession, client_name: str, for_update: bool = False
 ) -> Optional[ResourceLimitRule]:
     """
-    Find a resource limit rule that matches the client name.
+    Return the highest-priority ResourceLimitRule whose regex matches client_name.
 
-    Args:
-        db: The database session
-        client_name: The client name to match against the regex patterns
-        for_update: If True, the matching rule will be locked with FOR UPDATE
-
-    Returns:
-        The matching resource limit rule, or None if no match is found
+    Uses PostgreSQL's ~ operator for regex matching and orders by priority descending
+    so that more specific rules win over the catch-all ".*" default.
+    Pass for_update=True to lock the selected row for a subsequent update.
     """
-    # Use PostgreSQL's regex operator to find matching rules directly in SQL
-    # The ~ operator performs regex matching in PostgreSQL
-    # We order by priority in descending order to get the highest priority rule first
     query = (
         select(ResourceLimitRule)
         .where(func.cast(client_name, Text).op("~")(ResourceLimitRule.client_name_regex))
@@ -750,14 +678,11 @@ async def find_matching_resource_limit_rule(
         .limit(1)
     )
 
-    # Add FOR UPDATE if needed
     if for_update:
         query = query.with_for_update()
 
     result = await db.execute(query)
-    matching_rule = result.scalar_one_or_none()
-
-    return matching_rule
+    return result.scalar_one_or_none()
 
 
 async def check_resources_and_save_server(
@@ -775,23 +700,19 @@ async def check_resources_and_save_server(
     service_port: int = 80,
 ) -> Optional[IdeGYMServer]:
     """
-    Check resource availability and save a new server in a single atomic transaction.
-    This prevents race conditions when multiple requests check for resources and create servers simultaneously.
+    Atomically check resource limits and create a new server record.
 
-    The function selects the appropriate rule with FOR UPDATE to lock just that row, ensuring
-    that other transactions trying to use the same rule will wait until this transaction completes.
-    This approach is more efficient than locking the entire table.
+    Locks the matching ResourceLimitRule row with FOR UPDATE to serialize concurrent
+    start-server requests against the same rule, preventing over-provisioning.
+    Returns None if any resource limit (CPU, RAM, or pod count) would be exceeded.
     """
-    # Start an explicit transaction
     async with db.begin():
-        # Find the matching rule for this client and lock it with FOR UPDATE
         matching_rule = await find_matching_resource_limit_rule(db, client_name, for_update=True)
 
         if not matching_rule:
             logger.error(f"No matching resource limit rule found for client {client_name}")
             return None
 
-        # Check if adding the new server would exceed any limits
         if matching_rule.used_cpu + cpu_request > matching_rule.cpu_limit:
             logger.warning(
                 f"Client {client_name} has reached CPU limit: "
@@ -813,12 +734,10 @@ async def check_resources_and_save_server(
             )
             return None
 
-        # Update the used resources in the rule
         matching_rule.used_cpu += cpu_request
         matching_rule.used_ram += ram_request
         matching_rule.current_pods += 1
 
-        # Create a server without generated_name first to get an ID
         server = IdeGYMServer(
             client_id=client_id,
             client_name=client_name,
@@ -833,17 +752,11 @@ async def check_resources_and_save_server(
             service_port=service_port,
         )
         db.add(server)
-        await db.flush()  # This assigns an ID but doesn't commit yet
+        await db.flush()  # assigns ID without committing
 
-        # Generate the name based on the pattern {client_server_name|idegym-server}-{server_id}
-        base_name = server_name
-        generated_name = f"{base_name}-{server.id}"
+        server.generated_name = f"{server_name}-{server.id}"
 
-        # Update the server with the generated name
-        server.generated_name = generated_name
-
-        # The transaction will be committed automatically when the context manager exits
-        # If any exception occurs, the transaction will be rolled back automatically
+        # Transaction commits on context exit; rolls back on exception.
     logger.info(
         f"Created server for client {client_name} with {cpu_request} CPU, {ram_request} RAM. "
         f"Rule {matching_rule.client_name_regex} now has {matching_rule.used_cpu}/{matching_rule.cpu_limit} CPU, "
@@ -854,16 +767,7 @@ async def check_resources_and_save_server(
 
 
 async def acquire_advisory_lock(db: AsyncSession, lock_id: int) -> bool:
-    """
-    Attempt to acquire a PostgreSQL advisory lock.
-
-    Args:
-        db: Database session
-        lock_id: Unique identifier for the lock
-
-    Returns:
-        bool: True if lock was acquired, False if already taken
-    """
+    """Attempt to acquire a PostgreSQL session-level advisory lock. Returns True if acquired."""
     try:
         result = await db.execute(text("SELECT pg_try_advisory_lock(:lock_id)"), {"lock_id": lock_id})
         acquired = result.scalar()
@@ -878,16 +782,7 @@ async def acquire_advisory_lock(db: AsyncSession, lock_id: int) -> bool:
 
 
 async def release_advisory_lock(db: AsyncSession, lock_id: int) -> bool:
-    """
-    Release a PostgreSQL advisory lock.
-
-    Args:
-        db: Database session
-        lock_id: Unique identifier for the lock
-
-    Returns:
-        bool: True if lock was released, False otherwise
-    """
+    """Release a PostgreSQL session-level advisory lock. Returns True if released."""
     try:
         result = await db.execute(text("SELECT pg_advisory_unlock(:lock_id)"), {"lock_id": lock_id})
         released = result.scalar()
@@ -902,16 +797,7 @@ async def release_advisory_lock(db: AsyncSession, lock_id: int) -> bool:
 
 
 async def delete_old_async_operations(db: AsyncSession, current_time: int, max_age: Duration) -> int:
-    """
-    Delete async operations with started_at earlier than (current_time - max_age).
-
-    Args:
-        db: Database session
-        current_time: Current time in milliseconds
-        max_age: Duration (timedelta) specifying maximum age of requests
-
-    Returns the number of deleted async operations.
-    """
+    """Delete completed async operations older than max_age. Returns number of deleted rows."""
     try:
         max_age_ms = int(max_age.total_seconds() * 1000)
         result = await db.execute(delete(AsyncOperation).where(AsyncOperation.started_at < (current_time - max_age_ms)))
@@ -929,14 +815,10 @@ async def mark_stale_async_operations_as_finished(
     db: AsyncSession, current_time: int, stale_inprogress: Duration
 ) -> int:
     """
-    Mark IN_PROGRESS async operations started before (current_time - stale_inprogress) as FINISHED_BY_WATCHER and set finished_at.
+    Mark IN_PROGRESS operations that started more than stale_inprogress ago as FINISHED_BY_WATCHER.
 
-    Args:
-        db: Database session
-        current_time: Current time in milliseconds
-        stale_inprogress: Duration (timedelta) specifying how long a stale async operations should be IN_PROGRESS before marked as finished by watcher
-
-    Returns the number of updated async operations.
+    This handles cases where the orchestrator restarted mid-operation and the task
+    will never complete on its own. Returns the number of updated rows.
     """
     try:
         stale_inprogress_ms = int(stale_inprogress.total_seconds() * 1000)
