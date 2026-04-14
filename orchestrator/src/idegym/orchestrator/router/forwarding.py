@@ -37,6 +37,7 @@ logger = get_logger(__name__)
 @router.api_route(
     "/api/forward/{client_id}/{server_id}/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"],
+    status_code=status.HTTP_202_ACCEPTED,
 )
 @handle_general_exceptions(error_message="Failed to forward request to IdeGYM server")
 async def forward_request_by_server_id(request: Request, client_id: UUID, server_id: int, path: str):
