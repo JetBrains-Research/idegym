@@ -70,6 +70,7 @@ class IdeGYMServer:
         server_start_wait_timeout_in_seconds: int = 60,
         polling_config: Optional[PollingConfig] = None,
     ) -> ServerActionResponse:
+        """Restart the server container."""
         return await self.server.restart_server(
             server_id=self.server_id,
             client_id=self.client_id,
@@ -108,6 +109,7 @@ class IdeGYMServer:
         request_timeout: Optional[int] = None,
         polling_config: Optional[PollingConfig] = None,
     ) -> BashCommandResponse:
+        """Execute a bash script on the server."""
         return await self.tools.execute_bash(
             server_id=self.server_id,
             script=script,
@@ -125,6 +127,7 @@ class IdeGYMServer:
         request_timeout: Optional[int] = None,
         polling_config: PollingConfig = PollingConfig(),
     ) -> FileResult:
+        """Create a file on the server."""
         return await self.files.create_file(
             server_id=self.server_id,
             file_path=file_path,
@@ -143,6 +146,7 @@ class IdeGYMServer:
         request_timeout: Optional[int] = None,
         polling_config: Optional[PollingConfig] = None,
     ) -> FileResult:
+        """Edit a range of lines in a file on the server."""
         return await self.files.edit_file(
             server_id=self.server_id,
             file_path=file_path,
@@ -161,6 +165,7 @@ class IdeGYMServer:
         request_timeout: Optional[int] = None,
         polling_config: Optional[PollingConfig] = None,
     ) -> FileResult:
+        """Apply a unified diff patch to a file on the server."""
         return await self.files.patch_file(
             server_id=self.server_id,
             file_path=file_path,
@@ -178,6 +183,7 @@ class IdeGYMServer:
         request_timeout: Optional[float] = None,
         polling_config: Optional[PollingConfig] = None,
     ) -> CompilationResult:
+        """Run the compilation script and return a reward result."""
         return await self.rewards.compilation_reward(
             server_id=self.server_id,
             compilation_script=compilation_script,
@@ -196,6 +202,7 @@ class IdeGYMServer:
         request_timeout: Optional[float] = None,
         polling_config: Optional[PollingConfig] = None,
     ) -> SetupResult:
+        """Run the setup check script and return a reward result."""
         return await self.rewards.setup_reward(
             server_id=self.server_id,
             setup_check_script=setup_check_script,
@@ -214,6 +221,7 @@ class IdeGYMServer:
         request_timeout: Optional[float] = None,
         polling_config: Optional[PollingConfig] = None,
     ) -> TestReport:
+        """Run the test script and return a reward report."""
         return await self.rewards.test_reward(
             server_id=self.server_id,
             test_script=test_script,

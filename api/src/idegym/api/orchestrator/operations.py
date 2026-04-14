@@ -45,13 +45,13 @@ class ForwardRequestPayload(BaseModel):
     method: str
     path: str
     headers: dict[str, str] = Field(default_factory=dict, description="Sanitized request headers")
-    body: Optional[str] = Field(default=None)
-    target_url: str
+    body: Optional[str] = Field(default=None, description="Request body as text, if present")
+    target_url: str = Field(description="Resolved target URL to forward the request to")
     server_id: int
 
 
 class ForwardRequestResponse(BaseModel):
-    async_operation_id: Optional[int] = Field(default=None)
+    async_operation_id: Optional[int] = Field(default=None, description="Async operation ID to poll for request status")
 
     status_code: Optional[int] = Field(default=None)
     headers: Optional[dict[str, str]] = Field(default_factory=dict, description="Sanitized response headers")

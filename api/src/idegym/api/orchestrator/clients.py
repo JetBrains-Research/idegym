@@ -31,7 +31,7 @@ class AvailabilityStatus(StrEnum):
 
 class RegisterClientRequest(BaseModel):
     name: str = Field(description="Human-readable name for the client")
-    nodes_count: int = Field(default=0, ge=0)
+    nodes_count: int = Field(default=0, ge=0, description="Number of nodes to spin up for the client")
     namespace: str = Field(default="idegym")
 
 
@@ -46,7 +46,7 @@ class StopClientRequest(BaseModel):
 
 
 class StopClientResponse(BaseModel):
-    operation_id: Optional[int] = Field(default=None)
+    operation_id: Optional[int] = Field(default=None, description="Async operation ID to poll for client stop status")
 
 
 class FinishClientRequest(BaseModel):
@@ -62,4 +62,6 @@ class RegisteredClientResponse(BaseModel):
     last_heartbeat_time: int = Field(description="Epoch milliseconds")
     availability: str
     created_at: int = Field(description="Epoch milliseconds")
-    operation_id: Optional[int] = Field(default=None)
+    operation_id: Optional[int] = Field(
+        default=None, description="Async operation ID to poll for client registration status"
+    )

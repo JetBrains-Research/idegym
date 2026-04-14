@@ -228,6 +228,7 @@ class IdeGYMClient:
         namespace: Optional[str] = None,
         polling_config: PollingConfig = PollingConfig(),
     ) -> RegisteredClientResponse | ErrorResponse:
+        """Stop the client, terminating all its running servers in the process."""
         if not client_id:
             self._stop_heartbeat()
         return await self.clients.stop_client(client_id=client_id, namespace=namespace, polling_config=polling_config)

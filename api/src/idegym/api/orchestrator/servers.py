@@ -32,8 +32,11 @@ class StartServerRequest(BaseModel):
     server_start_wait_timeout_in_seconds: int = Field(
         default=60, description="Seconds to wait for server readiness", ge=0
     )
-    reuse_strategy: ServerReuseStrategy = Field(default=ServerReuseStrategy.RESET)
-    server_kind: ServerKind = Field(default=ServerKind.IDEGYM)
+    reuse_strategy: ServerReuseStrategy = Field(
+        default=ServerReuseStrategy.RESET,
+        description="What to do with an existing matching server instead of starting a new one",
+    )
+    server_kind: ServerKind = Field(default=ServerKind.IDEGYM, description="Server type: idegym or openenv")
 
 
 class StopServerRequest(BaseModel):
@@ -60,13 +63,13 @@ class RestartServerRequest(BaseModel):
 class StartServerResponse(BaseModel):
     namespace: str
     client_id: UUID
-    operation_id: Optional[int] = Field(default=None, description="Async operation ID to poll for start status")
+    operation_id: Optional[int] = Field(default=None, description="Async operation ID to poll for server start status")
     server_id: Optional[int] = Field(default=None)
-    server_name: Optional[str] = Field(default=None)
+    server_name: Optional[str] = Field(default=None, description="Logical server name as provided in the request")
     generated_name: Optional[str] = Field(default=None, description="Generated Kubernetes resource name")
     service_name: Optional[str] = Field(default=None, description="Kubernetes Service name for the server")
     image_tag: Optional[str] = Field(default=None)
-    need_to_reset: bool = Field(default=False)
+    need_to_reset: bool = Field(default=False, description="True if the reused server requires a project reset")
 
 
 class ErrorResponse(BaseModel):
@@ -78,7 +81,7 @@ class ErrorResponse(BaseModel):
 class ServerActionResponse(BaseModel):
     server_name: str
     message: str
-    operation_id: Optional[int] = Field(default=None)
+    operation_id: Optional[int] = Field(default=None, description="Async operation ID to poll for server action status")
 
 
 class ServerRequestResponse(BaseModel):
