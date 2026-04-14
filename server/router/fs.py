@@ -47,9 +47,9 @@ async def rmtree(path: Path):
 @router.get(f"{FSPath.LIST_DIRECTORY}/{{path:path}}")
 async def ls(path: Path = Depends(valid_workspace_path)):
     if not await path.exists():
-        return Response(status_code=status.HTTP_404_NOT_FOUND)
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Path not found: {path}")
     if not await path.is_dir():
-        return Response(status_code=status.HTTP_400_BAD_REQUEST)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Path is not a directory: {path}")
     content = [entry.name async for entry in path.iterdir()]
     return JSONResponse(content=content)
 
@@ -61,9 +61,9 @@ async def cat(
     path: Path = Depends(valid_workspace_path),
 ):
     if not await path.exists():
-        return Response(status_code=status.HTTP_404_NOT_FOUND)
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Path not found: {path}")
     if not await path.is_file():
-        return Response(status_code=status.HTTP_400_BAD_REQUEST)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Path is not a file: {path}")
 
     async def reader():
         async with await open(path, "rb") as file:
@@ -76,7 +76,7 @@ async def cat(
 @router.put(f"{FSPath.CREATE_FILE}/{{path:path}}")
 async def touch(path: Path = Depends(valid_workspace_path)):
     if not await path.parent.exists() or not await path.parent.is_dir():
-        return Response(status_code=status.HTTP_400_BAD_REQUEST)
+        return Response(status_code=status.HTTP_404_NOT_FOUND)
     response = Response(status_code=status.HTTP_201_CREATED if not await path.exists() else status.HTTP_200_OK)
     await path.touch()
     if not await path.exists():
@@ -110,5 +110,10 @@ async def rm(
     elif recursive:
         await rmtree(path)
     else:
+        if [_ async for _ in path.iterdir()]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Directory is not empty. Use recursive=true to delete it.",
+            )
         await path.rmdir()
     return Response(status_code=status.HTTP_200_OK)
