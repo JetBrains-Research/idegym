@@ -85,6 +85,7 @@ idegym/
 ├── backend-utils/        # Shared backend utilities (Kubernetes, telemetry)
 ├── client/               # Python client library
 ├── common-utils/         # Shared utilities (config, logging)
+├── examples/             # Runnable integration examples (standalone, not part of the workspace)
 ├── image-builder/        # Plugin-based Docker image building system
 ├── orchestrator/         # Kubernetes orchestrator service (FastAPI + PostgreSQL)
 ├── rewards/              # Reward calculation for agent evaluation
@@ -96,6 +97,15 @@ idegym/
 ├── scripts/              # Build and deployment scripts
 └── documentation/        # Extended documentation
 ```
+
+## Examples
+
+The [`examples/`](examples/README.md) directory contains standalone, runnable examples showing
+how to integrate external environments with IdeGYM. It is intentionally kept separate from the
+main uv workspace because the OpenEnv environment packages have transitive dependencies that
+conflict with the backend infrastructure packages.
+
+See [examples/README.md](examples/README.md) for available integrations and setup instructions.
 
 ## Contributing
 
