@@ -9,7 +9,7 @@ class TestBashExecutorInDocker:
     inside the container.
     """
 
-    BASE_CMD = "pytest integration-tests/test_bash_executor.py::TestBashExecutor::{} -v --run-docker"
+    BASE_CMD = "pytest integration-tests/docker_tests/test_bash_executor.py::TestBashExecutor::{} -v"
 
     @classmethod
     def setup_class(cls):

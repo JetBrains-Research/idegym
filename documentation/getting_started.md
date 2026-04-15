@@ -36,13 +36,22 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 Integration tests build real Docker images and push them to a local registry. They require:
 
 1. A running Docker daemon.
-2. A container registry listening on `localhost:5000`. Start one with:
+2. A container registry. Start one with:
    ```sh
    docker run -d -p 5000:5000 --name registry registry:2
    ```
-3. The `IDEGYM_TEST_REGISTRY` environment variable set to `localhost:5000`:
+   > [!WARNING]
+   > On macOS, **AirPlay Receiver** (Control Center) occupies port 5000 by default.
+   > If the command above fails with *address already in use*, use port 5001 instead:
+   > ```sh
+   > docker run -d -p 5001:5000 --name registry registry:2
+   > ```
+   > To free port 5000 permanently, turn off AirPlay Receiver in
+   > **System Settings → General → AirDrop & Handoff → AirPlay Receiver**.
+   > See also: [Port 5000 already in use](local_deployment.md#port-5000-already-in-use-when-starting-a-local-docker-registry).
+3. The `IDEGYM_TEST_REGISTRY` environment variable set to the registry address:
    ```sh
-   export IDEGYM_TEST_REGISTRY=localhost:5000
+   export IDEGYM_TEST_REGISTRY=localhost:5000   # or localhost:5001 on macOS
    ```
 
 In CI this registry is provided automatically as a Docker service container. Locally you need to start it manually before running the integration suite.
@@ -127,11 +136,13 @@ Tests that build Docker images and push them to a local registry.
 
 Prerequisites (see [Required for integration tests](#required-for-integration-tests) above):
 - Docker daemon running
-- Registry on `localhost:5000` (`docker run -d -p 5000:5000 --name registry registry:2`)
-- `IDEGYM_TEST_REGISTRY=localhost:5000` environment variable set
+- Local registry started (port 5000, or 5001 on macOS if AirPlay Receiver is active)
+- `IDEGYM_TEST_REGISTRY` set to the registry address
 
 ```sh
 IDEGYM_TEST_REGISTRY=localhost:5000 uv run pytest -m integration
+# macOS with AirPlay Receiver enabled:
+IDEGYM_TEST_REGISTRY=localhost:5001 uv run pytest -m integration
 ```
 
 ### End-to-end tests

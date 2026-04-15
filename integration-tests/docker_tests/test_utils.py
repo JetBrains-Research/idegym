@@ -3,8 +3,8 @@ from pathlib import Path
 
 from python_on_whales import docker
 
-PROJECT_ROOT = Path(__file__).parent.parent.absolute()
-DOCKERFILE_PATH = PROJECT_ROOT / "integration-tests" / "Dockerfile.bash_executor_test"
+PROJECT_ROOT = Path(__file__).parent.parent.parent.absolute()
+DOCKERFILE_PATH = PROJECT_ROOT / "integration-tests" / "docker_tests" / "Dockerfile.bash_executor_test"
 IMAGE_NAME = "server-python-312-slim:test"
 TEST_REGISTRY = env.get("IDEGYM_TEST_REGISTRY")
 
