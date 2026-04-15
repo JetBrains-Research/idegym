@@ -1,0 +1,27 @@
+[project]
+name = "idegym-examples"
+version = "0.0.0.dev0"
+description = "IdeGYM Examples"
+authors = [
+    { name = "Daniil Mironov", email = "daniil.mironov@jetbrains.com" },
+    { name = "Ozren Dabić", email = "ozren.dabic@jetbrains.com" },
+    { name = "Patrik Bartak", email = "patrik.bartak@jetbrains.com" },
+    { name = "Vladimir Poliakov", email = "vladimir.poliakov@jetbrains.com" },
+    { name = "Vseslav Kasatskii", email = "vseslav.kasatskii@jetbrains.com" },
+]
+requires-python = ">=3.12"
+dependencies = [
+    "idegym-client",
+    "python-dotenv>=1.0.0",
+    "openenv-echo-env @ git+https://huggingface.co/spaces/openenv/echo_env",
+    "openenv-tbench2-env @ git+https://huggingface.co/spaces/openenv/tbench2",
+]
+
+[tool.uv]
+required-version = ">=0.10.0"
+package = false
+
+[tool.uv.sources]
+idegym-client = { path = "../client", editable = true }
+idegym-api = { path = "../api", editable = true }
+idegym-common-utils = { path = "../common-utils", editable = true }
