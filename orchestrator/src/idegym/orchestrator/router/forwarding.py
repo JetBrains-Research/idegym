@@ -25,7 +25,6 @@ from idegym.orchestrator.util.decorators import handle_general_exceptions, handl
 from idegym.orchestrator.util.errors import format_error
 from idegym.utils.decorators import executes_operation_in_background
 from idegym.utils.logging import get_logger
-from starlette.websockets import WebSocketState
 from websockets.exceptions import ConnectionClosed
 from websockets.protocol import State
 
@@ -224,9 +223,9 @@ async def forward_websocket(websocket: WebSocket, client_id: UUID, server_id: in
                     await update_server_status(server_id=server_id, availability_status=AvailabilityStatus.ALIVE)
             except (WebSocketDisconnect, ConnectionClosed):
                 pass
-            finally:
-                if websocket.application_state != WebSocketState.DISCONNECTED:
-                    await websocket.close()
+            # Do not explicitly close the client websocket here — when forward_websocket()
+            # returns the ASGI lifecycle closes it cleanly. An explicit close here causes a
+            # double-close that the OpenTelemetry ASGI middleware raises as RuntimeError.
 
         client_task = asyncio.create_task(relay_client_to_upstream())
         upstream_task = asyncio.create_task(relay_upstream_to_client())
