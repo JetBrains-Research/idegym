@@ -22,6 +22,7 @@ from kubernetes_asyncio.client import (
     V1ConfigMap,
     V1ConfigMapKeySelector,
     V1ConfigMapList,
+    V1ConfigMapVolumeSource,
     V1Container,
     V1ContainerPort,
     V1DeleteOptions,
@@ -33,6 +34,7 @@ from kubernetes_asyncio.client import (
     V1HTTPGetAction,
     V1Job,
     V1JobSpec,
+    V1KeyToPath,
     V1LabelSelector,
     V1LocalObjectReference,
     V1ObjectFieldSelector,
@@ -756,9 +758,9 @@ async def build_and_push_image_with_kaniko(
                     volumes=[
                         V1Volume(
                             name="dockerfile-volume",
-                            config_map={
-                                "name": configmap.metadata.name,
-                            },
+                            config_map=V1ConfigMapVolumeSource(
+                                name=configmap.metadata.name,
+                            ),
                         ),
                     ]
                     + (
@@ -768,10 +770,10 @@ async def build_and_push_image_with_kaniko(
                                 secret=V1SecretVolumeSource(
                                     secret_name="regcred",
                                     items=[
-                                        {
-                                            "key": ".dockerconfigjson",
-                                            "path": "config.json",
-                                        },
+                                        V1KeyToPath(
+                                            key=".dockerconfigjson",
+                                            path="config.json",
+                                        ),
                                     ],
                                 ),
                             ),
