@@ -25,10 +25,14 @@ class IdeGYMKanikoDockerAPI:
         namespace: str = "idegym",
         job_timeout: float = 2400,
         insecure_registry: bool = False,
+        node_pool_taint_key: Optional[str] = None,
+        node_pool_preference_weight: int = 100,
     ):
         self._namespace = namespace
         self._job_timeout = job_timeout
         self._insecure_registry = insecure_registry
+        self._node_pool_taint_key = node_pool_taint_key
+        self._node_pool_preference_weight = node_pool_preference_weight
 
     async def build_and_push_single_image(
         self,
@@ -61,6 +65,8 @@ class IdeGYMKanikoDockerAPI:
             runtime_class_name=spec.runtime_class_name,
             resources=spec.resources,
             insecure_registry=self._insecure_registry,
+            node_pool_taint_key=self._node_pool_taint_key,
+            node_pool_preference_weight=self._node_pool_preference_weight,
         )
 
         create_task(self.monitor_image_building_job(job_name, tag, request_id))

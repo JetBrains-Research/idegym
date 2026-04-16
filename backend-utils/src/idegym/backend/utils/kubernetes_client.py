@@ -692,6 +692,8 @@ async def build_and_push_image_with_kaniko(
     runtime_class_name: Optional[str] = None,
     resources: Optional[Any] = None,
     insecure_registry: bool = False,
+    node_pool_taint_key: Optional[str] = None,
+    node_pool_preference_weight: int = 100,
 ) -> str:
     """
     Build a Docker image using Kaniko in a Kubernetes Job and push it to a registry.
@@ -795,6 +797,25 @@ async def build_and_push_image_with_kaniko(
         resources=resources,
     )
 
+    toleration = (
+        V1Toleration(
+            key=node_pool_taint_key,
+            operator="Exists",
+            effect="NoSchedule",
+        )
+        if node_pool_taint_key
+        else None
+    )
+
+    affinity = (
+        build_node_pool_affinity(
+            taint_key=node_pool_taint_key,
+            preference_weight=node_pool_preference_weight,
+        )
+        if node_pool_taint_key
+        else None
+    )
+
     job = V1Job(
         api_version="batch/v1",
         kind="Job",
@@ -838,6 +859,8 @@ async def build_and_push_image_with_kaniko(
                         else []
                     ),
                     runtime_class_name=runtime_class_name,
+                    tolerations=[toleration] if toleration else None,
+                    affinity=affinity,
                 ),
             ),
             backoff_limit=0,
