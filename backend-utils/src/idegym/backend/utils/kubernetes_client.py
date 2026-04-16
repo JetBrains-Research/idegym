@@ -61,6 +61,7 @@ from kubernetes_asyncio.client import (
     V1ServicePort,
     V1ServiceSpec,
     V1Status,
+    V1Toleration,
     V1Volume,
     V1VolumeMount,
 )
@@ -227,6 +228,8 @@ async def deploy_server(
     runtime_class_name: Optional[str] = None,
     run_as_root: bool = False,
     node_selector: Optional[dict[str, str]] = None,
+    node_pool_taint_key: Optional[str] = None,
+    node_pool_preference_weight: int = 100,
     resources: Union[V1ResourceRequirements, dict[str, Any], None] = None,
     environment_variables: Iterable[Union[V1EnvVar, dict[str, Any]]] = (),
     server_kind: ServerKind = ServerKind.IDEGYM,
@@ -294,6 +297,26 @@ async def deploy_server(
         **match_labels,
         "app.kubernetes.io/version": __version__,
     }
+
+    toleration = (
+        V1Toleration(
+            key=node_pool_taint_key,
+            operator="Exists",
+            effect="NoSchedule",
+        )
+        if node_pool_taint_key
+        else None
+    )
+
+    affinity = (
+        build_node_pool_affinity(
+            taint_key=node_pool_taint_key,
+            preference_weight=node_pool_preference_weight,
+        )
+        if node_pool_taint_key
+        else None
+    )
+
     deployment = V1Deployment(
         api_version="apps/v1",
         kind="Deployment",
@@ -316,6 +339,8 @@ async def deploy_server(
                     image_pull_secrets=[image_pull_secret],
                     runtime_class_name=runtime_class_name,
                     node_selector=node_selector,
+                    tolerations=[toleration] if toleration else None,
+                    affinity=affinity,
                 ),
             ),
         ),
