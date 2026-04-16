@@ -19,6 +19,7 @@ from kubernetes_asyncio.client import (
     Configuration,
     CoreV1Api,
     PolicyV1Api,
+    V1Affinity,
     V1ConfigMap,
     V1ConfigMapKeySelector,
     V1ConfigMapList,
@@ -37,6 +38,9 @@ from kubernetes_asyncio.client import (
     V1KeyToPath,
     V1LabelSelector,
     V1LocalObjectReference,
+    V1NodeAffinity,
+    V1NodeSelectorRequirement,
+    V1NodeSelectorTerm,
     V1ObjectFieldSelector,
     V1ObjectMeta,
     V1OwnerReference,
@@ -45,6 +49,7 @@ from kubernetes_asyncio.client import (
     V1PodDisruptionBudgetSpec,
     V1PodSpec,
     V1PodTemplateSpec,
+    V1PreferredSchedulingTerm,
     V1Probe,
     V1ResourceFieldSelector,
     V1ResourceRequirements,
@@ -70,6 +75,32 @@ KubernetesV1Apis = tuple[AppsV1Api, BatchV1Api, CoreV1Api, PolicyV1Api]
 V1ResourceList = Union[V1ConfigMapList, V1DeploymentList, V1PodDisruptionBudgetList, V1ServiceList]
 
 logger = get_logger(__name__)
+
+
+def build_node_affinity(taint_key: str, preference_weight: int) -> V1NodeAffinity:
+    requirement = V1NodeSelectorRequirement(
+        key=taint_key,
+        operator="Exists",
+    )
+    term = V1PreferredSchedulingTerm(
+        weight=preference_weight,
+        preference=V1NodeSelectorTerm(
+            match_expressions=[requirement],
+        ),
+    )
+    return V1NodeAffinity(
+        preferred_during_scheduling_ignored_during_execution=[term],
+    )
+
+
+def build_node_pool_affinity(taint_key: str, preference_weight: int) -> V1Affinity:
+    affinity = build_node_affinity(
+        taint_key=taint_key,
+        preference_weight=preference_weight,
+    )
+    return V1Affinity(
+        node_affinity=affinity,
+    )
 
 
 def get_server_probe_config(server_kind: ServerKind, container_port: int) -> tuple[str, dict[str, str]]:
