@@ -307,8 +307,8 @@ def exec_in_pod(pod_name: str, namespace: str, command: list[str]) -> str:
                 tty=False,
                 _preload_content=False,
             )
-            stdout = ""
-            stderr = ""
+            stdout_chunks: list[str] = []
+            stderr_chunks: list[str] = []
             returncode = None
             async with ws_cm as ws:
                 async for msg in ws:
@@ -318,16 +318,14 @@ def exec_in_pod(pod_name: str, namespace: str, command: list[str]) -> str:
                     channel = data[0]
                     content = data[1:].decode("utf-8", errors="replace")
                     if channel == STDOUT_CHANNEL:
-                        stdout += content
+                        stdout_chunks.append(content)
                     elif channel == STDERR_CHANNEL:
-                        stderr += content
+                        stderr_chunks.append(content)
                     elif channel == ERROR_CHANNEL:
-                        try:
-                            returncode = WsApiClient.parse_error_data(content)
-                        except Exception:
-                            pass
+                        returncode = WsApiClient.parse_error_data(content)
+            stderr = "".join(stderr_chunks)
             if returncode is not None and returncode != 0:
                 raise RuntimeError(f"exec in pod {pod_name} failed (rc={returncode}): {stderr.strip()}")
-            return stdout
+            return "".join(stdout_chunks)
 
     return _run_async(_op())

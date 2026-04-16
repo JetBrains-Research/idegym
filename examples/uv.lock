@@ -900,8 +900,8 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "idegym-client", editable = "../client" },
-    { name = "openenv-echo-env", git = "https://huggingface.co/spaces/openenv/echo_env" },
-    { name = "openenv-tbench2-env", git = "https://huggingface.co/spaces/openenv/tbench2" },
+    { name = "openenv-echo-env", git = "https://huggingface.co/spaces/openenv/echo_env?rev=2b73c927ac6e70a55555efeabdc58bf4c448dfba" },
+    { name = "openenv-tbench2-env", git = "https://huggingface.co/spaces/openenv/tbench2?rev=ed784cae47957933a22712aefcfa9548560132bc" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
 ]
 
@@ -1385,7 +1385,7 @@ core = [
 [[package]]
 name = "openenv-echo-env"
 version = "0.1.0"
-source = { git = "https://huggingface.co/spaces/openenv/echo_env#2b73c927ac6e70a55555efeabdc58bf4c448dfba" }
+source = { git = "https://huggingface.co/spaces/openenv/echo_env?rev=2b73c927ac6e70a55555efeabdc58bf4c448dfba#2b73c927ac6e70a55555efeabdc58bf4c448dfba" }
 dependencies = [
     { name = "fastapi" },
     { name = "openenv-core", extra = ["core"] },
@@ -1397,7 +1397,7 @@ dependencies = [
 [[package]]
 name = "openenv-tbench2-env"
 version = "0.1.0"
-source = { git = "https://huggingface.co/spaces/openenv/tbench2#ed784cae47957933a22712aefcfa9548560132bc" }
+source = { git = "https://huggingface.co/spaces/openenv/tbench2?rev=ed784cae47957933a22712aefcfa9548560132bc#ed784cae47957933a22712aefcfa9548560132bc" }
 dependencies = [
     { name = "camel-ai" },
     { name = "docker" },

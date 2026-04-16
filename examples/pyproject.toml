@@ -13,8 +13,8 @@ requires-python = ">=3.12"
 dependencies = [
     "idegym-client",
     "python-dotenv>=1.0.0",
-    "openenv-echo-env @ git+https://huggingface.co/spaces/openenv/echo_env",
-    "openenv-tbench2-env @ git+https://huggingface.co/spaces/openenv/tbench2",
+    "openenv-echo-env @ git+https://huggingface.co/spaces/openenv/echo_env@2b73c927ac6e70a55555efeabdc58bf4c448dfba",
+    "openenv-tbench2-env @ git+https://huggingface.co/spaces/openenv/tbench2@ed784cae47957933a22712aefcfa9548560132bc",
 ]
 
 [tool.uv]
