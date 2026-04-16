@@ -5,16 +5,8 @@ import pytest
 from idegym.backend.utils.bash_executor import BashCommandExecutionTimeoutError, BashExecutor
 
 
-@pytest.mark.docker
 class TestBashExecutor:
-    """
-    Real integration tests for BashExecutor that use actual bash processes.
-    These tests are designed to be run in a Docker container to ensure safety and
-    consistent behavior across different platforms.
-
-    These tests are marked with @pytest.mark.docker and will run in CI environments
-    but will be skipped in local environments unless --run-docker is provided.
-    """
+    """Real integration tests for BashExecutor that use actual bash processes."""
 
     @pytest.mark.asyncio
     async def test_execute_valid_command(self):

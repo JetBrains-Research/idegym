@@ -1,10 +1,10 @@
 from os import environ as env
-from pathlib import Path
 
+from from_root import from_root
 from python_on_whales import docker
 
-PROJECT_ROOT = Path(__file__).parent.parent.absolute()
-DOCKERFILE_PATH = PROJECT_ROOT / "integration-tests" / "Dockerfile.bash_executor_test"
+PROJECT_ROOT = from_root(".")
+DOCKERFILE_PATH = PROJECT_ROOT / "integration-tests" / "docker_tests" / "Dockerfile.bash_executor_test"
 IMAGE_NAME = "server-python-312-slim:test"
 TEST_REGISTRY = env.get("IDEGYM_TEST_REGISTRY")
 

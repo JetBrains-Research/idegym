@@ -352,6 +352,25 @@ Then rebuild and reload as described in [Build and load images](#build-and-load-
    kubectl get pods -n idegym
    ```
 
+### Port 5000 already in use when starting a local Docker registry
+
+On macOS, **AirPlay Receiver** (part of Control Center) binds to port 5000 by default, so
+`docker run -p 5000:5000 registry:2` fails with *address already in use*.
+
+You have two options:
+
+**Option A — disable AirPlay Receiver** (frees port 5000 permanently):
+> System Settings → General → AirDrop & Handoff → AirPlay Receiver → off
+
+**Option B — use a different port** (no system change required):
+```shell
+docker run -d -p 5001:5000 --name registry registry:2
+```
+Then pass the alternate address when running integration tests:
+```shell
+IDEGYM_TEST_REGISTRY=localhost:5001 uv run pytest integration-tests/
+```
+
 ### Authentication errors when pulling from GHCR
 
 Verify the `regcred` secret exists and is referenced by the orchestrator service account:
