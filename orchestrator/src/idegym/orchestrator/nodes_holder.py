@@ -3,7 +3,12 @@ from typing import Awaitable, Callable, Optional, TypeVar
 from uuid import UUID
 
 from idegym.api import __version__
-from idegym.backend.utils.kubernetes_client import async_kube_api, delete_with_retries, wait_for_pods_ready
+from idegym.backend.utils.kubernetes_client import (
+    async_kube_api,
+    build_node_affinity,
+    delete_with_retries,
+    wait_for_pods_ready,
+)
 from idegym.orchestrator.database.helpers import need_to_release_nodes_for_client
 from idegym.utils.hashing import md5
 from idegym.utils.logging import get_logger
@@ -24,6 +29,7 @@ from kubernetes_asyncio.client import (
     V1PodSpec,
     V1PodTemplateSpec,
     V1ResourceRequirements,
+    V1Toleration,
 )
 
 T = TypeVar("T", V1Deployment, V1PodDisruptionBudget)
@@ -72,6 +78,8 @@ async def spin_up_or_update_nodes_for_client(
     client_name: str,
     nodes_count: int,
     namespace: str,
+    node_pool_taint_key: Optional[str] = None,
+    node_pool_preference_weight: int = 100,
     runtime_class_name: Optional[str] = None,
     wait_timeout: int = 600,
 ):
@@ -132,6 +140,29 @@ async def spin_up_or_update_nodes_for_client(
         ),
     )
 
+    pod_anti_affinity = V1PodAntiAffinity(
+        required_during_scheduling_ignored_during_execution=[term],
+    )
+
+    node_affinity = (
+        build_node_affinity(
+            taint_key=node_pool_taint_key,
+            preference_weight=node_pool_preference_weight,
+        )
+        if node_pool_taint_key
+        else None
+    )
+
+    toleration = (
+        V1Toleration(
+            key=node_pool_taint_key,
+            operator="Exists",
+            effect="NoSchedule",
+        )
+        if node_pool_taint_key
+        else None
+    )
+
     deployment = V1Deployment(
         api_version="apps/v1",
         kind="Deployment",
@@ -152,10 +183,10 @@ async def spin_up_or_update_nodes_for_client(
                 spec=V1PodSpec(
                     containers=[container],
                     runtime_class_name=runtime_class_name,
+                    tolerations=[toleration] if toleration else None,
                     affinity=V1Affinity(
-                        pod_anti_affinity=V1PodAntiAffinity(
-                            required_during_scheduling_ignored_during_execution=[term],
-                        ),
+                        node_affinity=node_affinity,
+                        pod_anti_affinity=pod_anti_affinity,
                     ),
                 ),
             ),
