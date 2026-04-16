@@ -19,6 +19,18 @@ spec:
         prometheus.io/scrape: "true"
         prometheus.io/port: "3200"
     spec:
+      tolerations:
+        - key: jetbrains.com/idegym
+          operator: Exists
+          effect: NoSchedule
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: jetbrains.com/idegym
+                    operator: Exists
       containers:
         - name: tempo
           image: grafana/tempo:2.10.3
