@@ -160,60 +160,129 @@ automatically — no manual configuration needed.
 
 ## How It Works
 
-### Image building
+When you run `uv run pytest -m e2e`, the session fixtures do four things:
 
-All images are built locally and loaded into Minikube — no external registry or credentials required.
+1. Build and load the required images
+2. Apply the local Kubernetes overlay from `e2e-tests/config/`
+3. Wait for the orchestrator at `http://idegym-local.test/health`
+4. Run tests, then clean up sandbox deployments, jobs, and database state
 
-**Orchestrator image:**
-- Built from local source using `scripts/build_orchestrator_image.py`
-- Tagged as `ghcr.io/jetbrains-research/idegym/orchestrator:latest`
-- Loaded into Minikube with `minikube image load`
+### 1. Cluster
 
-**Base server image:**
-- Built from `Dockerfile.jinja` (Debian bookworm)
-- Tagged as `ghcr.io/jetbrains-research/idegym/server-debian-bookworm-20250520-slim:latest`
-- Loaded into Minikube for pod execution
-- Also pushed to the cluster-internal registry so Kaniko can use it as a base
+The e2e suite runs against a single local Minikube cluster with these addons enabled:
 
-**Test images (Kaniko path):**
-- Built inside the cluster by Kaniko jobs
-- Pushed to the cluster-internal registry (`registry.kube-system.svc.cluster.local`)
-- Pulled into Minikube's containerd before pods start
+- `ingress` for HTTP routing
+- `gvisor` for sandboxed test containers
+- `registry` for Kaniko-built images
 
-**Test images (local Docker path):**
-- Built on the developer machine using `IdeGYMDockerAPI.build_image()`
-- Loaded directly into Minikube with `minikube image load`
-- No registry involved
+### 2. Local Overlay
 
-> **Important:** The `default` Docker builder must be active (not a containerized buildx builder)
-> so that local images are accessible during builds. The test setup handles this automatically.
+The local test overlay in `e2e-tests/config/` defines the main runtime settings:
 
-### Kubernetes deployment
+- `Namespace`: `idegym-local`
+- `Image pull policy`: `IfNotPresent`
+- `Ingress host`: `idegym-local.test`
 
-The `e2e-tests/config/` kustomize overlay customizes the base manifests for local testing:
+### 3. Deployed Services
 
-- **Namespace:** `idegym-local`
-- **Image pull policy:** `IfNotPresent` (uses locally loaded images)
-- **Ingress host:** `idegym-local.test`
+The overlay deploys the local test stack into `idegym-local`:
 
-Deployed resources:
 - PostgreSQL (database)
 - Orchestrator (API server)
+- Ingress resources (HTTP entrypoint)
 - Prometheus (metrics)
 - Grafana (dashboards)
 - Tempo (distributed traces)
 
-### Network access
+### 4. Network flow
 
+Requests from the test process reach the orchestrator through the local ingress setup:
+
+```text
+pytest -> http://idegym-local.test
+       -> /etc/hosts maps idegym-local.test to 127.0.0.1
+       -> minikube tunnel exposes ingress-nginx on 127.0.0.1
+       -> ingress-nginx routes to the orchestrator service
 ```
-test code → http://idegym-local.test
-             ↓
-          /etc/hosts: idegym-local.test → 127.0.0.1
-             ↓
-          minikube tunnel: LoadBalancer external IP = 127.0.0.1
-             ↓
-          ingress-nginx → orchestrator service
+
+### 5. Image Paths
+
+There are two ways a test image can become runnable in Minikube.
+
+#### Local Docker Path
+
+- The image is built on the developer machine with `IdeGYMDockerAPI`
+- The image is loaded into Minikube with `minikube image load`
+- The sandbox pod starts from the image already present in the Minikube node's `containerd`
+- No registry is involved
+
+#### Kaniko Path
+
+- The test submits a YAML image spec to the orchestrator
+- The orchestrator starts a Kaniko job inside the cluster
+- Kaniko builds the image and pushes it to `registry.kube-system.svc.cluster.local`
+- `registry-pull-job` imports that image into the Minikube node's `containerd`
+- Only after that import can a sandbox pod start from the built image
+
+> **Note:** The registry has two addresses because different callers reach it from different
+> network contexts. In-cluster jobs such as Kaniko use the Kubernetes Service DNS name
+> `registry.kube-system.svc.cluster.local`. The Minikube node runtime uses `localhost:5000`
+> when importing images into node `containerd`. These are two access paths to the same local
+> registry, but they are not interchangeable.
+
+In short:
+
+```text
+local Docker image -> minikube image load -> Minikube containerd -> pod
+Kaniko image       -> Minikube registry   -> registry-pull-job   -> Minikube containerd -> pod
 ```
+
+### 6. Why The Registry Exists
+
+Kaniko runs inside Kubernetes, so it cannot use the image store in your local Docker daemon.
+The Minikube `registry` addon gives Kaniko a place to push built images that is reachable from
+inside the cluster.
+
+The base server image is prepared in two places for two different consumers:
+
+- Minikube node runtime: so regular pods can run it directly
+- Minikube registry: so Kaniko can use it as a base image during in-cluster builds
+
+That is why the setup includes both:
+
+- `minikube image load` for images the node should run directly
+- `registry-push-job` for images Kaniko should consume as registry images
+
+### 7. Helper Jobs
+
+The tests need to move images between the cluster registry and the Minikube node runtime.
+For that, the suite uses short-lived privileged jobs with `hostPath` mounts to `/run/containerd`
+and `/usr/bin/ctr` on the Minikube node.
+
+- `registry-push-job` pushes the base server image into the Minikube registry
+- `registry-pull-job` imports a Kaniko-built image from the registry into node `containerd`
+
+Without those steps, a pod may fail later with `ImagePullBackOff` or repeated image pull errors
+even though the Kaniko build itself succeeded.
+
+### 8. Typical Run
+
+```text
+pytest session starts
+  -> build orchestrator image locally
+  -> build base server image locally
+  -> load local images into Minikube
+  -> push base server image to Minikube registry
+  -> kubectl apply -k e2e-tests/config
+  -> wait for orchestrator health endpoint
+  -> tests call orchestrator APIs
+  -> orchestrator schedules sandbox pods in Minikube
+  -> per-test cleanup removes sandbox deployments and helper jobs
+  -> database is reset between tests
+```
+
+> **Important:** The `default` Docker builder must be active, not a containerized buildx builder.
+> Otherwise local Docker builds may not see the images that the e2e setup expects to reuse and load.
 
 ---
 
