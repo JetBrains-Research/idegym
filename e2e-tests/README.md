@@ -158,7 +158,7 @@ automatically — no manual configuration needed.
 
 ---
 
-## Under The Hood
+## How It Works
 
 When you run `uv run pytest -m e2e`, the session fixtures do four things:
 
@@ -167,7 +167,7 @@ When you run `uv run pytest -m e2e`, the session fixtures do four things:
 3. Wait for the orchestrator at `http://idegym-local.test/health`
 4. Run tests, then clean up sandbox deployments, jobs, and database state
 
-### 1. Minikube is the whole test cluster
+### 1. Cluster
 
 The e2e suite runs against a single local Minikube cluster with these addons enabled:
 
@@ -175,14 +175,28 @@ The e2e suite runs against a single local Minikube cluster with these addons ena
 - `gvisor` for sandboxed test containers
 - `registry` for Kaniko-built images
 
-The kustomize overlay deploys the local test stack into `idegym-local`, including:
+### 2. Local Overlay
 
-- PostgreSQL
-- the orchestrator
-- ingress resources
-- Prometheus, Grafana, and Tempo
+The local test overlay in `e2e-tests/config/` defines the main runtime settings:
 
-Network flow:
+- `Namespace`: `idegym-local`
+- `Image pull policy`: `IfNotPresent`
+- `Ingress host`: `idegym-local.test`
+
+### 3. Deployed Services
+
+The overlay deploys the local test stack into `idegym-local`:
+
+- PostgreSQL (database)
+- Orchestrator (API server)
+- Ingress resources (HTTP entrypoint)
+- Prometheus (metrics)
+- Grafana (dashboards)
+- Tempo (distributed traces)
+
+### 4. Network flow
+
+Requests from the test process reach the orchestrator through the local ingress setup:
 
 ```text
 pytest -> http://idegym-local.test
@@ -191,21 +205,24 @@ pytest -> http://idegym-local.test
        -> ingress-nginx routes to the orchestrator service
 ```
 
-### 2. There are two image paths
+### 5. Image Paths
 
-**Local Docker path**
+There are two ways a test image can become runnable in Minikube.
 
-- A test image is built on the developer machine with `IdeGYMDockerAPI`
+#### Local Docker Path
+
+- The image is built on the developer machine with `IdeGYMDockerAPI`
 - The image is loaded into Minikube with `minikube image load`
-- Pods start from the image already present in the Minikube node runtime
+- The sandbox pod starts from the image already present in the Minikube node's `containerd`
+- No registry is involved
 
-**Kaniko path**
+#### Kaniko Path
 
-- A YAML image spec is sent to the orchestrator
+- The test submits a YAML image spec to the orchestrator
 - The orchestrator starts a Kaniko job inside the cluster
 - Kaniko builds the image and pushes it to `registry.kube-system.svc.cluster.local`
-- A follow-up helper job pulls that image into the Minikube node's `containerd`
-- Only then can a sandbox pod start from that image
+- `registry-pull-job` imports that image into the Minikube node's `containerd`
+- Only after that import can a sandbox pod start from the built image
 
 In short:
 
@@ -214,23 +231,23 @@ local Docker image -> minikube image load -> Minikube containerd -> pod
 Kaniko image       -> Minikube registry   -> registry-pull-job   -> Minikube containerd -> pod
 ```
 
-### 3. Why the Minikube registry exists
+### 6. Why The Registry Exists
 
 Kaniko runs inside Kubernetes, so it cannot use the image store in your local Docker daemon.
 The Minikube `registry` addon gives Kaniko a place to push built images that is reachable from
 inside the cluster.
 
-The base server image is prepared in two places:
+The base server image is prepared in two places for two different consumers:
 
-- loaded into Minikube so regular pods can run it
-- pushed into the Minikube registry so Kaniko can use it as a base image
+- Minikube node runtime: so regular pods can run it directly
+- Minikube registry: so Kaniko can use it as a base image during in-cluster builds
 
 That is why the setup includes both:
 
 - `minikube image load` for images the node should run directly
 - `registry-push-job` for images Kaniko should consume as registry images
 
-### 4. Why there are privileged helper jobs
+### 7. Helper Jobs
 
 The tests need to move images between the cluster registry and the Minikube node runtime.
 For that, the suite uses short-lived privileged jobs with `hostPath` mounts to `/run/containerd`
@@ -242,7 +259,7 @@ and `/usr/bin/ctr` on the Minikube node.
 Without those steps, a pod may fail later with `ImagePullBackOff` or repeated image pull errors
 even though the Kaniko build itself succeeded.
 
-### 5. What a typical run looks like
+### 8. Typical Run
 
 ```text
 pytest session starts
