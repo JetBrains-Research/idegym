@@ -224,6 +224,12 @@ There are two ways a test image can become runnable in Minikube.
 - `registry-pull-job` imports that image into the Minikube node's `containerd`
 - Only after that import can a sandbox pod start from the built image
 
+> **Note:** The registry has two addresses because different callers reach it from different
+> network contexts. In-cluster jobs such as Kaniko use the Kubernetes Service DNS name
+> `registry.kube-system.svc.cluster.local`. The Minikube node runtime uses `localhost:5000`
+> when importing images into node `containerd`. These are two access paths to the same local
+> registry, but they are not interchangeable.
+
 In short:
 
 ```text
