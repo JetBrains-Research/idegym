@@ -56,10 +56,6 @@ Integration tests build real Docker images and push them to a local registry. Th
 
 In CI this registry is provided automatically as a Docker service container. Locally you need to start it manually before running the integration suite.
 
-> [!NOTE]
-> The integration tests also pull the base server image from GHCR. On first run you may need to
-> authenticate with `docker login ghcr.io` if GHCR rate-limits unauthenticated pulls for you.
-
 ### Required for e2e tests and local deployment
 
 | Tool | Version | Purpose | Install |

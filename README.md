@@ -52,7 +52,7 @@ uv venv --seed
 uv sync --all-packages --all-extras --all-groups
 
 # Install pre-commit hooks
-pre-commit install
+uv run pre-commit install
 ```
 
 ### Run Tests

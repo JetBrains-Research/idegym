@@ -1,7 +1,5 @@
 """Shared constants for e2e testing."""
 
-from os import environ as env
-
 # Kubernetes configuration
 DEFAULT_NAMESPACE = "idegym-local"
 KUBE_SYSTEM_NAMESPACE = "kube-system"
@@ -14,10 +12,9 @@ REGISTRY_PULL_JOB_NAME = "registry-pull-job"
 
 # Registry configuration
 # On GitHub Actions the minikube registry addon exposes the registry on localhost:5000 of the node,
-# so containerd (ctr) must pull via that address. Locally the node-level localhost:5000 is not
-# available, so we use the in-cluster DNS name directly.
+# so containerd (ctr) must pull via that address.
 PUSH_LOCAL_REGISTRY_HOST = "registry.kube-system.svc.cluster.local"
-PULL_LOCAL_REGISTRY_HOST = "localhost:5000" if env.get("GITHUB_ACTIONS") == "true" else PUSH_LOCAL_REGISTRY_HOST
+PULL_LOCAL_REGISTRY_HOST = "localhost:5000"
 MINIKUBE_NODE_NAME = "minikube"
 
 # URLs
