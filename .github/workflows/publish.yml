@@ -95,6 +95,6 @@ jobs:
       - name: Prepare Repository
         uses: ./.github/actions/prepare-repository
       - name: Build packages
-        run: uv build --all-packages
+        uses: ./.github/actions/build-packages
       - name: Publish packages
-        uses: pypa/gh-action-pypi-publish@release/v1
+        run: uv publish --trusted-publishing always
