@@ -39,6 +39,13 @@ JSONProcessors: list[Processor] = [
 ]
 
 
+def _create_formatter(renderer: Processor, processors: list[Processor]) -> ProcessorFormatter:
+    return ProcessorFormatter(
+        processor=renderer,
+        foreign_pre_chain=processors,
+    )
+
+
 def configure_logging(config: LoggingConfig = LoggingConfig()):
     renderer = JSONRenderer() if config.json_format else ConsoleRenderer()
     processors = JSONProcessors if config.json_format else ConsoleProcessors
@@ -54,7 +61,7 @@ def configure_logging(config: LoggingConfig = LoggingConfig()):
     root_logger.setLevel(config.level)
 
     console_handler = StreamHandler(stdout)
-    console_handler.setFormatter(ProcessorFormatter(processor=renderer))
+    console_handler.setFormatter(_create_formatter(renderer=renderer, processors=processors))
     root_logger.addHandler(console_handler)
 
     file_handler = RotatingFileHandler(
@@ -62,7 +69,7 @@ def configure_logging(config: LoggingConfig = LoggingConfig()):
         maxBytes=config.max_file_size.bytes,
         backupCount=config.max_file_count,
     )
-    file_handler.setFormatter(ProcessorFormatter(processor=renderer))
+    file_handler.setFormatter(_create_formatter(renderer=renderer, processors=processors))
     root_logger.addHandler(file_handler)
     get_named_logger(__name__).info(f"Logging to file: {config.file_path}")
 

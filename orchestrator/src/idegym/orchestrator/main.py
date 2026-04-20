@@ -137,6 +137,7 @@ def create_app() -> FastAPI:
 def main() -> None:
     config = load_config()
     prepare_prometheus_multiprocess_dir(config)
+    configure_logging(config=config.logging)
 
     uvicorn.run(
         app="idegym.orchestrator.main:create_app",

@@ -11,7 +11,7 @@ Think of it as **GitHub Codespaces for RL training** — but designed for thousa
 - **Scalable orchestration** — spin up and tear down Kubernetes-based environments on demand
 - **Plugin-based image builder** — compose Docker images from reusable plugins via a Python API or YAML
 - **Flexible project loading** — clone from Git, download and extract a project archive, or mount a volume with a project directly into the image
-- **HTTP and WebSocket forwarding** — the orchestrator proxies requests directly to running server pods; WebSocket support enables integration with [OpenEnv](https://github.com/openenv)-compatible environments
+- **HTTP and WebSocket forwarding** — the orchestrator proxies requests directly to running server pods; WebSocket support enables integration with [OpenEnv](https://github.com/meta-pytorch/OpenEnv)-compatible environments
 - **Persistent request history** — every forwarded request and its response is stored in the database and retrievable later, enabling offline reward computation and reproducible evaluation
 - **Automatic resource cleanup** — a background watcher periodically reconciles the database against live Kubernetes state, evicting stale servers and reclaiming resources without manual intervention
 - **Full observability** — built-in Prometheus metrics, Grafana dashboards, and distributed tracing via Tempo
