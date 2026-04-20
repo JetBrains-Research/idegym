@@ -1,0 +1,8 @@
+name: "Build Python Packages"
+description: "Iteratively build all packages in the repository"
+runs:
+  using: "composite"
+  steps:
+    - name: Build packages
+      shell: bash
+      run: .github/scripts/build-packages.sh
