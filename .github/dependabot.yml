@@ -9,6 +9,16 @@ updates:
     cooldown:
       default-days: 7
     target-branch: main
+    groups:
+      astral:
+        patterns:
+          - "astral-sh/*"
+      core:
+        patterns:
+          - "actions/*"
+      docker:
+        patterns:
+          - "docker/*"
     commit-message:
       prefix: "[ci] "
     labels:
@@ -28,6 +38,17 @@ updates:
     cooldown:
       default-days: 7
     target-branch: main
+    groups:
+      database:
+        patterns:
+          - "postgres"
+      observability:
+        patterns:
+          - "grafana/*"
+          - "prom/*"
+      python:
+        patterns:
+          - "python"
     commit-message:
       prefix: "[orchestrator] "
     labels:
@@ -41,6 +62,14 @@ updates:
     cooldown:
       default-days: 7
     target-branch: main
+    groups:
+      opentelemetry:
+        patterns:
+          - "opentelemetry-*"
+      testing:
+        patterns:
+          - "pytest*"
+          - "testcontainers"
     commit-message:
       prefix: "[dependencies] "
     labels:
