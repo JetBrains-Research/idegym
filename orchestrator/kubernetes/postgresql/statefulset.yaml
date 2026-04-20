@@ -19,6 +19,18 @@ spec:
         app.kubernetes.io/component: database
         app.kubernetes.io/part-of: idegym
     spec:
+      tolerations:
+        - key: jetbrains.com/idegym
+          operator: Exists
+          effect: NoSchedule
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: jetbrains.com/idegym
+                    operator: Exists
       containers:
         - name: postgresql
           image: postgres:18.3

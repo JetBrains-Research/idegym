@@ -19,9 +19,11 @@ from kubernetes_asyncio.client import (
     Configuration,
     CoreV1Api,
     PolicyV1Api,
+    V1Affinity,
     V1ConfigMap,
     V1ConfigMapKeySelector,
     V1ConfigMapList,
+    V1ConfigMapVolumeSource,
     V1Container,
     V1ContainerPort,
     V1DeleteOptions,
@@ -33,8 +35,12 @@ from kubernetes_asyncio.client import (
     V1HTTPGetAction,
     V1Job,
     V1JobSpec,
+    V1KeyToPath,
     V1LabelSelector,
     V1LocalObjectReference,
+    V1NodeAffinity,
+    V1NodeSelectorRequirement,
+    V1NodeSelectorTerm,
     V1ObjectFieldSelector,
     V1ObjectMeta,
     V1OwnerReference,
@@ -43,6 +49,7 @@ from kubernetes_asyncio.client import (
     V1PodDisruptionBudgetSpec,
     V1PodSpec,
     V1PodTemplateSpec,
+    V1PreferredSchedulingTerm,
     V1Probe,
     V1ResourceFieldSelector,
     V1ResourceRequirements,
@@ -54,6 +61,7 @@ from kubernetes_asyncio.client import (
     V1ServicePort,
     V1ServiceSpec,
     V1Status,
+    V1Toleration,
     V1Volume,
     V1VolumeMount,
 )
@@ -68,6 +76,32 @@ KubernetesV1Apis = tuple[AppsV1Api, BatchV1Api, CoreV1Api, PolicyV1Api]
 V1ResourceList = Union[V1ConfigMapList, V1DeploymentList, V1PodDisruptionBudgetList, V1ServiceList]
 
 logger = get_logger(__name__)
+
+
+def build_node_affinity(taint_key: str, preference_weight: int) -> V1NodeAffinity:
+    requirement = V1NodeSelectorRequirement(
+        key=taint_key,
+        operator="Exists",
+    )
+    term = V1PreferredSchedulingTerm(
+        weight=preference_weight,
+        preference=V1NodeSelectorTerm(
+            match_expressions=[requirement],
+        ),
+    )
+    return V1NodeAffinity(
+        preferred_during_scheduling_ignored_during_execution=[term],
+    )
+
+
+def build_node_pool_affinity(taint_key: str, preference_weight: int) -> V1Affinity:
+    affinity = build_node_affinity(
+        taint_key=taint_key,
+        preference_weight=preference_weight,
+    )
+    return V1Affinity(
+        node_affinity=affinity,
+    )
 
 
 def get_server_probe_config(server_kind: ServerKind, container_port: int) -> tuple[str, dict[str, str]]:
@@ -194,6 +228,8 @@ async def deploy_server(
     runtime_class_name: Optional[str] = None,
     run_as_root: bool = False,
     node_selector: Optional[dict[str, str]] = None,
+    node_pool_taint_key: Optional[str] = None,
+    node_pool_preference_weight: int = 100,
     resources: Union[V1ResourceRequirements, dict[str, Any], None] = None,
     environment_variables: Iterable[Union[V1EnvVar, dict[str, Any]]] = (),
     server_kind: ServerKind = ServerKind.IDEGYM,
@@ -261,6 +297,26 @@ async def deploy_server(
         **match_labels,
         "app.kubernetes.io/version": __version__,
     }
+
+    toleration = (
+        V1Toleration(
+            key=node_pool_taint_key,
+            operator="Exists",
+            effect="NoSchedule",
+        )
+        if node_pool_taint_key
+        else None
+    )
+
+    affinity = (
+        build_node_pool_affinity(
+            taint_key=node_pool_taint_key,
+            preference_weight=node_pool_preference_weight,
+        )
+        if node_pool_taint_key
+        else None
+    )
+
     deployment = V1Deployment(
         api_version="apps/v1",
         kind="Deployment",
@@ -283,6 +339,8 @@ async def deploy_server(
                     image_pull_secrets=[image_pull_secret],
                     runtime_class_name=runtime_class_name,
                     node_selector=node_selector,
+                    tolerations=[toleration] if toleration else None,
+                    affinity=affinity,
                 ),
             ),
         ),
@@ -634,6 +692,8 @@ async def build_and_push_image_with_kaniko(
     runtime_class_name: Optional[str] = None,
     resources: Optional[Any] = None,
     insecure_registry: bool = False,
+    node_pool_taint_key: Optional[str] = None,
+    node_pool_preference_weight: int = 100,
 ) -> str:
     """
     Build a Docker image using Kaniko in a Kubernetes Job and push it to a registry.
@@ -737,6 +797,25 @@ async def build_and_push_image_with_kaniko(
         resources=resources,
     )
 
+    toleration = (
+        V1Toleration(
+            key=node_pool_taint_key,
+            operator="Exists",
+            effect="NoSchedule",
+        )
+        if node_pool_taint_key
+        else None
+    )
+
+    affinity = (
+        build_node_pool_affinity(
+            taint_key=node_pool_taint_key,
+            preference_weight=node_pool_preference_weight,
+        )
+        if node_pool_taint_key
+        else None
+    )
+
     job = V1Job(
         api_version="batch/v1",
         kind="Job",
@@ -756,9 +835,9 @@ async def build_and_push_image_with_kaniko(
                     volumes=[
                         V1Volume(
                             name="dockerfile-volume",
-                            config_map={
-                                "name": configmap.metadata.name,
-                            },
+                            config_map=V1ConfigMapVolumeSource(
+                                name=configmap.metadata.name,
+                            ),
                         ),
                     ]
                     + (
@@ -768,10 +847,10 @@ async def build_and_push_image_with_kaniko(
                                 secret=V1SecretVolumeSource(
                                     secret_name="regcred",
                                     items=[
-                                        {
-                                            "key": ".dockerconfigjson",
-                                            "path": "config.json",
-                                        },
+                                        V1KeyToPath(
+                                            key=".dockerconfigjson",
+                                            path="config.json",
+                                        ),
                                     ],
                                 ),
                             ),
@@ -780,6 +859,8 @@ async def build_and_push_image_with_kaniko(
                         else []
                     ),
                     runtime_class_name=runtime_class_name,
+                    tolerations=[toleration] if toleration else None,
+                    affinity=affinity,
                 ),
             ),
             backoff_limit=0,

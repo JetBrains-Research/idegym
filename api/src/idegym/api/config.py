@@ -81,6 +81,14 @@ class AsyncioConfig(BaseModel):
     dump_interval: int = Field(description="Interval in seconds between asyncio task dumps", ge=1, default=300)
 
 
+class NodePoolConfig(BaseModel):
+    enabled: bool = Field(description="Enable dedicated node pool scheduling", default=False)
+    taint_key: str = Field(description="Taint key applied to dedicated pool nodes", default="jetbrains.com/idegym")
+    preference_weight: int = Field(
+        description="Weight (1-100) for preferring dedicated pool nodes", ge=1, le=100, default=100
+    )
+
+
 class ResourcesConfig(BaseModel):
     default_cpu_request: float = Field(description="Default CPU cores per environment", ge=0, default=1.0)
     default_ram_request: float = Field(description="Default RAM per environment in GB", ge=0, default=2.0)
@@ -157,6 +165,7 @@ class OrchestratorConfig(BaseModel):
     sqlalchemy: SQLAlchemyConfig = Field(default_factory=SQLAlchemyConfig)
     asyncio: AsyncioConfig = Field(default_factory=AsyncioConfig)
     resources: ResourcesConfig = Field(default_factory=ResourcesConfig)
+    node_pool: NodePoolConfig = Field(default_factory=NodePoolConfig)
     watcher: WatcherConfig = Field(default_factory=WatcherConfig)
     client_request_timeout: float = Field(
         description="Client request read timeout in seconds",

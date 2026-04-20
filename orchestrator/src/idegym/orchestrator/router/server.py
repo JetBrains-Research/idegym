@@ -3,7 +3,7 @@ from asyncio import CancelledError
 from os import environ as env
 
 from fastapi import APIRouter, HTTPException, Request, status
-from idegym.api.config import Config, OTELConfig
+from idegym.api.config import Config, NodePoolConfig, OTELConfig
 from idegym.api.orchestrator.clients import AvailabilityStatus
 from idegym.api.orchestrator.operations import AsyncOperationStatus, AsyncOperationType
 from idegym.api.orchestrator.servers import (
@@ -203,6 +203,7 @@ async def _task_start_server(config: Config, request: StartServerRequest, async_
             server_server_name = server.server_name
             server_image_tag = server.image_tag
 
+            node_pool: NodePoolConfig = config.orchestrator.node_pool
             otel_config: OTELConfig = config.otel
             environment_variables = (
                 {
@@ -285,6 +286,8 @@ async def _task_start_server(config: Config, request: StartServerRequest, async_
                 runtime_class_name=request.runtime_class_name,
                 run_as_root=request.run_as_root,
                 node_selector=request.node_selector,
+                node_pool_taint_key=node_pool.taint_key if node_pool.enabled else None,
+                node_pool_preference_weight=node_pool.preference_weight,
                 resources=request.resources,
                 environment_variables=environment_variables,
                 server_kind=request.server_kind,

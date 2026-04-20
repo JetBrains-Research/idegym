@@ -25,6 +25,18 @@ spec:
       serviceAccountName: orchestrator
       imagePullSecrets:
         - name: regcred
+      tolerations:
+        - key: jetbrains.com/idegym
+          operator: Exists
+          effect: NoSchedule
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: jetbrains.com/idegym
+                    operator: Exists
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000

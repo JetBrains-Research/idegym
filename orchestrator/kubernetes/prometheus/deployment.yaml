@@ -20,6 +20,18 @@ spec:
         prometheus.io/port: "9090"
     spec:
       serviceAccountName: prometheus
+      tolerations:
+        - key: jetbrains.com/idegym
+          operator: Exists
+          effect: NoSchedule
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: jetbrains.com/idegym
+                    operator: Exists
       containers:
         - name: prometheus
           image: prom/prometheus:v3.11.2

@@ -8,6 +8,11 @@ resources:
   default_cpu_request: ${oc.env:IDEGYM_DEFAULT_CPU_REQUEST, 1.0}
   default_ram_request: ${oc.env:IDEGYM_DEFAULT_RAM_REQUEST, 2.0}
 
+node_pool:
+  enabled: ${oc.env:IDEGYM_NODE_POOL_ENABLED, "False"}
+  taint_key: ${oc.env:IDEGYM_NODE_POOL_TAINT_KEY, "jetbrains.com/idegym"}
+  preference_weight: ${oc.env:IDEGYM_NODE_POOL_PREFERENCE_WEIGHT, 100}
+
 database:
   host: ${oc.env:POSTGRES_HOST, "localhost"}
   port: ${oc.env:POSTGRES_PORT, "5432"}

@@ -229,6 +229,38 @@ The Docker config should contain credentials for your registry:
 
 ---
 
+## Step 9: Dedicated Node Pools (Optional)
+
+You can isolate IDEGym workloads onto dedicated nodes using a tainted node pool.
+When enabled, pods prefer dedicated nodes but fall back to regular ones if capacity is unavailable.
+
+### Create the node pool
+
+For Google Cloud, this can be done with `gcloud` CLI:
+
+```shell
+gcloud container node-pools create idegym \
+    --node-labels=jetbrains.com/idegym=true \
+    --node-taints=jetbrains.com/idegym=:NoSchedule \
+    # Set other required options as necessary:
+    # `cluster`, `machine-type`, `num-nodes`, `min-nodes`, ...
+```
+
+### Enable the feature
+
+Set these environment variables on the orchestrator deployment:
+
+| Variable                             | Description                                              | Default                |
+|--------------------------------------|----------------------------------------------------------|------------------------|
+| `IDEGYM_NODE_POOL_ENABLED`           | Enable dedicated node pool scheduling                    | `False`                |
+| `IDEGYM_NODE_POOL_TAINT_KEY`         | Taint/label key on dedicated nodes                       | `jetbrains.com/idegym` |
+| `IDEGYM_NODE_POOL_PREFERENCE_WEIGHT` | Scheduling weight (1-100) for preferring dedicated nodes | `100`                  |
+
+When enabled, all dynamically created pods (sandbox servers, Kaniko image builds, and node holders)
+receive a preferred node affinity and toleration matching the configured key.
+
+---
+
 ## Updating the Orchestrator
 
 To deploy a new version of the orchestrator:
