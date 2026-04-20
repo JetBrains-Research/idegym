@@ -11,7 +11,7 @@ with its own lock file lets uv resolve these dependencies independently.
 
 | Integration | Directory | Description |
 |-------------|-----------|-------------|
-| OpenEnv | [`openenv/`](openenv/README.md) | Run any [OpenEnv](https://github.com/facebookresearch/openenv)-compatible environment as a Kubernetes pod with WebSocket forwarding. Includes echo_env (smoke-test) and TBench2 (terminal benchmark). |
+| OpenEnv | [`openenv/`](openenv/README.md) | Run any [OpenEnv](https://github.com/meta-pytorch/OpenEnv)-compatible environment as a Kubernetes pod with WebSocket forwarding. Includes echo_env (smoke-test) and TBench2 (terminal benchmark). |
 
 ---
 

@@ -1,6 +1,6 @@
 # OpenEnv Integration
 
-IdeGYM can run any [OpenEnv](https://github.com/facebookresearch/openenv)-compatible environment
+IdeGYM can run any [OpenEnv](https://github.com/meta-pytorch/OpenEnv)-compatible environment
 as a Kubernetes pod and proxy WebSocket connections to it. This directory contains two working
 examples.
 
