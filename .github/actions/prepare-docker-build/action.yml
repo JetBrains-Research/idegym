@@ -10,6 +10,9 @@ runs:
     - name: Prepare Repository
       uses: ./.github/actions/prepare-repository
 
+    - name: Remove Unwanted Software
+      uses: ./.github/actions/remove-unwanted-software
+
     - name: Install Docker
       uses: docker/setup-docker-action@v4
 

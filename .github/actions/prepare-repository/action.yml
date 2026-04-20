@@ -3,9 +3,6 @@ description: "Set up common environment preparation steps for all jobs"
 runs:
   using: "composite"
   steps:
-    - name: Remove Unwanted Software
-      uses: ./.github/actions/remove-unwanted-software
-
     - name: Extract version from tag
       shell: bash
       run: |
