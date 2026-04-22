@@ -1,5 +1,6 @@
 from asyncio import CancelledError
 from functools import wraps
+from pathlib import Path
 from types import NoneType
 from typing import Any
 
@@ -251,8 +252,7 @@ def render_dashboard_error(message: str, back_url: str = "/", log_message: str |
                     if isinstance(candidate, Request):
                         req = candidate
 
-                # Resolve templates dir relative to this file (orchestrator/util/ -> orchestrator/templates/).
-                templates_dir = str(__file__).rsplit("/util/", 1)[0] + "/templates"
+                templates_dir = str(Path(__file__).parent.parent / "templates")
                 templates = Jinja2Templates(directory=templates_dir)
                 logger.exception(log_message or message)
                 context = {

@@ -21,8 +21,7 @@ class MigrationManager:
         self.engine = engine
         self.db_url = db_url
         self.timeout = timeout
-        orchestrator_dir = Path(__file__).parent.parent.parent.parent
-        self.alembic_ini_path = str(orchestrator_dir / "alembic.ini")
+        self.alembic_ini_path = str(Path(__file__).parent / "alembic.ini")
 
     async def clean_database(self) -> None:
         async with self.engine.begin() as conn:
