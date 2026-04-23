@@ -20,9 +20,9 @@ How would you like this to work? Include any API shape, config format, or behavi
 
 Any other approaches you've thought about and why you ruled them out.
 
-**Alternatives Considered**
+**Additional details**
 
-Any other approaches you've thought about and why you ruled them out.
+Any additional details regarding feature request.
 
 ---
 
