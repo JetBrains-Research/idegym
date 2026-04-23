@@ -1,7 +1,7 @@
 from asyncio import CancelledError, gather, sleep, timeout
 from contextlib import asynccontextmanager
 from random import getrandbits
-from typing import Any, AsyncGenerator, Awaitable, Callable, Iterable, Optional, Union
+from typing import Any, AsyncGenerator, Awaitable, Callable, Iterable, Optional, Union, cast
 
 from idegym.api import __version__
 from idegym.api.download import DownloadRequest
@@ -230,7 +230,7 @@ async def deploy_server(
     node_selector: Optional[dict[str, str]] = None,
     node_pool_taint_key: Optional[str] = None,
     node_pool_preference_weight: int = 100,
-    resources: Union[V1ResourceRequirements, dict[str, Any], None] = None,
+    resources: Optional[Union[V1ResourceRequirements, dict[str, Any]]] = None,
     environment_variables: Iterable[Union[V1EnvVar, dict[str, Any]]] = (),
     server_kind: ServerKind = ServerKind.IDEGYM,
 ):
@@ -249,8 +249,9 @@ async def deploy_server(
         run_as_group=uid,
     )
 
-    if resources and isinstance(resources, dict):
-        resources = V1ResourceRequirements(**resources)
+    if isinstance(resources, dict):  # noinspection PyUnnecessaryCast
+        dictionary = cast(dict, resources)
+        resources = V1ResourceRequirements(**dictionary)
 
     env = [
         environment_variable if isinstance(environment_variable, V1EnvVar) else to_env_var(environment_variable)
@@ -690,7 +691,7 @@ async def build_and_push_image_with_kaniko(
     labels: Optional[dict[str, str]] = None,
     ttl_seconds_after_finished: int = 300,
     runtime_class_name: Optional[str] = None,
-    resources: Optional[Any] = None,
+    resources: Optional[Union[V1ResourceRequirements, dict[str, Any]]] = None,
     insecure_registry: bool = False,
     node_pool_taint_key: Optional[str] = None,
     node_pool_preference_weight: int = 100,
@@ -735,8 +736,10 @@ async def build_and_push_image_with_kaniko(
         for key, value in labels.items():
             args.append(f"--label={key}={value}")
 
-    if resources and isinstance(resources, dict):
-        resources = V1ResourceRequirements(**resources)
+    if isinstance(resources, dict):  # noinspection PyUnnecessaryCast
+        dictionary = cast(dict, resources)
+        resources = V1ResourceRequirements(**dictionary)
+
     annotations = {
         "cluster-autoscaler.kubernetes.io/safe-to-evict": "false",
     }
