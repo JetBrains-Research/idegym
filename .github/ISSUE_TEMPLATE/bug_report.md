@@ -1,30 +1,37 @@
 ---
 name: Bug report
-about: Report something that isn't working correctly
+about: Create a report to help us improve
+title: ''
 labels: bug
+assignees: ''
+type: Bug
+
 ---
 
-## Description
+**Describe the bug**
+A clear and concise description of what the bug is.
 
-A clear description of what went wrong.
-
-## Steps to Reproduce
+**Steps to Reproduce**
 
 1. 
 2. 
 3. 
 
-## Expected Behavior
+**Expected behavior**
+A clear and concise description of what you expected to happen.
 
-What you expected to happen.
-
-## Actual Behavior
-
+**Actual Behavior**
 What actually happened. Include error messages, stack traces, or logs if available.
 
-## Environment
+**Screenshots**
+If applicable, add screenshots to help explain your problem.
+
+**Environment**
 
 - IdeGYM version / commit:
 - Kubernetes version:
 - Deployment target (Minikube / cloud cluster):
 - Python version:
+
+**Additional context**
+Add any other context about the problem here.
