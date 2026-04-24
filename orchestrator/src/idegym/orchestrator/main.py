@@ -31,8 +31,7 @@ logger = get_logger("idegym.orchestrator")
 
 
 def load_config() -> Config:
-    config_dir = Path(__file__).resolve().parents[3] / "hydra_configs"
-    with initialize_config_dir(version_base=None, config_dir=str(config_dir)):
+    with initialize_config_dir(version_base=None, config_dir=str(Path(__file__).parent / "hydra_configs")):
         cfg = compose(config_name="config")
     container: dict[str, Any] = OmegaConf.to_container(cfg=cfg, resolve=True)
     return Config(**container)
