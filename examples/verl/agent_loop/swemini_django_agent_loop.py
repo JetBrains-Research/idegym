@@ -22,6 +22,8 @@ from typing import Any
 
 from jinja2 import Environment as JinjaEnvironment
 from jinja2 import StrictUndefined
+from verl.experimental.agent_loop.agent_loop import AgentLoopBase, AgentLoopOutput, register
+from verl.experimental.agent_loop.tool_parser import ToolParser
 
 from examples.verl.agent_loop.agent_parsing_strategies import (
     FormatError,
@@ -29,23 +31,21 @@ from examples.verl.agent_loop.agent_parsing_strategies import (
     TextStrategy,
     ToolcallStrategy,
 )
-from examples.verl.prompts.swemini_prompts import load_prompts
 from examples.verl.agent_loop.idegym_runner_utils import ItemToRun
+from examples.verl.prompts.swemini_prompts import load_prompts
 from examples.verl.utils.postprocessing import (
     apply_reasoning_filter,
     extract_bash_output,
     get_percentage_passed,
     parse_idegym_tests_output,
 )
-from verl.experimental.agent_loop.agent_loop import AgentLoopBase, AgentLoopOutput, register
-from verl.experimental.agent_loop.tool_parser import ToolParser
 
 logger = logging.getLogger(__name__)
 
 SUBMIT_SIGNAL = "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"
 FAILED_PIPELINE_SCORE = 0
 
-KEEP_REASONING_OPTIONS = {"none", "all"} # "last",
+KEEP_REASONING_OPTIONS = {"none", "all"}  # "last",
 
 _CONTAINER_SYSTEM_INFO = {
     "system": "Linux",
@@ -143,12 +143,14 @@ class SWEMiniDjangoAgentLoop(AgentLoopBase):
         use_mock_runner = kwargs.get("use_mock_runner", False)
         if use_mock_runner:
             from examples.verl.agent_loop.mock_idegym_runner import MockIDEGymRunner
+
             mock_error_rate = kwargs.get("mock_runner_error_rate", 0.001)
             mock_pass_rate = kwargs.get("mock_runner_pass_rate", 0.7)
             logger.info(f"[SCAFFOLD] Using MockIDEGymRunner (error_rate={mock_error_rate}, pass_rate={mock_pass_rate})")
             self.idegym_runner = MockIDEGymRunner(error_rate=mock_error_rate, pass_rate=mock_pass_rate)
         else:
             from examples.verl.agent_loop.idegym_runner import IDEGymRunner
+
             self.idegym_runner = IDEGymRunner()
 
     # --- Prompt rendering ---
@@ -182,11 +184,15 @@ class SWEMiniDjangoAgentLoop(AgentLoopBase):
         hint_level = item.get("hint_level", 0)
         hint = self._get_hint(item)
         if hint and hint_level == 4:
-            task += "\n\n" + (f"You're given a full solution:\n```python\n{hint}```\n"
-                              "This is full solution, use it to produce the final answer.")
+            task += "\n\n" + (
+                f"You're given a full solution:\n```python\n{hint}```\n"
+                "This is full solution, use it to produce the final answer."
+            )
         elif hint:
-            task += "\n\n" + (f"You're given a part of the method:\n```python\n{hint}```\n"
-                              "This is part of the solution, use it to produce the final answer.")
+            task += "\n\n" + (
+                f"You're given a part of the method:\n```python\n{hint}```\n"
+                "This is part of the solution, use it to produce the final answer."
+            )
         return self._jinja_render(
             self.agent_prompts["instance_template"],
             task=task,
@@ -228,7 +234,7 @@ class SWEMiniDjangoAgentLoop(AgentLoopBase):
         endline = method["global_method_body_index"][1] + 1
         tests = item["tests"]["full_paths"]
         if tests and self.max_num_tests > 0:
-            tests = tests[:self.max_num_tests]
+            tests = tests[: self.max_num_tests]
         return ItemToRun(
             idx=item["idx"],
             dp_id=item["dp_id"],
@@ -444,9 +450,7 @@ class SWEMiniDjangoAgentLoop(AgentLoopBase):
         # Add assistant message to conversation history
         assistant_msg = {"role": "assistant", "content": content}
         if function_calls:
-            assistant_msg["tool_calls"] = [
-                {"name": fc.name, "args": json.loads(fc.arguments)} for fc in function_calls
-            ]
+            assistant_msg["tool_calls"] = [{"name": fc.name, "args": json.loads(fc.arguments)} for fc in function_calls]
         state["messages"].append(assistant_msg)
 
         return content, function_calls
@@ -621,14 +625,16 @@ class SWEMiniDjangoAgentLoop(AgentLoopBase):
             server_id = result.get("server_id")
             result_keys = list(result.keys())
             success = True
-        state["trajectory"].append({
-            "action": action,
-            "timestamp": time.time(),
-            "server_id": server_id,
-            "success": success,
-            **extra,
-            "result_keys": result_keys,
-        })
+        state["trajectory"].append(
+            {
+                "action": action,
+                "timestamp": time.time(),
+                "server_id": server_id,
+                "success": success,
+                **extra,
+                "result_keys": result_keys,
+            }
+        )
 
     # --- verl AgentLoopBase interface ---
 
@@ -668,8 +674,8 @@ class SWEMiniDjangoAgentLoop(AgentLoopBase):
             response_mask = [0]
 
         # Split prompt_ids into prompt and response parts using response_mask
-        response_ids = prompt_ids[-len(response_mask):]
-        prompt_only_ids = prompt_ids[:len(prompt_ids) - len(response_mask)]
+        response_ids = prompt_ids[-len(response_mask) :]
+        prompt_only_ids = prompt_ids[: len(prompt_ids) - len(response_mask)]
 
         # Count turns from messages
         num_turns = 0

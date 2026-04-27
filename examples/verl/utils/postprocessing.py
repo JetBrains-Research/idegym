@@ -12,9 +12,7 @@ def apply_reasoning_filter(content: str, max_turns: int) -> str:
 
     stripped = content.strip()
     if stripped.startswith("<think>"):
-        return (
-            content if max_turns == 1 else "The thinking was too long. I should be more concise next time."
-        )
+        return content if max_turns == 1 else "The thinking was too long. I should be more concise next time."
 
     return content
 
@@ -23,10 +21,10 @@ def extract_bash_output(cmd_output: BashCommandResponse | dict) -> str:
     """Combine stdout and stderr into a single output string."""
     if isinstance(cmd_output, dict):
         stdout = cmd_output.get("stdout")
-        stderr= cmd_output.get("stderr")
+        stderr = cmd_output.get("stderr")
     elif isinstance(cmd_output, BashCommandResponse):
-        stdout = cmd_output.stdout or ''
-        stderr = cmd_output.stderr or ''
+        stdout = cmd_output.stdout or ""
+        stderr = cmd_output.stderr or ""
     else:
         raise ValueError(f"Invalid command output type: {type(cmd_output)}")
     return f"{stdout}\n{stderr}".strip()

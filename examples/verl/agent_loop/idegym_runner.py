@@ -174,7 +174,6 @@ class IDEGymRunner:
         except Exception as e:
             logger.error(f"Error finishing server {server.server_id}: {e}")
 
-
     async def run_bash(self, server: IdeGYMServer, command: str) -> dict[str, Any]:
         """Execute a bash command on the given server."""
         command_res = await server.execute_bash(script=command, command_timeout=self.test_command_timeout)

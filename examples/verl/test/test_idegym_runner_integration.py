@@ -24,6 +24,7 @@ from examples.verl.agent_loop.idegym_runner_utils import ItemToRun
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(scope="module")
 def runner() -> IDEGymRunner:
     """A real IDEGymRunner instance (reads credentials from env / .env)."""
@@ -33,6 +34,7 @@ def runner() -> IDEGymRunner:
 @pytest.fixture(scope="module")
 def client_and_server(runner):
     """Create a real client + server; tear down after the module finishes."""
+
     async def _setup():
         client = await runner.create_client()
         server = await runner.create_server(client)
@@ -51,9 +53,11 @@ def client_and_server(runner):
 # Connection tests
 # ---------------------------------------------------------------------------
 
+
 class TestConnection:
     def test_create_client(self, runner):
         """health_check must pass and client must be returned."""
+
         async def _run():
             client = await runner.create_client()
             assert client is not None
@@ -63,6 +67,7 @@ class TestConnection:
 
     def test_create_server(self, runner):
         """A server must start and receive a non-empty server_id."""
+
         async def _run():
             client = await runner.create_client()
             server = await runner.create_server(client)
@@ -77,6 +82,7 @@ class TestConnection:
 # ---------------------------------------------------------------------------
 # Command execution tests
 # ---------------------------------------------------------------------------
+
 
 class TestRunBash:
     def test_echo_hello(self, client_and_server, runner):
@@ -131,6 +137,7 @@ class TestRunBash:
 # ---------------------------------------------------------------------------
 # Test execution tests
 # ---------------------------------------------------------------------------
+
 
 class TestRunTests:
     def _make_item(self) -> ItemToRun:

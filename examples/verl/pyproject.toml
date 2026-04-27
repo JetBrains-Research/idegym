@@ -21,6 +21,7 @@ dependencies = [
     "tensordict>=0.10",
     "datasets>=3.6",
     "flash-attn",
+    "pre-commit>=4.5.1",
 ]
 
 [tool.uv]

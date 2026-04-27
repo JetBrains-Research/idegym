@@ -10,7 +10,6 @@ import re
 from abc import ABC, abstractmethod
 
 from jinja2 import StrictUndefined, Template
-
 from verl.experimental.agent_loop.tool_parser import FunctionCall
 
 logger = logging.getLogger(__name__)
@@ -31,6 +30,7 @@ BASH_TOOL = {
 }
 
 BASH_TOOL_OPENAI = {"type": "function", "function": BASH_TOOL}
+
 
 class FormatError(Exception):
     """Raised when the LM's output is not in the expected format."""

@@ -1,7 +1,6 @@
 """Custom dataset class that loads directly from HuggingFace Hub."""
 
 import datasets as hf_datasets
-
 from verl.utils.dataset.rl_dataset import RLHFDataset
 
 
