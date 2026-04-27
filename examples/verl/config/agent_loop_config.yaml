@@ -1,0 +1,11 @@
+- name: idegym_django
+  _target_: examples.verl.agent_loop.swemini_django_agent_loop.SWEMiniDjangoAgentLoop
+  enable_thinking: false
+  max_turns: 10
+  max_num_tests: 20
+  max_test_output_symb: 10000
+  keep_reasoning: "none"
+  agent_parsing_mode: "toolcall"
+  prompts_file: null
+  trajectory_dir: logs/trajectories
+  use_mock_runner: false

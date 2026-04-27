@@ -1,0 +1,31 @@
+[project]
+name = "idegym-verl-example"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "verl[vllm] @ git+https://github.com/volcengine/verl.git",
+    "idegym-tools==0.8.0",
+    "idegym-api==0.8.0",
+    "idegym-backend-utils==0.8.0",
+    "idegym-client==0.8.0",
+    "idegym-common-utils==0.8.0",
+    "idegym-rewards==0.8.0",
+    "idegym-image-builder==0.8.0",
+    "langchain-core",
+    "langgraph",
+    "aiohttp",
+    "python-dotenv",
+    "pyyaml",
+    "pytest",
+    "pytest-asyncio",
+    "tensordict>=0.10",
+    "datasets>=3.6",
+    "flash-attn",
+]
+
+[tool.uv]
+package = false
+no-build-isolation-package = ["flash-attn"]
+
+[tool.uv.sources]
+verl = { git = "https://github.com/volcengine/verl.git" }
