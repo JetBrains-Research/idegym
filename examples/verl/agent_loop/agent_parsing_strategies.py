@@ -10,6 +10,7 @@ import re
 from abc import ABC, abstractmethod
 
 from jinja2 import StrictUndefined, Template
+
 from verl.experimental.agent_loop.tool_parser import FunctionCall
 
 logger = logging.getLogger(__name__)

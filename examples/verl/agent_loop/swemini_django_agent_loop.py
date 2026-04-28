@@ -22,8 +22,6 @@ from typing import Any
 
 from jinja2 import Environment as JinjaEnvironment
 from jinja2 import StrictUndefined
-from verl.experimental.agent_loop.agent_loop import AgentLoopBase, AgentLoopOutput, register
-from verl.experimental.agent_loop.tool_parser import ToolParser
 
 from examples.verl.agent_loop.agent_parsing_strategies import (
     FormatError,
@@ -39,6 +37,8 @@ from examples.verl.utils.postprocessing import (
     get_percentage_passed,
     parse_idegym_tests_output,
 )
+from verl.experimental.agent_loop.agent_loop import AgentLoopBase, AgentLoopOutput, register
+from verl.experimental.agent_loop.tool_parser import ToolParser
 
 logger = logging.getLogger(__name__)
 
