@@ -110,6 +110,6 @@ The `agent_parsing_mode` setting controls how the agent's bash commands are extr
 
 - **`toolcall`** (default) — The model uses structured tool calls (OpenAI-style `function_call` objects). The agent declares a `bash` tool and the model returns commands as tool call arguments. This is the recommended mode for models with strong tool-calling support (e.g. GPT-4, Qwen).
 
-- **`text`** — The model embeds commands in fenced code blocks using the ` ```mswea_bash_command ` delimiter. The agent parses these blocks with a regex. This mode works with any text-generating model and does not require tool-call capabilities. Model expected to return ponly one such command in a step.
+- **`text`** — The model embeds commands in fenced code blocks using the ` ```mswea_bash_command ` delimiter. The agent parses these blocks with a regex. This mode works with any text-generating model and does not require tool-call capabilities. Model expected to return only one such command in a step.
 
 Both modes execute the same underlying bash commands on the IDEGym server; only the LLM output format differs. Prompt templates are loaded from `prompts/prompts_swemini_toolcall.yaml` or `prompts/prompts_swemini_text.yaml` accordingly.

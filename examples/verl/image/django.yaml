@@ -52,7 +52,7 @@ images:
       - type: idegym-server
         source: git
         url: https://github.com/JetBrains-Research/idegym.git
-        ref: 2b18512dbb16301d6f97e40c8e4ae050ae2789bb
+        ref: 09e983804cd0d7f5f9adbc03051cc73a8018045d
 
     # All items are joined into a single `RUN set -eux; cmd1 && cmd2 && ...` block,
     # so shell variables set in earlier items are visible in later ones.

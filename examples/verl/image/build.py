@@ -24,7 +24,7 @@ IMAGE_NAME = "django-for-verl"
 IMAGE_TAG = "ghcr.io/jetbrains-research/idegym/django-for-verl:rebuilt"
 
 DJANGO_REF = "89807fbde8b7b17d00434bc4695535855e96fe77"
-IDEGYM_REF = "2b18512dbb16301d6f97e40c8e4ae050ae2789bb"
+IDEGYM_REF = "09e983804cd0d7f5f9adbc03051cc73a8018045d"
 
 SYSTEM_PACKAGES = (
     "bash",
