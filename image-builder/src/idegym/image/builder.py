@@ -1,14 +1,20 @@
+import json
+from importlib.metadata import entry_points as _entry_points
 from pathlib import Path
+from shlex import quote
 from typing import Any, Optional, Self
 
-import idegym.image.plugins  # noqa: F401 — ensures built-in plugins are registered before deserialization
-from idegym.api.docker import BaseImage
-from idegym.api.image_build import ImageBuildSpec
-from idegym.api.type import OCIImageName
-from idegym.image.docker_api import IdeGYMDockerAPI
-from idegym.image.plugin import BuildContext, PluginBase
-from idegym.image.serialization import deserialize_plugin, dump_images, load_images, serialize_plugin
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_serializer, field_validator
+# Load all installed image plugins (populates the @image_plugin registry).
+for _ep in _entry_points(group="idegym.plugins.image"):
+    _ep.load()
+
+from idegym.api.docker import BaseImage  # noqa: E402
+from idegym.api.image_build import ImageBuildSpec  # noqa: E402
+from idegym.api.plugin import BuildContext, PluginBase, get_plugin_type_name  # noqa: E402
+from idegym.api.type import OCIImageName  # noqa: E402
+from idegym.image.docker_api import IdeGYMDockerAPI  # noqa: E402
+from idegym.image.serialization import deserialize_plugin, dump_images, load_images, serialize_plugin  # noqa: E402
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_serializer, field_validator  # noqa: E402
 
 # TypeAdapter reuses the OCIImageName constraints without duplicating the regex.
 # Needed because model_copy() bypasses Pydantic field validation.
@@ -21,6 +27,25 @@ def _run_block(commands: tuple[str, ...]) -> str:
         return ""
     body = " && \\\n    ".join(filtered)
     return f"RUN set -eux; \\\n    {body}"
+
+
+def _mcp_upstream_fragment(plugin: PluginBase) -> str:
+    """Return a Dockerfile fragment that writes the MCP upstream config file, or empty string."""
+    mcp_url = type(plugin).get_mcp_upstream()
+    if mcp_url is None:
+        return ""
+    try:
+        plugin_name = get_plugin_type_name(plugin)
+    except KeyError:
+        plugin_name = type(plugin).__name__.lower()
+    config = json.dumps({"url": mcp_url})
+    run = _run_block(
+        (
+            "mkdir -p /etc/idegym/mcp-upstreams.d",
+            f"printf '%s\\n' {quote(config)} > /etc/idegym/mcp-upstreams.d/{plugin_name}.json",
+        )
+    )
+    return f"# Register MCP upstream: {plugin_name}\n{run}"
 
 
 class Image(BaseModel):
@@ -143,6 +168,9 @@ class Image(BaseModel):
             fragment = plugin.render(ctx).strip()
             if fragment:
                 fragments.append(fragment)
+            mcp_fragment = _mcp_upstream_fragment(plugin)
+            if mcp_fragment:
+                fragments.append(mcp_fragment)
 
         dockerfile_content = self._render_dockerfile(ctx, tuple(fragments))
         return ImageBuildSpec(

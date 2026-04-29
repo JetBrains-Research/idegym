@@ -62,6 +62,7 @@ COPY --chown=appuser:appuser .python-version pyproject.toml supervisord.conf uv.
 COPY --chown=appuser:appuser api api/
 COPY --chown=appuser:appuser backend-utils backend-utils/
 COPY --chown=appuser:appuser common-utils common-utils/
+COPY --chown=appuser:appuser plugins plugins/
 COPY --chown=appuser:appuser rewards rewards/
 COPY --chown=appuser:appuser tools tools/
 COPY --chown=appuser:appuser server server/

@@ -15,6 +15,11 @@ dependencies = [
     "junitparser>=3.2.0",
 ]
 
+[project.optional-dependencies]
+server = [
+    "fastapi[standard]>=0.135.2",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

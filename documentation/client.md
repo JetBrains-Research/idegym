@@ -236,6 +236,69 @@ response = await server.restart_server(
 )
 ```
 
+### `forward(method, path, body, ...)` — generic plugin endpoint call
+
+An escape hatch for calling plugin-provided endpoints that do not have a typed wrapper:
+
+```python
+from idegym.api.tools.bash import BashCommandRequest
+
+response = await server.forward(
+    method="POST",
+    path="tools/bash",
+    body=BashCommandRequest(command="echo hello", timeout=30.0),
+)
+# response is the parsed JSON dict
+```
+
+```python
+server.forward(
+    method: str,
+    path: str,
+    body: Optional[BaseModel] = None,
+    request_timeout: Optional[int] = None,
+    polling_config: Optional[PollingConfig] = None,
+) -> dict[str, Any]
+```
+
+The `path` is relative to the server's API base (`/api/`). For typed access to plugin operations,
+prefer the attribute-style API described below.
+
+---
+
+## Plugin-Provided Operations
+
+Installed plugins can extend `IdeGYMServer` with typed operation objects. Each plugin package
+registers an operations class via the `idegym.plugins.client` entry point group. When
+`IdeGYMServer` is constructed, it loads all installed client plugins and attaches each as an
+attribute under the entry point name.
+
+### PyCharm operations (`server.pycharm`)
+
+When the `pycharm` plugin is installed and the image includes a PyCharm plugin, `server.pycharm`
+is attached automatically:
+
+```python
+health = await server.pycharm.health()
+# → {"status": "ok", ...}
+```
+
+The `pycharm` attribute is only present if the `idegym-plugin-defaults` package is installed and
+the `pycharm` client entry point loads successfully. Accessing it on a server whose image was built
+without the PyCharm plugin will raise `AttributeError`.
+
+### Checking for a plugin
+
+```python
+if hasattr(server, "pycharm"):
+    health = await server.pycharm.health()
+```
+
+---
+
+> **See also:** [Plugin Architecture](plugins.md) — full guide for writing plugins that extend the
+> server and client with new endpoints and typed operations.
+
 ---
 
 ## Reward Operations

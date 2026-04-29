@@ -1,6 +1,11 @@
-from typing import Annotated
+"""FastAPI router for tools endpoints.
 
-from dependency_injector.wiring import Provide, inject
+Uses FastAPI's native ``dependency_overrides`` mechanism instead of
+``dependency_injector``. The server registers the real ``ToolService``
+implementation via ``app.dependency_overrides[_get_tool_service] = ...``
+before starting to serve requests.
+"""
+
 from fastapi import APIRouter, Depends
 from idegym.api.paths import ToolsPath
 from idegym.api.status import Status
@@ -8,16 +13,18 @@ from idegym.api.tools.bash import BashCommandRequest, BashCommandResponse
 from idegym.api.tools.file import CreateFileRequest, EditFileRequest, FileResult, PatchFileRequest
 from idegym.tools.tool_service import FileToolActionName, ToolName, ToolService
 
-from server.dependencies import Container
-
 router = APIRouter()
 
 
+async def _get_tool_service() -> ToolService:
+    """Stub dependency — server overrides this via ``app.dependency_overrides``."""
+    raise RuntimeError("tool_service not configured")
+
+
 @router.post(ToolsPath.BASH)
-@inject
 async def execute_bash_script(
     request: BashCommandRequest,
-    service: Annotated[ToolService, Depends(Provide[Container.tool_service])],
+    service: ToolService = Depends(_get_tool_service),
 ):
     stdout, stderr, exit_code = await service.execute_tool(
         tool_name=ToolName.BASH,
@@ -32,10 +39,9 @@ async def execute_bash_script(
 
 
 @router.post(ToolsPath.CREATE_FILE)
-@inject
 async def create_file(
     request: CreateFileRequest,
-    service: Annotated[ToolService, Depends(Provide[Container.tool_service])],
+    service: ToolService = Depends(_get_tool_service),
 ):
     await service.execute_tool(
         tool_name=ToolName.FILE,
@@ -50,10 +56,9 @@ async def create_file(
 
 
 @router.post(ToolsPath.EDIT_FILE)
-@inject
 async def replace_lines(
     request: EditFileRequest,
-    service: Annotated[ToolService, Depends(Provide[Container.tool_service])],
+    service: ToolService = Depends(_get_tool_service),
 ):
     await service.execute_tool(
         tool_name=ToolName.FILE,
@@ -68,10 +73,9 @@ async def replace_lines(
 
 
 @router.post(ToolsPath.PATCH_FILE)
-@inject
 async def patch_file(
     request: PatchFileRequest,
-    service: Annotated[ToolService, Depends(Provide[Container.tool_service])],
+    service: ToolService = Depends(_get_tool_service),
 ):
     await service.execute_tool(
         tool_name=ToolName.FILE,

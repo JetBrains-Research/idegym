@@ -16,6 +16,8 @@ members = [
     "idegym-common-utils",
     "idegym-image-builder",
     "idegym-orchestrator",
+    "idegym-plugin-defaults",
+    "idegym-plugin-pycharm",
     "idegym-rewards",
     "idegym-server",
     "idegym-tools",
@@ -898,6 +900,7 @@ source = { editable = "image-builder" }
 dependencies = [
     { name = "idegym-api" },
     { name = "idegym-common-utils" },
+    { name = "idegym-plugin-defaults" },
     { name = "jinja2" },
     { name = "pydantic", version = "2.10.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.14'" },
     { name = "pydantic", version = "2.12.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.14'" },
@@ -909,6 +912,7 @@ dependencies = [
 requires-dist = [
     { name = "idegym-api", editable = "api" },
     { name = "idegym-common-utils", editable = "common-utils" },
+    { name = "idegym-plugin-defaults", editable = "plugins/defaults" },
     { name = "jinja2", specifier = ">=3.1.5" },
     { name = "pydantic", specifier = ">=2.10.6" },
     { name = "python-on-whales", specifier = ">=0.78.0" },
@@ -976,6 +980,56 @@ requires-dist = [
 ]
 
 [[package]]
+name = "idegym-plugin-defaults"
+version = "0.0.0.dev0"
+source = { editable = "plugins/defaults" }
+dependencies = [
+    { name = "idegym-api" },
+    { name = "pydantic", version = "2.10.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.14'" },
+    { name = "pydantic", version = "2.12.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.14'" },
+]
+
+[package.optional-dependencies]
+server = [
+    { name = "idegym-rewards", extra = ["server"] },
+    { name = "idegym-tools", extra = ["server"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "idegym-api", editable = "api" },
+    { name = "idegym-rewards", extras = ["server"], marker = "extra == 'server'", editable = "rewards" },
+    { name = "idegym-tools", extras = ["server"], marker = "extra == 'server'", editable = "tools" },
+    { name = "pydantic", specifier = ">=2.10.6" },
+]
+provides-extras = ["server"]
+
+[[package]]
+name = "idegym-plugin-pycharm"
+version = "0.0.0.dev0"
+source = { editable = "plugins/pycharm" }
+dependencies = [
+    { name = "idegym-api" },
+    { name = "idegym-plugin-defaults" },
+    { name = "pydantic", version = "2.10.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.14'" },
+    { name = "pydantic", version = "2.12.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.14'" },
+]
+
+[package.optional-dependencies]
+server = [
+    { name = "fastapi", extra = ["standard"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.135.2" },
+    { name = "idegym-api", editable = "api" },
+    { name = "idegym-plugin-defaults", editable = "plugins/defaults" },
+    { name = "pydantic", specifier = ">=2.10.6" },
+]
+provides-extras = ["server"]
+
+[[package]]
 name = "idegym-rewards"
 version = "0.0.0.dev0"
 source = { editable = "rewards" }
@@ -986,13 +1040,20 @@ dependencies = [
     { name = "junitparser" },
 ]
 
+[package.optional-dependencies]
+server = [
+    { name = "fastapi", extra = ["standard"] },
+]
+
 [package.metadata]
 requires-dist = [
+    { name = "fastapi", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.135.2" },
     { name = "idegym-api", editable = "api" },
     { name = "idegym-backend-utils", editable = "backend-utils" },
     { name = "idegym-common-utils", editable = "common-utils" },
     { name = "junitparser", specifier = ">=3.2.0" },
 ]
+provides-extras = ["server"]
 
 [[package]]
 name = "idegym-server"
@@ -1005,6 +1066,8 @@ dependencies = [
     { name = "idegym-api" },
     { name = "idegym-backend-utils" },
     { name = "idegym-common-utils" },
+    { name = "idegym-plugin-defaults", extra = ["server"] },
+    { name = "idegym-plugin-pycharm", extra = ["server"] },
     { name = "idegym-rewards" },
     { name = "idegym-tools" },
     { name = "opentelemetry-instrumentation-asyncio" },
@@ -1022,6 +1085,8 @@ requires-dist = [
     { name = "idegym-api", editable = "api" },
     { name = "idegym-backend-utils", editable = "backend-utils" },
     { name = "idegym-common-utils", editable = "common-utils" },
+    { name = "idegym-plugin-defaults", extras = ["server"], editable = "plugins/defaults" },
+    { name = "idegym-plugin-pycharm", extras = ["server"], editable = "plugins/pycharm" },
     { name = "idegym-rewards", editable = "rewards" },
     { name = "idegym-tools", editable = "tools" },
     { name = "opentelemetry-instrumentation-asyncio", specifier = ">=0.57b0" },
@@ -1040,11 +1105,18 @@ dependencies = [
     { name = "idegym-backend-utils" },
 ]
 
+[package.optional-dependencies]
+server = [
+    { name = "fastapi", extra = ["standard"] },
+]
+
 [package.metadata]
 requires-dist = [
+    { name = "fastapi", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.135.2" },
     { name = "idegym-api", editable = "api" },
     { name = "idegym-backend-utils", editable = "backend-utils" },
 ]
+provides-extras = ["server"]
 
 [[package]]
 name = "identify"

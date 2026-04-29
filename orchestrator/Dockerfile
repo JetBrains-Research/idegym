@@ -31,6 +31,9 @@ COPY backend-utils backend-utils/
 COPY common-utils common-utils/
 COPY image-builder image-builder/
 COPY orchestrator orchestrator/
+COPY plugins plugins/
+COPY rewards rewards/
+COPY tools tools/
 COPY scripts/kill_supervisor.py /usr/local/bin/kill-supervisor
 
 RUN set -eux; \

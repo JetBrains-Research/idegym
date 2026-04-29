@@ -733,7 +733,7 @@ The built-in plugins handle this correctly.
 A plugin is a Pydantic model that inherits from `PluginBase` and is registered with `@image_plugin`.
 
 ```python
-from idegym.image.plugin import BuildContext, PluginBase, image_plugin
+from idegym.api.plugin import BuildContext, PluginBase, image_plugin
 
 
 @image_plugin("my-plugin")
@@ -783,7 +783,13 @@ Use `ctx.updated(**kwargs)` to return a modified copy. Use `ctx.with_extra("key"
 pass data between plugins via `extras`.
 
 **Important:**
-- Plugins must be imported before any YAML deserialization. The built-in `plugins.py` module is
-  imported automatically by `builder.py`. For custom plugins, ensure they are imported at application
-  startup (a side-effect import is sufficient: `import my_plugins  # noqa: F401`).
+- Plugins are discovered automatically via the `idegym.plugins.image` entry point group. Declare
+  your plugin in `[project.entry-points."idegym.plugins.image"]` in `pyproject.toml` and it will
+  be available for YAML deserialization as soon as your package is installed.
 - Plugin `type` names must be unique across the registry.
+
+---
+
+> **See also:** [Plugin Architecture](plugins.md) — full guide covering server plugins, client
+> operation plugins, MCP upstream convention, the `plugins.json` configuration file, and how to
+> write a plugin that participates in all integration points.

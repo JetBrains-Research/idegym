@@ -1,4 +1,6 @@
+import json
 from contextlib import asynccontextmanager
+from importlib.metadata import entry_points as _entry_points
 from os.path import abspath, dirname, join
 from pathlib import Path
 
@@ -8,6 +10,7 @@ from fastapi.responses import Response
 from hydra import main as hydra
 from idegym.api.config import Config
 from idegym.api.paths import API_BASE_PATH
+from idegym.api.plugin import get_all_server_plugins
 from idegym.backend.utils.bash_executor import BashCommandExecutionTimeoutError
 from idegym.backend.utils.instrumentation.uvicorn import UvicornInstrumentor
 from idegym.backend.utils.logging import configure_logging, create_uvicorn_logging_config
@@ -29,7 +32,25 @@ from uvicorn import Config as UvicornConfig
 from uvicorn import Server as UvicornServer
 
 from server.dependencies import Container
-from server.router import fs, project, rewards, root, tools
+from server.router import fs, project, root
+
+# ---------------------------------------------------------------------------
+# Server plugin loading via entry points
+# ---------------------------------------------------------------------------
+# Read /etc/idegym/plugins.json (written by IdeGYMServer image plugin at build
+# time) to determine which server plugins to enable. Falls back to loading all
+# installed plugins when running in development (no config file present).
+
+_all_server_eps = list(_entry_points(group="idegym.plugins.server"))
+try:
+    _enabled_plugins = set(json.loads(Path("/etc/idegym/plugins.json").read_text()).get("server", []))
+except FileNotFoundError:
+    # Dev fallback: enable all installed server plugins
+    _enabled_plugins = {ep.name for ep in _all_server_eps}
+
+for _ep in _all_server_eps:
+    if _ep.name in _enabled_plugins:
+        _ep.load()
 
 logger = get_logger("idegym.server")
 
@@ -46,12 +67,23 @@ app.container = Container()
 app.add_middleware(ShutdownMiddleware)
 app.add_middleware(TracingMiddleware)
 app.add_middleware(AsyncioTaskContextMiddleware)
-app.container.wire(packages=[fs, project, rewards, root, tools])
+app.container.wire(packages=[fs, project, root])
+
+# Register dependency overrides so the tools/rewards routers (which use native
+# FastAPI Depends stubs) receive the real service instances from the DI container.
+from idegym.rewards.router import _get_reward_service  # noqa: E402
+from idegym.tools.router import _get_tool_service  # noqa: E402
+
+app.dependency_overrides[_get_tool_service] = lambda: app.container.tool_service()
+app.dependency_overrides[_get_reward_service] = lambda: app.container.reward_service()
+
 app.include_router(prefix=API_BASE_PATH, router=root.router)
 app.include_router(prefix=API_BASE_PATH, router=project.router)
-app.include_router(prefix=API_BASE_PATH, router=rewards.router)
-app.include_router(prefix=API_BASE_PATH, router=tools.router)
 app.include_router(prefix=API_BASE_PATH, router=fs.router)
+for _plugin_cls in get_all_server_plugins():
+    _plugin_router = _plugin_cls.get_server_router()
+    if _plugin_router is not None:
+        app.include_router(prefix=API_BASE_PATH, router=_plugin_router)
 
 AsyncioInstrumentor().instrument()
 SystemMetricsInstrumentor(config=system_metrics_config).instrument()

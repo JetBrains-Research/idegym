@@ -1,7 +1,7 @@
 from typing import Any, Iterable
 
 import yaml
-from idegym.image.plugin import get_plugin_class, get_plugin_type_name
+from idegym.api.plugin import get_plugin_class, get_plugin_type_name
 
 
 class _ImageDefinitionDumper(yaml.SafeDumper):

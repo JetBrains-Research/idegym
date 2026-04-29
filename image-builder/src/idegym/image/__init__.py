@@ -8,14 +8,15 @@ Core types:
 - ``image_plugin`` — decorator to register a ``PluginBase`` subclass under a type name.
 - ``Base`` — enum of well-known base images (alias for ``BaseImage``).
 
-Built-in plugins are in ``idegym.image.plugins`` and are auto-registered on import of this package.
+Built-in plugins are in ``idegym.plugins.defaults`` and are auto-registered when the image
+builder is imported (via the ``idegym.plugins.image`` entry point group).
 """
 
 from importlib.metadata import PackageNotFoundError, version
 
 from idegym.api.docker import BaseImage as Base
+from idegym.api.plugin import BuildContext, PluginBase, image_plugin
 from idegym.image.builder import Image
-from idegym.image.plugin import BuildContext, PluginBase, image_plugin
 
 try:
     __version__ = version("idegym-image-builder")

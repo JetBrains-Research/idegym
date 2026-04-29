@@ -22,7 +22,7 @@ from from_root import from_root
 from idegym.api.status import Status
 from idegym.image.builder import Image
 from idegym.image.docker_api import IdeGYMDockerAPI
-from idegym.image.plugins import BaseSystem, IdeGYMServer, Permissions, Project, User
+from idegym.plugins.defaults.image import BaseSystem, IdeGYMServer, Permissions, Project, User
 from kubernetes_asyncio.client import V1ResourceRequirements
 from utils.constants import (
     DEFAULT_NAMESPACE,
