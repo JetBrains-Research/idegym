@@ -98,9 +98,7 @@ async def _task_create_snapshot(
         )
 
     except asyncio.CancelledError:
-        logger.warning(
-            f"Snapshot task cancelled for server {server_generated_name}, operation ID {async_operation_id}"
-        )
+        logger.warning(f"Snapshot task cancelled for server {server_generated_name}, operation ID {async_operation_id}")
         await update_operation_with_error(
             async_operation_id=async_operation_id,
             async_operation_status=AsyncOperationStatus.CANCELLED,
@@ -109,9 +107,7 @@ async def _task_create_snapshot(
         )
 
     except HTTPException as he:
-        logger.warning(
-            f"HTTP error in snapshot task for server {server_generated_name}: {he.status_code} {he.detail}"
-        )
+        logger.warning(f"HTTP error in snapshot task for server {server_generated_name}: {he.status_code} {he.detail}")
         await update_operation_with_error(
             async_operation_id=async_operation_id,
             status_code=he.status_code,

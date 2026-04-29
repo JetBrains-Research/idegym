@@ -28,8 +28,7 @@ class PodSnapshotService:
             ).items
 
         running_pods = [
-            pod for pod in pods
-            if pod.metadata.deletion_timestamp is None and pod.status.phase == "Running"
+            pod for pod in pods if pod.metadata.deletion_timestamp is None and pod.status.phase == "Running"
         ]
 
         if not running_pods:

@@ -15,7 +15,16 @@ from idegym.backend.utils.logging import configure_logging, configure_sqlalchemy
 from idegym.backend.utils.otel import configure_telemetry, system_metrics_config
 from idegym.backend.utils.starlette.middleware import AsyncioTaskContextMiddleware, TracingMiddleware
 from idegym.orchestrator.database.database import init_db
-from idegym.orchestrator.router import async_operation, build_images, client, dashboard, diagnostics, forwarding, server, snapshot
+from idegym.orchestrator.router import (
+    async_operation,
+    build_images,
+    client,
+    dashboard,
+    diagnostics,
+    forwarding,
+    server,
+    snapshot,
+)
 from idegym.orchestrator.watcher import cleanup_inactive_pods
 from idegym.utils import __version__
 from idegym.utils.logging import get_logger
