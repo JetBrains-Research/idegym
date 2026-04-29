@@ -18,7 +18,10 @@ from idegym.client.operations.rewards import RewardOperations
 from idegym.client.operations.servers import ServerOperations
 from idegym.client.operations.tools import ToolsOperations
 from idegym.client.operations.utils import HTTPUtils, PollingConfig
+from idegym.utils.logging import get_logger
 from pydantic import BaseModel
+
+logger = get_logger(__name__)
 
 
 class IdeGYMServer:
@@ -49,6 +52,8 @@ class IdeGYMServer:
         # Each entry point in the ``idegym.plugins.client`` group maps a name (e.g.
         # ``"pycharm"``) to a client operations class. The class is instantiated and
         # attached as an attribute so callers can use ``server.pycharm.health()``.
+        # Hyphens in entry point names are mapped to underscores (e.g. ``"my-plugin"``
+        # becomes ``server.my_plugin``) so the attribute is always valid Python syntax.
         # Failures are isolated per-plugin so one broken plugin doesn't prevent others.
         from importlib.metadata import entry_points as _entry_points
 
@@ -57,7 +62,7 @@ class IdeGYMServer:
                 _ops_cls = _ep.load()
                 setattr(
                     self,
-                    _ep.name,
+                    _ep.name.replace("-", "_"),
                     _ops_cls(
                         forward=self._forwarding,
                         server_id=server_id,
@@ -66,7 +71,7 @@ class IdeGYMServer:
                     ),
                 )
             except Exception:
-                pass
+                logger.warning("Failed to load client plugin %r", _ep.name, exc_info=True)
 
     @property
     def openenv_url(self) -> str:

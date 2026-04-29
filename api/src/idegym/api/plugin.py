@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass, field, replace
 from typing import Any, Optional, Self
 
@@ -118,12 +119,16 @@ class PluginBase(BaseModel):
 _PLUGIN_REGISTRY: dict[str, type[PluginBase]] = {}
 _PLUGIN_TYPE_NAMES: dict[type[PluginBase], str] = {}
 
+# Safe plugin name: lowercase letter, followed by up to 62 lowercase letters/digits/hyphens.
+# Used both at registration time and when writing MCP upstream config filenames.
+SAFE_PLUGIN_NAME_RE = re.compile(r"^[a-z][a-z0-9-]{0,62}$")
+
 
 def image_plugin(type_name: str):
     """Class decorator that registers a ``PluginBase`` subclass under ``type_name``.
 
     The registered name is used as the ``type`` field when serializing/deserializing plugins
-    in YAML image definitions. Raises ``ValueError`` if the name is already taken.
+    in YAML image definitions. Raises ``ValueError`` if the name is already taken or invalid.
 
     Example::
 
@@ -133,6 +138,11 @@ def image_plugin(type_name: str):
     """
 
     def decorator(cls: type[PluginBase]) -> type[PluginBase]:
+        if not SAFE_PLUGIN_NAME_RE.match(type_name):
+            raise ValueError(
+                f"Plugin type name {type_name!r} is invalid. "
+                "Must match ^[a-z][a-z0-9-]{0,62}$ (lowercase letters, digits, hyphens; starts with a letter)."
+            )
         existing = _PLUGIN_REGISTRY.get(type_name)
         if existing:
             raise ValueError(f"Plugin type '{type_name}' is already registered by {existing.__name__}")

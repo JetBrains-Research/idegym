@@ -34,6 +34,8 @@ from uvicorn import Server as UvicornServer
 from server.dependencies import Container
 from server.router import fs, project, root
 
+logger = get_logger("idegym.server")
+
 # ---------------------------------------------------------------------------
 # Server plugin loading via entry points
 # ---------------------------------------------------------------------------
@@ -47,12 +49,16 @@ try:
 except FileNotFoundError:
     # Dev fallback: enable all installed server plugins
     _enabled_plugins = {ep.name for ep in _all_server_eps}
+except (OSError, json.JSONDecodeError):
+    logger.warning("Failed to read /etc/idegym/plugins.json; enabling all installed server plugins", exc_info=True)
+    _enabled_plugins = {ep.name for ep in _all_server_eps}
 
 for _ep in _all_server_eps:
     if _ep.name in _enabled_plugins:
-        _ep.load()
-
-logger = get_logger("idegym.server")
+        try:
+            _ep.load()
+        except Exception:
+            logger.warning("Failed to load server plugin %r", _ep.name, exc_info=True)
 
 
 @asynccontextmanager

@@ -280,10 +280,10 @@ is attached automatically:
 
 ```python
 health = await server.pycharm.health()
-# → {"status": "ok", ...}
+# → {"mcp_url": "http://localhost:6789/mcp"}
 ```
 
-The `pycharm` attribute is only present if the `idegym-plugin-defaults` package is installed and
+The `pycharm` attribute is only present if the `idegym-plugin-pycharm` package is installed and
 the `pycharm` client entry point loads successfully. Accessing it on a server whose image was built
 without the PyCharm plugin will raise `AttributeError`.
 

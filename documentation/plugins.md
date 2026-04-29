@@ -121,27 +121,25 @@ value = ctx.get_extra("my.plugin.setting", default="fallback")
 
 ### Plugin Pipeline
 
-`Image.to_spec()` runs the pipeline in two phases over the plugin list:
-
-1. **Apply phase** — `plugin.apply(ctx)` for each plugin in order; each plugin sees the context
-   output by all previous plugins.
-2. **Render phase** — `plugin.render(final_ctx)` for each plugin; all plugins see the same final
-   context (the result of all `apply()` calls).
+`Image.to_spec()` processes plugins one at a time: for each plugin, `apply()` runs first to update
+the context, then `render()` is called immediately with the updated context to produce the
+Dockerfile fragment. The next plugin then receives the context as left by the previous one.
 
 ```
 BuildContext(base=...)
-  → plugin[0].apply(ctx)  → ctx_0
-  → plugin[1].apply(ctx_0) → ctx_1
+  → plugin[0].apply(ctx)    → ctx_0
+  → plugin[0].render(ctx_0) → fragment_0
+  → plugin[1].apply(ctx_0)  → ctx_1
+  → plugin[1].render(ctx_1) → fragment_1
   → ...
-  → plugin[0].render(ctx_N) → fragment_0
-  → plugin[1].render(ctx_N) → fragment_1
-  → assemble Dockerfile     → ImageBuildSpec
+  → assemble Dockerfile      → ImageBuildSpec
 ```
 
 > [!NOTE]
-> `apply()` and `render()` are called in **separate passes** — `render()` is only called after all
-> `apply()` calls complete. This ensures every plugin sees the fully-resolved context (e.g., the user
-> created by the `user` plugin) when generating its Dockerfile fragment.
+> Because `apply()` and `render()` are interleaved, **plugin order matters**. A plugin's `render()`
+> sees only the context set by itself and earlier plugins — not by plugins that come after it in the
+> list. For example, if the `user` plugin comes after the `project` plugin, `project.render()` will
+> see `current_user="root"` (the default), not the user created by the `user` plugin.
 
 ### Registering with `@image_plugin`
 
@@ -272,7 +270,7 @@ You can also add MCP upstreams explicitly without implementing a plugin, using t
 built-in plugin:
 
 ```python
-from idegym.image.plugins import MCPUpstream
+from idegym.plugins.defaults.image import MCPUpstream
 
 image = image.with_plugin(MCPUpstream(name="my-service", url="http://localhost:9000/mcp"))
 ```
@@ -329,7 +327,8 @@ my-plugin = "my_package.client_ops:MyPluginClientOperations"
 ```
 
 `IdeGYMServer.__init__` iterates the `idegym.plugins.client` group and attaches each loaded class
-as an attribute under the entry point name:
+as an attribute. Hyphens in the entry point name are replaced with underscores so the attribute is
+always valid Python syntax — `"my-plugin"` becomes `server.my_plugin`:
 
 ```python
 server = await client.start_server(...)
@@ -340,7 +339,7 @@ Each `IdeGYMServer` instance gets its own ops object, so `server_a.my_plugin` an
 `server_b.my_plugin` are independent instances with different `server_id` values.
 
 Failures are isolated per plugin — if one entry point fails to load (e.g., optional dependency not
-installed), the other plugins still load.
+installed), the other plugins still load and a warning is emitted.
 
 ### `server.forward()` — escape hatch
 
@@ -515,8 +514,9 @@ status = await server.my_plugin.status()   # → {"ok": True}
 
 ## Built-in Default Plugins
 
-All default plugins live in `plugins/defaults/src/idegym/plugins/defaults/`. They are split into
-two modules:
+### `idegym-plugin-defaults` (always installed)
+
+Ships with the IdeGYM workspace. Source: `plugins/defaults/src/idegym/plugins/defaults/`.
 
 **`image.py`** — image build plugins:
 
@@ -528,7 +528,6 @@ two modules:
 | `mcp-upstream` | `MCPUpstream` | Explicitly declares an MCP upstream URL |
 | `project` | `Project` | Loads a project (git, local copy, archive, clone) |
 | `idegym-server` | `IdeGYMServer` | Installs the IdeGYM server runtime |
-| `pycharm` | `PyCharm` | Installs PyCharm IDE and Java via SDKMAN |
 
 **`server.py`** — server plugins (no image build component):
 
@@ -537,8 +536,15 @@ two modules:
 | `tools` | `ToolsPlugin` | Mounts the built-in tools router (`/api/tools/*`) |
 | `rewards` | `RewardsPlugin` | Mounts the built-in rewards router (`/api/rewards/*`) |
 
-The `PyCharm` image plugin also participates as a client plugin (entry point `pycharm`) via
-`PycharmClientOperations`, which exposes `server.pycharm.health()`.
+### `idegym-plugin-pycharm` (optional, separate package)
+
+Ships in `plugins/pycharm/`. Install separately to use the PyCharm integration.
+
+| Integration point | Entry point group | Class |
+|---|---|---|
+| Image build | `idegym.plugins.image` | `PyCharm` — installs PyCharm IDE; uses bundled JBR for Java |
+| Server routing | `idegym.plugins.server` | `PyCharmPlugin` — mounts `GET /api/pycharm/health` |
+| Client operations | `idegym.plugins.client` | `PycharmClientOperations` — exposes `server.pycharm.health()` |
 
 ---
 
@@ -552,12 +558,13 @@ idegym.plugins.image
     ├─ mcp-upstream  → idegym.plugins.defaults.image:MCPUpstream
     ├─ project       → idegym.plugins.defaults.image:Project
     ├─ idegym-server → idegym.plugins.defaults.image:IdeGYMServer
-    └─ pycharm       → idegym.plugins.defaults.image:PyCharm
+    └─ pycharm       → idegym.plugins.pycharm.image:PyCharm
 
 idegym.plugins.server
     ├─ tools         → idegym.plugins.defaults.server:ToolsPlugin
-    └─ rewards       → idegym.plugins.defaults.server:RewardsPlugin
+    ├─ rewards       → idegym.plugins.defaults.server:RewardsPlugin
+    └─ pycharm       → idegym.plugins.pycharm.server:PyCharmPlugin
 
 idegym.plugins.client
-    └─ pycharm       → idegym.plugins.defaults.image:PycharmClientOperations
+    └─ pycharm       → idegym.plugins.pycharm.client:PycharmClientOperations
 ```

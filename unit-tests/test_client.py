@@ -160,6 +160,35 @@ def test_client_init_survives_entry_point_load_error(monkeypatch):
     monkeypatch.setattr(meta, "entry_points", _patched_entry_points)
     # Should not raise — the except-Exception block in __init__ swallows all errors
     server = _make_server()
-    # The bad entry_point must not have created an attribute
+    # The bad entry_point must not have created an attribute (neither hyphenated nor underscored)
     assert not hasattr(server, "bad-plugin")
     assert not hasattr(server, "bad_plugin")
+
+
+def test_hyphenated_entry_point_name_becomes_underscore_attribute(monkeypatch):
+    """Entry point names with hyphens are mapped to underscored attributes for valid Python syntax."""
+    import importlib.metadata as meta
+
+    original_entry_points = meta.entry_points
+
+    class _FakeOps:
+        def __init__(self, forward, server_id, client_id, polling_config):
+            pass
+
+    def _patched_entry_points(group=None, **kwargs):
+        if group == "idegym.plugins.client":
+
+            class _HyphenEP:
+                name = "my-plugin"
+
+                def load(self):
+                    return _FakeOps
+
+            return [_HyphenEP()]
+        return original_entry_points(group=group, **kwargs)
+
+    monkeypatch.setattr(meta, "entry_points", _patched_entry_points)
+    server = _make_server()
+    assert hasattr(server, "my_plugin"), "hyphenated name should be accessible as my_plugin"
+    assert not hasattr(server, "my-plugin"), "raw hyphenated name should not be set as an attribute"
+    assert isinstance(server.my_plugin, _FakeOps)

@@ -66,6 +66,8 @@ class PyCharm(PluginBase):
 
     def render(self, ctx: BuildContext) -> str:
         user = self.user or ctx.current_user
+        archive = f"pycharm-{self.edition}-{self.version}.tar.gz"
+        base_url = "https://download.jetbrains.com/python"
         return dedent(
             f"""\
             # Install PyCharm {self.edition} {self.version}
@@ -73,28 +75,25 @@ class PyCharm(PluginBase):
             RUN set -eux; \\
                 apt-get update -qq; \\
                 apt-get install -y --no-install-recommends \\
-                    wget curl zip unzip \\
                     libxtst6 libxrender1 libxi6 libfreetype6 fontconfig; \\
                 apt-get clean; \\
                 rm -rf /var/lib/apt/lists/*
 
-            # Install Java via SDKMAN (required for PyCharm)
-            RUN curl -s "https://get.sdkman.io" | bash && \\
-                bash -c "source /root/.sdkman/bin/sdkman-init.sh && sdk install java 21.0.5-tem"
-
-            ENV JAVA_HOME="/root/.sdkman/candidates/java/current"
-            ENV PATH="${{JAVA_HOME}}/bin:${{PATH}}"
-
-            # Download and install PyCharm
+            # Download, verify checksum, and extract PyCharm.
+            # PyCharm 2022+ bundles JBR at $PYCHARM_DIR/jbr — no external JDK needed.
             ENV PYCHARM_VERSION="{self.version}"
             ENV PYCHARM_DIR="/opt/pycharm"
-            RUN wget -q "https://download.jetbrains.com/python/pycharm-{self.edition}-${{PYCHARM_VERSION}}.tar.gz" \\
-                    -O /tmp/pycharm.tar.gz && \\
-                mkdir -p ${{PYCHARM_DIR}} && \\
-                tar -xzf /tmp/pycharm.tar.gz -C ${{PYCHARM_DIR}} --strip-components=1 && \\
-                rm /tmp/pycharm.tar.gz
+            RUN set -eux; \\
+                curl -fsSL "{base_url}/{archive}" -o /tmp/pycharm.tar.gz; \\
+                curl -fsSL "{base_url}/{archive}.sha256" -o /tmp/pycharm.sha256; \\
+                expected=$(cut -d' ' -f1 /tmp/pycharm.sha256); \\
+                echo "$expected  /tmp/pycharm.tar.gz" | sha256sum -c -; \\
+                mkdir -p ${{PYCHARM_DIR}}; \\
+                tar -xzf /tmp/pycharm.tar.gz -C ${{PYCHARM_DIR}} --strip-components=1; \\
+                rm /tmp/pycharm.tar.gz /tmp/pycharm.sha256
 
-            ENV PATH="${{PYCHARM_DIR}}/bin:${{PATH}}"
+            ENV JAVA_HOME="${{PYCHARM_DIR}}/jbr"
+            ENV PATH="${{JAVA_HOME}}/bin:${{PYCHARM_DIR}}/bin:${{PATH}}"
             ENV DISPLAY=":99"
 
             USER {user}

@@ -2,7 +2,7 @@ import subprocess
 import sys
 from textwrap import dedent
 
-from idegym.api.plugin import BuildContext, PluginBase, get_all_server_plugins, server_plugin
+from idegym.api.plugin import BuildContext, PluginBase, get_all_server_plugins, image_plugin, server_plugin
 from idegym.image.builder import Image
 from idegym.image.serialization import deserialize_plugin, serialize_plugin
 from idegym.plugins.defaults.image import BaseSystem, IdeGYMServer, MCPUpstream, Permissions, Project, User
@@ -657,10 +657,17 @@ def test_pycharm_render_contains_install_steps():
     ctx = BuildContext(base="debian:bookworm-slim")
     fragment = plugin.render(ctx)
     assert 'PYCHARM_VERSION="2024.1"' in fragment
-    assert "pycharm-professional" in fragment
-    assert "sdkman" in fragment.lower()
+    assert "pycharm-professional-2024.1.tar.gz" in fragment
     assert "JAVA_HOME" in fragment
     assert "PYCHARM_DIR" in fragment
+    # Must not use the curl-pipe-bash pattern (supply chain risk)
+    assert "get.sdkman.io" not in fragment
+    assert "| bash" not in fragment
+    # Must verify the tarball checksum before extracting
+    assert "sha256sum" in fragment
+    assert ".sha256" in fragment
+    # Java must come from PyCharm's bundled JBR, not an external install
+    assert "/jbr" in fragment
 
 
 def test_pycharm_render_switches_back_to_current_user():
@@ -1223,6 +1230,73 @@ def test_to_spec_explicit_mcp_upstream_plugin():
     spec = image.to_spec()
     assert "mcp-upstreams.d/test-svc.json" in spec.dockerfile_content
     assert "http://localhost:8080/mcp" in spec.dockerfile_content
+
+
+# ---------------------------------------------------------------------------
+# @image_plugin name validation (fail-fast at registration time)
+# ---------------------------------------------------------------------------
+
+
+def test_image_plugin_rejects_name_with_slash():
+    with raises(ValueError, match="invalid"):
+
+        @image_plugin("path/traversal")
+        class _BadPlugin(PluginBase):
+            pass
+
+
+def test_image_plugin_rejects_name_with_dotdot():
+    with raises(ValueError, match="invalid"):
+
+        @image_plugin("../escape")
+        class _BadPlugin2(PluginBase):
+            pass
+
+
+def test_image_plugin_rejects_name_starting_with_digit():
+    with raises(ValueError, match="invalid"):
+
+        @image_plugin("1starts-with-digit")
+        class _BadPlugin3(PluginBase):
+            pass
+
+
+def test_image_plugin_rejects_uppercase_name():
+    with raises(ValueError, match="invalid"):
+
+        @image_plugin("MyPlugin")
+        class _BadPlugin4(PluginBase):
+            pass
+
+
+def test_image_plugin_accepts_valid_name():
+    @image_plugin("test-valid-name-99")
+    class _GoodPlugin(PluginBase):
+        pass
+
+    # Verify it was registered without error (clean up to avoid polluting other tests)
+    from idegym.api.plugin import _PLUGIN_REGISTRY, _PLUGIN_TYPE_NAMES
+
+    _PLUGIN_REGISTRY.pop("test-valid-name-99", None)
+    _PLUGIN_TYPE_NAMES.pop(_GoodPlugin, None)
+
+
+# ---------------------------------------------------------------------------
+# _mcp_upstream_fragment path-traversal guard
+# ---------------------------------------------------------------------------
+
+
+def test_to_spec_raises_for_unregistered_plugin_with_unsafe_class_name():
+    """An unregistered plugin whose class name is not a safe filename raises ValueError at to_spec()."""
+
+    class UnsafeNamePlugin_With_Underscores(PluginBase):
+        @classmethod
+        def get_mcp_upstream(cls) -> str:
+            return "http://localhost:1234/mcp"
+
+    image = Image.from_base("debian:bookworm-slim").with_plugin(UnsafeNamePlugin_With_Underscores())
+    with raises(ValueError, match="safe filename"):
+        image.to_spec()
 
 
 # ---------------------------------------------------------------------------
