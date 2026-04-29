@@ -39,16 +39,20 @@ async def test_mcp_transport_smoke(test_id):
         tools_by_name = {tool.name: tool for tool in tools}
 
         assert REQUIRED_MCP_TOOLS <= tools_by_name.keys()
-        # FastMCP's public HTTP client schema flattens single request-model tool arguments.
+        # FastMCP exposes single request-model tool arguments under a top-level request object.
         for tool_name, required_args in REQUIRED_CLIENT_TOOL_ARGS.items():
-            assert tools_by_name[tool_name].inputSchema["required"] == required_args
+            input_schema = tools_by_name[tool_name].inputSchema
+            assert input_schema["required"] == ["request"]
+            assert input_schema["properties"]["request"]["required"] == required_args
 
         register_result = await mcp.call_tool(
             MCPToolName.REGISTER_CLIENT,
             {
-                "name": f"mcp-smoke-{test_id}",
-                "namespace": DEFAULT_NAMESPACE,
-                "nodes_count": 0,
+                "request": {
+                    "name": f"mcp-smoke-{test_id}",
+                    "namespace": DEFAULT_NAMESPACE,
+                    "nodes_count": 0,
+                },
             },
         )
         client_id = register_result.structured_content["id"]
@@ -57,8 +61,10 @@ async def test_mcp_transport_smoke(test_id):
         finish_result = await mcp.call_tool(
             MCPToolName.FINISH_CLIENT,
             {
-                "client_id": client_id,
-                "namespace": DEFAULT_NAMESPACE,
+                "request": {
+                    "client_id": client_id,
+                    "namespace": DEFAULT_NAMESPACE,
+                },
             },
         )
         assert finish_result.structured_content["id"] == client_id
@@ -76,9 +82,11 @@ async def test_mcp_start_server_and_run_bash_command(test_image, test_id):
             register_result = await mcp.call_tool(
                 MCPToolName.REGISTER_CLIENT,
                 {
-                    "name": f"mcp-lifecycle-{test_id}",
-                    "namespace": DEFAULT_NAMESPACE,
-                    "nodes_count": 0,
+                    "request": {
+                        "name": f"mcp-lifecycle-{test_id}",
+                        "namespace": DEFAULT_NAMESPACE,
+                        "nodes_count": 0,
+                    },
                 },
             )
             client_id = register_result.structured_content["id"]
@@ -90,15 +98,17 @@ async def test_mcp_start_server_and_run_bash_command(test_image, test_id):
             start_result = await mcp.call_tool(
                 MCPToolName.START_SERVER,
                 {
-                    "client_id": client_id,
-                    "namespace": DEFAULT_NAMESPACE,
-                    "image_tag": test_image,
-                    "server_name": server_name,
-                    "runtime_class_name": "gvisor",
-                    "run_as_root": True,
-                    "resources": resources,
-                    "server_start_wait_timeout_in_seconds": DEFAULT_SERVER_START_TIMEOUT,
-                    "reuse_strategy": "NONE",
+                    "request": {
+                        "client_id": client_id,
+                        "namespace": DEFAULT_NAMESPACE,
+                        "image_tag": test_image,
+                        "server_name": server_name,
+                        "runtime_class_name": "gvisor",
+                        "run_as_root": True,
+                        "resources": resources,
+                        "server_start_wait_timeout_in_seconds": DEFAULT_SERVER_START_TIMEOUT,
+                        "reuse_strategy": "NONE",
+                    },
                 },
             )
             start_operation_id = start_result.structured_content["operation_id"]
@@ -114,10 +124,12 @@ async def test_mcp_start_server_and_run_bash_command(test_image, test_id):
             command_result = await mcp.call_tool(
                 MCPToolName.RUN_BASH_COMMAND,
                 {
-                    "client_id": client_id,
-                    "server_id": server_id,
-                    "command": "python -c 'print(\"Hello Word!\")'",
-                    "command_timeout": 60.0,
+                    "request": {
+                        "client_id": client_id,
+                        "server_id": server_id,
+                        "command": "python -c 'print(\"Hello World!\")'",
+                        "command_timeout": 60.0,
+                    },
                 },
             )
             command_operation_id = command_result.structured_content["async_operation_id"]
@@ -125,7 +137,7 @@ async def test_mcp_start_server_and_run_bash_command(test_image, test_id):
             bash_response = parse_forwarded_body(command_status)
 
             assert bash_response == {
-                "stdout": "Hello Word!",
+                "stdout": "Hello World!",
                 "stderr": "",
                 "exit_code": 0,
             }
@@ -135,9 +147,11 @@ async def test_mcp_start_server_and_run_bash_command(test_image, test_id):
                 stop_server_result = await mcp.call_tool(
                     MCPToolName.STOP_SERVER,
                     {
-                        "client_id": client_id,
-                        "namespace": DEFAULT_NAMESPACE,
-                        "server_id": server_id,
+                        "request": {
+                            "client_id": client_id,
+                            "namespace": DEFAULT_NAMESPACE,
+                            "server_id": server_id,
+                        },
                     },
                 )
                 operation_id = stop_server_result.structured_content.get("operation_id")
@@ -148,8 +162,10 @@ async def test_mcp_start_server_and_run_bash_command(test_image, test_id):
                 stop_client_result = await mcp.call_tool(
                     MCPToolName.STOP_CLIENT,
                     {
-                        "client_id": client_id,
-                        "namespace": DEFAULT_NAMESPACE,
+                        "request": {
+                            "client_id": client_id,
+                            "namespace": DEFAULT_NAMESPACE,
+                        },
                     },
                 )
                 operation_id = stop_client_result.structured_content.get("operation_id")

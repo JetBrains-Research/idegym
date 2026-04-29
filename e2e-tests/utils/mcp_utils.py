@@ -29,7 +29,7 @@ async def wait_for_mcp_operation(
     deadline = time.monotonic() + timeout
 
     while True:
-        result = await mcp.call_tool(MCPToolName.GET_OPERATION_STATUS, {"operation_id": operation_id})
+        result = await mcp.call_tool(MCPToolName.GET_OPERATION_STATUS, {"request": {"operation_id": operation_id}})
         status = result.structured_content
         operation_status = AsyncOperationStatus(status["status"])
 
