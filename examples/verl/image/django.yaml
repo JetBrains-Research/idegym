@@ -1,0 +1,104 @@
+images:
+  - name: django-for-verl
+    base: debian:bookworm-slim
+
+    plugins:
+      # Install system packages: base utilities + Python build dependencies
+      - type: base-system
+        packages:
+          - bash
+          - ca-certificates
+          - coreutils
+          - curl
+          - dumb-init
+          - findutils
+          - git
+          - netcat-openbsd
+          - sudo
+          - clang
+          - build-essential
+          - libssl-dev
+          - zlib1g-dev
+          - libncurses5-dev
+          - libncursesw5-dev
+          - libreadline-dev
+          - libsqlite3-dev
+          - libgdbm-dev
+          - libdb5.3-dev
+          - libbz2-dev
+          - libexpat1-dev
+          - liblzma-dev
+          - tk-dev
+          - uuid-dev
+          - libmemcached-dev
+          - libffi-dev
+          - libjpeg-dev
+
+      # Create appuser; subsequent commands (run_commands) execute as this user
+      - type: user
+        username: appuser
+        uid: 1000
+        gid: 1000
+        sudo: true
+
+      # Clone the django project; ownership is transferred to appuser
+      - type: project
+        source: git-clone
+        url: https://github.com/django/django.git
+        ref: 89807fbde8b7b17d00434bc4695535855e96fe77
+        owner: appuser
+
+      # Embed the IdeGYM server — must be last; emits ENTRYPOINT / HEALTHCHECK
+      - type: idegym-server
+        source: git
+        url: https://github.com/JetBrains-Research/idegym.git
+        ref: 09e983804cd0d7f5f9adbc03051cc73a8018045d
+
+    # All items are joined into a single `RUN set -eux; cmd1 && cmd2 && ...` block,
+    # so shell variables set in earlier items are visible in later ones.
+    # Commands run as appuser (the last user set by the plugin pipeline).
+    commands:
+      # Pin Python version and standalone-build release
+      - PYTHON_VERSION=3.10.13
+      - PYTHON_BUILD_STANDALONE_RELEASE=20240224
+      - MINOR="${PYTHON_VERSION%.*}"
+
+      # Create per-user directories where the standalone Python will live
+      - mkdir -p "/home/appuser/.local/bin" "/home/appuser/.local/python/${PYTHON_VERSION}/bin"
+
+      # Make the Python binaries reachable for subsequent commands in this block
+      - export PATH="/home/appuser/.local/python/${PYTHON_VERSION}/bin:/home/appuser/.local/bin:${PATH}"
+
+      # Download and install the python-build-standalone release
+      - ARCH=$(uname -m)
+      - INSTALL_DIR="/home/appuser/.local/python/${PYTHON_VERSION}"
+      - DOWNLOADS="https://github.com/astral-sh/python-build-standalone/releases/download"
+      - curl -fsSL "${DOWNLOADS}/${PYTHON_BUILD_STANDALONE_RELEASE}/cpython-${PYTHON_VERSION}+${PYTHON_BUILD_STANDALONE_RELEASE}-${ARCH}-unknown-linux-gnu-install_only.tar.gz" -o "/tmp/${PYTHON_VERSION}.tar.gz"
+      - tar -xzf "/tmp/${PYTHON_VERSION}.tar.gz" -C "${INSTALL_DIR}" --strip-components=1
+      - rm "/tmp/${PYTHON_VERSION}.tar.gz"
+
+      # Create convenience symlinks under ~/.local/bin
+      - USER_BIN_DIR="/home/appuser/.local/bin"
+      - ln -frs "${INSTALL_DIR}/bin/python${MINOR}" "${INSTALL_DIR}/bin/python"
+      - ln -frs "${INSTALL_DIR}/bin/pip${MINOR}" "${INSTALL_DIR}/bin/pip"
+      - ln -frs "${INSTALL_DIR}/bin/pip${MINOR}" "${USER_BIN_DIR}/pip${MINOR}"
+      - ln -frs "${INSTALL_DIR}/bin/pip3" "${USER_BIN_DIR}/pip3"
+      - ln -frs "${INSTALL_DIR}/bin/pip" "${USER_BIN_DIR}/pip"
+      - ln -frs "${INSTALL_DIR}/bin/python${MINOR}" "${USER_BIN_DIR}/python${MINOR}"
+      - ln -frs "${INSTALL_DIR}/bin/python3" "${USER_BIN_DIR}/python3"
+      - ln -frs "${INSTALL_DIR}/bin/python" "${USER_BIN_DIR}/python"
+
+      # Install project dependencies ($IDEGYM_PROJECT_ROOT is set by the project plugin)
+      - cd "${IDEGYM_PROJECT_ROOT}/tests" && pip3 install --user --upgrade setuptools wheel
+      - python3 -m pip install -e "${IDEGYM_PROJECT_ROOT}"
+      - python3 -m pip install -r "${IDEGYM_PROJECT_ROOT}/tests/requirements/py3.txt"
+
+    resources:
+      requests:
+        cpu: "1000m"
+        memory: "1024Mi"
+        ephemeral-storage: "2560Mi"
+      limits:
+        cpu: "4000m"
+        memory: "4096Mi"
+        ephemeral-storage: "5120Mi"
