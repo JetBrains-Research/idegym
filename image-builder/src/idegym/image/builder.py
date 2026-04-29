@@ -37,8 +37,14 @@ def _run_block(commands: tuple[str, ...]) -> str:
     return f"RUN set -eux; \\\n    {body}"
 
 
-def _mcp_upstream_fragment(plugin: PluginBase) -> str:
-    """Return a Dockerfile fragment that writes the MCP upstream config file, or empty string."""
+def _mcp_upstream_fragment(plugin: PluginBase, ctx: BuildContext) -> str:
+    """Return a Dockerfile fragment that writes the MCP upstream config file, or empty string.
+
+    The config file lives under ``/etc/idegym/mcp-upstreams.d/`` which is root-owned.
+    If the current build user is not root, the fragment wraps the ``RUN`` with
+    ``USER root`` / ``USER <current_user>`` so the write always succeeds regardless of
+    where in the pipeline the plugin sits.
+    """
     mcp_url = type(plugin).get_mcp_upstream()
     if mcp_url is None:
         return ""
@@ -58,7 +64,10 @@ def _mcp_upstream_fragment(plugin: PluginBase) -> str:
             f"printf '%s\\n' {quote(config)} > /etc/idegym/mcp-upstreams.d/{plugin_name}.json",
         )
     )
-    return f"# Register MCP upstream: {plugin_name}\n{run}"
+    comment = f"# Register MCP upstream: {plugin_name}"
+    if ctx.current_user == "root":
+        return f"{comment}\n{run}"
+    return f"{comment}\nUSER root\n{run}\nUSER {ctx.current_user}"
 
 
 class Image(BaseModel):
@@ -183,7 +192,7 @@ class Image(BaseModel):
             fragment = plugin.render(ctx).strip()
             if fragment:
                 fragments.append(fragment)
-            mcp_fragment = _mcp_upstream_fragment(plugin)
+            mcp_fragment = _mcp_upstream_fragment(plugin, ctx)
             if mcp_fragment:
                 fragments.append(mcp_fragment)
 

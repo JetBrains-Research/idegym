@@ -83,7 +83,7 @@ class MyPlugin(PluginBase):
         return ctx.updated(labels={**ctx.labels, "my.label": self.message})
 
     def render(self, ctx: BuildContext) -> str:
-        """Return a Dockerfile fragment. Called after apply() on ALL plugins."""
+        """Return a Dockerfile fragment. Called after this plugin's apply()."""
         return f"RUN echo {self.message!r} > {self.path}"
 ```
 

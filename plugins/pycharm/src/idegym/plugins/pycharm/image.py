@@ -12,7 +12,7 @@ _PYCHARM_VERSION_RE = re.compile(r"^\d{4}\.\d+(\.\d+)?$")
 
 @image_plugin("pycharm")
 class PyCharm(PluginBase):
-    """Install PyCharm IDE and Java (via SDKMAN) into the image.
+    """Install PyCharm IDE using its bundled JetBrains Runtime (JBR) into the image.
 
     Installs dependencies, downloads and extracts PyCharm, then switches back to the
     active user. The ``USER root`` / ``USER <user>`` framing means this plugin can be
@@ -75,6 +75,7 @@ class PyCharm(PluginBase):
             RUN set -eux; \\
                 apt-get update -qq; \\
                 apt-get install -y --no-install-recommends \\
+                    ca-certificates curl \\
                     libxtst6 libxrender1 libxi6 libfreetype6 fontconfig; \\
                 apt-get clean; \\
                 rm -rf /var/lib/apt/lists/*

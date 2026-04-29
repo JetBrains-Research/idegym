@@ -45,7 +45,12 @@ logger = get_logger("idegym.server")
 
 _all_server_eps = list(_entry_points(group="idegym.plugins.server"))
 try:
-    _enabled_plugins = set(json.loads(Path("/etc/idegym/plugins.json").read_text()).get("server", []))
+    _parsed_plugins = json.loads(Path("/etc/idegym/plugins.json").read_text())
+    if isinstance(_parsed_plugins, dict):
+        _enabled_plugins = set(_parsed_plugins.get("server", []))
+    else:
+        logger.warning("/etc/idegym/plugins.json must contain a JSON object; enabling all installed server plugins")
+        _enabled_plugins = {ep.name for ep in _all_server_eps}
 except FileNotFoundError:
     # Dev fallback: enable all installed server plugins
     _enabled_plugins = {ep.name for ep in _all_server_eps}

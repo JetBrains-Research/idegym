@@ -1232,6 +1232,31 @@ def test_to_spec_explicit_mcp_upstream_plugin():
     assert "http://localhost:8080/mcp" in spec.dockerfile_content
 
 
+def test_mcp_fragment_no_user_switch_when_root():
+    """When current_user is root, _mcp_upstream_fragment emits no USER directives."""
+    from idegym.image.builder import _mcp_upstream_fragment
+
+    ctx = BuildContext(base="debian:bookworm-slim", current_user="root")
+    fragment = _mcp_upstream_fragment(PyCharm(), ctx)
+    assert "mcp-upstreams.d/pycharm.json" in fragment
+    assert "USER" not in fragment
+
+
+def test_mcp_fragment_wraps_with_user_switch_for_non_root():
+    """When current_user is not root, _mcp_upstream_fragment wraps with USER root / USER <user>."""
+    from idegym.image.builder import _mcp_upstream_fragment
+
+    ctx = BuildContext(base="debian:bookworm-slim", current_user="appuser")
+    fragment = _mcp_upstream_fragment(PyCharm(), ctx)
+    assert "mcp-upstreams.d/pycharm.json" in fragment
+    assert "USER root" in fragment
+    assert "USER appuser" in fragment
+    # USER root must precede the write; USER appuser must follow it
+    write_idx = fragment.index("mcp-upstreams.d/pycharm.json")
+    assert fragment.index("USER root") < write_idx
+    assert fragment.rindex("USER appuser") > write_idx
+
+
 # ---------------------------------------------------------------------------
 # @image_plugin name validation (fail-fast at registration time)
 # ---------------------------------------------------------------------------
