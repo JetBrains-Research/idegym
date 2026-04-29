@@ -1,25 +1,28 @@
 from types import SimpleNamespace
 from uuid import uuid4
 
+import pytest
 from fastapi.routing import APIRoute
+from fastmcp.exceptions import ToolError
+from idegym.api.orchestrator.mcp import MCPToolName
 from idegym.orchestrator.main import create_app
 from idegym.orchestrator.mcp import create_mcp_server
 from starlette.datastructures import Headers
 from starlette.routing import Mount
 
 EXPECTED_MCP_TOOLS = {
-    "register_client",
-    "stop_client",
-    "finish_client",
-    "start_server",
-    "stop_server",
-    "finish_server",
-    "restart_server",
-    "build_images_from_yaml",
-    "get_operation_status",
-    "get_job_status",
-    "forward_request",
-    "run_bash_command",
+    MCPToolName.REGISTER_CLIENT,
+    MCPToolName.STOP_CLIENT,
+    MCPToolName.FINISH_CLIENT,
+    MCPToolName.START_SERVER,
+    MCPToolName.STOP_SERVER,
+    MCPToolName.FINISH_SERVER,
+    MCPToolName.RESTART_SERVER,
+    MCPToolName.BUILD_IMAGES_FROM_YAML,
+    MCPToolName.GET_OPERATION_STATUS,
+    MCPToolName.GET_JOB_STATUS,
+    MCPToolName.FORWARD_REQUEST,
+    MCPToolName.RUN_BASH_COMMAND,
 }
 
 
@@ -46,7 +49,7 @@ async def test_start_server_mcp_tool_schema_reuses_start_server_request_for_agen
     mcp = create_mcp_server()
 
     tools = await mcp.list_tools()
-    start_server_tool = next(tool for tool in tools if tool.name == "start_server")
+    start_server_tool = next(tool for tool in tools if tool.name == MCPToolName.START_SERVER)
 
     assert start_server_tool.description == "Start a server pod from an OCI image or reuse a matching finished server."
     assert start_server_tool.parameters["required"] == ["request"]
@@ -78,13 +81,20 @@ async def test_register_client_mcp_tool_calls_endpoint(mocker):
     config = SimpleNamespace(orchestrator=SimpleNamespace(node_pool=object()))
     mcp = create_mcp_server(config=config)
 
-    result = await mcp.call_tool("register_client", {"request": {"name": "mcp-client"}})
+    result = await mcp.call_tool(MCPToolName.REGISTER_CLIENT, {"request": {"name": "mcp-client"}})
 
     endpoint.assert_awaited_once()
     request = endpoint.await_args.kwargs["request"]
     assert request.model_dump(mode="json") == {"name": "mcp-client", "nodes_count": 0, "namespace": "idegym"}
     assert result.structured_content["id"] == str(client_id)
     assert result.structured_content["operation_id"] is None
+
+
+async def test_register_client_mcp_tool_requires_orchestrator_config():
+    mcp = create_mcp_server()
+
+    with pytest.raises(ToolError, match="requires orchestrator configuration"):
+        await mcp.call_tool(MCPToolName.REGISTER_CLIENT, {"request": {"name": "mcp-client"}})
 
 
 async def test_start_server_mcp_tool_calls_endpoint(mocker):
@@ -97,7 +107,7 @@ async def test_start_server_mcp_tool_calls_endpoint(mocker):
     mcp = create_mcp_server(config=config)
 
     result = await mcp.call_tool(
-        "start_server",
+        MCPToolName.START_SERVER,
         {
             "request": {
                 "client_id": str(client_id),
@@ -134,7 +144,7 @@ async def test_run_bash_command_mcp_tool_calls_forwarding_endpoint(mocker):
     mcp = create_mcp_server(get_http_client=lambda: object())
 
     result = await mcp.call_tool(
-        "run_bash_command",
+        MCPToolName.RUN_BASH_COMMAND,
         {
             "request": {
                 "client_id": str(client_id),
@@ -154,3 +164,20 @@ async def test_run_bash_command_mcp_tool_calls_forwarding_endpoint(mocker):
         '{"command":"echo hello","timeout":600.0,"graceful_termination_timeout":2.0}'
     )
     assert result.structured_content == {"async_operation_id": 43}
+
+
+async def test_run_bash_command_mcp_tool_requires_http_client():
+    client_id = uuid4()
+    mcp = create_mcp_server()
+
+    with pytest.raises(ToolError, match="requires the orchestrator HTTP client"):
+        await mcp.call_tool(
+            MCPToolName.RUN_BASH_COMMAND,
+            {
+                "request": {
+                    "client_id": str(client_id),
+                    "server_id": 7,
+                    "command": "echo hello",
+                },
+            },
+        )

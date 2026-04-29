@@ -224,6 +224,9 @@ def cleanup_kaniko_jobs():
 @pytest.fixture(autouse=True)
 def cleanup_after_test(request):
     yield
+    if request.config.getoption("--no-cleanup"):
+        logger.info("Skipping per-test cleanup due to --no-cleanup")
+        return
     cleanup_servers()
     cleanup_kaniko_jobs()
     if request.config.getoption("--redeploy-orchestrator"):

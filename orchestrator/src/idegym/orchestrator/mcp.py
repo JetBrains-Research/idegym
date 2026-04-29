@@ -14,6 +14,7 @@ from idegym.api.orchestrator.clients import (
     StopClientResponse,
 )
 from idegym.api.orchestrator.jobs import JobStatusResponse
+from idegym.api.orchestrator.mcp import MCPToolName
 from idegym.api.orchestrator.operations import AsyncOperationStatusResponse, ForwardRequestResponse
 from idegym.api.orchestrator.servers import (
     FinishServerRequest,
@@ -85,58 +86,58 @@ def create_mcp_server(
 ) -> FastMCP:
     mcp = FastMCP("IdeGYM Orchestrator")
 
-    @mcp.tool
+    @mcp.tool(name=MCPToolName.REGISTER_CLIENT)
     async def register_client(request: RegisterClientRequest) -> RegisteredClientResponse:
         """Create a client record. If nodes_count is positive, pre-provision nodes asynchronously."""
         node_pool = _require_config(config).orchestrator.node_pool
         return await register_client_with_node_pool(request=request, node_pool=node_pool)
 
-    @mcp.tool
+    @mcp.tool(name=MCPToolName.STOP_CLIENT)
     async def stop_client(request: StopClientRequest) -> StopClientResponse:
         """Tear down a client: stop alive servers, delete their Kubernetes resources, release nodes, and mark the client stopped."""
         return await stop_client_endpoint(request)
 
-    @mcp.tool
+    @mcp.tool(name=MCPToolName.FINISH_CLIENT)
     async def finish_client(request: FinishClientRequest) -> RegisteredClientResponse:
         """Mark a client and its alive servers as reusable without deleting Kubernetes resources."""
         return await finish_client_endpoint(request)
 
-    @mcp.tool
+    @mcp.tool(name=MCPToolName.START_SERVER)
     async def start_server(request: StartServerRequest) -> StartServerResponse:
         """Start a server pod from an OCI image or reuse a matching finished server."""
         return await start_server_with_config(request=request, config=_require_config(config))
 
-    @mcp.tool
+    @mcp.tool(name=MCPToolName.STOP_SERVER)
     async def stop_server(request: StopServerRequest) -> ServerActionResponse:
         """Stop a server and delete its Kubernetes resources."""
         return await stop_server_endpoint(request)
 
-    @mcp.tool
+    @mcp.tool(name=MCPToolName.FINISH_SERVER)
     async def finish_server(request: FinishServerRequest) -> ServerActionResponse:
         """Mark a server as reusable without deleting its Kubernetes resources."""
         return await finish_server_endpoint(request)
 
-    @mcp.tool
+    @mcp.tool(name=MCPToolName.RESTART_SERVER)
     async def restart_server(request: RestartServerRequest) -> ServerActionResponse:
         """Restart server pods and wait for them to become ready."""
         return await restart_server_endpoint(request)
 
-    @mcp.tool
+    @mcp.tool(name=MCPToolName.BUILD_IMAGES_FROM_YAML)
     async def build_images_from_yaml(request: BuildFromYamlRequest) -> BuildFromYamlResponse:
         """Start Kaniko image build jobs from IdeGYM image-builder YAML."""
         return await build_and_push_with_config(request=request, config=_require_config(config))
 
-    @mcp.tool
+    @mcp.tool(name=MCPToolName.GET_OPERATION_STATUS)
     async def get_operation_status(request: GetOperationStatusRequest) -> AsyncOperationStatusResponse:
         """Look up the current status and result of a background operation."""
         return await get_operation_status_endpoint(request.operation_id)
 
-    @mcp.tool
+    @mcp.tool(name=MCPToolName.GET_JOB_STATUS)
     async def get_job_status(request: GetJobStatusRequest) -> JobStatusResponse:
         """Look up the status and produced image tag for a Kaniko build job."""
         return await get_job_status_endpoint(request.job_name)
 
-    @mcp.tool
+    @mcp.tool(name=MCPToolName.FORWARD_REQUEST)
     async def forward_request(request: ForwardServerRequest) -> ForwardRequestResponse:
         """Forward an HTTP request to a running IdeGYM server."""
         return await forward_request_to_server(
@@ -149,7 +150,7 @@ def create_mcp_server(
             http_client=_require_http_client(get_http_client),
         )
 
-    @mcp.tool
+    @mcp.tool(name=MCPToolName.RUN_BASH_COMMAND)
     async def run_bash_command(request: RunBashCommandToolRequest) -> ForwardRequestResponse:
         """Execute a bash script on a running IdeGYM server."""
         bash_request = BashCommandRequest(
