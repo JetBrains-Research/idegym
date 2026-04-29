@@ -133,6 +133,13 @@ class OTELConfig(BaseModel):
     attributes: dict[str, str] = Field(description="Extra attributes added to all spans", default_factory=dict)
 
 
+class PodSnapshotConfig(BaseModel):
+    enabled: bool = Field(default=False)
+    service_account_name: str = Field(
+        description="Kubernetes service account shared by all snapshot-enabled pods", default="idegym"
+    )
+
+
 class WatcherConfig(BaseModel):
     cleanup_interval: Duration = Field(default=Duration(seconds=60))
     inactive_timeout: Duration = Field(
@@ -172,6 +179,7 @@ class OrchestratorConfig(BaseModel):
         default=60.0 * 60,  # 1 hour
     )
     connection_limits: ConnectionLimitsConfig = Field(default_factory=ConnectionLimitsConfig)
+    pod_snapshot: PodSnapshotConfig = Field(default_factory=PodSnapshotConfig)
     enable_fifo_server_reuse: bool = Field(
         description="Enable FIFO queue for server reuse to ensure fair provisioning",
         default=False,

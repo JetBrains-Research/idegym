@@ -47,4 +47,8 @@ watcher:
   request_max_age: ${oc.env:IDEGYM_WATCHER_REQUEST_MAX_AGE, "P14D"}
   request_stale: ${oc.env:IDEGYM_WATCHER_REQUEST_STALE, "PT24H"}
 
+pod_snapshot:
+  enabled: ${oc.env:IDEGYM_POD_SNAPSHOT_ENABLED, "False"}
+  service_account_name: ${oc.env:IDEGYM_POD_SNAPSHOT_SERVICE_ACCOUNT_NAME, "idegym"}
+
 enable_fifo_server_reuse: ${oc.env:IDEGYM_ENABLE_FIFO_SERVER_REUSE, "False"}

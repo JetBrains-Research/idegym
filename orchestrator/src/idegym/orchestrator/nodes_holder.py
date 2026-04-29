@@ -208,7 +208,7 @@ async def spin_up_or_update_nodes_for_client(
         ),
     )
 
-    async with async_kube_api() as (apps, _, _, policy):
+    async with async_kube_api() as (apps, _, _, policy, _):
         deployment = await create_or_patch_resource(
             create_resource_method=apps.create_namespaced_deployment,
             patch_resource_method=apps.patch_namespaced_deployment,
@@ -255,7 +255,7 @@ async def release_nodes_for_client(
     name = f"{component}-{client_hash}"
     logger.info(f"Releasing nodes for client {client_name} in namespace {namespace}")
 
-    async with async_kube_api() as (apps, _, _, _):
+    async with async_kube_api() as (apps, _, _, _, _):
         deleted = await delete_with_retries(
             delete_func=apps.delete_namespaced_deployment,
             resource_type="deployment",

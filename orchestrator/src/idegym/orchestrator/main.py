@@ -15,7 +15,7 @@ from idegym.backend.utils.logging import configure_logging, configure_sqlalchemy
 from idegym.backend.utils.otel import configure_telemetry, system_metrics_config
 from idegym.backend.utils.starlette.middleware import AsyncioTaskContextMiddleware, TracingMiddleware
 from idegym.orchestrator.database.database import init_db
-from idegym.orchestrator.router import async_operation, build_images, client, dashboard, diagnostics, forwarding, server
+from idegym.orchestrator.router import async_operation, build_images, client, dashboard, diagnostics, forwarding, server, snapshot
 from idegym.orchestrator.watcher import cleanup_inactive_pods
 from idegym.utils import __version__
 from idegym.utils.logging import get_logger
@@ -118,6 +118,7 @@ def create_app() -> FastAPI:
     app.include_router(build_images.router)
     app.include_router(forwarding.router)
     app.include_router(async_operation.router)
+    app.include_router(snapshot.router)
     app.include_router(dashboard.router)
 
     AsyncioInstrumentor().instrument()
