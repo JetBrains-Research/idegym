@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 class ResourceQuantities(BaseModel):
     """A set of resource quantities keyed by resource type."""
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
     cpu: Optional[CpuQuantity] = Field(default=None)
     memory: Optional[MemoryQuantity] = Field(default=None)
