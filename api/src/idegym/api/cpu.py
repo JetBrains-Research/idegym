@@ -38,7 +38,10 @@ class CpuQuantity:
                 if "." in amount:
                     raise ValueError(f"Millicore values must be integers: {amount}")
                 return cls(millicores=int(amount))
-            return cls(millicores=int(Decimal(amount) * 1000))
+            decimal = Decimal(amount)
+            if decimal.as_tuple().exponent < -3:
+                raise ValueError(f"CPU core values cannot have more than 3 decimal places: {amount}")
+            return cls(millicores=int(decimal * 1000))
         except Exception as ex:
             raise ValueError(f"'{value}' is not a valid CPU quantity") from ex
 
