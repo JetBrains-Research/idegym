@@ -86,6 +86,18 @@ def test_cpu_quantity_equality(value: CpuQuantity | int | float | str):
 @mark.parametrize(
     "value",
     [
+        param(None, id="none"),
+        param([1000], id="list"),
+        param({"millicores": 1000}, id="dict"),
+    ],
+)
+def test_cpu_quantity_equality_incompatible_type(value: object):
+    assert CpuQuantity(cores=1) != value
+
+
+@mark.parametrize(
+    "value",
+    [
         param(0, id="int"),
         param(0.0, id="float"),
         param("0", id="str"),

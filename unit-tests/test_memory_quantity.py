@@ -65,6 +65,18 @@ def test_memory_quantity_equality(value: MemoryQuantity | int | str):
 @mark.parametrize(
     "value",
     [
+        param(None, id="none"),
+        param([1073741824], id="list"),
+        param({"gi": 1}, id="dict"),
+    ],
+)
+def test_memory_quantity_equality_incompatible_type(value: object):
+    assert MemoryQuantity(gi=1) != value
+
+
+@mark.parametrize(
+    "value",
+    [
         param(0, id="int"),
         param("0", id="str"),
         param(MemoryQuantity(), id="data-size"),
