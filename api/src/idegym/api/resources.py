@@ -43,7 +43,7 @@ class KubernetesResources(BaseModel):
                 self.limits and self.limits.memory,
             ),
             (
-                "ephemeral_storage",
+                "ephemeral-storage",
                 self.requests and self.requests.ephemeral_storage,
                 self.limits and self.limits.ephemeral_storage,
             ),
