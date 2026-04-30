@@ -657,7 +657,11 @@ def test_pycharm_render_contains_install_steps():
     ctx = BuildContext(base="debian:bookworm-slim")
     fragment = plugin.render(ctx)
     assert 'PYCHARM_VERSION="2024.1"' in fragment
-    assert "pycharm-professional-2024.1.tar.gz" in fragment
+    # Archive name is now built at runtime with an arch suffix variable so that
+    # amd64 and arm64 images can be built from the same Dockerfile.
+    assert 'archive="pycharm-professional-2024.1${suffix}.tar.gz"' in fragment
+    assert "dpkg --print-architecture" in fragment
+    assert "aarch64" in fragment
     assert "JAVA_HOME" in fragment
     assert "PYCHARM_DIR" in fragment
     # Must not use the curl-pipe-bash pattern (supply chain risk)

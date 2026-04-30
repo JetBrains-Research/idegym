@@ -184,11 +184,19 @@ class Image(BaseModel):
         to produce a Dockerfile fragment. Each plugin's ``render()`` therefore sees only the
         context accumulated by itself and earlier plugins. The fragments and any
         ``run_commands`` are assembled into a complete Dockerfile.
+
+        Build stages returned by ``get_build_stages()`` are prepended before the primary
+        ``FROM`` instruction so plugins can compile artifacts in a separate stage and copy
+        them into the final image via ``COPY --from=<stage>``.
         """
         ctx = BuildContext(base=self.base)
+        build_stages: list[str] = []
         fragments: list[str] = []
         for plugin in self.plugins:
             ctx = plugin.apply(ctx)
+            for stage in plugin.get_build_stages(ctx):
+                if stage.strip():
+                    build_stages.append(stage.strip())
             fragment = plugin.render(ctx).strip()
             if fragment:
                 fragments.append(fragment)
@@ -196,7 +204,7 @@ class Image(BaseModel):
             if mcp_fragment:
                 fragments.append(mcp_fragment)
 
-        dockerfile_content = self._render_dockerfile(ctx, tuple(fragments))
+        dockerfile_content = self._render_dockerfile(ctx, tuple(fragments), tuple(build_stages))
         return ImageBuildSpec(
             name=self.name,
             request=ctx.request,
@@ -212,8 +220,13 @@ class Image(BaseModel):
         self,
         ctx: BuildContext,
         fragments: tuple[str, ...],
+        build_stages: tuple[str, ...] = (),
     ) -> str:
-        lines = [f"FROM {self.base}", "", 'SHELL ["/bin/bash", "-c"]', "", "USER root"]
+        lines: list[str] = []
+        for stage in build_stages:
+            lines.append(stage)
+            lines.append("")
+        lines.extend([f"FROM {self.base}", "", 'SHELL ["/bin/bash", "-c"]', "", "USER root"])
 
         if ctx.request is not None:
             lines.extend(

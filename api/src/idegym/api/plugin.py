@@ -93,6 +93,18 @@ class PluginBase(BaseModel):
         """Return Dockerfile instructions for this plugin, or an empty string."""
         return ""
 
+    def get_build_stages(self, ctx: BuildContext) -> list[str]:
+        """Return Dockerfile build stage fragments to prepend before the main image stage.
+
+        Each returned string is a complete ``FROM … AS …`` stage. Stages are inserted
+        before the primary ``FROM`` instruction so they can produce artifacts that are
+        later consumed via ``COPY --from=<stage>``.
+
+        Override when your plugin needs to compile an artifact (e.g. a JetBrains plugin
+        JAR) inside Docker without including the build toolchain in the final image.
+        """
+        return []
+
     @classmethod
     def get_mcp_upstream(cls) -> Optional[str]:
         """Return the MCP server URL accessible inside the container, or ``None``.

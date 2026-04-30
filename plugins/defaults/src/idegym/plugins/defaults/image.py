@@ -469,7 +469,7 @@ class Project(PluginBase):
     def apply(self, ctx: BuildContext) -> BuildContext:
         if self.source in ("local", "archive", "git-clone"):
             project_root = self.target or f"{ctx.home}/work"
-            return ctx.updated(project_root=project_root)
+            return ctx.updated(project_root=project_root).with_extra("idegym.has_project", True)
 
         if ctx.request is not None:
             raise ValueError("Only one Project plugin is supported")
@@ -484,7 +484,7 @@ class Project(PluginBase):
             request=request,
             labels={**ctx.labels, **_build_image_labels(project)},
             project_root=project_root,
-        )
+        ).with_extra("idegym.has_project", True)
 
     def render(self, ctx: BuildContext) -> str:
         if self.source == "local":
