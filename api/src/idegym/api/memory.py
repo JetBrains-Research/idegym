@@ -105,7 +105,7 @@ class MemoryQuantity:
     def exbibytes(self) -> int:
         return self._bytes // MemoryUnit.Ei.bytes
 
-    def __eq__(self, other: Union["MemoryQuantity", int, str, None]) -> bool:
+    def __eq__(self, other: object) -> bool:
         if self is other:
             return True
         match other:
@@ -116,7 +116,7 @@ class MemoryQuantity:
             case str():
                 return self._bytes == MemoryQuantity.parse(other)._bytes
             case _:
-                return NotImplemented
+                return False
 
     def __str__(self) -> str:
         for unit in reversed(MemoryUnit):

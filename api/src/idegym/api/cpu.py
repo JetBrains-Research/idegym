@@ -53,7 +53,7 @@ class CpuQuantity:
     def cores(self) -> float:
         return self._millicores / 1000
 
-    def __eq__(self, other: Union["CpuQuantity", int, float, str, None]) -> bool:
+    def __eq__(self, other: object) -> bool:
         if self is other:
             return True
         match other:
@@ -64,7 +64,7 @@ class CpuQuantity:
             case str():
                 return self._millicores == CpuQuantity.parse(other)._millicores
             case _:
-                return NotImplemented
+                return False
 
     def __lt__(self, other: Union["CpuQuantity", int, float, str]) -> bool:
         match other:
