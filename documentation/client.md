@@ -95,7 +95,7 @@ async with client.with_server(
     namespace=None,                          # defaults to client namespace
     runtime_class_name="gvisor",
     run_as_root=False,
-    resources=None,                          # V1ResourceRequirements
+    resources=None,                          # KubernetesResources
     node_selector=None,
     server_start_wait_timeout_in_seconds=60,
     reuse_strategy=ServerReuseStrategy.RESET,
