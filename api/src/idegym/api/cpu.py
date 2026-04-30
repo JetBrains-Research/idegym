@@ -1,8 +1,8 @@
-from decimal import Decimal
 from functools import total_ordering
 from re import Pattern, compile
 from typing import Any, ClassVar, Union
 
+from kubernetes.utils import parse_quantity
 from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler
 from pydantic.json_schema import JsonSchemaValue
 from pydantic_core import core_schema
@@ -34,14 +34,14 @@ class CpuQuantity:
             if not matcher:
                 raise ValueError(f"'{value}' does not match CPU quantity pattern")
             amount, suffix = matcher.groups()
-            if suffix == "m":
-                if "." in amount:
-                    raise ValueError(f"Millicore values must be integers: {amount}")
-                return cls(millicores=int(amount))
-            decimal = Decimal(amount)
-            if decimal.as_tuple().exponent < -3:
-                raise ValueError(f"CPU core values cannot have more than 3 decimal places: {amount}")
-            return cls(millicores=int(decimal * 1000))
+            if suffix == "m" and "." in amount:
+                raise ValueError(f"Millicore values must be integers: {amount}")
+            cores = parse_quantity(normalized)
+            if cores < 0:
+                raise ValueError("CpuQuantity cannot be negative")
+            return cls(millicores=int(cores * 1000))
+        except ValueError:
+            raise
         except Exception as ex:
             raise ValueError(f"'{value}' is not a valid CPU quantity") from ex
 

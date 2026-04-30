@@ -3,6 +3,7 @@ from functools import total_ordering
 from re import Pattern, compile
 from typing import Any, ClassVar, Union
 
+from kubernetes.utils import parse_quantity
 from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler
 from pydantic.json_schema import JsonSchemaValue
 from pydantic_core import core_schema
@@ -65,14 +66,14 @@ class MemoryQuantity:
     def parse(cls, value: str) -> "MemoryQuantity":
         try:
             normalized = value.strip()
-            matcher = cls.PATTERN.match(normalized)
-            if not matcher:
+            if not cls.PATTERN.match(normalized):
                 raise ValueError(f"'{value}' does not match Kubernetes memory quantity pattern")
-            amount_str, suffix = matcher.groups()
-            amount = int(amount_str)
-            if suffix:
-                return cls(b=amount * MemoryUnit[suffix].bytes)
-            return cls(b=amount)
+            amount = parse_quantity(normalized)
+            if amount < 0:
+                raise ValueError("MemoryQuantity cannot be negative")
+            return cls(b=int(amount))
+        except ValueError:
+            raise
         except Exception as ex:
             raise ValueError(f"'{value}' is not a valid Kubernetes memory quantity") from ex
 
