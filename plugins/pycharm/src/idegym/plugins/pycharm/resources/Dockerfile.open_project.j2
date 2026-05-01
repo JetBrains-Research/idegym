@@ -1,0 +1,50 @@
+# Install the open-project plugin into the bundled plugins dir so it is
+# present before the "open" AppStarter command is dispatched. Pre-built
+# ZIP checked into the repository to avoid a Gradle build stage.
+COPY plugins/pycharm/project-opener/project-opener.zip /tmp/open-project.zip
+RUN set -eux; \
+    unzip -qo /tmp/open-project.zip -d "${PYCHARM_DIR}/plugins/" && rm /tmp/open-project.zip
+
+# Suppress first-run wizard, trust project path, accept EUA/consent.
+# PyCharm CE shows a Data Sharing dialog even with pre-accepted consent
+# files when the Marketplace plugin is active — disabled above via
+# disabled_plugins.txt.
+RUN set -eux; \
+    mkdir -p "{{ config_dir }}/options"; \
+    printf '%s\n' \
+        '<application>' \
+        '  <component name="PropertiesComponent">' \
+        '    <property name="toolwindow.stripes.buttons.added" value="true" />' \
+        '  </component>' \
+        '</application>' > "{{ config_dir }}/options/other.xml"; \
+    printf '%s\n' \
+        '<application>' \
+        '  <component name="GeneralSettings">' \
+        '    <option name="showTipsOnStartup" value="false" />' \
+        '  </component>' \
+        '</application>' > "{{ config_dir }}/options/ide.general.xml"; \
+    printf '%s\n' \
+        '<application>' \
+        '  <component name="Trusted.Paths.Settings">' \
+        '    <option name="TRUSTED_PATHS">' \
+        '      <list>' \
+        '        <option value="{{ project_root }}" />' \
+        '      </list>' \
+        '    </option>' \
+        '    <option name="TRUSTED_PROJECT_LOCATORS">' \
+        '      <list />' \
+        '    </option>' \
+        '  </component>' \
+        '</application>' > "{{ config_dir }}/options/trusted-paths.xml"; \
+    mkdir -p "{{ home }}/.local/share/JetBrains/consentOptions"; \
+    printf '%s\n' 'rsch.send.usage.stat:1.1:1:1700000000000' \
+        > "{{ home }}/.local/share/JetBrains/consentOptions/accepted"; \
+    for f in "${PYCHARM_DIR}/bin/pycharm64.vmoptions" "${PYCHARM_DIR}/bin/pycharm.vmoptions"; do \
+        [ -f "$f" ] && printf '\n-Djb.privacy.policy.text=<!--999.999-->\n-Dide.firstStartup=false\n-Dide.no.platform.update=true\n-Dide.trust.all.projects=true\n-Djb.consents.confirmation.enabled=false\n-Dide.show.tips.on.startup.default.value=false\n-Dide.browser.jcef.enabled=false\n-XX:-UsePerfData\n-XX:+PerfDisableSharedMem\n-XX:-UseLargePages\n-Xshare:off\n-XX:+UseContainerSupport\n-XX:ErrorFile=/tmp/jvm-crash.log\n' >> "$f" || true; \
+    done
+
+# start-pycharm.sh: starts Xvfb on :99 (PyCharm CE requires a display), launches PyCharm,
+# waits for MCP on {{ mcp_port }}, bridges 0.0.0.0:{{ bridge_port }} → 127.0.0.1:{{ mcp_port }} via socat.
+COPY plugins/pycharm/scripts/start-pycharm.sh /usr/local/bin/start-pycharm.sh
+RUN chmod +x /usr/local/bin/start-pycharm.sh
+COPY plugins/pycharm/scripts/supervisord-pycharm.conf /etc/supervisor/conf.d/pycharm.conf

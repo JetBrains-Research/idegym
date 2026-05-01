@@ -1,0 +1,33 @@
+# Install PyCharm {{ edition }} {{ version }}
+# https://www.jetbrains.com/pycharm/download/other.html
+USER root
+RUN set -eux; \
+    apt-get update -qq; \
+    apt-get install -y --no-install-recommends \
+        ca-certificates curl unzip xvfb procps socat \
+        libxtst6 libxrender1 libxi6 libfreetype6 fontconfig; \
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/*
+
+ENV PYCHARM_VERSION="{{ version }}"
+ENV PYCHARM_DIR="/opt/pycharm"
+ENV IDE_CONFIG_PATH="{{ config_dir }}"
+RUN set -eux; \
+    arch=$(dpkg --print-architecture); \
+    case "$arch" in \
+        amd64) suffix="" ;; \
+        arm64) suffix="-aarch64" ;; \
+        *) echo "Unsupported arch: $arch" >&2; exit 1 ;; \
+    esac; \
+    archive="pycharm-{{ edition }}-{{ version }}${suffix}.tar.gz"; \
+    curl -fsSL "https://download.jetbrains.com/python/${archive}" -o /tmp/pycharm.tar.gz; \
+    curl -fsSL "https://download.jetbrains.com/python/${archive}.sha256" -o /tmp/pycharm.sha256; \
+    expected=$(cut -d' ' -f1 /tmp/pycharm.sha256); \
+    echo "$expected  /tmp/pycharm.tar.gz" | sha256sum -c -; \
+    mkdir -p ${PYCHARM_DIR}; \
+    tar -xzf /tmp/pycharm.tar.gz -C ${PYCHARM_DIR} --strip-components=1; \
+    rm /tmp/pycharm.tar.gz /tmp/pycharm.sha256
+
+ENV JAVA_HOME="${PYCHARM_DIR}/jbr"
+ENV PATH="${JAVA_HOME}/bin:${PYCHARM_DIR}/bin:${PATH}"
+ENV DISPLAY=":99"

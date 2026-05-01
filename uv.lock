@@ -1012,6 +1012,7 @@ source = { editable = "plugins/idea" }
 dependencies = [
     { name = "idegym-api" },
     { name = "idegym-plugin-defaults" },
+    { name = "jinja2" },
     { name = "pydantic", version = "2.10.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.14'" },
     { name = "pydantic", version = "2.12.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.14'" },
 ]
@@ -1026,6 +1027,7 @@ requires-dist = [
     { name = "fastapi", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.135.2" },
     { name = "idegym-api", editable = "api" },
     { name = "idegym-plugin-defaults", editable = "plugins/defaults" },
+    { name = "jinja2", specifier = ">=3.1.5" },
     { name = "pydantic", specifier = ">=2.10.6" },
 ]
 provides-extras = ["server"]
@@ -1037,6 +1039,7 @@ source = { editable = "plugins/pycharm" }
 dependencies = [
     { name = "idegym-api" },
     { name = "idegym-plugin-defaults" },
+    { name = "jinja2" },
     { name = "pydantic", version = "2.10.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.14'" },
     { name = "pydantic", version = "2.12.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.14'" },
 ]
@@ -1051,6 +1054,7 @@ requires-dist = [
     { name = "fastapi", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.135.2" },
     { name = "idegym-api", editable = "api" },
     { name = "idegym-plugin-defaults", editable = "plugins/defaults" },
+    { name = "jinja2", specifier = ">=3.1.5" },
     { name = "pydantic", specifier = ">=2.10.6" },
 ]
 provides-extras = ["server"]

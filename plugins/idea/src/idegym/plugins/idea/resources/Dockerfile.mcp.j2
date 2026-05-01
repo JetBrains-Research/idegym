@@ -1,0 +1,19 @@
+# Install JetBrains MCP server plugin (updateId={{ mcp_update_id }}, requires build 252+).
+# https://plugins.jetbrains.com/plugin/26071-mcp-server/versions
+RUN set -eux; \
+    curl -fsSL "https://plugins.jetbrains.com/plugin/download?rel=true&updateId={{ mcp_update_id }}" \
+        -o /tmp/mcp-server.zip; \
+    unzip -qo /tmp/mcp-server.zip -d "${IDE_DIR}/plugins/"; \
+    rm /tmp/mcp-server.zip
+
+# Enable MCP auto-start at IDE_CONFIG_PATH so -Didea.config.path in
+# start-idea.sh points directly to it (avoids XDG detection in containers).
+RUN set -eux; \
+    mkdir -p "{{ config_dir }}/options"; \
+    printf '%s\n' \
+        '<application>' \
+        '  <component name="McpServerSettings">' \
+        '    <option name="enableMcpServer" value="true" />' \
+        '    <option name="enableBraveMode" value="true" />' \
+        '  </component>' \
+        '</application>' > "{{ config_dir }}/options/mcpServer.xml"

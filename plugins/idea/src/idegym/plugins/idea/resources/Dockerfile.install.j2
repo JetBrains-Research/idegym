@@ -1,0 +1,39 @@
+# Install IntelliJ IDEA Community {{ version }}
+# https://www.jetbrains.com/idea/download/other.html
+USER root
+RUN set -eux; \
+    apt-get update -qq; \
+    apt-get install -y --no-install-recommends \
+        ca-certificates curl unzip procps socat \
+        libx11-6 libxext6 libxrender1 libxtst6 libxi6 libxrandr2 \
+        libfreetype6 libfontconfig1; \
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/*
+
+ENV IDEA_VERSION="{{ version }}"
+ENV IDE_DIR="/opt/idea"
+ENV IDE_CONFIG_PATH="{{ config_dir }}"
+RUN set -eux; \
+    arch=$(dpkg --print-architecture); \
+    case "$arch" in \
+        amd64) suffix="" ;; \
+        arm64) suffix="-aarch64" ;; \
+        *) echo "Unsupported arch: $arch" >&2; exit 1 ;; \
+    esac; \
+    archive="ideaIC-{{ version }}${suffix}.tar.gz"; \
+    curl -fsSL "https://download.jetbrains.com/idea/${archive}" -o /tmp/idea.tar.gz; \
+    curl -fsSL "https://download.jetbrains.com/idea/${archive}.sha256" -o /tmp/idea.sha256; \
+    expected=$(cut -d' ' -f1 /tmp/idea.sha256); \
+    echo "$expected  /tmp/idea.tar.gz" | sha256sum -c -; \
+    mkdir -p ${IDE_DIR}; \
+    tar -xzf /tmp/idea.tar.gz -C ${IDE_DIR} --strip-components=1; \
+    rm /tmp/idea.tar.gz /tmp/idea.sha256
+
+ENV JAVA_HOME="${IDE_DIR}/jbr"
+ENV PATH="${JAVA_HOME}/bin:${IDE_DIR}/bin:${PATH}"
+
+# Headless + startup-suppression flags in vmoptions (applies without CLI args).
+# IDEA CE supports java.awt.headless=true natively; no Xvfb required.
+RUN for f in "${IDE_DIR}/bin/idea64.vmoptions" "${IDE_DIR}/bin/idea.vmoptions"; do \
+        [ -f "$f" ] && printf '\n-Djava.awt.headless=true\n-Didea.trust.all.projects=true\n-Djb.consents.confirmation.enabled=false\n-Dide.show.tips.on.startup.default.value=false\n-Dide.no.platform.update=true\n-Dide.browser.jcef.enabled=false\n-XX:-UsePerfData\n-XX:+PerfDisableSharedMem\n-XX:+UseContainerSupport\n-XX:ErrorFile=/tmp/jvm-crash.log\n' >> "$f" || true; \
+    done

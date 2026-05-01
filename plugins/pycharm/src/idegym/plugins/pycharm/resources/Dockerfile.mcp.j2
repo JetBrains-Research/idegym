@@ -1,0 +1,22 @@
+# Install JetBrains MCP server plugin (updateId={{ mcp_update_id }}, requires build 252+).
+# https://plugins.jetbrains.com/plugin/26071-mcp-server/versions
+# Binds to 127.0.0.1:{{ mcp_port }}; start-pycharm.sh bridges to 0.0.0.0:{{ bridge_port }}.
+RUN set -eux; \
+    curl -fsSL "https://plugins.jetbrains.com/plugin/download?rel=true&updateId={{ mcp_update_id }}" \
+        -o /tmp/mcp-server.zip; \
+    unzip -qo /tmp/mcp-server.zip -d "${PYCHARM_DIR}/plugins/"; \
+    rm /tmp/mcp-server.zip
+
+# Enable MCP auto-start and disable Marketplace/SettingsSync to prevent
+# blocking modal dialogs on the Xvfb display at first run.
+RUN set -eux; \
+    mkdir -p "{{ config_dir }}/options"; \
+    printf '%s\n' \
+        '<application>' \
+        '  <component name="McpServerSettings">' \
+        '    <option name="enableMcpServer" value="true" />' \
+        '    <option name="enableBraveMode" value="true" />' \
+        '  </component>' \
+        '</application>' > "{{ config_dir }}/options/mcpServer.xml"; \
+    printf '%s\n' 'com.intellij.marketplace' 'com.intellij.settingsSync' \
+        > "{{ config_dir }}/disabled_plugins.txt"

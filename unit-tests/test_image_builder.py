@@ -936,6 +936,24 @@ def test_idea_render_root_only_container():
     assert fragment.strip().endswith("USER root")
 
 
+def test_pycharm_render_includes_mcp_plugin_when_update_id_set():
+    plugin = PyCharm(mcp_update_id="882474")
+    ctx = BuildContext(base="debian:bookworm-slim")
+    fragment = plugin.render(ctx)
+    assert "882474" in fragment
+    assert "mcpServer.xml" in fragment
+    assert "enableMcpServer" in fragment
+    assert "plugins.jetbrains.com/plugin/26071-mcp-server/versions" in fragment
+
+
+def test_pycharm_render_skips_mcp_plugin_when_update_id_none():
+    plugin = PyCharm(mcp_update_id=None)
+    ctx = BuildContext(base="debian:bookworm-slim")
+    fragment = plugin.render(ctx)
+    assert "mcpServer.xml" not in fragment
+    assert "enableMcpServer" not in fragment
+
+
 def test_idea_render_includes_mcp_plugin_when_update_id_set():
     plugin = Idea(mcp_update_id="882474")
     ctx = BuildContext(base="debian:bookworm-slim")
@@ -943,6 +961,7 @@ def test_idea_render_includes_mcp_plugin_when_update_id_set():
     assert "882474" in fragment
     assert "mcpServer.xml" in fragment
     assert "enableMcpServer" in fragment
+    assert "plugins.jetbrains.com/plugin/26071-mcp-server/versions" in fragment
 
 
 def test_idea_render_skips_mcp_plugin_when_update_id_none():
