@@ -236,6 +236,25 @@ response = await server.restart_server(
 )
 ```
 
+### `capabilities()` — loaded plugin list
+
+Return the list of server plugins running in the container:
+
+```python
+result = await server.capabilities()
+print(result.plugins)  # → ["tools", "rewards"]
+```
+
+This calls `GET /api/idegym-servers/{id}/capabilities` on the orchestrator, which proxies to
+`GET /api/capabilities` on the server. The response reflects the contents of
+`/etc/idegym/plugins.json` written at image build time.
+
+```python
+result: CapabilitiesResponse = await server.capabilities()
+```
+
+---
+
 ### `forward(method, path, body, ...)` — generic plugin endpoint call
 
 An escape hatch for calling plugin-provided endpoints that do not have a typed wrapper:
@@ -275,24 +294,40 @@ attribute under the entry point name.
 
 ### PyCharm operations (`server.pycharm`)
 
-When the `pycharm` plugin is installed and the image includes a PyCharm plugin, `server.pycharm`
-is attached automatically:
+`server.pycharm` is attached automatically when the `idegym-plugin-pycharm` package is installed
+in the **local** Python environment and its `idegym.plugins.client` entry point loads successfully.
+This is a purely local check — it is independent of whether the running server image was built with
+the PyCharm plugin.
+
+`health()` is the runtime check: it calls `GET /api/pycharm/health` on the server and returns the
+MCP URL when the plugin is active, or raises `RuntimeError` (404) when the server image was not
+built with it:
 
 ```python
 health = await server.pycharm.health()
 # → {"mcp_url": "http://localhost:6789/mcp"}
 ```
 
-The `pycharm` attribute is only present if the `idegym-plugin-pycharm` package is installed and
-the `pycharm` client entry point loads successfully. Accessing it on a server whose image was built
-without the PyCharm plugin will raise `AttributeError`.
+### Checking for a plugin at runtime
 
-### Checking for a plugin
+Use `server.capabilities()` to get the definitive list of plugins loaded in the running container,
+then check membership before calling plugin-specific methods:
 
 ```python
-if hasattr(server, "pycharm"):
+caps = await server.capabilities()
+# → CapabilitiesResponse(plugins=["tools", "rewards", "pycharm"])
+
+if "pycharm" in caps.plugins and hasattr(server, "pycharm"):
     health = await server.pycharm.health()
 ```
+
+`capabilities()` calls `GET /api/idegym-servers/{id}/capabilities` on the orchestrator, which
+proxies to `GET /api/capabilities` on the server container and returns the contents of
+`/etc/idegym/plugins.json` — the file written at image build time that controls which plugins are
+loaded at startup.
+
+`hasattr(server, "pycharm")` still guards against the local package not being installed, but
+`caps.plugins` is the authoritative runtime check for whether the server image supports a plugin.
 
 ---
 

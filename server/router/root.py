@@ -1,5 +1,7 @@
+import json
 from asyncio import sleep
 from os import getpid, kill
+from pathlib import Path
 from signal import SIGTERM
 from typing import Annotated
 
@@ -9,6 +11,7 @@ from fastapi import APIRouter, Depends, status
 from fastapi.background import BackgroundTasks
 from fastapi.requests import Request
 from fastapi.responses import RedirectResponse, Response, StreamingResponse
+from idegym.api.capabilities import CapabilitiesResponse
 from idegym.api.data import DataSize
 from idegym.api.paths import ActuatorPath
 from idegym.api.type import Duration
@@ -32,6 +35,18 @@ async def root(request: Request):
 @router.get(ActuatorPath.HEALTH)
 async def health():
     return Response()
+
+
+@router.get(ActuatorPath.CAPABILITIES)
+async def capabilities():
+    try:
+        parsed = json.loads(Path("/etc/idegym/plugins.json").read_text())
+        plugins = parsed.get("server", []) if isinstance(parsed, dict) else []
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        from importlib.metadata import entry_points as _entry_points
+
+        plugins = [ep.name for ep in _entry_points(group="idegym.plugins.server")]
+    return CapabilitiesResponse(plugins=plugins)
 
 
 @router.get(ActuatorPath.LOG)

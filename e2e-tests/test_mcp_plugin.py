@@ -404,3 +404,57 @@ async def test_server_does_not_expose_pycharm_endpoint_when_not_in_plugins_json(
 
             with _pytest.raises(Exception):
                 await server.forward("GET", "pycharm/health")
+
+
+@pytest.mark.asyncio
+async def test_capabilities_returns_loaded_plugins(test_id):
+    """
+    ``server.capabilities()`` calls ``GET /api/idegym-servers/{id}/capabilities``
+    on the orchestrator, which proxies to ``GET /api/capabilities`` on the server
+    container and returns the list of plugins loaded from ``/etc/idegym/plugins.json``.
+
+    A standard server image (no optional plugins) must report exactly
+    ``["tools", "rewards"]``.
+    """
+    image = (
+        Image.from_base(_LOCAL_BASE_IMAGE)
+        .named(f"capabilities-{test_id}")
+        .with_plugin(User(username="appuser", uid=1000, gid=1000, sudo=True))
+        .with_plugin(IdeGYMServer.from_local(root=from_root()))
+        .with_runtime(
+            runtime_class_name="gvisor",
+            resources={
+                "requests": {"cpu": "500m", "memory": "500Mi", "ephemeral-storage": "1Gi"},
+                "limits": {"cpu": "500m", "memory": "500Mi", "ephemeral-storage": "1Gi"},
+            },
+        )
+    )
+
+    built = IdeGYMDockerAPI().build_image(image)
+    image_tag = str(built.repo_tags[0])
+
+    subprocess.run(
+        ["minikube", "image", "load", image_tag],
+        check=True,
+        capture_output=True,
+        timeout=120,
+    )
+
+    async with create_http_client(
+        name=f"capabilities-{test_id}",
+        nodes_count=0,
+        request_timeout_in_seconds=300,
+    ) as client:
+        async with client.with_server(
+            image_tag=image_tag,
+            server_name=f"capabilities-server-{test_id}",
+            runtime_class_name="gvisor",
+            run_as_root=True,
+            resources=_DEFAULT_RESOURCES,
+            server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
+        ) as server:
+            result = await server.capabilities()
+            assert isinstance(result.plugins, list), f"Expected list, got {type(result.plugins)}"
+            assert "tools" in result.plugins, f"'tools' missing from capabilities: {result.plugins}"
+            assert "rewards" in result.plugins, f"'rewards' missing from capabilities: {result.plugins}"
+            assert "pycharm" not in result.plugins, f"'pycharm' should not be in default capabilities: {result.plugins}"

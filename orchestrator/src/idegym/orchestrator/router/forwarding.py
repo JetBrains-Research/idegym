@@ -81,7 +81,7 @@ def construct_forwarding_payload(
     server_id: int,
     service_port: int = 80,
 ):
-    target_url = f"http://{_build_server_host(generated_name, namespace)}:{service_port}/{path}"
+    target_url = f"http://{build_server_host(generated_name, namespace)}:{service_port}/{path}"
     headers = request.headers.mutablecopy()
     del headers["Host"]
     del headers["Authorization"]
@@ -200,7 +200,7 @@ async def update_server_heartbeat_on_call(path: str, server_id: int):
 async def forward_websocket(websocket: WebSocket, client_id: UUID, server_id: int):
     logger.info(f"Received WebSocket forwarding request for server ID {server_id} for client {client_id}")
     server = await validate_server(client_id=client_id, server_id=server_id)
-    target_host = _build_server_host(server.generated_name, server.namespace)
+    target_host = build_server_host(server.generated_name, server.namespace)
     target_url = f"ws://{target_host}:{server.service_port}/ws"
     await websocket.accept()
     await update_server_status(server_id=server_id, availability_status=AvailabilityStatus.ALIVE)
@@ -258,7 +258,7 @@ async def forward_websocket(websocket: WebSocket, client_id: UUID, server_id: in
         await websocket.close(code=1000)
 
 
-def _build_server_host(generated_name: str, namespace: Optional[str]) -> str:
+def build_server_host(generated_name: str, namespace: Optional[str]) -> str:
     """
     Build a DNS name for a server Service in Kubernetes.
     Using namespace-qualified service names avoids cross-namespace lookup failures.
