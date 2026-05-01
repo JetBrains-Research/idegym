@@ -6,40 +6,45 @@ from idegym.api.plugin import BuildContext, PluginBase, image_plugin
 from idegym.plugins.defaults.image import _check_linux_id
 from pydantic import field_validator
 
-# IDEA version: YYYY.N or YYYY.N.N
 _IDEA_VERSION_RE = re.compile(r"^\d{4}\.\d+(\.\d+)?$")
 
-# MCP plugin binds to loopback only; socat bridges it to 0.0.0.0:BRIDGE_PORT.
 _MCP_PORT = 64342
 _BRIDGE_PORT = 64343
 
 
 @image_plugin("idea")
 class Idea(PluginBase):
-    """Install IntelliJ IDEA Community with optional MCP server plugin into the image.
+    """Install IntelliJ IDEA Community with the JetBrains MCP server plugin.
 
-    IntelliJ IDEA Community fully supports ``-Djava.awt.headless=true``, so no
-    display server (Xvfb) is required. This makes it more resource-efficient and
-    faster to start than PyCharm Community.
+    IDEA Community supports ``-Djava.awt.headless=true`` natively, so no display
+    server is needed — it starts faster and uses less memory than PyCharm CE.
 
-    When ``mcp_update_id`` is set (the default), installs the JetBrains MCP server
-    plugin from the Marketplace and configures it for auto-start. The plugin listens
-    on ``127.0.0.1:64342``; the start script bridges it to ``0.0.0.0:64343`` via socat.
-    Requires build series 252+ (IDEA 2025.2+).
+    **MCP server**: the JetBrains MCP plugin (``mcp_update_id``) binds to
+    ``127.0.0.1:64342`` (loopback only). At runtime, ``start-idea.sh`` starts a socat
+    bridge that re-listens on ``0.0.0.0:64343``, making the server reachable from
+    outside the container. To use standalone::
 
-    When the build context contains a project (a ``Project`` plugin was applied earlier)
-    and ``open_project=True`` (the default), installs the pre-built ``open-project``
-    plugin from ``plugins/idea/project-opener.zip`` in the build context so the IDE
-    opens ``$IDEGYM_PROJECT_ROOT`` automatically at startup.
+        docker run -p 64343:64343 <image>
+
+    then connect your MCP client to ``http://localhost:64343/mcp``.
+
+    **Config path**: all IDE settings are written to ``/tmp/ide-config`` at build time,
+    and ``-Didea.config.path=/tmp/ide-config`` is passed at startup. This avoids
+    relying on XDG path detection in containers where ``$HOME`` may be unset.
+
+    **Open-project plugin**: when the pipeline contains a ``Project`` plugin and
+    ``open_project=True``, the pre-built plugin from
+    ``plugins/idea/project-opener/project-opener.zip`` is installed into the bundled
+    plugins directory (``${IDE_DIR}/plugins/``) so IDEA finds it before the ``open``
+    ``AppStarter`` command is dispatched. Requires build series 252+ (IDEA 2025.2+).
 
     Attributes:
         version: IDEA version in ``YYYY.N`` or ``YYYY.N.N`` format.
-        mcp_update_id: JetBrains Marketplace update ID for the MCP server plugin.
-            The default (``"882474"``) targets build series 252. Set to ``None`` to
-            skip MCP plugin installation.
-        open_project: When ``True`` and a project is in the pipeline, install the
-            open-project plugin and register IDEA with supervisord.
-        user: Target user to switch back to after installation. Defaults to ``ctx.current_user``.
+        mcp_update_id: Marketplace update ID for the MCP server plugin. The default
+            (``"882474"``) targets build series 252. Set to ``None`` to skip.
+        open_project: Install the open-project plugin and supervisord entry when a
+            ``Project`` plugin precedes this one in the pipeline.
+        user: User to switch back to after installation. Defaults to ``ctx.current_user``.
     """
 
     version: str = "2025.3"
@@ -63,7 +68,6 @@ class Idea(PluginBase):
 
     @classmethod
     def get_mcp_upstream(cls) -> Optional[str]:
-        """Returns the JetBrains MCP plugin base URL (port 64342)."""
         return f"http://localhost:{_MCP_PORT}"
 
     def apply(self, ctx: BuildContext) -> BuildContext:
@@ -77,9 +81,6 @@ class Idea(PluginBase):
         base_url = "https://download.jetbrains.com/idea"
         has_project = ctx.get_extra("idegym.has_project", False)
         install_plugin = has_project and self.open_project
-        # Fixed config path — matches IDE_CONFIG_PATH default in start-idea.sh.
-        # Using a fixed path avoids XDG version-path detection issues and matches
-        # how the sandbox passes -Didea.config.path explicitly.
         config_dir = "/tmp/ide-config"
 
         base = dedent(
@@ -95,9 +96,6 @@ class Idea(PluginBase):
                 apt-get clean; \\
                 rm -rf /var/lib/apt/lists/*
 
-            # Download and extract IntelliJ IDEA Community.
-            # Architecture is detected at build time: amd64 uses the default archive;
-            # arm64 uses the -aarch64 variant published by JetBrains.
             ENV IDEA_VERSION="{self.version}"
             ENV IDE_DIR="/opt/idea"
             ENV IDE_CONFIG_PATH="{config_dir}"
@@ -120,8 +118,8 @@ class Idea(PluginBase):
             ENV JAVA_HOME="${{IDE_DIR}}/jbr"
             ENV PATH="${{JAVA_HOME}}/bin:${{IDE_DIR}}/bin:${{PATH}}"
 
-            # Enable headless mode — IDEA Community fully supports this unlike PyCharm CE.
-            # Also disable consent dialogs and tips so the IDE starts without blocking prompts.
+            # Headless + startup-suppression flags in vmoptions (applies without CLI args).
+            # IDEA CE supports java.awt.headless=true natively; no Xvfb required.
             RUN for f in "${{IDE_DIR}}/bin/idea64.vmoptions" "${{IDE_DIR}}/bin/idea.vmoptions"; do \\
                     [ -f "$f" ] && printf '\\n-Djava.awt.headless=true\\n-Didea.trust.all.projects=true\\n-Djb.consents.confirmation.enabled=false\\n-Dide.show.tips.on.startup.default.value=false\\n-Dide.no.platform.update=true\\n-Dide.browser.jcef.enabled=false\\n-XX:-UsePerfData\\n-XX:+PerfDisableSharedMem\\n-XX:+UseContainerSupport\\n-XX:ErrorFile=/tmp/jvm-crash.log\\n' >> "$f" || true; \\
                 done
@@ -134,15 +132,15 @@ class Idea(PluginBase):
             mcp_block = dedent(
                 f"""\
 
-                # Install JetBrains MCP server plugin (updateId={self.mcp_update_id}).
-                # Requires IDEA 2025.2+ (build series 252).
+                # Install JetBrains MCP server plugin (updateId={self.mcp_update_id}, requires build 252+).
                 RUN set -eux; \\
                     curl -fsSL "https://plugins.jetbrains.com/plugin/download?rel=true&updateId={self.mcp_update_id}" \\
                         -o /tmp/mcp-server.zip; \\
                     unzip -qo /tmp/mcp-server.zip -d "${{IDE_DIR}}/plugins/"; \\
                     rm /tmp/mcp-server.zip
 
-                # Enable MCP server auto-start via mcpServer.xml in the config directory.
+                # Enable MCP auto-start at IDE_CONFIG_PATH so -Didea.config.path in
+                # start-idea.sh points directly to it (avoids XDG detection in containers).
                 RUN set -eux; \\
                     mkdir -p "{config_dir}/options"; \\
                     printf '%s\\n' \\
@@ -160,16 +158,14 @@ class Idea(PluginBase):
             plugin_block = dedent(
                 f"""\
 
-                # Install the open-project plugin into the bundled plugins directory so it is
-                # discovered by IDEA before the "open" AppStarter command is dispatched.
-                # Uses the pre-built ZIP from plugins/idea/project-opener.zip in the build
-                # context, avoiding a Gradle build stage inside the Docker image build.
-                COPY plugins/idea/project-opener.zip /tmp/open-project.zip
+                # Install the open-project plugin into the bundled plugins dir so it is
+                # present before the "open" AppStarter command is dispatched. Pre-built
+                # ZIP checked into the repository to avoid a Gradle build stage.
+                COPY plugins/idea/project-opener/project-opener.zip /tmp/open-project.zip
                 RUN set -eux; \\
                     unzip -qo /tmp/open-project.zip -d "${{IDE_DIR}}/plugins/" && rm /tmp/open-project.zip
 
-                # Pre-create IDEA config to suppress first-run wizard, trust the project,
-                # and accept the EUA/privacy policy.
+                # Suppress first-run wizard, trust project path, accept EUA.
                 RUN set -eux; \\
                     mkdir -p "{config_dir}/options"; \\
                     printf '%s\\n' \\
@@ -198,9 +194,8 @@ class Idea(PluginBase):
                         '  </component>' \\
                         '</application>' > "{config_dir}/options/privacyPolicy.xml"
 
-                # Install start-idea.sh and supervisord config from the build context.
-                # The script launches IDEA in headless mode via the open AppStarter, waits for
-                # the MCP SSE endpoint, then starts a socat bridge on 0.0.0.0:{_BRIDGE_PORT}.
+                # start-idea.sh: launches IDEA headless, waits for MCP on {_MCP_PORT},
+                # then bridges 0.0.0.0:{_BRIDGE_PORT} → 127.0.0.1:{_MCP_PORT} via socat.
                 COPY plugins/idea/scripts/start-idea.sh /usr/local/bin/start-idea.sh
                 RUN chmod +x /usr/local/bin/start-idea.sh
                 COPY plugins/idea/scripts/supervisord-idea.conf /etc/supervisor/conf.d/idea.conf

@@ -1,27 +1,22 @@
-"""E2E test: build a PyCharm image locally, deploy it as an IdeGYM server, and verify
-that the MCP server is reachable inside the container.
+"""E2E test: build a PyCharm + MCP image, deploy as an IdeGYM server, verify MCP is reachable.
 
-Build path (local Docker):
-  base server image
-    → ``Project.from_local("e2e-tests/test_projects/python-project")``
-    → ``PyCharm(version=..., edition="community", mcp_update_id=...)``
-  ``image.build()``  →  ``minikube image load``  →  ``client.with_server()``
+Build pipeline:
+  base server image → Project.from_local("e2e-tests/test_projects/python-project")
+    → PyCharm(version=..., edition="community", mcp_update_id=...) → image.build() → minikube image load
 
-After the server is up, supervisord starts ``start-pycharm.sh`` (written by the
-PyCharm plugin), which:
-  1. Starts Xvfb on :99 (PyCharm CE requires a virtual display)
-  2. Launches PyCharm; the open-project plugin opens IDEGYM_PROJECT_ROOT
-  3. Waits for the JetBrains MCP plugin to bind on port 64342
-  4. Starts a socat bridge: 0.0.0.0:64343 → 127.0.0.1:64342
+Runtime (via supervisord → start-pycharm.sh):
+  1. Xvfb starts on :99 — PyCharm CE does not support java.awt.headless=true and requires
+     a virtual display.
+  2. PyCharm launches; the open-project plugin opens IDEGYM_PROJECT_ROOT via AppStarter "open".
+  3. The JetBrains MCP plugin binds on 127.0.0.1:64342.
+  4. socat bridges 0.0.0.0:64343 → 127.0.0.1:64342 so the port is reachable externally.
+     Run the image standalone with ``docker run -p 64343:64343 <image>`` and connect
+     your MCP client to http://localhost:64343/mcp.
 
-The test polls the MCP SSE endpoint (http://localhost:64342/sse) from inside the
-container via ``server.execute_bash()`` until it returns HTTP 200, confirming that
-the IDE started, opened the project, and the MCP server is ready.
+The test polls http://localhost:64342/sse inside the container until it returns 200.
 
-Note: this test downloads PyCharm CE (~800 MB) and takes 15-30 minutes end-to-end.
-PyCharm requires substantial resources (4 GiB RAM minimum).
-Run explicitly with: ``pytest -m super_long``
-Skip in a broader e2e run with: ``pytest -m 'e2e and not super_long'``
+Downloads PyCharm CE (~800 MB); takes 5-10 min, requires 4 GiB RAM. Excluded from CI.
+Run with: ``pytest -m 'e2e and ide_integrations'``
 """
 
 import subprocess
@@ -75,7 +70,7 @@ exit 1
 
 
 @pytest.mark.e2e
-@pytest.mark.super_long
+@pytest.mark.ide_integrations
 @pytest.mark.asyncio
 async def test_pycharm_mcp_server_starts(test_id):
     """Build a PyCharm + MCP image, deploy as server, and verify the MCP endpoint is ready.

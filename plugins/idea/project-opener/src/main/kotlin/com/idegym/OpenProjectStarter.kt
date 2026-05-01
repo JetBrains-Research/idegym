@@ -6,16 +6,12 @@ import com.intellij.openapi.application.ApplicationStarter
 import java.nio.file.Paths
 
 /**
- * AppStarter that opens a project by path and keeps the IDE process alive so the
- * built-in MCP server continues to serve requests.
+ * Opens a project by path and keeps the IDE alive so the MCP server keeps serving.
  *
- * Registered as the "open" command in plugin.xml, invoked by the PyCharm launcher as:
- *   pycharm.sh open /path/to/project
+ * Registered as the "open" AppStarter command in plugin.xml:
+ *   idea.sh open /path/to/project
  *
- * Falls back to IDEGYM_PROJECT_ROOT if no path argument is supplied.
- *
- * Note: in PyCharm CE, ApplicationStarter.main() runs on the EDT. invokeAndWait
- * is safe here — when called from the EDT it executes the block in-place (no deadlock).
+ * Falls back to IDEGYM_PROJECT_ROOT when no path argument is supplied.
  */
 class OpenProjectStarter : ApplicationStarter {
 

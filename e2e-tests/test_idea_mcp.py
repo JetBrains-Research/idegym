@@ -1,26 +1,21 @@
-"""E2E test: build an IntelliJ IDEA image locally, deploy it as an IdeGYM server, and
-verify that the MCP server is reachable inside the container.
+"""E2E test: build an IDEA + MCP image, deploy as an IdeGYM server, verify MCP is reachable.
 
-Build path (local Docker):
-  base server image
-    → ``Project.from_local("e2e-tests/test_projects/kotlin-project")``
-    → ``Idea(version=..., mcp_update_id=...)``
-  ``image.build()``  →  ``minikube image load``  →  ``client.with_server()``
+Build pipeline:
+  base server image → Project.from_local("e2e-tests/test_projects/kotlin-project")
+    → Idea(version=..., mcp_update_id=...) → image.build() → minikube image load
 
-After the server is up, supervisord starts ``start-idea.sh`` (written by the IDEA
-plugin), which:
-  1. Launches IDEA in headless mode (no display server needed)
-  2. The open-project plugin opens IDEGYM_PROJECT_ROOT via AppLifecycleListener
-  3. Waits for the JetBrains MCP plugin to bind on port 64342
-  4. Starts a socat bridge: 0.0.0.0:64343 → 127.0.0.1:64342
+Runtime (via supervisord → start-idea.sh):
+  1. IDEA launches in true headless mode (-Djava.awt.headless=true, no Xvfb needed).
+  2. The open-project plugin opens IDEGYM_PROJECT_ROOT via an AppStarter "open" command.
+  3. The JetBrains MCP plugin binds on 127.0.0.1:64342.
+  4. socat bridges 0.0.0.0:64343 → 127.0.0.1:64342 so the port is reachable externally.
+     Run the image standalone with ``docker run -p 64343:64343 <image>`` and connect
+     your MCP client to http://localhost:64343/mcp.
 
-The test polls the MCP SSE endpoint (http://localhost:64342/sse) from inside the
-container via ``server.execute_bash()`` until it returns HTTP 200, confirming that
-the IDE started, opened the project, and the MCP server is ready.
+The test polls http://localhost:64342/sse inside the container until it returns 200.
 
-Note: this test downloads IntelliJ IDEA CE (~800 MB) and takes 10-20 minutes end-to-end.
-Run explicitly with: ``pytest -m super_long``
-Skip in a broader e2e run with: ``pytest -m 'e2e and not super_long'``
+Downloads IDEA CE (~800 MB); takes 5-10 min end-to-end. Excluded from CI.
+Run with: ``pytest -m 'e2e and ide_integrations'``
 """
 
 import subprocess
@@ -74,7 +69,7 @@ exit 1
 
 
 @pytest.mark.e2e
-@pytest.mark.super_long
+@pytest.mark.ide_integrations
 @pytest.mark.asyncio
 async def test_idea_mcp_server_starts(test_id):
     """Build an IDEA + MCP image, deploy as server, and verify the MCP endpoint is ready.

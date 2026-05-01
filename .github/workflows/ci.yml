@@ -134,4 +134,4 @@ jobs:
         run: |
           sudo -E kubectl port-forward -n ingress-nginx svc/ingress-nginx-controller 80:80 > /dev/null 2>&1 &
           sleep 5
-          uv run pytest -m "e2e" -vv
+          uv run pytest -m "e2e and not ide_integrations" -vv

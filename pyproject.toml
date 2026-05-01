@@ -97,7 +97,7 @@ markers = [
     "integration: marks integration test suite",
     "unit: marks unit test suite",
     "docker: marks tests that should be run inside a Docker container",
-    "super_long: marks tests that take 15+ minutes (IDE downloads, full MCP startup); included in e2e but can be skipped with -m 'e2e and not super_long'",
+    "ide_integrations: marks tests that build and run a full IDE image (5-10 min); excluded from CI, run manually with -m 'e2e and ide_integrations'",
 ]
 
 [tool.ruff]
