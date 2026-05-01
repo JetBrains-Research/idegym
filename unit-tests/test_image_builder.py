@@ -1236,6 +1236,13 @@ def test_idegym_server_from_git_render_contains_git_clone():
     assert "https://github.com/owner/idegym.git" in fragment
 
 
+def test_idegym_server_from_git_render_copies_plugins():
+    plugin = IdeGYMServer.from_git(url="https://github.com/owner/idegym.git")
+    ctx = BuildContext(base="debian:bookworm-slim")
+    fragment = plugin.render(ctx)
+    assert "cp -r /tmp/idegym-src/plugins $IDEGYM_PATH/plugins" in fragment
+
+
 def test_idegym_server_from_git_render_non_head_ref_adds_checkout():
     plugin = IdeGYMServer.from_git(url="https://github.com/owner/idegym.git", ref="v1.2.3")
     ctx = BuildContext(base="debian:bookworm-slim")

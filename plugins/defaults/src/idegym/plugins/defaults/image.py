@@ -679,6 +679,7 @@ class IdeGYMServer(PluginBase):
                 cp -r /tmp/idegym-src/api $IDEGYM_PATH/api; \\
                 cp -r /tmp/idegym-src/backend-utils $IDEGYM_PATH/backend-utils; \\
                 cp -r /tmp/idegym-src/common-utils $IDEGYM_PATH/common-utils; \\
+                cp -r /tmp/idegym-src/plugins $IDEGYM_PATH/plugins; \\
                 cp -r /tmp/idegym-src/rewards $IDEGYM_PATH/rewards; \\
                 cp -r /tmp/idegym-src/tools $IDEGYM_PATH/tools; \\
                 cp -r /tmp/idegym-src/server $IDEGYM_PATH/server; \\
