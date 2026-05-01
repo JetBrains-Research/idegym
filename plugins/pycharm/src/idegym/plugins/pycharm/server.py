@@ -16,7 +16,7 @@ class PyCharmPlugin:
     configured for the PyCharm IDE plugin (``http://localhost:6789/mcp``).
     """
 
-    _MCP_URL = "http://localhost:6789/mcp"
+    _MCP_URL = "http://localhost:64342"
 
     @classmethod
     def get_server_router(cls):

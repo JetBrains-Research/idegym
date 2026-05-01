@@ -3,6 +3,7 @@ repos:
   rev: v5.0.0
   hooks:
     - id: check-added-large-files
+      args: ['--maxkb=2048']
     - id: check-shebang-scripts-are-executable
     - id: check-json
     - id: check-toml
@@ -13,7 +14,7 @@ repos:
     - id: name-tests-test
       args: [ "--pytest-test-first" ]
       files: ^.*-tests/.*\.py$
-      exclude: ^.*-tests/(utils|config)/
+      exclude: ^.*-tests/(utils|config|test_projects)/
     - id: trailing-whitespace
       args: [ "--markdown-linebreak-ext=md" ]
 - repo: https://github.com/astral-sh/ruff-pre-commit

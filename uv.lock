@@ -17,6 +17,7 @@ members = [
     "idegym-image-builder",
     "idegym-orchestrator",
     "idegym-plugin-defaults",
+    "idegym-plugin-idea",
     "idegym-plugin-pycharm",
     "idegym-rewards",
     "idegym-server",
@@ -1000,6 +1001,31 @@ requires-dist = [
     { name = "idegym-api", editable = "api" },
     { name = "idegym-rewards", extras = ["server"], marker = "extra == 'server'", editable = "rewards" },
     { name = "idegym-tools", extras = ["server"], marker = "extra == 'server'", editable = "tools" },
+    { name = "pydantic", specifier = ">=2.10.6" },
+]
+provides-extras = ["server"]
+
+[[package]]
+name = "idegym-plugin-idea"
+version = "0.0.0.dev0"
+source = { editable = "plugins/idea" }
+dependencies = [
+    { name = "idegym-api" },
+    { name = "idegym-plugin-defaults" },
+    { name = "pydantic", version = "2.10.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.14'" },
+    { name = "pydantic", version = "2.12.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.14'" },
+]
+
+[package.optional-dependencies]
+server = [
+    { name = "fastapi", extra = ["standard"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.135.2" },
+    { name = "idegym-api", editable = "api" },
+    { name = "idegym-plugin-defaults", editable = "plugins/defaults" },
     { name = "pydantic", specifier = ">=2.10.6" },
 ]
 provides-extras = ["server"]

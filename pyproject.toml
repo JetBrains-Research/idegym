@@ -44,6 +44,7 @@ idegym-common-utils = { workspace = true }
 idegym-image-builder = { workspace = true }
 idegym-orchestrator = { workspace = true }
 idegym-plugin-defaults = { workspace = true }
+idegym-plugin-idea = { workspace = true }
 idegym-plugin-pycharm = { workspace = true }
 idegym-rewards = { workspace = true }
 idegym-server = { workspace = true }
@@ -58,6 +59,7 @@ members = [
     "image-builder",
     "orchestrator",
     "plugins/defaults",
+    "plugins/idea",
     "plugins/pycharm",
     "rewards",
     "server",
@@ -81,6 +83,13 @@ testpaths = [
 addopts = [
     "--import-mode=importlib",
 ]
+norecursedirs = [
+    "e2e-tests/test_projects",
+    ".git",
+    ".venv",
+    "__pycache__",
+    "node_modules",
+]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 markers = [
@@ -88,6 +97,7 @@ markers = [
     "integration: marks integration test suite",
     "unit: marks unit test suite",
     "docker: marks tests that should be run inside a Docker container",
+    "super_long: marks tests that take 15+ minutes (IDE downloads, full MCP startup); included in e2e but can be skipped with -m 'e2e and not super_long'",
 ]
 
 [tool.ruff]

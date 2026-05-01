@@ -253,6 +253,9 @@ Temporary Items
 *.jar
 *.rar
 *.zip
+!jetbrains-plugin/open-project.zip
+!plugins/pycharm/project-opener.zip
+!plugins/idea/project-opener.zip
 *.gz
 *.gzip
 *.tgz
