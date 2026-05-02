@@ -1378,7 +1378,7 @@ def test_pycharm_server_plugin_get_server_router_returns_router():
     router = PyCharmPlugin.get_server_router()
     assert router is not None
     route_paths = [r.path for r in router.routes]
-    assert "/pycharm/health" in route_paths
+    assert "/pycharm/inspect" in route_paths
 
 
 # ---------------------------------------------------------------------------
@@ -1396,7 +1396,7 @@ def test_idea_server_plugin_get_server_router_returns_router():
     router = IdeaPlugin.get_server_router()
     assert router is not None
     route_paths = [r.path for r in router.routes]
-    assert "/idea/health" in route_paths
+    assert "/idea/inspect" in route_paths
 
 
 def test_idea_to_spec_auto_emits_mcp_config():
@@ -1563,15 +1563,15 @@ def test_get_all_server_plugins_nonempty():
 # ---------------------------------------------------------------------------
 
 
-def test_pycharm_client_operations_health_calls_forward():
-    """PycharmClientOperations.health() calls forward_request with the expected arguments."""
+def test_pycharm_client_operations_inspect_calls_forward():
+    """PycharmClientOperations.inspect() calls forward_request with the expected arguments."""
     import asyncio
     from unittest.mock import AsyncMock, MagicMock
 
     from idegym.plugins.pycharm.client import PycharmClientOperations
 
     mock_forward = MagicMock()
-    mock_forward.forward_request = AsyncMock(return_value={"mcp_url": "http://localhost:6789/mcp"})
+    mock_forward.forward_request = AsyncMock(return_value={"output_dir": "/tmp/out", "exit_code": 0})
 
     ops = PycharmClientOperations(
         forward=mock_forward,
@@ -1580,14 +1580,17 @@ def test_pycharm_client_operations_health_calls_forward():
         polling_config=None,
     )
 
-    result = asyncio.run(ops.health())
+    result = asyncio.run(ops.inspect("/project", "/profile.xml", "/tmp/out"))
 
-    assert result == {"mcp_url": "http://localhost:6789/mcp"}
+    assert result.output_dir == "/tmp/out"
+    assert result.exit_code == 0
     mock_forward.forward_request.assert_called_once_with(
-        method="GET",
+        method="POST",
         server_id=42,
-        path="pycharm/health",
+        path="pycharm/inspect",
+        body=mock_forward.forward_request.call_args.kwargs["body"],
         client_id=None,
+        request_timeout=None,
         polling_config=None,
     )
 
