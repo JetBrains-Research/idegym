@@ -21,6 +21,7 @@ Run with: ``pytest -m 'e2e and ide_integrations'``
 import subprocess
 
 import pytest
+from idegym.client.operations.utils import PollingConfig
 from idegym.image.builder import Image
 from idegym.plugins.defaults.image import Project
 from idegym.plugins.idea.image import Idea
@@ -66,6 +67,96 @@ ps aux 2>/dev/null | grep -E 'socat|idea' | grep -v grep || echo "(none)"
 exit 1
 """
 )
+
+
+_INSPECT_PROFILE_XML = """\
+<component name="InspectionProjectProfileManager">
+  <profile version="1.0">
+    <option name="myName" value="Default" />
+    <inspection_tool class="JavaDoc" enabled="true" level="WARNING" enabled_by_default="true" />
+  </profile>
+</component>"""
+
+_INSPECT_SETUP_SCRIPT = """\
+mkdir -p /root/work/.idea/inspectionProfiles
+printf '%s\\n' '{profile}' > /root/work/.idea/inspectionProfiles/Default.xml
+echo "Inspection profile written"
+""".format(profile=_INSPECT_PROFILE_XML)
+
+
+@pytest.mark.e2e
+@pytest.mark.ide_integrations
+@pytest.mark.asyncio
+async def test_idea_inspect_produces_results(test_id):
+    """Build an IDEA image (no open-project plugin, no MCP daemon) and run inspect.sh.
+
+    Installs IntelliJ IDEA CE and a Kotlin test-project but skips both the
+    open-project supervisord service and the MCP plugin.  inspect.sh is invoked
+    on demand via ``server.idea.inspect()`` and writes XML result files to
+    ``/tmp/idea-inspect-out`` inside the container.
+
+    IDEA CE supports ``-Djava.awt.headless=true`` natively, so no Xvfb is needed.
+
+    Note: this test downloads IDEA CE (~800 MB) and is expected to take
+    10-15 minutes end-to-end.
+    """
+    from utils.idegym_utils import create_http_client
+
+    image = (
+        Image.from_base(_LOCAL_BASE_IMAGE)
+        .named(f"idea-inspect-{test_id}")
+        .with_plugin(
+            Project.from_local(
+                "e2e-tests/test_projects/kotlin-project",
+                target="/root/work",
+            )
+        )
+        # open_project=False → no supervisord MCP service; mcp_update_id=None → no MCP plugin
+        .with_plugin(Idea(version=_IDEA_VERSION, open_project=False, mcp_update_id=None))
+        # Register the idea server plugin so POST /idea/inspect is mounted
+        .run_commands('printf \'%s\\n\' \'{"server":["tools","rewards","idea"]}\' > /etc/idegym/plugins.json')
+    )
+
+    built = image.build()
+    image_tag = str(built.repo_tags[0])
+
+    subprocess.run(
+        ["minikube", "image", "load", image_tag],
+        check=True,
+        capture_output=True,
+        timeout=180,
+    )
+
+    async with create_http_client(
+        name=f"idea-inspect-{test_id}",
+        nodes_count=0,
+        request_timeout_in_seconds=600,
+    ) as client:
+        async with client.with_server(
+            image_tag=image_tag,
+            server_name=f"idea-inspect-server-{test_id}",
+            run_as_root=True,
+            resources=_IDEA_RESOURCES,
+            server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
+            polling_config=PollingConfig(wait_timeout_in_sec=600),
+        ) as server:
+            # Write inspection profile (no Xvfb needed — IDEA runs headlessly)
+            setup = await server.execute_bash(script=_INSPECT_SETUP_SCRIPT)
+            assert setup.exit_code == 0, f"Setup failed:\n{setup.stdout}\n{setup.stderr}"
+
+            result = await server.idea.inspect(
+                project_path="/root/work",
+                profile_path="/root/work/.idea/inspectionProfiles/Default.xml",
+                output_dir="/tmp/idea-inspect-out",
+                timeout=300.0,
+                request_timeout=360,
+            )
+            assert result.exit_code == 0, f"inspect.sh exited {result.exit_code}"
+
+            # Verify result files were written
+            listing = await server.execute_bash("ls /tmp/idea-inspect-out/ 2>/dev/null || echo '(empty)'")
+            assert listing.exit_code == 0
+            assert listing.stdout.strip() != "(empty)", "Expected inspect.sh to write result files"
 
 
 @pytest.mark.e2e

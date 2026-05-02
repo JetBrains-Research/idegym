@@ -7,8 +7,8 @@ RUN set -eux; \
     unzip -qo /tmp/mcp-server.zip -d "${PYCHARM_DIR}/plugins/"; \
     rm /tmp/mcp-server.zip
 
-# Enable MCP auto-start and disable Marketplace/SettingsSync to prevent
-# blocking modal dialogs on the Xvfb display at first run.
+# Enable MCP auto-start.
+# Note: marketplace/settingsSync are already disabled in Dockerfile.install.j2.
 RUN set -eux; \
     mkdir -p "{{ config_dir }}/options"; \
     printf '%s\n' \
@@ -17,6 +17,4 @@ RUN set -eux; \
         '    <option name="enableMcpServer" value="true" />' \
         '    <option name="enableBraveMode" value="true" />' \
         '  </component>' \
-        '</application>' > "{{ config_dir }}/options/mcpServer.xml"; \
-    printf '%s\n' 'com.intellij.marketplace' 'com.intellij.settingsSync' \
-        > "{{ config_dir }}/disabled_plugins.txt"
+        '</application>' > "{{ config_dir }}/options/mcpServer.xml"

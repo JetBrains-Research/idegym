@@ -36,7 +36,7 @@ it uses.
             │                    │                     │
             ▼                    ▼                     ▼
      Dockerfile fragment   FastAPI router        server.pycharm
-     written at build time  mounted at startup   .health() etc.
+     written at build time  mounted at startup   .inspect() etc.
 ```
 
 The central module is `api/src/idegym/api/plugin.py`. It defines `PluginBase`, `BuildContext`,
@@ -543,8 +543,18 @@ Ships in `plugins/pycharm/`. Install separately to use the PyCharm integration.
 | Integration point | Entry point group | Class |
 |---|---|---|
 | Image build | `idegym.plugins.image` | `PyCharm` — installs PyCharm IDE; uses bundled JBR for Java |
-| Server routing | `idegym.plugins.server` | `PyCharmPlugin` — mounts `GET /api/pycharm/health` |
-| Client operations | `idegym.plugins.client` | `PycharmClientOperations` — exposes `server.pycharm.health()` |
+| Server routing | `idegym.plugins.server` | `PyCharmPlugin` — mounts `POST /api/pycharm/inspect` |
+| Client operations | `idegym.plugins.client` | `PycharmClientOperations` — exposes `server.pycharm.inspect(...)` |
+
+### `idegym-plugin-idea` (optional, separate package)
+
+Ships in `plugins/idea/`. Install separately to use the IntelliJ IDEA integration.
+
+| Integration point | Entry point group | Class |
+|---|---|---|
+| Image build | `idegym.plugins.image` | `Idea` — installs IntelliJ IDEA Community; true headless (no Xvfb) |
+| Server routing | `idegym.plugins.server` | `IdeaPlugin` — mounts `POST /api/idea/inspect` |
+| Client operations | `idegym.plugins.client` | `IdeaClientOperations` — exposes `server.idea.inspect(...)` |
 
 ---
 
@@ -558,13 +568,16 @@ idegym.plugins.image
     ├─ mcp-upstream  → idegym.plugins.defaults.image:MCPUpstream
     ├─ project       → idegym.plugins.defaults.image:Project
     ├─ idegym-server → idegym.plugins.defaults.image:IdeGYMServer
-    └─ pycharm       → idegym.plugins.pycharm.image:PyCharm
+    ├─ pycharm       → idegym.plugins.pycharm.image:PyCharm
+    └─ idea          → idegym.plugins.idea.image:Idea
 
 idegym.plugins.server
     ├─ tools         → idegym.plugins.defaults.server:ToolsPlugin
     ├─ rewards       → idegym.plugins.defaults.server:RewardsPlugin
-    └─ pycharm       → idegym.plugins.pycharm.server:PyCharmPlugin
+    ├─ pycharm       → idegym.plugins.pycharm.server:PyCharmPlugin
+    └─ idea          → idegym.plugins.idea.server:IdeaPlugin
 
 idegym.plugins.client
-    └─ pycharm       → idegym.plugins.pycharm.client:PycharmClientOperations
+    ├─ pycharm       → idegym.plugins.pycharm.client:PycharmClientOperations
+    └─ idea          → idegym.plugins.idea.client:IdeaClientOperations
 ```

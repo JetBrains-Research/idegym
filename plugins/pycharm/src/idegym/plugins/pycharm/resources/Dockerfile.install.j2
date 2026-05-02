@@ -4,7 +4,7 @@ USER root
 RUN set -eux; \
     apt-get update -qq; \
     apt-get install -y --no-install-recommends \
-        ca-certificates curl unzip xvfb procps socat \
+        ca-certificates curl unzip xvfb procps socat xdotool \
         libxtst6 libxrender1 libxi6 libfreetype6 fontconfig; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
@@ -31,3 +31,22 @@ RUN set -eux; \
 ENV JAVA_HOME="${PYCHARM_DIR}/jbr"
 ENV PATH="${JAVA_HOME}/bin:${PYCHARM_DIR}/bin:${PATH}"
 ENV DISPLAY=":99"
+
+# Configure PyCharm for headless/CI use.
+# These settings apply to every JVM invocation including inspect.sh:
+#   -Didea.config.path   avoids XDG detection failures in containers
+#   -Dide.trust.all.projects=true  suppresses the interactive "Trust Project?" dialog
+#   the remaining flags suppress first-run/consent/update dialogs and tune the JVM for containers
+RUN set -eux; \
+    mkdir -p "{{ config_dir }}/options"; \
+    mkdir -p /root/.local/share/JetBrains/consentOptions; \
+    printf '%s\n' 'rsch.send.usage.stat:1.1:1:1700000000000' \
+        > /root/.local/share/JetBrains/consentOptions/accepted; \
+    printf '%s\n' \
+        'com.intellij.marketplace' \
+        'com.intellij.settingsSync' \
+        'com.jetbrains.codeWithMe' \
+        > "{{ config_dir }}/disabled_plugins.txt"; \
+    for f in "${PYCHARM_DIR}/bin/pycharm64.vmoptions" "${PYCHARM_DIR}/bin/pycharm.vmoptions"; do \
+        [ -f "$f" ] && printf '\n-Didea.config.path={{ config_dir }}\n-Dide.trust.all.projects=true\n-Djb.privacy.policy.text=<!--999.999-->\n-Dide.firstStartup=false\n-Dide.no.platform.update=true\n-Djb.consents.confirmation.enabled=false\n-Dide.show.tips.on.startup.default.value=false\n-Dide.browser.jcef.enabled=false\n-Dsun.net.client.defaultConnectTimeout=5000\n-Dsun.net.client.defaultReadTimeout=10000\n-XX:-UsePerfData\n-XX:+PerfDisableSharedMem\n-XX:-UseLargePages\n-Xshare:off\n-XX:+UseContainerSupport\n-XX:ErrorFile=/tmp/jvm-crash.log\n' >> "$f" || true; \
+    done

@@ -1,22 +1,29 @@
-"""IDEA server plugin — provides the ``GET /idea/health`` endpoint.
+"""IDEA server plugin — provides the ``POST /idea/inspect`` endpoint.
 
 Importing this module registers ``IdeaPlugin`` with ``@server_plugin``.
 The server loads it via the ``idegym.plugins.server`` entry point when
 ``"idea"`` is listed in ``/etc/idegym/plugins.json``.
 """
 
+import os
+
 from idegym.api.plugin import server_plugin
+
+_INSPECT_SH = f"{os.environ.get('IDE_DIR', '/opt/idea')}/bin/inspect.sh"
 
 
 @server_plugin
 class IdeaPlugin:
-    """Exposes an IDEA status endpoint on the server.
+    """Exposes code-inspection endpoints for IntelliJ IDEA on the IdeGYM server.
 
-    Provides ``GET /idea/health`` which reports the MCP upstream URL
-    configured for the IntelliJ IDEA IDE plugin (``http://localhost:64342``).
+    Provides ``POST /idea/inspect`` which runs ``inspect.sh`` (shipped with
+    IDEA at ``$IDE_DIR/bin/inspect.sh``) and writes the results to the requested
+    output directory.  Inspection result files can then be read from inside the
+    container, e.g. via ``server.execute_bash("cat <output_dir>/*.xml")``.
+
+    IDEA CE supports ``-Djava.awt.headless=true`` natively, so no X display is
+    required when running inspections.
     """
-
-    _MCP_URL = "http://localhost:64342"
 
     @classmethod
     def get_server_router(cls):
@@ -25,12 +32,14 @@ class IdeaPlugin:
         except ImportError:
             return None
 
-        router = APIRouter(prefix="/idea", tags=["idea"])
-        mcp_url = cls._MCP_URL
+        from idegym.api.inspect import InspectRequest, InspectResponse
+        from idegym.plugins.defaults.inspect import run_ide_inspect
 
-        @router.get("/health")
-        async def idea_health():
-            """Report the IDEA MCP upstream URL configured in this image."""
-            return {"mcp_url": mcp_url}
+        router = APIRouter(prefix="/idea", tags=["idea"])
+
+        @router.post("/inspect")
+        async def idea_inspect(request: InspectRequest) -> InspectResponse:
+            """Run ``inspect.sh`` and write results to ``request.output_dir``."""
+            return await run_ide_inspect(_INSPECT_SH, request)
 
         return router

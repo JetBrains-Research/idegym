@@ -7,8 +7,10 @@ The entry point name ``"idea"`` becomes the attribute name on ``IdeGYMServer``
 
 from typing import Any
 
+from idegym.plugins.defaults.inspect import InspectClientOperationsMixin
 
-class IdeaClientOperations:
+
+class IdeaClientOperations(InspectClientOperationsMixin):
     """Typed client operations for IDEA plugin endpoints.
 
     Attached to ``IdeGYMServer`` as ``server.idea`` when the IDEA client
@@ -22,22 +24,10 @@ class IdeaClientOperations:
         polling_config: Polling configuration for async operations.
     """
 
+    _PLUGIN_NAME = "idea"
+
     def __init__(self, forward: Any, server_id: int, client_id: Any, polling_config: Any) -> None:
         self._forward = forward
         self._server_id = server_id
         self._client_id = client_id
         self._polling_config = polling_config
-
-    async def health(self) -> dict[str, Any]:
-        """Call the IDEA health endpoint and return the response dict.
-
-        Returns a dict with the key ``mcp_url`` containing the MCP server URL
-        configured in this image (e.g. ``{"mcp_url": "http://localhost:64342"}``).
-        """
-        return await self._forward.forward_request(
-            method="GET",
-            server_id=self._server_id,
-            path="idea/health",
-            client_id=self._client_id,
-            polling_config=self._polling_config,
-        )

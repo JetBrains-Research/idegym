@@ -57,17 +57,6 @@ automatically write `/etc/idegym/mcp-upstreams.d/idea.json`. The IdeGYM server
 discovers this file and proxies MCP traffic, so the AI agent reaches IDEA's MCP
 server through the standard IdeGYM MCP endpoint without any extra configuration.
 
-From Python:
-
-```python
-from idegym.client import IdeGYMClient
-
-async with IdeGYMClient(...) as client:
-    server = await client.create_server(spec)
-    result = await server.idea.health()
-    print(result["mcp_url"])  # http://localhost:64342
-```
-
 ### Standalone (Docker)
 
 The socat bridge makes port `64343` reachable on all interfaces, so you can run
@@ -85,7 +74,41 @@ when the IDEA client entry point is discovered:
 
 | Method | HTTP | Description |
 |--------|------|-------------|
-| `await server.idea.health()` | `GET /idea/health` | Returns `{"mcp_url": "http://localhost:64342"}` confirming the MCP server is reachable |
+| `await server.idea.inspect(project_path, profile_path, output_dir, ...)` | `POST /idea/inspect` | Run `inspect.sh` on the server and return `InspectResponse(output_dir, exit_code)` |
+
+### `inspect()` parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `project_path` | `str` | — | Absolute path to the project inside the container |
+| `profile_path` | `str` | — | Absolute path to an inspection profile XML file |
+| `output_dir` | `str` | — | Directory where result files will be written |
+| `changes_only` | `bool` | `False` | Only inspect locally changed files (`-changes`) |
+| `directory` | `Optional[str]` | `None` | Limit scope to a subdirectory (`-d`) |
+| `format` | `str` | `"xml"` | Output format: `"xml"` or `"json"` |
+| `verbosity` | `int` | `0` | Verbosity level 0–2 (`-v0`/`-v1`/`-v2`) |
+| `timeout` | `float` | `600.0` | Maximum seconds for `inspect.sh` to run |
+| `request_timeout` | `Optional[int]` | `None` | HTTP request timeout override (seconds) |
+
+**Note:** IDEA Community supports true headless mode (`java.awt.headless=true`). No
+Xvfb is needed; `inspect.sh` works without a display server.
+
+### Reading inspection results
+
+Inspection result files (XML or JSON) are written to `output_dir` inside the container.
+Read them with a follow-up `execute_bash` call:
+
+```python
+result = await server.idea.inspect(
+    project_path="/root/work",
+    profile_path="/root/work/.idea/inspectionProfiles/Default.xml",
+    output_dir="/tmp/inspect-out",
+)
+assert result.exit_code == 0
+
+listing = await server.execute_bash("ls /tmp/inspect-out/")
+xml_output = await server.execute_bash("cat /tmp/inspect-out/*.xml")
+```
 
 ## Configuration
 

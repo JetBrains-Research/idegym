@@ -299,14 +299,52 @@ in the **local** Python environment and its `idegym.plugins.client` entry point 
 This is a purely local check — it is independent of whether the running server image was built with
 the PyCharm plugin.
 
-`health()` is the runtime check: it calls `GET /api/pycharm/health` on the server and returns the
-MCP URL when the plugin is active, or raises `RuntimeError` (404) when the server image was not
-built with it:
+#### `inspect(...)`
+
+Runs the JetBrains built-in `inspect.sh` script on the server and returns an `InspectResponse`:
 
 ```python
-health = await server.pycharm.health()
-# → {"mcp_url": "http://localhost:6789/mcp"}
+result = await server.pycharm.inspect(
+    project_path="/root/work",
+    profile_path="/root/work/.idea/inspectionProfiles/Default.xml",
+    output_dir="/tmp/inspect-out",
+    timeout=300.0,
+)
+assert result.exit_code == 0
+# Read result files from the container:
+xml = await server.execute_bash("cat /tmp/inspect-out/*.xml")
 ```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `project_path` | `str` | — | Absolute path to the project inside the container |
+| `profile_path` | `str` | — | Absolute path to an inspection profile XML file |
+| `output_dir` | `str` | — | Directory where result files will be written |
+| `changes_only` | `bool` | `False` | Only inspect locally changed files (`-changes`) |
+| `directory` | `Optional[str]` | `None` | Limit scope to a subdirectory (`-d`) |
+| `format` | `str` | `"xml"` | Output format: `"xml"` or `"json"` |
+| `verbosity` | `int` | `0` | Verbosity level 0–2 |
+| `timeout` | `float` | `600.0` | Maximum seconds for `inspect.sh` to run |
+| `request_timeout` | `Optional[int]` | `None` | HTTP request timeout override (seconds) |
+
+**Note:** PyCharm CE requires a display. Before calling `inspect()`, start Xvfb inside the
+container (`Xvfb :99 -screen 0 1024x768x24 &` via `server.execute_bash()`). The `DISPLAY=:99`
+environment variable is pre-set in the image.
+
+### IDEA operations (`server.idea`)
+
+`server.idea` is attached automatically when the `idegym-plugin-idea` package is installed in the
+**local** Python environment. It provides the same `inspect()` interface as `server.pycharm`:
+
+```python
+result = await server.idea.inspect(
+    project_path="/root/work",
+    profile_path="/root/work/.idea/inspectionProfiles/Default.xml",
+    output_dir="/tmp/inspect-out",
+)
+```
+
+IntelliJ IDEA Community supports true headless mode (`java.awt.headless=true`) — no Xvfb is needed.
 
 ### Checking for a plugin at runtime
 
@@ -318,7 +356,11 @@ caps = await server.capabilities()
 # → CapabilitiesResponse(plugins=["tools", "rewards", "pycharm"])
 
 if "pycharm" in caps.plugins and hasattr(server, "pycharm"):
-    health = await server.pycharm.health()
+    result = await server.pycharm.inspect(
+        project_path="/root/work",
+        profile_path="/root/work/.idea/inspectionProfiles/Default.xml",
+        output_dir="/tmp/inspect-out",
+    )
 ```
 
 `capabilities()` calls `GET /api/idegym-servers/{id}/capabilities` on the orchestrator, which
