@@ -93,7 +93,7 @@ async def test_pycharm_inspect_produces_results(test_id):
 
     built = image.build()
     image_tag = str(built.repo_tags[0])
-    minikube_load_image(image_tag)
+    minikube_load_image(image_tag=image_tag, timeout=600)
 
     async with create_http_client(
         name=f"pycharm-inspect-{test_id}",
@@ -168,7 +168,7 @@ async def test_pycharm_mcp_server_starts(test_id):
 
     built = image.build()
     image_tag = str(built.repo_tags[0])
-    minikube_load_image(image_tag)
+    minikube_load_image(image_tag=image_tag, timeout=600)
 
     async with create_http_client(
         name=f"pycharm-mcp-e2e-{test_id}",
