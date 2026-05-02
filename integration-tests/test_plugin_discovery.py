@@ -118,14 +118,14 @@ def test_rewards_plugin_router_exposes_expected_endpoints():
     assert RewardsPath.TEST in route_paths
 
 
-def test_pycharm_server_plugin_router_exposes_health_endpoint():
-    """PyCharmPlugin.get_server_router() returns a router with GET /pycharm/health."""
+def test_pycharm_server_plugin_router_exposes_inspect_endpoint():
+    """PyCharmPlugin.get_server_router() returns a router with POST /pycharm/inspect."""
     eps = {ep.name: ep for ep in entry_points(group="idegym.plugins.server")}
     pycharm_cls = eps["pycharm"].load()
     router = pycharm_cls.get_server_router()
 
     route_paths = {r.path for r in router.routes}
-    assert "/pycharm/health" in route_paths, f"/pycharm/health missing from pycharm router: {route_paths}"
+    assert "/pycharm/inspect" in route_paths, f"/pycharm/inspect missing from pycharm router: {route_paths}"
 
 
 def test_loading_server_entry_points_populates_server_registry():

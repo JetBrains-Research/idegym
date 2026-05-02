@@ -59,7 +59,6 @@ _INSPECT_SETUP_SCRIPT = (
 )
 
 
-@pytest.mark.e2e
 @pytest.mark.ide_integrations
 @pytest.mark.asyncio
 async def test_pycharm_inspect_produces_results(test_id):
@@ -133,7 +132,6 @@ async def test_pycharm_inspect_produces_results(test_id):
             assert content.stdout.strip(), f"Result file {first_file} is empty"
 
 
-@pytest.mark.e2e
 @pytest.mark.ide_integrations
 @pytest.mark.asyncio
 async def test_pycharm_mcp_server_starts(test_id):

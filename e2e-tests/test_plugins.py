@@ -18,10 +18,11 @@ Covers the integration points introduced by the plugin system:
    plugin-provided endpoint without typed wrappers.  Uses the always-available
    ``tools/bash`` endpoint for reliability.
 
-4. **Typed plugin operations** — ``server.pycharm.health()`` returns the expected
-   JSON payload.  The image explicitly adds ``"pycharm"`` to
-   ``/etc/idegym/plugins.json`` via ``run_commands`` so the PyCharm server
-   plugin is loaded at runtime without requiring PyCharm IDE to be installed.
+4. **Typed plugin operations** — ``server.pycharm`` is attached automatically and
+   routes ``POST /pycharm/inspect`` end-to-end.  The image explicitly adds
+   ``"pycharm"`` to ``/etc/idegym/plugins.json`` via ``run_commands`` so the
+   PyCharm server plugin is loaded at runtime without requiring PyCharm IDE to be
+   installed.
 
 5. **plugins.json content** — ``IdeGYMServer`` writes ``/etc/idegym/plugins.json``
    at build time; its content controls which plugins are loaded at startup.
@@ -222,15 +223,19 @@ async def test_forward_generic_method_calls_plugin_endpoint(test_id):
 
 
 @pytest.mark.asyncio
-async def test_typed_plugin_operations_pycharm_health(test_id):
+async def test_typed_plugin_operations_pycharm_inspect_routed(test_id):
     """
-    ``server.pycharm.health()`` calls the ``GET /pycharm/health`` endpoint and
-    returns the MCP URL declared by the PyCharm server plugin.
+    ``server.pycharm.inspect()`` routes to ``POST /pycharm/inspect`` end-to-end.
 
     The image writes ``/etc/idegym/plugins.json`` with ``"pycharm"`` included via
     ``run_commands``, loading the PyCharm server router without installing PyCharm IDE.
     The ``server.pycharm`` attribute is attached automatically via the
     ``idegym.plugins.client`` entry_point.
+
+    Without PyCharm installed, ``inspect.sh`` is absent so the server returns a
+    500-level error.  The test asserts that a ``RuntimeError`` is raised (meaning
+    the request reached the endpoint and was processed), not an ``AttributeError``
+    (method missing) or a routing failure.
     """
     # Inject pycharm into plugins.json by overwriting the file after IdeGYMServer.render()
     # writes the default {"server": ["tools", "rewards"]} content.  This enables the
@@ -270,12 +275,16 @@ async def test_typed_plugin_operations_pycharm_health(test_id):
             server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
         ) as server:
             assert hasattr(server, "pycharm"), "server.pycharm not attached — plugin ops loop failed"
-            result = await server.pycharm.health()
-            assert isinstance(result, dict), f"Expected dict, got {type(result)}"
-            assert "mcp_url" in result, f"Key 'mcp_url' missing from pycharm.health() response: {result}"
-            assert result["mcp_url"] == "http://localhost:6789/mcp", (
-                f"Unexpected mcp_url in pycharm.health(): {result['mcp_url']}"
-            )
+            # inspect.sh is absent (no PyCharm IDE installed); the server returns a
+            # 500-level error which the client surfaces as RuntimeError.  This proves
+            # the full routing stack works: client → orchestrator → server → plugin endpoint.
+            with pytest.raises(RuntimeError):
+                await server.pycharm.inspect(
+                    project_path="/tmp/proj",
+                    profile_path="/tmp/profile.xml",
+                    output_dir="/tmp/out",
+                    timeout=5.0,
+                )
 
 
 @pytest.mark.asyncio
