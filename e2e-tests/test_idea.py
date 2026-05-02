@@ -1,31 +1,43 @@
-"""E2E test: build an IDEA + MCP image, deploy as an IdeGYM server, verify MCP is reachable.
+"""E2E tests for IntelliJ IDEA CE: code inspection and MCP server readiness.
 
 Build pipeline:
-  base server image → Project.from_local("e2e-tests/test_projects/kotlin-project")
-    → Idea(version=..., mcp_update_id=...) → image.build() → minikube image load
+  inspect test  → Project.from_local("e2e-tests/test_projects/java-project")
+  MCP test      → Project.from_local("e2e-tests/test_projects/kotlin-project")
 
-Runtime (via supervisord → start-idea.sh):
-  1. IDEA launches in true headless mode (-Djava.awt.headless=true, no Xvfb needed).
-  2. The open-project plugin opens IDEGYM_PROJECT_ROOT via an AppStarter "open" command.
-  3. The JetBrains MCP plugin binds on 127.0.0.1:64342.
-  4. socat bridges 0.0.0.0:64343 → 127.0.0.1:64342 so the port is reachable externally.
-     Run the image standalone with ``docker run -p 64343:64343 <image>`` and connect
-     your MCP client to http://localhost:64343/mcp.
+IDEA CE supports ``-Djava.awt.headless=true`` natively, so no Xvfb is needed
+for any of the tests in this module — including ``inspect()``.
 
-The test polls http://localhost:64342/sse inside the container until it returns 200.
+``test_idea_inspect_produces_results``
+    Builds without open-project plugin or MCP daemon.  Calls
+    ``server.idea.inspect()`` on demand and verifies XML result files are
+    written to ``/tmp/idea-inspect-out``.
+
+``test_idea_mcp_server_starts``
+    Builds the full IDEA + MCP image.  Runtime sequence
+    (via supervisord → start-idea.sh):
+    1. IDEA launches in true headless mode.
+    2. The open-project plugin opens ``IDEGYM_PROJECT_ROOT`` via an AppStarter
+       "open" command.
+    3. The JetBrains MCP plugin binds on 127.0.0.1:64342.
+    4. socat bridges 0.0.0.0:64343 → 127.0.0.1:64342 so the port is reachable
+       externally.  Run standalone with ``docker run -p 64343:64343 <image>``
+       and connect your MCP client to http://localhost:64343/mcp.
+    The test polls http://localhost:64342/sse inside the container until HTTP 200.
 
 Downloads IDEA CE (~800 MB); takes 5-10 min end-to-end. Excluded from CI.
 Run with: ``pytest -m 'e2e and ide_integrations'``
 """
 
-import subprocess
+from importlib.resources import files
 
 import pytest
+import resources as e2e_resources
 from idegym.client.operations.utils import PollingConfig
 from idegym.image.builder import Image
 from idegym.plugins.defaults.image import Project
 from idegym.plugins.idea.image import Idea
 from kubernetes_asyncio.client import V1ResourceRequirements
+from utils.build_images import minikube_load_image
 from utils.constants import DEFAULT_SERVER_START_TIMEOUT
 
 _LOCAL_BASE_IMAGE = "ghcr.io/jetbrains-research/idegym/server-debian-bookworm-20250520-slim:latest"
@@ -43,45 +55,17 @@ _IDEA_RESOURCES = V1ResourceRequirements(
     limits={"cpu": "2000m", "memory": "8Gi", "ephemeral-storage": "12Gi"},
 )
 
-# Poll the MCP SSE endpoint every 3s for up to 180s.
+# Shared 180s MCP wait script (60 × 3s).
 # IDEA headless starts faster than PyCharm CE (no Xvfb/GUI overhead).
-_WAIT_MCP_SCRIPT = (
-    """\
-for i in $(seq 1 60); do
-    http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 \
-        "http://localhost:64342/sse" 2>/dev/null || true)
-    if [ "$http_code" = "200" ]; then
-        echo "SUCCESS: MCP server ready after $((i * 3))s"
-        exit 0
-    fi
-    echo "... waiting for MCP ($((i * 3))s elapsed, last HTTP code: $http_code)"
-    sleep 3
-done
-echo "TIMEOUT: MCP server not reachable after 180s"
-echo "=== idea log (last 30 lines) ==="
-"""
-    + f'cat "{_IDEA_LOG}" 2>/dev/null | tail -30 || echo "(log not found)"'
-    + """
-echo "=== socat/idea processes ==="
-ps aux 2>/dev/null | grep -E 'socat|idea' | grep -v grep || echo "(none)"
-exit 1
-"""
+_WAIT_MCP_SCRIPT = files(e2e_resources).joinpath("mcp_wait_180s.sh").read_text(encoding="utf-8")
+
+# Inspection profile enabling JavaDoc warnings; targets Calculator.java in java-project.
+_INSPECT_PROFILE_XML = files(e2e_resources).joinpath("idea_inspect_profile.xml").read_text(encoding="utf-8")
+
+# Shell fragment that writes the inspection profile before calling inspect().
+_INSPECT_SETUP_SCRIPT = (
+    files(e2e_resources).joinpath("inspect_setup.sh").read_text(encoding="utf-8").format(profile=_INSPECT_PROFILE_XML)
 )
-
-
-_INSPECT_PROFILE_XML = """\
-<component name="InspectionProjectProfileManager">
-  <profile version="1.0">
-    <option name="myName" value="Default" />
-    <inspection_tool class="JavaDoc" enabled="true" level="WARNING" enabled_by_default="true" />
-  </profile>
-</component>"""
-
-_INSPECT_SETUP_SCRIPT = """\
-mkdir -p /root/work/.idea/inspectionProfiles
-printf '%s\\n' '{profile}' > /root/work/.idea/inspectionProfiles/Default.xml
-echo "Inspection profile written"
-""".format(profile=_INSPECT_PROFILE_XML)
 
 
 @pytest.mark.e2e
@@ -95,7 +79,8 @@ async def test_idea_inspect_produces_results(test_id):
     on demand via ``server.idea.inspect()`` and writes XML result files to
     ``/tmp/idea-inspect-out`` inside the container.
 
-    IDEA CE supports ``-Djava.awt.headless=true`` natively, so no Xvfb is needed.
+    inspect.sh runs in batch/headless mode (``-Djava.awt.headless=true``); no
+    Xvfb or display is required.
 
     Note: this test downloads IDEA CE (~800 MB) and is expected to take
     10-15 minutes end-to-end.
@@ -107,7 +92,7 @@ async def test_idea_inspect_produces_results(test_id):
         .named(f"idea-inspect-{test_id}")
         .with_plugin(
             Project.from_local(
-                "e2e-tests/test_projects/kotlin-project",
+                "e2e-tests/test_projects/java-project",
                 target="/root/work",
             )
         )
@@ -119,13 +104,7 @@ async def test_idea_inspect_produces_results(test_id):
 
     built = image.build()
     image_tag = str(built.repo_tags[0])
-
-    subprocess.run(
-        ["minikube", "image", "load", image_tag],
-        check=True,
-        capture_output=True,
-        timeout=180,
-    )
+    minikube_load_image(image_tag)
 
     async with create_http_client(
         name=f"idea-inspect-{test_id}",
@@ -140,7 +119,6 @@ async def test_idea_inspect_produces_results(test_id):
             server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
             polling_config=PollingConfig(wait_timeout_in_sec=600),
         ) as server:
-            # Write inspection profile (no Xvfb needed — IDEA runs headlessly)
             setup = await server.execute_bash(script=_INSPECT_SETUP_SCRIPT)
             assert setup.exit_code == 0, f"Setup failed:\n{setup.stdout}\n{setup.stderr}"
 
@@ -151,12 +129,18 @@ async def test_idea_inspect_produces_results(test_id):
                 timeout=300.0,
                 request_timeout=360,
             )
-            assert result.exit_code == 0, f"inspect.sh exited {result.exit_code}"
+            assert result.exit_code == 0, f"inspect.sh exited {result.exit_code} (output_dir: {result.output_dir})"
 
-            # Verify result files were written
-            listing = await server.execute_bash("ls /tmp/idea-inspect-out/ 2>/dev/null || echo '(empty)'")
-            assert listing.exit_code == 0
-            assert listing.stdout.strip() != "(empty)", "Expected inspect.sh to write result files"
+            # Verify result files were written and contain XML inspection output
+            listing = await server.execute_bash("ls /tmp/idea-inspect-out/")
+            assert listing.exit_code == 0, f"Output directory missing: {listing.stderr}"
+            files_written = listing.stdout.strip().split()
+            assert files_written, "Expected inspect.sh to write result files in /tmp/idea-inspect-out/"
+
+            first_file = files_written[0]
+            content = await server.execute_bash(f"cat /tmp/idea-inspect-out/{first_file}")
+            assert content.exit_code == 0, f"Failed to read {first_file}: {content.stderr}"
+            assert content.stdout.strip(), f"Result file {first_file} is empty"
 
 
 @pytest.mark.e2e
@@ -195,13 +179,7 @@ async def test_idea_mcp_server_starts(test_id):
 
     built = image.build()
     image_tag = str(built.repo_tags[0])
-
-    subprocess.run(
-        ["minikube", "image", "load", image_tag],
-        check=True,
-        capture_output=True,
-        timeout=180,
-    )
+    minikube_load_image(image_tag)
 
     async with create_http_client(
         name=f"idea-mcp-e2e-{test_id}",

@@ -327,9 +327,8 @@ xml = await server.execute_bash("cat /tmp/inspect-out/*.xml")
 | `timeout` | `float` | `600.0` | Maximum seconds for `inspect.sh` to run |
 | `request_timeout` | `Optional[int]` | `None` | HTTP request timeout override (seconds) |
 
-**Note:** PyCharm CE requires a display. Before calling `inspect()`, start Xvfb inside the
-container (`Xvfb :99 -screen 0 1024x768x24 &` via `server.execute_bash()`). The `DISPLAY=:99`
-environment variable is pre-set in the image.
+**Note:** `inspect.sh` runs in batch/headless mode — no Xvfb or display server is required for
+inspection. Xvfb is only needed when PyCharm opens projects interactively (`open_project=True`).
 
 ### IDEA operations (`server.idea`)
 

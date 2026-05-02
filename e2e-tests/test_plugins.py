@@ -29,11 +29,13 @@ Covers the integration points introduced by the plugin system:
 6. **Plugin endpoint filtering** — when a plugin is absent from
    ``plugins.json``, its server endpoint is not mounted (returns 404 / raises).
 
+7. **Capabilities endpoint** — ``server.capabilities()`` returns the list of
+   plugins from ``/etc/idegym/plugins.json`` loaded at server startup.
+
 All tests use a local Docker build (no Kaniko) for speed.
 """
 
 import json
-import subprocess
 
 import pytest
 from from_root import from_root
@@ -41,6 +43,7 @@ from idegym.image.builder import Image
 from idegym.image.docker_api import IdeGYMDockerAPI
 from idegym.plugins.defaults.image import IdeGYMServer, MCPUpstream, User
 from kubernetes_asyncio.client import V1ResourceRequirements
+from utils.build_images import minikube_load_image
 from utils.constants import DEFAULT_SERVER_START_TIMEOUT
 from utils.idegym_utils import create_http_client
 
@@ -80,12 +83,7 @@ async def test_mcp_upstream_plugin_writes_config_file(test_id):
     built = IdeGYMDockerAPI().build_image(image)
     image_tag = str(built.repo_tags[0])
 
-    subprocess.run(
-        ["minikube", "image", "load", image_tag],
-        check=True,
-        capture_output=True,
-        timeout=120,
-    )
+    minikube_load_image(image_tag, timeout=120)
 
     async with create_http_client(
         name=f"mcp-plugin-{test_id}",
@@ -100,7 +98,7 @@ async def test_mcp_upstream_plugin_writes_config_file(test_id):
             resources=_DEFAULT_RESOURCES,
             server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
         ) as server:
-            # MCP config directory should exist
+            # MCP config directory should exist and contain the declared file
             result = await server.execute_bash(
                 script="ls /etc/idegym/mcp-upstreams.d/",
                 command_timeout=30.0,
@@ -142,12 +140,7 @@ async def test_plugin_discovered_tools_and_rewards_endpoints(test_id):
     built = IdeGYMDockerAPI().build_image(image)
     image_tag = str(built.repo_tags[0])
 
-    subprocess.run(
-        ["minikube", "image", "load", image_tag],
-        check=True,
-        capture_output=True,
-        timeout=120,
-    )
+    minikube_load_image(image_tag, timeout=120)
 
     async with create_http_client(
         name=f"plugin-disc-{test_id}",
@@ -201,12 +194,7 @@ async def test_forward_generic_method_calls_plugin_endpoint(test_id):
     built = IdeGYMDockerAPI().build_image(image)
     image_tag = str(built.repo_tags[0])
 
-    subprocess.run(
-        ["minikube", "image", "load", image_tag],
-        check=True,
-        capture_output=True,
-        timeout=120,
-    )
+    minikube_load_image(image_tag, timeout=120)
 
     from idegym.api.tools.bash import BashCommandRequest
 
@@ -266,12 +254,7 @@ async def test_typed_plugin_operations_pycharm_health(test_id):
     built = IdeGYMDockerAPI().build_image(image)
     image_tag = str(built.repo_tags[0])
 
-    subprocess.run(
-        ["minikube", "image", "load", image_tag],
-        check=True,
-        capture_output=True,
-        timeout=120,
-    )
+    minikube_load_image(image_tag, timeout=120)
 
     async with create_http_client(
         name=f"typed-plugin-{test_id}",
@@ -320,12 +303,7 @@ async def test_plugins_json_written_with_default_content(test_id):
     built = IdeGYMDockerAPI().build_image(image)
     image_tag = str(built.repo_tags[0])
 
-    subprocess.run(
-        ["minikube", "image", "load", image_tag],
-        check=True,
-        capture_output=True,
-        timeout=120,
-    )
+    minikube_load_image(image_tag, timeout=120)
 
     async with create_http_client(
         name=f"plugins-json-default-{test_id}",
@@ -378,12 +356,7 @@ async def test_server_does_not_expose_pycharm_endpoint_when_not_in_plugins_json(
     built = IdeGYMDockerAPI().build_image(image)
     image_tag = str(built.repo_tags[0])
 
-    subprocess.run(
-        ["minikube", "image", "load", image_tag],
-        check=True,
-        capture_output=True,
-        timeout=120,
-    )
+    minikube_load_image(image_tag, timeout=120)
 
     async with create_http_client(
         name=f"no-pycharm-filter-{test_id}",
@@ -433,12 +406,7 @@ async def test_capabilities_returns_loaded_plugins(test_id):
     built = IdeGYMDockerAPI().build_image(image)
     image_tag = str(built.repo_tags[0])
 
-    subprocess.run(
-        ["minikube", "image", "load", image_tag],
-        check=True,
-        capture_output=True,
-        timeout=120,
-    )
+    minikube_load_image(image_tag, timeout=120)
 
     async with create_http_client(
         name=f"capabilities-{test_id}",
