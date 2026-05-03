@@ -15,6 +15,7 @@ from idegym.api.orchestrator.servers import (
     StartServerResponse,
     StopServerRequest,
 )
+from idegym.api.orchestrator.snapshots import CreateSnapshotRequest, CreateSnapshotResponse
 from idegym.api.status import Status
 from idegym.api.type import KubernetesNodeSelector, KubernetesObjectName, OCIImageName
 from idegym.client.operations.project import ProjectOperations
@@ -195,3 +196,24 @@ class ServerOperations:
         request = FinishServerRequest(client_id=client_id, namespace=namespace, server_id=server_id)
         response_raw = await self._utils.make_request("POST", "/api/idegym-servers/finish", request)
         return ServerActionResponse.model_validate(response_raw)
+
+    async def snapshot_server(
+        self,
+        server_id: int,
+        client_id: Optional[UUID] = None,
+        namespace: Optional[str] = None,
+        polling_config: PollingConfig = PollingConfig(),
+    ) -> CreateSnapshotResponse | ErrorResponse:
+        client_id = self._utils.validate_client_id(client_id)
+        namespace = self._utils.validate_namespace(namespace)
+        request = CreateSnapshotRequest(client_id=client_id, namespace=namespace, server_id=server_id)
+        response_raw = await self._utils.make_request("POST", "/api/idegym-servers/snapshot", request)
+        response: CreateSnapshotResponse = self._utils.parse_response(
+            response_raw=response_raw, model_class=CreateSnapshotResponse
+        )
+        return await self._utils.wait_for_async_operation_to_end(
+            operation_id=response.operation_id,
+            success_response_model=CreateSnapshotResponse,
+            error_response_model=ErrorResponse,
+            polling_config=polling_config,
+        )
