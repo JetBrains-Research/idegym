@@ -112,8 +112,11 @@ uv run pytest -m e2e -k "python_api"
 # Run a single test file
 uv run pytest -m e2e e2e-tests/test_health.py::test_orchestrator_health
 
-# Keep resources after tests (useful for debugging)
-uv run pytest -m e2e --no-cleanup
+# Keep final session resources after all tests
+uv run pytest -m e2e --no-cleanup-after-tests
+
+# Keep per-test sandbox resources and orchestrator state after each test
+uv run pytest -m e2e --no-cleanup-between-tests
 
 # Clean up namespace before deployment
 uv run pytest -m e2e --clean-namespace
@@ -136,7 +139,8 @@ uv run pytest -m e2e -vv -s -o log_cli=true --log-cli-level=INFO
 |------|-------------|
 | `--skip-build` | Skip building orchestrator and base server images |
 | `--reuse-resources` | Skip `kubectl apply -k` — reuse current cluster resources |
-| `--no-cleanup` | Skip teardown after tests (keeps resources for inspection) |
+| `--no-cleanup-after-tests` | Skip final session teardown after all tests complete |
+| `--no-cleanup-between-tests` | Skip sandbox, helper job, database, and orchestrator cleanup after each test |
 | `--clean-namespace` | Delete and recreate `idegym-local` namespace before setup |
 | `--delete-namespace` | Delete `idegym-local` namespace in pytest teardown |
 | `--delete-kustomize-services` | Delete only kustomize-managed services in pytest teardown |

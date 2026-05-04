@@ -1,13 +1,13 @@
 from typing import Optional
 
-from idegym.api.data import DataSize
 from idegym.api.docker import ContainerConfig
+from idegym.api.memory import MemoryQuantity
 from pydantic import ValidationError
 from pytest import mark, param, raises
 
 
 def test_container_config_dump_consistency():
-    expected = ContainerConfig(memory=DataSize(gb=1))
+    expected = ContainerConfig(memory=MemoryQuantity(gi=1))
     dump = expected.model_dump()
     actual = ContainerConfig(**dump)
     assert expected == actual
@@ -21,7 +21,7 @@ def test_container_config_dump_consistency():
     ],
 )
 def test_container_config_memory_invalid(key: str):
-    kwargs = {key: DataSize()}
+    kwargs = {key: MemoryQuantity()}
     with raises(ValidationError):
         ContainerConfig(**kwargs)
 

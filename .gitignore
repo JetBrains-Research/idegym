@@ -163,6 +163,7 @@ cython_debug/
 # Project structure
 .idea/**/misc.xml
 .idea/**/modules.xml
+.idea/pySourceRootDetection.xml
 .idea/**/inspectionProfiles/
 .idea/**/runConfigurations/
 

@@ -12,6 +12,7 @@ class AsyncOperationType(StrEnum):
     STOP_SERVER = "STOP_SERVER"
     STOP_CLIENT = "STOP_CLIENT"
     FORWARD_REQUEST = "FORWARD_REQUEST"
+    SNAPSHOT_SERVER = "SNAPSHOT_SERVER"
 
 
 class AsyncOperationStatus(StrEnum):

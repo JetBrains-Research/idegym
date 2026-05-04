@@ -5,7 +5,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request, status
 from idegym.api.capabilities import CapabilitiesResponse
-from idegym.api.config import Config, NodePoolConfig, OTELConfig
+from idegym.api.config import Config, NodePoolConfig, OTELConfig, PodSnapshotConfig
+from idegym.api.memory import MemoryUnit
 from idegym.api.orchestrator.clients import AvailabilityStatus
 from idegym.api.orchestrator.operations import AsyncOperationStatus, AsyncOperationType
 from idegym.api.orchestrator.servers import (
@@ -40,7 +41,6 @@ from idegym.orchestrator.util.decorators import handle_async_task_exceptions, ha
 from idegym.orchestrator.util.errors import format_error
 from idegym.utils.decorators import executes_operation_in_background
 from idegym.utils.logging import get_logger
-from idegym.utils.quantity import parse_quantity
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -50,15 +50,15 @@ logger = get_logger(__name__)
 @router.post("/api/idegym-servers", status_code=status.HTTP_202_ACCEPTED)
 @handle_server_exceptions(server_operation_description="starting IdeGYM server")
 async def start_server(request: StartServerRequest, low_level_request: Request):
+    return await start_server_with_config(request=request, config=low_level_request.app.state.config)
+
+
+async def start_server_with_config(request: StartServerRequest, config: Config) -> StartServerResponse:
     logger.info(f"Received start request for {request.image_tag} for client ID {request.client_id}")
     async_operation_id = await create_async_operation(
         async_operation_type=AsyncOperationType.START_SERVER, client_id=request.client_id, request=request
     )
-    asyncio.create_task(
-        _task_start_server(
-            config=low_level_request.app.state.config, request=request, async_operation_id=async_operation_id
-        )
-    )
+    asyncio.create_task(_task_start_server(config=config, request=request, async_operation_id=async_operation_id))
     return StartServerResponse(
         namespace=request.namespace,
         client_id=request.client_id,
@@ -219,6 +219,7 @@ async def _task_start_server(config: Config, request: StartServerRequest, async_
             server_image_tag = server.image_tag
 
             node_pool: NodePoolConfig = config.orchestrator.node_pool
+            pod_snapshot: PodSnapshotConfig = config.orchestrator.pod_snapshot
             otel_config: OTELConfig = config.otel
             environment_variables = (
                 {
@@ -292,20 +293,34 @@ async def _task_start_server(config: Config, request: StartServerRequest, async_
                 },
             )
 
+            service_account_name = pod_snapshot.service_account_name if pod_snapshot.enabled else None
+            snapshot_id = request.snapshot_id or str(server_id)
+
+            resources = (
+                request.resources.model_dump(
+                    by_alias=True,
+                    exclude_none=True,
+                )
+                if request.resources
+                else None
+            )
+
             await deploy_server(
                 image_tag=request.image_tag,
                 server_name=server_generated_name,
                 namespace=request.namespace,
                 service_port=request.service_port,
                 container_port=request.container_port,
+                service_account_name=service_account_name,
                 runtime_class_name=request.runtime_class_name,
                 run_as_root=request.run_as_root,
                 node_selector=request.node_selector,
                 node_pool_taint_key=node_pool.taint_key if node_pool.enabled else None,
                 node_pool_preference_weight=node_pool.preference_weight,
-                resources=request.resources,
+                resources=resources,
                 environment_variables=environment_variables,
                 server_kind=request.server_kind,
+                snapshot_id=snapshot_id,
             )
 
             await wait_for_pods_ready(
@@ -383,18 +398,18 @@ async def clean_kubernetes(request, server_generated_name):
         )
 
 
-def extract_resources_request(config: Config, request: StartServerRequest):
+def extract_resources_request(config: Config, request: StartServerRequest) -> tuple[float, float]:
     cpu_request = config.orchestrator.resources.default_cpu_request
     ram_request = config.orchestrator.resources.default_ram_request
-    if request.resources:
-        limits = request.resources.get("limits", {})
-        reqs = request.resources.get("requests", {})
-        cpu_value = limits.get("cpu") or reqs.get("cpu")
-        memory_value = limits.get("memory") or reqs.get("memory")
-        if cpu_value:
-            cpu_request = float(parse_quantity(cpu_value))
-        if memory_value:
-            ram_request = float(parse_quantity(memory_value)) / (1024 * 1024 * 1024)
+    if resources := request.resources:
+        cpu_value = (resources.limits and resources.limits.cpu) or (resources.requests and resources.requests.cpu)
+        if cpu_value is not None:
+            cpu_request = cpu_value.cores
+        memory_value = (resources.limits and resources.limits.memory) or (
+            resources.requests and resources.requests.memory
+        )
+        if memory_value is not None:
+            ram_request = memory_value.bytes / MemoryUnit.Gi
 
     return cpu_request, ram_request
 

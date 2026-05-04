@@ -46,29 +46,42 @@ async def accept_client_heartbeat(request: SendClientHeartbeatRequest):
 @router.post("/api/clients")
 @handle_general_exceptions(error_message="Failed to register client")
 async def register_client(request: RegisterClientRequest, low_level_request: Request, http_response: Response):
+    response = await register_client_with_node_pool(
+        request=request,
+        node_pool=low_level_request.app.state.config.orchestrator.node_pool,
+    )
+    if response.operation_id is not None:
+        http_response.status_code = status.HTTP_202_ACCEPTED
+
+    return response
+
+
+async def register_client_with_node_pool(
+    request: RegisterClientRequest,
+    node_pool: NodePoolConfig,
+) -> RegisteredClientResponse:
     client, spin_up_nodes = await safely_register_new_client_in_db(
         name=request.name, nodes_count=request.nodes_count, namespace=request.namespace
     )
     client_response = RegisteredClientResponse.model_validate(client, from_attributes=True)
-    if spin_up_nodes:
-        async_operation_id = await create_async_operation(
-            async_operation_type=AsyncOperationType.REGISTER_CLIENT_WITH_NODES,
-            client_id=client.id,
-            request=request,
+    if not spin_up_nodes:
+        return client_response
+
+    async_operation_id = await create_async_operation(
+        async_operation_type=AsyncOperationType.REGISTER_CLIENT_WITH_NODES,
+        client_id=client.id,
+        request=request,
+    )
+    asyncio.create_task(
+        _task_spin_up_client_nodes(
+            client=client,
+            nodes_count=request.nodes_count,
+            namespace=request.namespace,
+            async_operation_id=async_operation_id,
+            node_pool=node_pool,
         )
-        node_pool = low_level_request.app.state.config.orchestrator.node_pool
-        asyncio.create_task(
-            _task_spin_up_client_nodes(
-                client=client,
-                nodes_count=request.nodes_count,
-                namespace=request.namespace,
-                async_operation_id=async_operation_id,
-                node_pool=node_pool,
-            )
-        )
-        http_response.status_code = status.HTTP_202_ACCEPTED
-        return client_response.model_copy(update={"operation_id": async_operation_id})
-    return client_response
+    )
+    return client_response.model_copy(update={"operation_id": async_operation_id})
 
 
 @executes_operation_in_background

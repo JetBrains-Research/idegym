@@ -18,11 +18,13 @@ from pathlib import Path
 
 import pytest
 from from_root import from_root
+from idegym.api.cpu import CpuQuantity
+from idegym.api.memory import MemoryQuantity
+from idegym.api.resources import KubernetesResources, ResourceQuantities
 from idegym.api.status import Status
 from idegym.image.builder import Image
 from idegym.image.docker_api import IdeGYMDockerAPI
 from idegym.plugins.defaults.image import BaseSystem, IdeGYMServer, Permissions, Project, User
-from kubernetes_asyncio.client import V1ResourceRequirements
 from utils.build_images import minikube_load_image
 from utils.constants import (
     DEFAULT_NAMESPACE,
@@ -38,9 +40,17 @@ _BASE_IMAGE = "registry.kube-system.svc.cluster.local/server-debian-bookworm-202
 _LOCAL_BASE_IMAGE = "ghcr.io/jetbrains-research/idegym/server-debian-bookworm-20250520-slim:latest"
 _PROJECT_URL = "https://github.com/realpython/python-scripts.git"
 _PROJECT_REF = "cb448c2dc3593dbfbe1ca47b49193b320115aae5"
-_DEFAULT_RESOURCES = V1ResourceRequirements(
-    requests={"cpu": "500m", "memory": "500Mi", "ephemeral-storage": "1Gi"},
-    limits={"cpu": "500m", "memory": "500Mi", "ephemeral-storage": "1Gi"},
+_DEFAULT_RESOURCES = KubernetesResources(
+    requests=ResourceQuantities(
+        cpu=CpuQuantity(millicores=500),
+        memory=MemoryQuantity(mi=500),
+        ephemeral_storage=MemoryQuantity(gi=1),
+    ),
+    limits=ResourceQuantities(
+        cpu=CpuQuantity(millicores=500),
+        memory=MemoryQuantity(mi=500),
+        ephemeral_storage=MemoryQuantity(gi=1),
+    ),
 )
 
 

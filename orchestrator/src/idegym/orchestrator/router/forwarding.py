@@ -25,6 +25,7 @@ from idegym.orchestrator.util.decorators import handle_general_exceptions, handl
 from idegym.orchestrator.util.errors import format_error
 from idegym.utils.decorators import executes_operation_in_background
 from idegym.utils.logging import get_logger
+from starlette.datastructures import Headers
 from starlette.websockets import WebSocketState
 from websockets.exceptions import ConnectionClosed
 from websockets.protocol import State
@@ -45,12 +46,34 @@ async def forward_request_by_server_id(request: Request, client_id: UUID, server
         f"Received forwarding request: {request.method} {request.url} "
         f"to IdeGYM server ID {server_id} for client {client_id} with path: {path}"
     )
-    server = await validate_server(client_id=client_id, server_id=server_id)
     request_content = await parse_request_body(request)
+    return await forward_request_to_server(
+        client_id=client_id,
+        server_id=server_id,
+        path=path,
+        method=request.method,
+        headers=request.headers,
+        body=request_content,
+        http_client=request.app.state.http_client,
+    )
+
+
+async def forward_request_to_server(
+    client_id: UUID,
+    server_id: int,
+    path: str,
+    method: str,
+    headers: Headers,
+    body: str,
+    http_client: AsyncClient,
+) -> ForwardRequestResponse:
+    logger.info(f"Forwarding {method} request to IdeGYM server ID {server_id} for client {client_id}: {path}")
+    server = await validate_server(client_id=client_id, server_id=server_id)
     forward_payload = construct_forwarding_payload(
         path=path,
-        request=request,
-        request_content=request_content,
+        method=method,
+        headers=headers,
+        request_content=body,
         generated_name=server.generated_name,
         namespace=server.namespace,
         server_id=server_id,
@@ -64,7 +87,7 @@ async def forward_request_by_server_id(request: Request, client_id: UUID, server
     )
     asyncio.create_task(
         _task_forward_request(
-            http_client=request.app.state.http_client,
+            http_client=http_client,
             forward_payload=forward_payload,
             async_operation_id=async_operation_id,
         )
@@ -74,7 +97,8 @@ async def forward_request_by_server_id(request: Request, client_id: UUID, server
 
 def construct_forwarding_payload(
     path: str,
-    request: Request,
+    method: str,
+    headers: Headers,
     request_content: str,
     generated_name: str,
     namespace: Optional[str],
@@ -82,13 +106,11 @@ def construct_forwarding_payload(
     service_port: int = 80,
 ):
     target_url = f"http://{build_server_host(generated_name, namespace)}:{service_port}/{path}"
-    headers = request.headers.mutablecopy()
-    del headers["Host"]
-    del headers["Authorization"]
+    sanitized_headers = {key: value for key, value in headers.items() if key.lower() not in {"host", "authorization"}}
     return ForwardRequestPayload(
-        method=request.method,
+        method=method,
         path=path,
-        headers=dict(headers),
+        headers=sanitized_headers,
         body=request_content,
         target_url=target_url,
         server_id=server_id,

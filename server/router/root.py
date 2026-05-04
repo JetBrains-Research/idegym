@@ -10,7 +10,7 @@ from fastapi.background import BackgroundTasks
 from fastapi.requests import Request
 from fastapi.responses import RedirectResponse, Response, StreamingResponse
 from idegym.api.capabilities import CapabilitiesResponse
-from idegym.api.data import DataSize
+from idegym.api.memory import MemoryQuantity
 from idegym.api.paths import ActuatorPath
 from idegym.api.type import Duration
 from idegym.utils.logging import get_logger
@@ -45,7 +45,7 @@ async def capabilities():
 @inject
 async def log(
     path: Annotated[str, Depends(Provide[Container.config.logging.file_path])],
-    size: Annotated[DataSize, Depends(Provide[Container.config.server.response_buffer_size])],
+    size: Annotated[MemoryQuantity, Depends(Provide[Container.config.server.response_buffer_size])],
 ):
     async def reader():
         async with await open(path, "rb") as file:
