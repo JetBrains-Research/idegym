@@ -32,6 +32,7 @@ from uvicorn import Config as UvicornConfig
 from uvicorn import Server as UvicornServer
 
 from server.dependencies import Container
+from server.plugin_state import loaded_plugin_names
 from server.router import fs, project, root
 
 logger = get_logger("idegym.server")
@@ -58,12 +59,11 @@ except (OSError, json.JSONDecodeError):
     logger.warning("Failed to read /etc/idegym/plugins.json; enabling all installed server plugins", exc_info=True)
     _enabled_plugins = {ep.name for ep in _all_server_eps}
 
-_loaded_plugins: list[str] = []
 for _ep in _all_server_eps:
     if _ep.name in _enabled_plugins:
         try:
             _ep.load()
-            _loaded_plugins.append(_ep.name)
+            loaded_plugin_names.append(_ep.name)
         except Exception:
             logger.warning("Failed to load server plugin %r", _ep.name, exc_info=True)
 

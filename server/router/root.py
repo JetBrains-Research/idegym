@@ -18,6 +18,7 @@ from prometheus_client import REGISTRY
 from prometheus_client.openmetrics.exposition import CONTENT_TYPE_LATEST, generate_latest
 
 from server.dependencies import Container
+from server.plugin_state import loaded_plugin_names
 
 logger = get_logger(__name__)
 
@@ -37,9 +38,7 @@ async def health():
 
 @router.get(ActuatorPath.CAPABILITIES)
 async def capabilities():
-    from server.main import _loaded_plugins
-
-    return CapabilitiesResponse(plugins=_loaded_plugins)
+    return CapabilitiesResponse(plugins=loaded_plugin_names)
 
 
 @router.get(ActuatorPath.LOG)
