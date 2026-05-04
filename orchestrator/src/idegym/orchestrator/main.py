@@ -5,6 +5,7 @@ from typing import Any
 
 import uvicorn
 from fastapi import FastAPI
+from fastmcp.utilities.lifespan import combine_lifespans
 from httpx import AsyncClient, Limits, Timeout
 from hydra import compose, initialize_config_dir
 from idegym.api.config import Config
@@ -15,6 +16,7 @@ from idegym.backend.utils.logging import configure_logging, configure_sqlalchemy
 from idegym.backend.utils.otel import configure_telemetry, system_metrics_config
 from idegym.backend.utils.starlette.middleware import AsyncioTaskContextMiddleware, TracingMiddleware
 from idegym.orchestrator.database.database import init_db
+from idegym.orchestrator.mcp import create_mcp_server
 from idegym.orchestrator.router import (
     async_operation,
     build_images,
@@ -118,7 +120,10 @@ def create_app() -> FastAPI:
     config = load_config()
     configure_process(config=config)
 
-    app = FastAPI(title="IdeGYM Orchestrator", lifespan=lifespan)
+    app = FastAPI(title="IdeGYM Orchestrator")
+    mcp = create_mcp_server(config=config, get_http_client=lambda: app.state.http_client)
+    mcp_app = mcp.http_app(path="/")
+    app.router.lifespan_context = combine_lifespans(lifespan, mcp_app.lifespan)
     app.add_middleware(TracingMiddleware)
     app.add_middleware(AsyncioTaskContextMiddleware)
     app.include_router(diagnostics.router)
@@ -129,6 +134,7 @@ def create_app() -> FastAPI:
     app.include_router(async_operation.router)
     app.include_router(snapshot.router)
     app.include_router(dashboard.router)
+    app.mount("/mcp", mcp_app)
 
     AsyncioInstrumentor().instrument()
     Jinja2Instrumentor().instrument()

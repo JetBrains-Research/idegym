@@ -47,15 +47,15 @@ logger = get_logger(__name__)
 @router.post("/api/idegym-servers", status_code=status.HTTP_202_ACCEPTED)
 @handle_server_exceptions(server_operation_description="starting IdeGYM server")
 async def start_server(request: StartServerRequest, low_level_request: Request):
+    return await start_server_with_config(request=request, config=low_level_request.app.state.config)
+
+
+async def start_server_with_config(request: StartServerRequest, config: Config) -> StartServerResponse:
     logger.info(f"Received start request for {request.image_tag} for client ID {request.client_id}")
     async_operation_id = await create_async_operation(
         async_operation_type=AsyncOperationType.START_SERVER, client_id=request.client_id, request=request
     )
-    asyncio.create_task(
-        _task_start_server(
-            config=low_level_request.app.state.config, request=request, async_operation_id=async_operation_id
-        )
-    )
+    asyncio.create_task(_task_start_server(config=config, request=request, async_operation_id=async_operation_id))
     return StartServerResponse(
         namespace=request.namespace,
         client_id=request.client_id,

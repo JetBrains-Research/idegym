@@ -3,6 +3,7 @@ from os import environ as env
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request, status
+from idegym.api.config import Config
 from idegym.api.orchestrator.build import BuildFromYamlRequest, BuildFromYamlResponse
 from idegym.api.orchestrator.jobs import JobStatusResponse
 from idegym.orchestrator.database.helpers import find_kaniko_job_status
@@ -18,13 +19,17 @@ logger = get_logger(__name__)
 @handle_general_exceptions(error_message="Failed to start image building jobs from YAML")
 async def build_and_push(request: BuildFromYamlRequest, low_level_request: Request):
     """Build Docker images from a YAML file using Kaniko in Kubernetes."""
+    return await build_and_push_with_config(request=request, config=low_level_request.app.state.config)
+
+
+async def build_and_push_with_config(request: BuildFromYamlRequest, config: Config) -> BuildFromYamlResponse:
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as yaml_file:
         yaml_file.write(request.yaml_content)
         yaml_path = yaml_file.name
 
     try:
         insecure_registry = env.get("KANIKO_INSECURE_REGISTRY", "false").lower() == "true"
-        node_pool = low_level_request.app.state.config.orchestrator.node_pool
+        node_pool = config.orchestrator.node_pool
         kaniko_api = IdeGYMKanikoDockerAPI(
             namespace=request.namespace,
             insecure_registry=insecure_registry,

@@ -26,6 +26,7 @@ Think of it as **GitHub Codespaces for RL training** — but designed for thousa
 | [Remote Deployment](documentation/remote_deployment.md) | Deploy to a production Kubernetes cluster |
 | [Image Builder](documentation/image_builder.md) | Build custom environment images with the plugin API |
 | [Client Library](documentation/client.md) | Python client API reference |
+| [MCP Server](documentation/mcp.md) | Tool-based access to orchestrator operations |
 | [Full Flow Example](documentation/full_flow_example.md) | End-to-end walkthrough: build an image, start a server, run a command |
 | [E2E Tests](e2e-tests/README.md) | Running the end-to-end test suite on Minikube |
 | [Orchestrator API](orchestrator/README.md) | REST API reference for the orchestrator service |
