@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Optional
 from uuid import uuid4
 
-import idegym.image.plugins  # noqa: F401 — registers built-in plugins into the plugin registry
 from idegym.api.image_build import ImageBuildSpec
 from idegym.api.status import Status
 from idegym.backend.utils.kubernetes_client import build_and_push_image_with_kaniko, get_job_status

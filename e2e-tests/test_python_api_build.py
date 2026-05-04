@@ -25,7 +25,7 @@ from idegym.api.resources import KubernetesResources, ResourceQuantities
 from idegym.api.status import Status
 from idegym.image.builder import Image
 from idegym.image.docker_api import IdeGYMDockerAPI
-from idegym.image.plugins import BaseSystem, IdeGYMServer, Permissions, Project, User
+from idegym.plugins.defaults.image import BaseSystem, IdeGYMServer, Permissions, Project, User
 from utils.constants import (
     DEFAULT_NAMESPACE,
     DEFAULT_SERVER_START_TIMEOUT,

@@ -1,7 +1,7 @@
 [project]
-name = "idegym-image-builder"
+name = "idegym-plugin-pycharm"
 version = "0.0.0.dev0"
-description = "IdeGYM Image Builder"
+description = "IdeGYM PyCharm Plugin (image + server + client)"
 authors = [
     { name = "Ozren Dabić", email = "ozren.dabic@jetbrains.com" },
     { name = "Vladimir Poliakov", email = "vladimir.poliakov@jetbrains.com" },
@@ -11,13 +11,23 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "idegym-api",
-    "idegym-common-utils",
     "idegym-plugin-defaults",
-    "jinja2>=3.1.5",
     "pydantic>=2.10.6",
-    "python-on-whales>=0.78.0",
-    "pyyaml>=6.0.2",
 ]
+
+[project.optional-dependencies]
+server = [
+    "fastapi[standard]>=0.135.2",
+]
+
+[project.entry-points."idegym.plugins.image"]
+pycharm = "idegym.plugins.pycharm.image:PyCharm"
+
+[project.entry-points."idegym.plugins.server"]
+pycharm = "idegym.plugins.pycharm.server:PyCharmPlugin"
+
+[project.entry-points."idegym.plugins.client"]
+pycharm = "idegym.plugins.pycharm.client:PycharmClientOperations"
 
 [build-system]
 requires = ["hatchling"]

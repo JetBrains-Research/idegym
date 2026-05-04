@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass, field, replace
 from typing import Any, Optional, Self
 
@@ -57,17 +58,29 @@ class BuildContext:
 
 
 class PluginBase(BaseModel):
-    """Base class for image build plugins.
+    """Base class for IdeGYM plugins.
 
-    Subclass ``PluginBase`` and register with the ``@image_plugin`` decorator to make a plugin
-    available for YAML deserialization and use with ``Image.with_plugin()``.
+    A plugin can participate in three integration points, each optional:
 
-    Override ``apply()`` to update the ``BuildContext`` (e.g. set the active user, store a
-    download request). Override ``render()`` to emit Dockerfile instructions as a string.
-    Both methods receive the context *after* it has been updated by ``apply()``.
+    1. **Image building** — override ``apply()`` and ``render()`` to emit Dockerfile
+       instructions. Register the class with ``@image_plugin`` so it can be used in YAML
+       image definitions.
 
-    The default implementations are no-ops: ``apply`` returns the context unchanged and
-    ``render`` returns an empty string.
+    2. **Server endpoints** — a companion ``@server_plugin`` class in the same package
+       can provide a FastAPI ``APIRouter``. The server discovers server plugins via the
+       ``idegym.plugins.server`` entry point group and the ``/etc/idegym/plugins.json``
+       config file written by ``IdeGYMServer`` at image build time.
+
+    3. **MCP upstream declaration** — override ``get_mcp_upstream()`` to return the URL
+       where this plugin's MCP server is accessible inside the running container. The image
+       builder will automatically write
+       ``/etc/idegym/mcp-upstreams.d/<plugin-name>.json`` into the image.
+
+    Typed client operations (e.g. ``server.pycharm``) are discovered by ``IdeGYMServer``
+    via the ``idegym.plugins.client`` entry point group — no method override needed.
+
+    All methods have no-op defaults, so a plugin can implement only the integration
+    points it needs.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -80,6 +93,17 @@ class PluginBase(BaseModel):
         """Return Dockerfile instructions for this plugin, or an empty string."""
         return ""
 
+    @classmethod
+    def get_mcp_upstream(cls) -> Optional[str]:
+        """Return the MCP server URL accessible inside the container, or ``None``.
+
+        Example: ``"http://localhost:6789/mcp"``
+
+        When non-``None``, ``Image.to_spec()`` automatically emits a Dockerfile instruction
+        that writes ``/etc/idegym/mcp-upstreams.d/<plugin-name>.json`` with the URL.
+        """
+        return None
+
     def to_payload(self) -> dict[str, Any]:
         return self.model_dump(mode="json")
 
@@ -88,15 +112,23 @@ class PluginBase(BaseModel):
         return cls.model_validate(payload)
 
 
+# ---------------------------------------------------------------------------
+# Image-build plugin registry
+# ---------------------------------------------------------------------------
+
 _PLUGIN_REGISTRY: dict[str, type[PluginBase]] = {}
 _PLUGIN_TYPE_NAMES: dict[type[PluginBase], str] = {}
+
+# Safe plugin name: lowercase letter, followed by up to 62 lowercase letters/digits/hyphens.
+# Used both at registration time and when writing MCP upstream config filenames.
+SAFE_PLUGIN_NAME_RE = re.compile(r"^[a-z][a-z0-9-]{0,62}$")
 
 
 def image_plugin(type_name: str):
     """Class decorator that registers a ``PluginBase`` subclass under ``type_name``.
 
     The registered name is used as the ``type`` field when serializing/deserializing plugins
-    in YAML image definitions. Raises ``ValueError`` if the name is already taken.
+    in YAML image definitions. Raises ``ValueError`` if the name is already taken or invalid.
 
     Example::
 
@@ -106,6 +138,11 @@ def image_plugin(type_name: str):
     """
 
     def decorator(cls: type[PluginBase]) -> type[PluginBase]:
+        if not SAFE_PLUGIN_NAME_RE.match(type_name):
+            raise ValueError(
+                f"Plugin type name {type_name!r} is invalid. "
+                "Must match ^[a-z][a-z0-9-]{0,62}$ (lowercase letters, digits, hyphens; starts with a letter)."
+            )
         existing = _PLUGIN_REGISTRY.get(type_name)
         if existing:
             raise ValueError(f"Plugin type '{type_name}' is already registered by {existing.__name__}")
@@ -131,3 +168,48 @@ def get_plugin_type_name(plugin_or_class: PluginBase | type[PluginBase]) -> str:
         return _PLUGIN_TYPE_NAMES[cls]
     except KeyError as ex:
         raise KeyError(f"Plugin type is not registered for {cls.__name__}") from ex
+
+
+def get_all_registered_plugin_classes() -> list[type[PluginBase]]:
+    """Return all plugin classes registered with ``@image_plugin``."""
+    return list(_PLUGIN_REGISTRY.values())
+
+
+# ---------------------------------------------------------------------------
+# Server plugin registry
+# ---------------------------------------------------------------------------
+
+_SERVER_PLUGIN_REGISTRY: list[type] = []
+
+
+def server_plugin(cls: type) -> type:
+    """Class decorator that registers a class as a server plugin.
+
+    A server plugin is any class that implements ``get_server_router()``. Server plugins
+    contribute FastAPI routers to the running server.
+
+    Server plugins are loaded at server startup from the ``idegym.plugins.server`` entry
+    point group, filtered by the ``/etc/idegym/plugins.json`` config file.
+
+    Example::
+
+        @server_plugin
+        class ToolsPlugin:
+            @classmethod
+            def get_server_router(cls):
+                return tools.router
+    """
+    if cls in _SERVER_PLUGIN_REGISTRY:
+        raise ValueError(f"Server plugin {cls.__name__} is already registered")
+    _SERVER_PLUGIN_REGISTRY.append(cls)
+    return cls
+
+
+def get_all_server_plugins() -> list[type]:
+    """Return all classes registered with ``@server_plugin``.
+
+    The server calls ``plugin_cls.get_server_router()`` on each and mounts non-``None``
+    results. Only plugins whose entry point was loaded (based on the plugins config) are
+    returned.
+    """
+    return list(_SERVER_PLUGIN_REGISTRY)

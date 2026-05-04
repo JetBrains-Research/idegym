@@ -1,6 +1,11 @@
-from typing import Annotated
+"""FastAPI router for rewards endpoints.
 
-from dependency_injector.wiring import Provide, inject
+Uses FastAPI's native ``dependency_overrides`` mechanism instead of
+``dependency_injector``. The server registers the real ``RewardService``
+implementation via ``app.dependency_overrides[_get_reward_service] = ...``
+before starting to serve requests.
+"""
+
 from fastapi import APIRouter, Depends
 from idegym.api.paths import RewardsPath
 from idegym.api.rewards.compilation import CompilationRequest, CompilationResult
@@ -8,16 +13,18 @@ from idegym.api.rewards.setup import SetupRequest, SetupResult
 from idegym.api.rewards.test import TestReport, TestRequest, TestScores
 from idegym.rewards.reward_service import RewardName, RewardService
 
-from server.dependencies import Container
-
 router = APIRouter()
 
 
+async def _get_reward_service() -> RewardService:
+    """Stub dependency — server overrides this via ``app.dependency_overrides``."""
+    raise RuntimeError("reward_service not configured")
+
+
 @router.post(RewardsPath.COMPILATION)
-@inject
 async def compilation_reward(
     request: CompilationRequest,
-    service: Annotated[RewardService, Depends(Provide[Container.reward_service])],
+    service: RewardService = Depends(_get_reward_service),
 ):
     reward = await service.collect_reward(
         reward_name=RewardName.COMPILATION,
@@ -30,10 +37,9 @@ async def compilation_reward(
 
 
 @router.post(RewardsPath.SETUP)
-@inject
 async def setup_reward(
     request: SetupRequest,
-    service: Annotated[RewardService, Depends(Provide[Container.reward_service])],
+    service: RewardService = Depends(_get_reward_service),
 ):
     reward = await service.collect_reward(
         reward_name=RewardName.SETUP,
@@ -46,10 +52,9 @@ async def setup_reward(
 
 
 @router.post(RewardsPath.TEST)
-@inject
 async def unit_test_reward(
     request: TestRequest,
-    service: Annotated[RewardService, Depends(Provide[Container.reward_service])],
+    service: RewardService = Depends(_get_reward_service),
 ):
     reward = await service.collect_reward(
         reward_name=RewardName.TEST,

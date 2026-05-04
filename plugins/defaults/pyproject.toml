@@ -1,0 +1,40 @@
+[project]
+name = "idegym-plugin-defaults"
+version = "0.0.0.dev0"
+description = "IdeGYM Default Plugins (image + server)"
+authors = [
+    { name = "Ozren Dabić", email = "ozren.dabic@jetbrains.com" },
+    { name = "Vladimir Poliakov", email = "vladimir.poliakov@jetbrains.com" },
+    { name = "Vseslav Kasatskii", email = "vseslav.kasatskii@jetbrains.com" },
+    { name = "Daniil Mironov", email = "daniil.mironov@jetbrains.com" },
+]
+requires-python = ">=3.12"
+dependencies = [
+    "idegym-api",
+    "pydantic>=2.10.6",
+]
+
+[project.optional-dependencies]
+server = [
+    "idegym-tools[server]",
+    "idegym-rewards[server]",
+]
+
+[project.entry-points."idegym.plugins.image"]
+base-system = "idegym.plugins.defaults.image:BaseSystem"
+user = "idegym.plugins.defaults.image:User"
+permissions = "idegym.plugins.defaults.image:Permissions"
+mcp-upstream = "idegym.plugins.defaults.image:MCPUpstream"
+project = "idegym.plugins.defaults.image:Project"
+idegym-server = "idegym.plugins.defaults.image:IdeGYMServer"
+
+[project.entry-points."idegym.plugins.server"]
+tools = "idegym.plugins.defaults.server:ToolsPlugin"
+rewards = "idegym.plugins.defaults.server:RewardsPlugin"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/idegym"]

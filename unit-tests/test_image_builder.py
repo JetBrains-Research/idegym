@@ -2,10 +2,11 @@ import subprocess
 import sys
 from textwrap import dedent
 
+from idegym.api.plugin import BuildContext, PluginBase, get_all_server_plugins, image_plugin, server_plugin
 from idegym.image.builder import Image
-from idegym.image.plugin import BuildContext, PluginBase
-from idegym.image.plugins import BaseSystem, IdeGYMServer, Permissions, Project, PyCharm, User
 from idegym.image.serialization import deserialize_plugin, serialize_plugin
+from idegym.plugins.defaults.image import BaseSystem, IdeGYMServer, MCPUpstream, Permissions, Project, User
+from idegym.plugins.pycharm.image import PyCharm
 from pytest import mark, param, raises
 
 # ---------------------------------------------------------------------------
@@ -656,10 +657,17 @@ def test_pycharm_render_contains_install_steps():
     ctx = BuildContext(base="debian:bookworm-slim")
     fragment = plugin.render(ctx)
     assert 'PYCHARM_VERSION="2024.1"' in fragment
-    assert "pycharm-professional" in fragment
-    assert "sdkman" in fragment.lower()
+    assert "pycharm-professional-2024.1.tar.gz" in fragment
     assert "JAVA_HOME" in fragment
     assert "PYCHARM_DIR" in fragment
+    # Must not use the curl-pipe-bash pattern (supply chain risk)
+    assert "get.sdkman.io" not in fragment
+    assert "| bash" not in fragment
+    # Must verify the tarball checksum before extracting
+    assert "sha256sum" in fragment
+    assert ".sha256" in fragment
+    # Java must come from PyCharm's bundled JBR, not an external install
+    assert "/jbr" in fragment
 
 
 def test_pycharm_render_switches_back_to_current_user():
@@ -1113,3 +1121,510 @@ def test_idegym_server_from_git_serialize_round_trip():
     restored = deserialize_plugin(payload)
     assert type(restored) is IdeGYMServer
     assert restored == plugin
+
+
+# ---------------------------------------------------------------------------
+# MCPUpstream plugin
+# ---------------------------------------------------------------------------
+
+
+def test_mcp_upstream_render_writes_config_file():
+    plugin = MCPUpstream(name="my-tool", url="http://localhost:9000/mcp")
+    ctx = BuildContext(base="debian:bookworm-slim")
+    fragment = plugin.render(ctx)
+    assert "mkdir -p /etc/idegym/mcp-upstreams.d" in fragment
+    assert "/etc/idegym/mcp-upstreams.d/my-tool.json" in fragment
+    assert "http://localhost:9000/mcp" in fragment
+
+
+def test_mcp_upstream_render_valid_json_in_fragment():
+    import json
+
+    plugin = MCPUpstream(name="svc", url="http://localhost:1234/mcp")
+    ctx = BuildContext(base="debian:bookworm-slim")
+    fragment = plugin.render(ctx)
+    # The JSON blob should be present and well-formed
+    assert '"url"' in fragment
+    assert json.dumps({"url": "http://localhost:1234/mcp"}) in fragment
+
+
+def test_mcp_upstream_invalid_name_raises():
+    with raises(Exception):
+        MCPUpstream(name="My_Tool", url="http://localhost/mcp")  # uppercase not allowed
+
+
+def test_mcp_upstream_invalid_name_with_slash_raises():
+    with raises(Exception):
+        MCPUpstream(name="path/traversal", url="http://localhost/mcp")
+
+
+def test_mcp_upstream_serialize_round_trip():
+    plugin = MCPUpstream(name="test-svc", url="http://localhost:8080/mcp")
+    payload = serialize_plugin(plugin)
+    assert payload["type"] == "mcp-upstream"
+    restored = deserialize_plugin(payload)
+    assert type(restored) is MCPUpstream
+    assert restored == plugin
+
+
+# ---------------------------------------------------------------------------
+# PluginBase.get_mcp_upstream default
+# ---------------------------------------------------------------------------
+
+
+def test_plugin_base_get_mcp_upstream_default_is_none():
+    assert PluginBase.get_mcp_upstream() is None
+
+
+# ---------------------------------------------------------------------------
+# PyCharm MCP upstream / server plugin router
+# ---------------------------------------------------------------------------
+
+
+def test_pycharm_get_mcp_upstream():
+    assert PyCharm.get_mcp_upstream() == "http://localhost:6789/mcp"
+
+
+def test_pycharm_server_plugin_get_server_router_returns_router():
+    from idegym.plugins.pycharm.server import PyCharmPlugin
+
+    # FastAPI is available in the test environment (server is installed)
+    router = PyCharmPlugin.get_server_router()
+    assert router is not None
+    route_paths = [r.path for r in router.routes]
+    assert "/pycharm/health" in route_paths
+
+
+# ---------------------------------------------------------------------------
+# Image.to_spec() auto-emits MCP upstream config
+# ---------------------------------------------------------------------------
+
+
+def test_to_spec_auto_emits_mcp_config_for_plugin_with_mcp_upstream():
+    """When a plugin declares get_mcp_upstream(), to_spec() writes the config file."""
+    image = Image.from_base("debian:bookworm-slim").with_plugin(PyCharm())
+    spec = image.to_spec()
+    assert "/etc/idegym/mcp-upstreams.d/pycharm.json" in spec.dockerfile_content
+    assert "http://localhost:6789/mcp" in spec.dockerfile_content
+
+
+def test_to_spec_mcp_config_not_emitted_for_plugin_without_upstream():
+    """Plugins that return None from get_mcp_upstream() do not produce a config fragment."""
+    image = Image.from_base("debian:bookworm-slim").with_plugin(BaseSystem())
+    spec = image.to_spec()
+    assert "/etc/idegym/mcp-upstreams.d/" not in spec.dockerfile_content
+
+
+def test_to_spec_mcp_config_uses_registered_type_name():
+    """The config file is named after the plugin's registered type name."""
+    image = Image.from_base("debian:bookworm-slim").with_plugin(PyCharm())
+    spec = image.to_spec()
+    # "pycharm" is the registered @image_plugin name
+    assert "mcp-upstreams.d/pycharm.json" in spec.dockerfile_content
+
+
+def test_to_spec_explicit_mcp_upstream_plugin():
+    """MCPUpstream plugin generates its config fragment in the Dockerfile."""
+    plugin = MCPUpstream(name="test-svc", url="http://localhost:8080/mcp")
+    image = Image.from_base("debian:bookworm-slim").with_plugin(plugin)
+    spec = image.to_spec()
+    assert "mcp-upstreams.d/test-svc.json" in spec.dockerfile_content
+    assert "http://localhost:8080/mcp" in spec.dockerfile_content
+
+
+def test_mcp_fragment_no_user_switch_when_root():
+    """When current_user is root, _mcp_upstream_fragment emits no USER directives."""
+    from idegym.image.builder import _mcp_upstream_fragment
+
+    ctx = BuildContext(base="debian:bookworm-slim", current_user="root")
+    fragment = _mcp_upstream_fragment(PyCharm(), ctx)
+    assert "mcp-upstreams.d/pycharm.json" in fragment
+    assert "USER" not in fragment
+
+
+def test_mcp_fragment_wraps_with_user_switch_for_non_root():
+    """When current_user is not root, _mcp_upstream_fragment wraps with USER root / USER <user>."""
+    from idegym.image.builder import _mcp_upstream_fragment
+
+    ctx = BuildContext(base="debian:bookworm-slim", current_user="appuser")
+    fragment = _mcp_upstream_fragment(PyCharm(), ctx)
+    assert "mcp-upstreams.d/pycharm.json" in fragment
+    assert "USER root" in fragment
+    assert "USER appuser" in fragment
+    # USER root must precede the write; USER appuser must follow it
+    write_idx = fragment.index("mcp-upstreams.d/pycharm.json")
+    assert fragment.index("USER root") < write_idx
+    assert fragment.rindex("USER appuser") > write_idx
+
+
+# ---------------------------------------------------------------------------
+# @image_plugin name validation (fail-fast at registration time)
+# ---------------------------------------------------------------------------
+
+
+def test_image_plugin_rejects_name_with_slash():
+    with raises(ValueError, match="invalid"):
+
+        @image_plugin("path/traversal")
+        class _BadPlugin(PluginBase):
+            pass
+
+
+def test_image_plugin_rejects_name_with_dotdot():
+    with raises(ValueError, match="invalid"):
+
+        @image_plugin("../escape")
+        class _BadPlugin2(PluginBase):
+            pass
+
+
+def test_image_plugin_rejects_name_starting_with_digit():
+    with raises(ValueError, match="invalid"):
+
+        @image_plugin("1starts-with-digit")
+        class _BadPlugin3(PluginBase):
+            pass
+
+
+def test_image_plugin_rejects_uppercase_name():
+    with raises(ValueError, match="invalid"):
+
+        @image_plugin("MyPlugin")
+        class _BadPlugin4(PluginBase):
+            pass
+
+
+def test_image_plugin_accepts_valid_name():
+    @image_plugin("test-valid-name-99")
+    class _GoodPlugin(PluginBase):
+        pass
+
+    # Verify it was registered without error (clean up to avoid polluting other tests)
+    from idegym.api.plugin import _PLUGIN_REGISTRY, _PLUGIN_TYPE_NAMES
+
+    _PLUGIN_REGISTRY.pop("test-valid-name-99", None)
+    _PLUGIN_TYPE_NAMES.pop(_GoodPlugin, None)
+
+
+# ---------------------------------------------------------------------------
+# _mcp_upstream_fragment path-traversal guard
+# ---------------------------------------------------------------------------
+
+
+def test_to_spec_raises_for_unregistered_plugin_with_unsafe_class_name():
+    """An unregistered plugin whose class name is not a safe filename raises ValueError at to_spec()."""
+
+    class UnsafeNamePlugin_With_Underscores(PluginBase):
+        @classmethod
+        def get_mcp_upstream(cls) -> str:
+            return "http://localhost:1234/mcp"
+
+    image = Image.from_base("debian:bookworm-slim").with_plugin(UnsafeNamePlugin_With_Underscores())
+    with raises(ValueError, match="safe filename"):
+        image.to_spec()
+
+
+# ---------------------------------------------------------------------------
+# Server plugin registry
+# ---------------------------------------------------------------------------
+
+
+def test_server_plugin_decorator_registers_class():
+    @server_plugin
+    class _TestPlugin:
+        @classmethod
+        def get_server_router(cls):
+            return "dummy-router"
+
+    all_plugins = get_all_server_plugins()
+    assert _TestPlugin in all_plugins
+
+
+def test_get_all_server_plugins_nonempty():
+    import idegym.plugins.defaults.server  # noqa: F401 — registers ToolsPlugin, RewardsPlugin
+
+    assert len(get_all_server_plugins()) > 0
+
+
+# ---------------------------------------------------------------------------
+# PycharmClientOperations
+# ---------------------------------------------------------------------------
+
+
+def test_pycharm_client_operations_health_calls_forward():
+    """PycharmClientOperations.health() calls forward_request with the expected arguments."""
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    from idegym.plugins.pycharm.client import PycharmClientOperations
+
+    mock_forward = MagicMock()
+    mock_forward.forward_request = AsyncMock(return_value={"mcp_url": "http://localhost:6789/mcp"})
+
+    ops = PycharmClientOperations(
+        forward=mock_forward,
+        server_id=42,
+        client_id=None,
+        polling_config=None,
+    )
+
+    result = asyncio.run(ops.health())
+
+    assert result == {"mcp_url": "http://localhost:6789/mcp"}
+    mock_forward.forward_request.assert_called_once_with(
+        method="GET",
+        server_id=42,
+        path="pycharm/health",
+        client_id=None,
+        polling_config=None,
+    )
+
+
+def test_pycharm_client_operations_class_is_instantiable_with_mocks():
+    """PycharmClientOperations accepts duck-typed constructor args without importing client."""
+    from unittest.mock import MagicMock
+
+    from idegym.plugins.pycharm.client import PycharmClientOperations
+
+    ops = PycharmClientOperations(
+        forward=MagicMock(),
+        server_id=1,
+        client_id=MagicMock(),
+        polling_config=MagicMock(),
+    )
+    assert ops._server_id == 1
+
+
+# ---------------------------------------------------------------------------
+# @server_plugin / get_all_server_plugins scope isolation
+# ---------------------------------------------------------------------------
+
+
+def test_server_plugin_class_not_in_image_registry():
+    """A class decorated with @server_plugin does not appear in the image plugin registry."""
+    from idegym.api.plugin import get_all_registered_plugin_classes
+
+    @server_plugin
+    class _ScopeIsolationServerPlugin:
+        @classmethod
+        def get_server_router(cls):
+            return None
+
+    assert _ScopeIsolationServerPlugin not in get_all_registered_plugin_classes()
+
+
+def test_image_plugin_not_in_server_registry():
+    """PyCharm (image plugin, not a @server_plugin) does not appear in get_all_server_plugins()."""
+    all_server = get_all_server_plugins()
+    assert PyCharm not in all_server
+
+
+def test_get_all_server_plugins_does_not_include_builtin_image_plugins():
+    """Built-in image plugins (BaseSystem, User, etc.) are not in the server plugin list."""
+    all_server = get_all_server_plugins()
+    image_only_classes = [BaseSystem, User, Permissions, MCPUpstream, Project]
+    for cls in image_only_classes:
+        assert cls not in all_server, f"{cls.__name__} should not be in server plugin registry"
+
+
+# ---------------------------------------------------------------------------
+# PyCharm.apply() — extras accumulation for plugins.json
+# ---------------------------------------------------------------------------
+
+
+def test_pycharm_apply_adds_enabled_server_plugins_extra():
+    """apply() sets 'pycharm' in idegym.enabled_server_plugins list."""
+    ctx = BuildContext(base="debian:bookworm-slim")
+    result = PyCharm().apply(ctx)
+    assert result.get_extra("idegym.enabled_server_plugins") == ["pycharm"]
+
+
+def test_pycharm_apply_is_idempotent():
+    """Calling apply() twice does not duplicate 'pycharm' in the extras list."""
+    ctx = BuildContext(base="debian:bookworm-slim")
+    ctx1 = PyCharm().apply(ctx)
+    ctx2 = PyCharm().apply(ctx1)
+    assert ctx2.get_extra("idegym.enabled_server_plugins") == ["pycharm"]
+
+
+def test_pycharm_apply_does_not_modify_original_context():
+    """apply() returns a new context; the original is unchanged (immutability)."""
+    ctx = BuildContext(base="debian:bookworm-slim")
+    PyCharm().apply(ctx)
+    assert ctx.get_extra("idegym.enabled_server_plugins") is None
+
+
+def test_pycharm_apply_preserves_other_extras():
+    """apply() does not remove unrelated extras from the context."""
+    ctx = BuildContext(base="debian:bookworm-slim").with_extra("custom.key", "value")
+    result = PyCharm().apply(ctx)
+    assert result.get_extra("custom.key") == "value"
+
+
+def test_non_pycharm_plugins_do_not_set_server_plugins_extra():
+    """Image plugins other than PyCharm do not touch idegym.enabled_server_plugins."""
+    ctx = BuildContext(base="debian:bookworm-slim")
+    plugins = [
+        BaseSystem(),
+        User(username="appuser"),
+        Permissions(paths={"/tmp": {"owner": "appuser"}}),
+        MCPUpstream(name="svc", url="http://x"),
+    ]
+    for plugin in plugins:
+        result = plugin.apply(ctx)
+        assert result.get_extra("idegym.enabled_server_plugins") is None, (
+            f"{type(plugin).__name__}.apply() should not set idegym.enabled_server_plugins"
+        )
+
+
+# ---------------------------------------------------------------------------
+# IdeGYMServer._render_plugins_config()
+# ---------------------------------------------------------------------------
+
+
+def _git_idegym_server() -> IdeGYMServer:
+    """Return a minimal IdeGYMServer configured for git source (avoids local path checks)."""
+    return IdeGYMServer.from_git(url="https://example.com/idegym.git", ref="HEAD")
+
+
+def test_idegym_server_render_plugins_config_defaults():
+    """Without any extras, plugins config contains only tools and rewards."""
+    ctx = BuildContext(base="debian:bookworm-slim")
+    fragment = _git_idegym_server()._render_plugins_config(ctx)
+    assert '"server": ["tools", "rewards"]' in fragment
+
+
+def test_idegym_server_render_plugins_config_includes_pycharm_when_in_extras():
+    """With pycharm in idegym.enabled_server_plugins extras, config includes pycharm after base plugins."""
+    ctx = BuildContext(base="debian:bookworm-slim").with_extra("idegym.enabled_server_plugins", ["pycharm"])
+    fragment = _git_idegym_server()._render_plugins_config(ctx)
+    assert '"server": ["tools", "rewards", "pycharm"]' in fragment
+
+
+def test_idegym_server_render_plugins_config_no_duplicates_for_base_plugins():
+    """tools and rewards are not duplicated even if they appear in extras."""
+    ctx = BuildContext(base="debian:bookworm-slim").with_extra(
+        "idegym.enabled_server_plugins", ["tools", "pycharm", "rewards"]
+    )
+    fragment = _git_idegym_server()._render_plugins_config(ctx)
+    assert '"server": ["tools", "rewards", "pycharm"]' in fragment
+    assert fragment.count('"tools"') == 1
+    assert fragment.count('"rewards"') == 1
+
+
+def test_idegym_server_render_plugins_config_base_plugins_always_first():
+    """tools and rewards always appear before extra plugins in the JSON config."""
+    ctx = BuildContext(base="debian:bookworm-slim").with_extra("idegym.enabled_server_plugins", ["pycharm"])
+    fragment = _git_idegym_server()._render_plugins_config(ctx)
+    tools_pos = fragment.index('"tools"')
+    rewards_pos = fragment.index('"rewards"')
+    pycharm_pos = fragment.index('"pycharm"')
+    assert tools_pos < rewards_pos < pycharm_pos
+
+
+def test_idegym_server_render_plugins_config_produces_valid_json():
+    """The generated fragment embeds syntactically valid JSON."""
+    import json
+    import re
+
+    ctx = BuildContext(base="debian:bookworm-slim").with_extra("idegym.enabled_server_plugins", ["pycharm"])
+    fragment = _git_idegym_server()._render_plugins_config(ctx)
+    # Extract the JSON string from the printf '...' command
+    match = re.search(r"printf '%s\\n' '({.*?})'", fragment)
+    assert match is not None, f"Could not find JSON in plugins config fragment:\n{fragment}"
+    parsed = json.loads(match.group(1))
+    assert parsed == {"server": ["tools", "rewards", "pycharm"]}
+
+
+def test_idegym_server_render_plugins_config_chowns_to_current_user():
+    """plugins.json and its parent dir are chowned to ctx.current_user so appuser can overwrite it later."""
+    ctx = BuildContext(base="debian:bookworm-slim", current_user="appuser")
+    fragment = _git_idegym_server()._render_plugins_config(ctx)
+    assert "chown appuser:appuser /etc/idegym /etc/idegym/plugins.json" in fragment
+
+
+def test_idegym_server_render_plugins_config_chowns_with_separate_group():
+    """When a custom group is set via extras, chown uses user:group."""
+    ctx = BuildContext(base="debian:bookworm-slim", current_user="appuser").with_extra("idegym.user.group", "staff")
+    fragment = _git_idegym_server()._render_plugins_config(ctx)
+    assert "chown appuser:staff /etc/idegym /etc/idegym/plugins.json" in fragment
+
+
+# ---------------------------------------------------------------------------
+# plugins.json written inside full Image.to_spec() pipeline
+# ---------------------------------------------------------------------------
+
+
+def test_to_spec_idegym_server_from_git_writes_plugins_json():
+    """to_spec() with IdeGYMServer from git writes /etc/idegym/plugins.json with tools+rewards."""
+    image = Image.from_base("debian:bookworm-slim").with_plugin(
+        IdeGYMServer.from_git(url="https://example.com/idegym.git", ref="HEAD")
+    )
+    spec = image.to_spec()
+    assert "/etc/idegym/plugins.json" in spec.dockerfile_content
+    assert '"tools"' in spec.dockerfile_content
+    assert '"rewards"' in spec.dockerfile_content
+
+
+def test_to_spec_pycharm_before_idegym_server_writes_pycharm_to_plugins_json():
+    """When PyCharm appears before IdeGYMServer in the pipeline, pycharm is added to plugins.json."""
+    image = (
+        Image.from_base("debian:bookworm-slim")
+        .with_plugin(PyCharm())
+        .with_plugin(IdeGYMServer.from_git(url="https://example.com/idegym.git", ref="HEAD"))
+    )
+    spec = image.to_spec()
+    assert '"pycharm"' in spec.dockerfile_content
+    # Verify the full expected list appears
+    assert '"server": ["tools", "rewards", "pycharm"]' in spec.dockerfile_content
+
+
+def test_to_spec_no_pycharm_plugin_omits_pycharm_from_plugins_json():
+    """Without a PyCharm plugin in the pipeline, pycharm does not appear in plugins.json."""
+    image = (
+        Image.from_base("debian:bookworm-slim")
+        .with_plugin(User(username="appuser"))
+        .with_plugin(IdeGYMServer.from_git(url="https://example.com/idegym.git", ref="HEAD"))
+    )
+    spec = image.to_spec()
+    # Only base plugins in the JSON
+    assert '"server": ["tools", "rewards"]' in spec.dockerfile_content
+    # pycharm must NOT appear in the JSON itself (may appear in MCP config elsewhere)
+    assert '"pycharm"' not in spec.dockerfile_content
+
+
+# ---------------------------------------------------------------------------
+# Entry_points — all expected image plugins registered after builder import
+# ---------------------------------------------------------------------------
+
+
+def test_all_expected_image_plugins_are_registered():
+    """All default and optional image plugins are registered in the @image_plugin registry."""
+    from idegym.api.plugin import get_plugin_class
+
+    expected_names = ["base-system", "user", "permissions", "mcp-upstream", "project", "idegym-server", "pycharm"]
+    for name in expected_names:
+        assert get_plugin_class(name) is not None, f"Image plugin '{name}' not found in registry"
+
+
+def test_image_plugin_registry_maps_pycharm_name_to_pycharm_class():
+    """The 'pycharm' key in the image plugin registry resolves to the PyCharm class."""
+    from idegym.api.plugin import get_plugin_class
+
+    assert get_plugin_class("pycharm") is PyCharm
+
+
+def test_image_plugin_registry_maps_default_names_to_correct_classes():
+    """Each default image plugin name maps to its expected class."""
+    from idegym.api.plugin import get_plugin_class
+
+    expected = {
+        "base-system": BaseSystem,
+        "user": User,
+        "permissions": Permissions,
+        "mcp-upstream": MCPUpstream,
+        "project": Project,
+        "idegym-server": IdeGYMServer,
+    }
+    for name, cls in expected.items():
+        assert get_plugin_class(name) is cls, f"Expected '{name}' → {cls.__name__}"

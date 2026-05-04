@@ -1,14 +1,28 @@
+import json
+import logging as _logging
+from importlib.metadata import entry_points as _entry_points
 from pathlib import Path
+from shlex import quote
 from typing import Any, Optional, Self
 
-import idegym.image.plugins  # noqa: F401 — ensures built-in plugins are registered before deserialization
-from idegym.api.docker import BaseImage
-from idegym.api.image_build import ImageBuildSpec
-from idegym.api.type import OCIImageName
-from idegym.image.docker_api import IdeGYMDockerAPI
-from idegym.image.plugin import BuildContext, PluginBase
-from idegym.image.serialization import deserialize_plugin, dump_images, load_images, serialize_plugin
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_serializer, field_validator
+_logger = _logging.getLogger(__name__)
+
+# Load all installed image plugins (populates the @image_plugin registry).
+# Failures are isolated per plugin so an optional plugin with missing deps
+# does not prevent the core image builder from working.
+for _ep in _entry_points(group="idegym.plugins.image"):
+    try:
+        _ep.load()
+    except Exception:
+        _logger.warning("Failed to load image plugin %r", _ep.name, exc_info=True)
+
+from idegym.api.docker import BaseImage  # noqa: E402
+from idegym.api.image_build import ImageBuildSpec  # noqa: E402
+from idegym.api.plugin import SAFE_PLUGIN_NAME_RE, BuildContext, PluginBase, get_plugin_type_name  # noqa: E402
+from idegym.api.type import OCIImageName  # noqa: E402
+from idegym.image.docker_api import IdeGYMDockerAPI  # noqa: E402
+from idegym.image.serialization import deserialize_plugin, dump_images, load_images, serialize_plugin  # noqa: E402
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_serializer, field_validator  # noqa: E402
 
 # TypeAdapter reuses the OCIImageName constraints without duplicating the regex.
 # Needed because model_copy() bypasses Pydantic field validation.
@@ -21,6 +35,39 @@ def _run_block(commands: tuple[str, ...]) -> str:
         return ""
     body = " && \\\n    ".join(filtered)
     return f"RUN set -eux; \\\n    {body}"
+
+
+def _mcp_upstream_fragment(plugin: PluginBase, ctx: BuildContext) -> str:
+    """Return a Dockerfile fragment that writes the MCP upstream config file, or empty string.
+
+    The config file lives under ``/etc/idegym/mcp-upstreams.d/`` which is root-owned.
+    If the current build user is not root, the fragment wraps the ``RUN`` with
+    ``USER root`` / ``USER <current_user>`` so the write always succeeds regardless of
+    where in the pipeline the plugin sits.
+    """
+    mcp_url = type(plugin).get_mcp_upstream()
+    if mcp_url is None:
+        return ""
+    try:
+        plugin_name = get_plugin_type_name(plugin)
+    except KeyError:
+        plugin_name = type(plugin).__name__.lower()
+    if not SAFE_PLUGIN_NAME_RE.match(plugin_name):
+        raise ValueError(
+            f"Plugin name {plugin_name!r} is not a safe filename component. "
+            "Must match ^[a-z][a-z0-9-]{0,62}$ (lowercase letters, digits, hyphens; starts with a letter)."
+        )
+    config = json.dumps({"url": mcp_url})
+    run = _run_block(
+        (
+            "mkdir -p /etc/idegym/mcp-upstreams.d",
+            f"printf '%s\\n' {quote(config)} > /etc/idegym/mcp-upstreams.d/{plugin_name}.json",
+        )
+    )
+    comment = f"# Register MCP upstream: {plugin_name}"
+    if ctx.current_user == "root":
+        return f"{comment}\n{run}"
+    return f"{comment}\nUSER root\n{run}\nUSER {ctx.current_user}"
 
 
 class Image(BaseModel):
@@ -132,9 +179,11 @@ class Image(BaseModel):
     def to_spec(self) -> ImageBuildSpec:
         """Compile the image definition into an ``ImageBuildSpec``.
 
-        Runs the plugin pipeline: each plugin's ``apply()`` is called in order to accumulate the
-        final ``BuildContext``, then each plugin's ``render()`` produces a Dockerfile fragment.
-        The fragments and any ``run_commands`` are assembled into a complete Dockerfile.
+        Runs the plugin pipeline: for each plugin in order, ``apply()`` updates the
+        ``BuildContext`` and then ``render()`` is called immediately with the updated context
+        to produce a Dockerfile fragment. Each plugin's ``render()`` therefore sees only the
+        context accumulated by itself and earlier plugins. The fragments and any
+        ``run_commands`` are assembled into a complete Dockerfile.
         """
         ctx = BuildContext(base=self.base)
         fragments: list[str] = []
@@ -143,6 +192,9 @@ class Image(BaseModel):
             fragment = plugin.render(ctx).strip()
             if fragment:
                 fragments.append(fragment)
+            mcp_fragment = _mcp_upstream_fragment(plugin, ctx)
+            if mcp_fragment:
+                fragments.append(mcp_fragment)
 
         dockerfile_content = self._render_dockerfile(ctx, tuple(fragments))
         return ImageBuildSpec(

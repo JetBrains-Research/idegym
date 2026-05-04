@@ -7,8 +7,8 @@ from typing import ClassVar, Optional
 
 from idegym.api.download import Authorization, DownloadRequest
 from idegym.api.git import GitRepository, GitRepositoryResource, GitRepositorySnapshot
+from idegym.api.plugin import BuildContext, PluginBase, image_plugin
 from idegym.api.type import AuthType
-from idegym.image.plugin import BuildContext, PluginBase, image_plugin
 from pydantic import Field, field_validator
 
 # Linux username/group: starts with letter or underscore, then letters/digits/hyphens/underscores, max 32 chars.
@@ -17,8 +17,6 @@ _LINUX_IDENTIFIER_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 _DEBIAN_PACKAGE_RE = re.compile(r"^[a-z0-9][a-z0-9+.-]+$")
 # chmod mode: 3 or 4 octal digits
 _OCTAL_MODE_RE = re.compile(r"^[0-7]{3,4}$")
-# PyCharm version: YYYY.N or YYYY.N.N
-_PYCHARM_VERSION_RE = re.compile(r"^\d{4}\.\d+(\.\d+)?$")
 
 
 def _check_linux_id(value: str, field: str) -> str:
@@ -279,6 +277,54 @@ class Permissions(PluginBase):
                 commands.append(f"chmod -R {mode} {quote(path)}")
 
         return _render_run_block(commands, comment="Adjust file ownership and permissions")
+
+
+# Regex for MCP upstream service names: lowercase letters + digits + hyphens, starts with a letter.
+_MCP_SERVICE_NAME_RE = re.compile(r"^[a-z][a-z0-9-]{0,62}$")
+
+
+@image_plugin("mcp-upstream")
+class MCPUpstream(PluginBase):
+    """Write an MCP upstream configuration file into the image.
+
+    Creates ``/etc/idegym/mcp-upstreams.d/{name}.json`` containing the given URL.
+    Use this plugin to declare that a service running inside the container exposes
+    an MCP server, so the IdeGYM server (and external tooling) can discover it.
+
+    Image-build plugins that ship their own MCP server (e.g. ``pycharm``) can
+    instead override ``get_mcp_upstream()`` — the image builder will emit this
+    same config file automatically.
+
+    Attributes:
+        name: Service identifier used as the config filename (e.g. ``"my-tool"`` →
+            ``/etc/idegym/mcp-upstreams.d/my-tool.json``).
+            Must be lowercase letters, digits, and hyphens; starts with a letter.
+        url: MCP server URL accessible inside the running container
+            (e.g. ``"http://localhost:8080/mcp"``).
+    """
+
+    name: str
+    url: str
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        if not _MCP_SERVICE_NAME_RE.match(v):
+            raise ValueError(
+                f"Invalid MCP upstream name: {v!r}. "
+                r"Must match ^[a-z][a-z0-9-]{0,62}$ (lowercase letters, digits, hyphens; starts with a letter)."
+            )
+        return v
+
+    def render(self, ctx: BuildContext) -> str:
+        config = json.dumps({"url": self.url})
+        return _render_run_block(
+            [
+                "mkdir -p /etc/idegym/mcp-upstreams.d",
+                f"printf '%s\\n' {quote(config)} > /etc/idegym/mcp-upstreams.d/{self.name}.json",
+            ],
+            comment=f"Register MCP upstream: {self.name}",
+        )
 
 
 @image_plugin("project")
@@ -553,6 +599,11 @@ class IdeGYMServer(PluginBase):
     up the container's ``CMD`` / ``HEALTHCHECK``. This plugin must be the last one in the
     pipeline as it emits the full container entrypoint.
 
+    Also writes ``/etc/idegym/plugins.json`` listing the server plugins to enable at
+    runtime. Built-in plugins (``tools``, ``rewards``) are always included. Optional
+    plugins that called ``apply()`` earlier (e.g. ``PyCharm``) are read from
+    ``ctx.extras["idegym.enabled_server_plugins"]``.
+
     Use ``from_local()`` to copy from a local workspace (the build context is set to
     ``root``), or ``from_git()`` to clone from a remote repository inside the container.
     """
@@ -587,6 +638,22 @@ class IdeGYMServer(PluginBase):
                 raise ValueError("IdeGYMServer.from_git(...) requires a URL")
             return self._render_from_git(ctx, user, group)
         return self._render_from_local(ctx, user, group)
+
+    def _render_plugins_config(self, ctx: BuildContext) -> str:
+        base_plugins = ["tools", "rewards"]
+        extra_plugins = list(ctx.get_extra("idegym.enabled_server_plugins", []))
+        all_plugins = base_plugins + [p for p in extra_plugins if p not in base_plugins]
+        config = json.dumps({"server": all_plugins})
+        user = ctx.current_user
+        group = str(ctx.get_extra("idegym.user.group", user))
+        return _render_run_block(
+            [
+                "mkdir -p /etc/idegym",
+                f"printf '%s\\n' {quote(config)} > /etc/idegym/plugins.json",
+                f"chown {user}:{group} /etc/idegym /etc/idegym/plugins.json",
+            ],
+            comment="Write enabled server plugins config",
+        )
 
     def _render_from_git(self, ctx: BuildContext, user: str, group: str) -> str:
         ref = self.ref or "HEAD"
@@ -624,6 +691,7 @@ class IdeGYMServer(PluginBase):
                 _idegym_server_env(ctx.home),
                 clone_run,
                 setup,
+                self._render_plugins_config(ctx),
                 f"USER {user}\nWORKDIR $IDEGYM_PATH",
                 _idegym_server_uv_sync(),
                 _idegym_server_tail(),
@@ -654,6 +722,7 @@ class IdeGYMServer(PluginBase):
             COPY --chown={user}:{group} api api/
             COPY --chown={user}:{group} backend-utils backend-utils/
             COPY --chown={user}:{group} common-utils common-utils/
+            COPY --chown={user}:{group} plugins plugins/
             COPY --chown={user}:{group} rewards rewards/
             COPY --chown={user}:{group} tools tools/
             COPY --chown={user}:{group} server server/
@@ -663,86 +732,10 @@ class IdeGYMServer(PluginBase):
             [
                 _idegym_server_env(ctx.home),
                 local_setup,
+                self._render_plugins_config(ctx),
                 f"USER {user}\nWORKDIR $IDEGYM_PATH",
                 workspace_copies,
                 _idegym_server_uv_sync(),
                 _idegym_server_tail(),
             ]
         )
-
-
-@image_plugin("pycharm")
-class PyCharm(PluginBase):
-    """Install PyCharm IDE and Java (via SDKMAN) into the image.
-
-    Installs dependencies, downloads and extracts PyCharm, then switches back to the
-    active user. The ``USER root`` / ``USER <user>`` framing means this plugin can be
-    placed anywhere in the pipeline regardless of the current user.
-
-    Attributes:
-        version: PyCharm version string in ``YYYY.N`` or ``YYYY.N.N`` format.
-        edition: ``"professional"`` (default) or ``"community"``.
-        user: Target user to switch back to after installation. Defaults to ``ctx.current_user``.
-    """
-
-    version: str = "2025.3"
-    edition: str = "professional"
-    user: Optional[str] = None
-
-    @field_validator("version")
-    @classmethod
-    def _validate_version(cls, v: str) -> str:
-        if not _PYCHARM_VERSION_RE.match(v):
-            raise ValueError(f"Invalid PyCharm version: {v!r}. Expected format: YYYY.N or YYYY.N.N")
-        return v
-
-    @field_validator("edition")
-    @classmethod
-    def _validate_edition(cls, v: str) -> str:
-        if v not in ("professional", "community"):
-            raise ValueError(f"Invalid PyCharm edition: {v!r}. Must be 'professional' or 'community'.")
-        return v
-
-    @field_validator("user")
-    @classmethod
-    def _validate_user(cls, v: Optional[str]) -> Optional[str]:
-        if v is not None:
-            _check_linux_id(v, "user")
-        return v
-
-    def render(self, ctx: BuildContext) -> str:
-        user = self.user or ctx.current_user
-        return dedent(
-            f"""\
-            # Install PyCharm {self.edition} {self.version}
-            USER root
-            RUN set -eux; \\
-                apt-get update -qq; \\
-                apt-get install -y --no-install-recommends \\
-                    wget curl zip unzip \\
-                    libxtst6 libxrender1 libxi6 libfreetype6 fontconfig; \\
-                apt-get clean; \\
-                rm -rf /var/lib/apt/lists/*
-
-            # Install Java via SDKMAN (required for PyCharm)
-            RUN curl -s "https://get.sdkman.io" | bash && \\
-                bash -c "source /root/.sdkman/bin/sdkman-init.sh && sdk install java 21.0.5-tem"
-
-            ENV JAVA_HOME="/root/.sdkman/candidates/java/current"
-            ENV PATH="${{JAVA_HOME}}/bin:${{PATH}}"
-
-            # Download and install PyCharm
-            ENV PYCHARM_VERSION="{self.version}"
-            ENV PYCHARM_DIR="/opt/pycharm"
-            RUN wget -q "https://download.jetbrains.com/python/pycharm-{self.edition}-${{PYCHARM_VERSION}}.tar.gz" \\
-                    -O /tmp/pycharm.tar.gz && \\
-                mkdir -p ${{PYCHARM_DIR}} && \\
-                tar -xzf /tmp/pycharm.tar.gz -C ${{PYCHARM_DIR}} --strip-components=1 && \\
-                rm /tmp/pycharm.tar.gz
-
-            ENV PATH="${{PYCHARM_DIR}}/bin:${{PATH}}"
-            ENV DISPLAY=":99"
-
-            USER {user}
-            """
-        ).strip()
