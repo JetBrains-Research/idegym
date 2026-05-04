@@ -236,6 +236,7 @@ async def deploy_server(
     resources: Union[V1ResourceRequirements, dict[str, Any], None] = None,
     environment_variables: Iterable[Union[V1EnvVar, dict[str, Any]]] = (),
     server_kind: ServerKind = ServerKind.IDEGYM,
+    snapshot_id: str = "",
 ):
     """
     Create a Kubernetes Deployment, Service, and PodDisruptionBudget for a server.
@@ -299,6 +300,7 @@ async def deploy_server(
     labels = {
         **match_labels,
         "app.kubernetes.io/version": __version__,
+        "idegym.jetbrains.com/snapshot-id": snapshot_id,
     }
 
     toleration = (

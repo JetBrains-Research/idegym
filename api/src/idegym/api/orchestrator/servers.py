@@ -37,6 +37,15 @@ class StartServerRequest(BaseModel):
         description="What to do with an existing matching server instead of starting a new one",
     )
     server_kind: ServerKind = Field(default=ServerKind.IDEGYM, description="Server type: idegym or openenv")
+    snapshot_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "GCP ONLY: Enable pod-snapshotting [Link to docs TBA]."
+            "This field is used to restore a server from a snapshot."
+            "The value of this field is the ID of the server whose snapshot you want to reuse."
+            "Leave it empty to start a new server."
+        ),
+    )
 
 
 class StopServerRequest(BaseModel):

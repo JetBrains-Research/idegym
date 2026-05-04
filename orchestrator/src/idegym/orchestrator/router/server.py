@@ -279,6 +279,7 @@ async def _task_start_server(config: Config, request: StartServerRequest, async_
             )
 
             service_account_name = pod_snapshot.service_account_name if pod_snapshot.enabled else None
+            snapshot_id = request.snapshot_id or str(server_id)
 
             await deploy_server(
                 image_tag=request.image_tag,
@@ -295,6 +296,7 @@ async def _task_start_server(config: Config, request: StartServerRequest, async_
                 resources=request.resources,
                 environment_variables=environment_variables,
                 server_kind=request.server_kind,
+                snapshot_id=snapshot_id,
             )
 
             await wait_for_pods_ready(
