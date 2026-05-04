@@ -37,18 +37,18 @@ import subprocess
 
 import pytest
 from from_root import from_root
+from idegym.api.resources import KubernetesResources, ResourceQuantities
 from idegym.image.builder import Image
 from idegym.image.docker_api import IdeGYMDockerAPI
 from idegym.plugins.defaults.image import IdeGYMServer, MCPUpstream, User
-from kubernetes_asyncio.client import V1ResourceRequirements
 from utils.constants import DEFAULT_SERVER_START_TIMEOUT
 from utils.idegym_utils import create_http_client
 
 _LOCAL_BASE_IMAGE = "ghcr.io/jetbrains-research/idegym/server-debian-bookworm-20250520-slim:latest"
 
-_DEFAULT_RESOURCES = V1ResourceRequirements(
-    requests={"cpu": "500m", "memory": "500Mi", "ephemeral-storage": "1Gi"},
-    limits={"cpu": "500m", "memory": "500Mi", "ephemeral-storage": "1Gi"},
+_DEFAULT_RESOURCES = KubernetesResources(
+    requests=ResourceQuantities(cpu="500m", memory="500Mi", ephemeral_storage="1Gi"),
+    limits=ResourceQuantities(cpu="500m", memory="500Mi", ephemeral_storage="1Gi"),
 )
 
 
