@@ -1,7 +1,8 @@
 from json import dumps as dump_json
-from typing import Any, Optional
+from typing import Optional
 
 from idegym.api.download import DownloadRequest
+from idegym.api.resources import KubernetesResources
 from idegym.utils.hashing import md5
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -14,7 +15,7 @@ class ImageBuildSpec(BaseModel):
     context_path: str = Field(default=".", description="Docker build context path")
     platforms: list[str] = Field(default_factory=list, description="Build target platforms")
     runtime_class_name: str = Field(default="gvisor", description="Kubernetes runtime class name")
-    resources: Optional[dict[str, Any]] = Field(default=None, description="Build resources")
+    resources: Optional[KubernetesResources] = Field(default=None, description="Build resources")
 
     model_config = ConfigDict(extra="forbid")
 

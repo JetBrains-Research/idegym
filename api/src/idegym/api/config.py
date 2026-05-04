@@ -3,7 +3,7 @@ from tempfile import gettempdir
 from typing import Optional
 
 from idegym.api.auth import BasicAuth
-from idegym.api.data import DataSize
+from idegym.api.memory import MemoryQuantity
 from idegym.api.type import Duration, HttpUrl, IPvAddress, LogLevelName
 from pydantic import BaseModel, Field, field_validator
 
@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field, field_validator
 class ServerConfig(BaseModel):
     host: IPvAddress = Field(default="0.0.0.0")
     port: int = Field(ge=0, le=65535, default=8000)
-    response_buffer_size: DataSize = Field(ge=0, default=DataSize(mb=8))
+    response_buffer_size: MemoryQuantity = Field(ge=0, default=MemoryQuantity(mi=8))
     shutdown_delay: Duration = Field(default=Duration(seconds=30))
 
 
@@ -19,7 +19,7 @@ class LoggingConfig(BaseModel):
     level: LogLevelName = Field(default="INFO")
     json_format: bool = Field(default=False)
     file_path: str = Field(default=join(gettempdir(), "idegym.log"))
-    max_file_size: DataSize = Field(ge=0, default=DataSize(mb=10))
+    max_file_size: MemoryQuantity = Field(ge=0, default=MemoryQuantity(mi=10))
     max_file_count: int = Field(description="Number of log file backups to keep", ge=0, default=5)
 
     @field_validator("file_path")
@@ -133,6 +133,13 @@ class OTELConfig(BaseModel):
     attributes: dict[str, str] = Field(description="Extra attributes added to all spans", default_factory=dict)
 
 
+class PodSnapshotConfig(BaseModel):
+    enabled: bool = Field(default=False)
+    service_account_name: str = Field(
+        description="Kubernetes service account shared by all snapshot-enabled pods", default="idegym"
+    )
+
+
 class WatcherConfig(BaseModel):
     cleanup_interval: Duration = Field(default=Duration(seconds=60))
     inactive_timeout: Duration = Field(
@@ -172,6 +179,7 @@ class OrchestratorConfig(BaseModel):
         default=60.0 * 60,  # 1 hour
     )
     connection_limits: ConnectionLimitsConfig = Field(default_factory=ConnectionLimitsConfig)
+    pod_snapshot: PodSnapshotConfig = Field(default_factory=PodSnapshotConfig)
     enable_fifo_server_reuse: bool = Field(
         description="Enable FIFO queue for server reuse to ensure fair provisioning",
         default=False,

@@ -89,7 +89,7 @@ async def dashboard_pods(
 ):
     namespace = env.get("__NAMESPACE", "idegym")
 
-    async with async_kube_api() as (_, _, core, _):
+    async with async_kube_api() as (_, _, core, _, _):
         try:
             resp = await core.list_namespaced_pod(
                 namespace=namespace, label_selector=label_selector, limit=limit, _continue=_continue

@@ -1,7 +1,7 @@
 from asyncio import CancelledError, gather, sleep, timeout
 from contextlib import asynccontextmanager
 from random import getrandbits
-from typing import Any, AsyncGenerator, Awaitable, Callable, Iterable, Optional, Union
+from typing import Any, AsyncGenerator, Awaitable, Callable, Iterable, Optional, Union, cast
 
 from idegym.api import __version__
 from idegym.api.download import DownloadRequest
@@ -18,6 +18,7 @@ from kubernetes_asyncio.client import (
     BatchV1Api,
     Configuration,
     CoreV1Api,
+    CustomObjectsApi,
     PolicyV1Api,
     V1Affinity,
     V1ConfigMap,
@@ -71,7 +72,7 @@ from kubernetes_asyncio.config import (
     load_kube_config,
 )
 
-KubernetesV1Apis = tuple[AppsV1Api, BatchV1Api, CoreV1Api, PolicyV1Api]
+KubernetesV1Apis = tuple[AppsV1Api, BatchV1Api, CoreV1Api, PolicyV1Api, CustomObjectsApi]
 
 V1ResourceList = Union[V1ConfigMapList, V1DeploymentList, V1PodDisruptionBudgetList, V1ServiceList]
 
@@ -139,6 +140,7 @@ async def create_clients() -> KubernetesV1Apis:
         BatchV1Api(api_client),
         CoreV1Api(api_client),
         PolicyV1Api(api_client),
+        CustomObjectsApi(api_client),
     )
 
 
@@ -225,14 +227,16 @@ async def deploy_server(
     namespace: str,
     service_port: int = 80,
     container_port: int = 8000,
+    service_account_name: Optional[str] = None,
     runtime_class_name: Optional[str] = None,
     run_as_root: bool = False,
     node_selector: Optional[dict[str, str]] = None,
     node_pool_taint_key: Optional[str] = None,
     node_pool_preference_weight: int = 100,
-    resources: Union[V1ResourceRequirements, dict[str, Any], None] = None,
+    resources: Optional[Union[V1ResourceRequirements, dict[str, Any]]] = None,
     environment_variables: Iterable[Union[V1EnvVar, dict[str, Any]]] = (),
     server_kind: ServerKind = ServerKind.IDEGYM,
+    snapshot_id: str = "",
 ):
     """
     Create a Kubernetes Deployment, Service, and PodDisruptionBudget for a server.
@@ -249,8 +253,9 @@ async def deploy_server(
         run_as_group=uid,
     )
 
-    if resources and isinstance(resources, dict):
-        resources = V1ResourceRequirements(**resources)
+    if isinstance(resources, dict):  # noinspection PyUnnecessaryCast
+        dictionary = cast(dict, resources)
+        resources = V1ResourceRequirements(**dictionary)
 
     env = [
         environment_variable if isinstance(environment_variable, V1EnvVar) else to_env_var(environment_variable)
@@ -296,6 +301,7 @@ async def deploy_server(
     labels = {
         **match_labels,
         "app.kubernetes.io/version": __version__,
+        "idegym.jetbrains.com/snapshot-id": snapshot_id,
     }
 
     toleration = (
@@ -337,6 +343,7 @@ async def deploy_server(
                 spec=V1PodSpec(
                     containers=[container],
                     image_pull_secrets=[image_pull_secret],
+                    service_account_name=service_account_name,
                     runtime_class_name=runtime_class_name,
                     node_selector=node_selector,
                     tolerations=[toleration] if toleration else None,
@@ -381,7 +388,7 @@ async def deploy_server(
         ),
     )
 
-    async with async_kube_api() as (apps, _, core, policy):
+    async with async_kube_api() as (apps, _, core, policy, _):
         deployment = await apps.create_namespaced_deployment(
             body=deployment,
             namespace=namespace,
@@ -464,7 +471,7 @@ async def pods_are_ready(label_selector: str, namespace: str) -> tuple[bool, boo
     so callers can wait for them to disappear before considering the deployment stable.
     """
 
-    async with async_kube_api() as (_, _, core, _):
+    async with async_kube_api() as (_, _, core, _, _):
         pods = (await core.list_namespaced_pod(namespace=namespace, label_selector=label_selector)).items
 
     has_image_pull_error = False
@@ -512,7 +519,7 @@ async def pods_are_ready(label_selector: str, namespace: str) -> tuple[bool, boo
 async def are_any_pods_alive(label_selector: str, namespace: str) -> bool:
     """Return True if at least one non-terminating Running pod matches the selector."""
 
-    async with async_kube_api() as (_, _, core, _):
+    async with async_kube_api() as (_, _, core, _, _):
         pods = (await core.list_namespaced_pod(namespace=namespace, label_selector=label_selector)).items
 
     def is_pod_alive(p):
@@ -635,19 +642,20 @@ async def check_and_delete(
 
 async def clean_up_server(name: str, namespace: str, max_retries: int = 3):
     """
-    Delete the Deployment for a server (Service and PDB are garbage-collected via owner references).
+    Delete the Deployment for a server.
 
     Raises ResourceDeletionFailedException if the Deployment cannot be deleted.
     """
-    async with async_kube_api() as (apps, _, _, _):
-        if not await check_and_delete(
+    async with async_kube_api() as (apps, _, _, _, _):
+        deployment_deleted = await check_and_delete(
             query_func=apps.list_namespaced_deployment,
             delete_func=apps.delete_namespaced_deployment,
             resource_name=name,
             resource_type="deployment",
             namespace=namespace,
             max_retries=max_retries,
-        ):
+        )
+        if not deployment_deleted:
             raise ResourceDeletionFailedException(f"Failed to clean up deployment: {name}")
 
 
@@ -659,7 +667,7 @@ async def restart_pods(name: str, namespace: str, wait_timeout: int = 60, max_re
     recreates them from the existing Deployment spec.
     """
     try:
-        async with async_kube_api() as (apps, _, core, _):
+        async with async_kube_api() as (apps, _, core, _, _):
             label_selector = f"app={name}"
             pods = (await core.list_namespaced_pod(namespace=namespace, label_selector=label_selector)).items
 
@@ -690,7 +698,7 @@ async def build_and_push_image_with_kaniko(
     labels: Optional[dict[str, str]] = None,
     ttl_seconds_after_finished: int = 300,
     runtime_class_name: Optional[str] = None,
-    resources: Optional[Any] = None,
+    resources: Optional[Union[V1ResourceRequirements, dict[str, Any]]] = None,
     insecure_registry: bool = False,
     node_pool_taint_key: Optional[str] = None,
     node_pool_preference_weight: int = 100,
@@ -735,8 +743,10 @@ async def build_and_push_image_with_kaniko(
         for key, value in labels.items():
             args.append(f"--label={key}={value}")
 
-    if resources and isinstance(resources, dict):
-        resources = V1ResourceRequirements(**resources)
+    if isinstance(resources, dict):  # noinspection PyUnnecessaryCast
+        dictionary = cast(dict, resources)
+        resources = V1ResourceRequirements(**dictionary)
+
     annotations = {
         "cluster-autoscaler.kubernetes.io/safe-to-evict": "false",
     }
@@ -883,7 +893,7 @@ async def build_and_push_image_with_kaniko(
         ),
     )
 
-    async with async_kube_api() as (_, batch, core, policy):
+    async with async_kube_api() as (_, batch, core, policy, _):
         job = await batch.create_namespaced_job(
             body=job,
             namespace=namespace,
@@ -914,7 +924,7 @@ async def build_and_push_image_with_kaniko(
 async def get_job_status(job_name: str, namespace: str) -> Status:
     """Return SUCCESS, FAILURE, or IN_PROGRESS for a Kubernetes Job. Returns FAILURE on API errors."""
     try:
-        async with async_kube_api() as (_, batch, _, _):
+        async with async_kube_api() as (_, batch, _, _, _):
             job = await batch.read_namespaced_job(name=job_name, namespace=namespace)
 
         if job.status.succeeded is not None and job.status.succeeded > 0:
