@@ -1,7 +1,8 @@
 from enum import StrEnum
-from typing import Any, Optional
+from typing import Optional
 from uuid import UUID
 
+from idegym.api.resources import KubernetesResources
 from idegym.api.type import KubernetesNodeSelector, KubernetesObjectName, OCIImageName
 from pydantic import BaseModel, Field
 
@@ -27,7 +28,7 @@ class StartServerRequest(BaseModel):
     run_as_root: bool = Field(default=False)
     service_port: int = Field(default=80, ge=0, le=65535)
     container_port: int = Field(default=8000, ge=0, le=65535)
-    resources: Optional[dict[str, Any]] = Field(default=None, description="Kubernetes resource requirements")
+    resources: Optional[KubernetesResources] = Field(default=None)
     node_selector: Optional[KubernetesNodeSelector] = Field(default=None)
     server_start_wait_timeout_in_seconds: int = Field(
         default=60, description="Seconds to wait for server readiness", ge=0

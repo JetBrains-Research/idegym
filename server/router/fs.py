@@ -5,7 +5,7 @@ from anyio import open_file as open
 from dependency_injector.wiring import Provide, inject
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse, Response, StreamingResponse
-from idegym.api.data import DataSize
+from idegym.api.memory import MemoryQuantity
 from idegym.api.paths import FSPath
 
 from server.dependencies import Container
@@ -55,7 +55,7 @@ async def ls(path: Path = Depends(valid_workspace_path)):
 @router.get(f"{FSPath.READ_FILE}/{{path:path}}")
 @inject
 async def cat(
-    size: Annotated[DataSize, Depends(Provide[Container.config.server.response_buffer_size])],
+    size: Annotated[MemoryQuantity, Depends(Provide[Container.config.server.response_buffer_size])],
     path: Path = Depends(valid_workspace_path),
 ):
     if not await path.exists():

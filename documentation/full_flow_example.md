@@ -71,8 +71,11 @@ import asyncio
 from pathlib import Path
 import tempfile
 
-from idegym.client.client import IdeGYMClient
 from idegym.api.auth import BasicAuth
+from idegym.api.cpu import CpuQuantity
+from idegym.api.memory import MemoryQuantity
+from idegym.api.resources import KubernetesResources, ResourceQuantities
+from idegym.client.client import IdeGYMClient
 
 async def main():
     async with IdeGYMClient(
@@ -104,7 +107,16 @@ async def main():
             server_name="my-dev-server",
             runtime_class_name="gvisor",
             run_as_root=True,
-            resources=...,   # kubernetes.client.V1ResourceRequirements
+            resources=KubernetesResources(
+                requests=ResourceQuantities(
+                    cpu=CpuQuantity(millicores=500),
+                    memory=MemoryQuantity(gi=1),
+                ),
+                limits=ResourceQuantities(
+                    cpu=CpuQuantity(cores=1),
+                    memory=MemoryQuantity(gi=2),
+                ),
+            ),
             server_start_wait_timeout_in_seconds=600,
         ) as server:
 
@@ -178,8 +190,11 @@ import asyncio
 from pathlib import Path
 import tempfile
 
-from idegym.client.client import IdeGYMClient
 from idegym.api.auth import BasicAuth
+from idegym.api.cpu import CpuQuantity
+from idegym.api.memory import MemoryQuantity
+from idegym.api.resources import KubernetesResources, ResourceQuantities
+from idegym.client.client import IdeGYMClient
 
 async def main():
     async with IdeGYMClient(
@@ -209,7 +224,16 @@ async def main():
             server_name="my-from-source-server",
             runtime_class_name="gvisor",
             run_as_root=True,
-            resources=...,
+            resources=KubernetesResources(
+                requests=ResourceQuantities(
+                    cpu=CpuQuantity(millicores=500),
+                    memory=MemoryQuantity(gi=1),
+                ),
+                limits=ResourceQuantities(
+                    cpu=CpuQuantity(cores=1),
+                    memory=MemoryQuantity(gi=2),
+                ),
+            ),
             server_start_wait_timeout_in_seconds=600,
         ) as server:
 

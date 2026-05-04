@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from enum import StrEnum
 from os import environ as env
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 from uuid import UUID, uuid4
 
 from httpx import AsyncClient
@@ -28,6 +28,7 @@ from idegym.api.orchestrator.servers import (
     ServerReuseStrategy,
     StartServerResponse,
 )
+from idegym.api.resources import KubernetesResources
 from idegym.api.type import KubernetesNodeSelector, KubernetesObjectName, OCIImageName
 from idegym.client.operations.clients import ClientOperations
 from idegym.client.operations.forwarding import ForwardingOperations
@@ -243,7 +244,7 @@ class IdeGYMClient:
         run_as_root: bool = False,
         service_port: int = 80,
         container_port: int = 8000,
-        resources: Optional[Any] = None,
+        resources: Optional[KubernetesResources] = None,
         node_selector: Optional[KubernetesNodeSelector] = None,
         server_start_wait_timeout_in_seconds: int = 60,
         retry_delay_in_seconds: int = 15,
@@ -322,12 +323,12 @@ class IdeGYMClient:
         run_as_root: bool = False,
         service_port: int = 80,
         container_port: int = 8000,
-        resources: Optional[Any] = None,
+        resources: Optional[KubernetesResources] = None,
         node_selector: Optional[KubernetesNodeSelector] = None,
         server_start_wait_timeout_in_seconds: int = 60,
         retry_delay_in_seconds: int = 15,
         polling_config: PollingConfig = PollingConfig(),
-        reuse_strategy=ServerReuseStrategy.RESET,
+        reuse_strategy: ServerReuseStrategy = ServerReuseStrategy.RESET,
         server_kind: ServerKind = ServerKind.IDEGYM,
     ) -> IdeGYMServer:
         """

@@ -1,7 +1,7 @@
 import time
 from asyncio import sleep
 from http import HTTPStatus
-from typing import Any, Optional
+from typing import Optional
 from uuid import UUID
 
 from idegym.api.orchestrator.servers import (
@@ -16,6 +16,7 @@ from idegym.api.orchestrator.servers import (
     StopServerRequest,
 )
 from idegym.api.orchestrator.snapshots import CreateSnapshotRequest, CreateSnapshotResponse
+from idegym.api.resources import KubernetesResources
 from idegym.api.status import Status
 from idegym.api.type import KubernetesNodeSelector, KubernetesObjectName, OCIImageName
 from idegym.client.operations.project import ProjectOperations
@@ -40,7 +41,7 @@ class ServerOperations:
         run_as_root: bool = False,
         service_port: int = 80,
         container_port: int = 8000,
-        resources: Optional[Any] = None,
+        resources: Optional[KubernetesResources] = None,
         node_selector: Optional[KubernetesNodeSelector] = None,
         server_start_wait_timeout_in_seconds: int = 60,
         retry_delay_in_seconds: int = 15,
@@ -51,14 +52,6 @@ class ServerOperations:
     ) -> StartServerResponse | ErrorResponse:
         client_id = self._utils.validate_client_id(client_id)
         namespace = self._utils.validate_namespace(namespace)
-
-        resources_dict = None
-        if resources:
-            # Handle V1ResourceRequirements object by converting it to a dictionary
-            if hasattr(resources, "to_dict"):
-                resources_dict = resources.to_dict()
-            else:
-                resources_dict = resources
 
         start_time = time.time()
         attempts = 0
@@ -79,7 +72,7 @@ class ServerOperations:
                 run_as_root=run_as_root,
                 service_port=service_port,
                 container_port=container_port,
-                resources=resources_dict,
+                resources=resources,
                 node_selector=node_selector,
                 server_start_wait_timeout_in_seconds=server_start_wait_timeout_in_seconds,
                 reuse_strategy=reuse_strategy,

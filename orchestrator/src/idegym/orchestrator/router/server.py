@@ -4,6 +4,7 @@ from os import environ as env
 
 from fastapi import APIRouter, HTTPException, Request, status
 from idegym.api.config import Config, NodePoolConfig, OTELConfig, PodSnapshotConfig
+from idegym.api.memory import MemoryUnit
 from idegym.api.orchestrator.clients import AvailabilityStatus
 from idegym.api.orchestrator.operations import AsyncOperationStatus, AsyncOperationType
 from idegym.api.orchestrator.servers import (
@@ -37,7 +38,6 @@ from idegym.orchestrator.util.decorators import handle_async_task_exceptions, ha
 from idegym.orchestrator.util.errors import format_error
 from idegym.utils.decorators import executes_operation_in_background
 from idegym.utils.logging import get_logger
-from idegym.utils.quantity import parse_quantity
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -280,6 +280,15 @@ async def _task_start_server(config: Config, request: StartServerRequest, async_
 
             service_account_name = pod_snapshot.service_account_name if pod_snapshot.enabled else None
             snapshot_id = request.snapshot_id or str(server_id)
+            
+            resources = (
+                request.resources.model_dump(
+                    by_alias=True,
+                    exclude_none=True,
+                )
+                if request.resources
+                else None
+            )
 
             await deploy_server(
                 image_tag=request.image_tag,
@@ -293,7 +302,7 @@ async def _task_start_server(config: Config, request: StartServerRequest, async_
                 node_selector=request.node_selector,
                 node_pool_taint_key=node_pool.taint_key if node_pool.enabled else None,
                 node_pool_preference_weight=node_pool.preference_weight,
-                resources=request.resources,
+                resources=resources,
                 environment_variables=environment_variables,
                 server_kind=request.server_kind,
                 snapshot_id=snapshot_id,
@@ -374,18 +383,18 @@ async def clean_kubernetes(request, server_generated_name):
         )
 
 
-def extract_resources_request(config: Config, request: StartServerRequest):
+def extract_resources_request(config: Config, request: StartServerRequest) -> tuple[float, float]:
     cpu_request = config.orchestrator.resources.default_cpu_request
     ram_request = config.orchestrator.resources.default_ram_request
-    if request.resources:
-        limits = request.resources.get("limits", {})
-        reqs = request.resources.get("requests", {})
-        cpu_value = limits.get("cpu") or reqs.get("cpu")
-        memory_value = limits.get("memory") or reqs.get("memory")
-        if cpu_value:
-            cpu_request = float(parse_quantity(cpu_value))
-        if memory_value:
-            ram_request = float(parse_quantity(memory_value)) / (1024 * 1024 * 1024)
+    if resources := request.resources:
+        cpu_value = (resources.limits and resources.limits.cpu) or (resources.requests and resources.requests.cpu)
+        if cpu_value is not None:
+            cpu_request = cpu_value.cores
+        memory_value = (resources.limits and resources.limits.memory) or (
+            resources.requests and resources.requests.memory
+        )
+        if memory_value is not None:
+            ram_request = memory_value.bytes / MemoryUnit.Gi
 
     return cpu_request, ram_request
 
