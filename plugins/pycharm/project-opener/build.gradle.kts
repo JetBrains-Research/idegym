@@ -17,7 +17,7 @@ dependencies {
     intellijPlatform {
         // Build against PyCharm Community 2025.2.4 (build series 252, required for MCP plugin).
         // The plugin uses only com.intellij.modules.platform APIs so the compiled ZIP is
-        // compatible with any PyCharm 2025.1+ build.
+        // compatible with any PyCharm 2025.2+ build.
         pycharmCommunity("2025.2.4")
         instrumentationTools()
     }

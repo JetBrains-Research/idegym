@@ -58,10 +58,12 @@ except (OSError, json.JSONDecodeError):
     logger.warning("Failed to read /etc/idegym/plugins.json; enabling all installed server plugins", exc_info=True)
     _enabled_plugins = {ep.name for ep in _all_server_eps}
 
+_loaded_plugins: list[str] = []
 for _ep in _all_server_eps:
     if _ep.name in _enabled_plugins:
         try:
             _ep.load()
+            _loaded_plugins.append(_ep.name)
         except Exception:
             logger.warning("Failed to load server plugin %r", _ep.name, exc_info=True)
 

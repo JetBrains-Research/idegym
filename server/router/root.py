@@ -1,7 +1,5 @@
-import json
 from asyncio import sleep
 from os import getpid, kill
-from pathlib import Path
 from signal import SIGTERM
 from typing import Annotated
 
@@ -39,14 +37,9 @@ async def health():
 
 @router.get(ActuatorPath.CAPABILITIES)
 async def capabilities():
-    try:
-        parsed = json.loads(Path("/etc/idegym/plugins.json").read_text())
-        plugins = parsed.get("server", []) if isinstance(parsed, dict) else []
-    except (FileNotFoundError, OSError, json.JSONDecodeError):
-        from importlib.metadata import entry_points as _entry_points
+    from server.main import _loaded_plugins
 
-        plugins = [ep.name for ep in _entry_points(group="idegym.plugins.server")]
-    return CapabilitiesResponse(plugins=plugins)
+    return CapabilitiesResponse(plugins=_loaded_plugins)
 
 
 @router.get(ActuatorPath.LOG)

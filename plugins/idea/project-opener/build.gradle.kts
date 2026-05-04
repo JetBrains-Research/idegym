@@ -17,7 +17,7 @@ dependencies {
     intellijPlatform {
         // Build against IntelliJ IDEA Community 2025.2.4 (build series 252).
         // The plugin uses only com.intellij.modules.platform APIs so the compiled ZIP is
-        // compatible with any IDEA 2025.1+ build.
+        // compatible with any IDEA 2025.2+ build.
         intellijIdeaCommunity("2025.2.4")
         instrumentationTools()
     }

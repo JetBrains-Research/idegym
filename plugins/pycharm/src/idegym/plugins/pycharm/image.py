@@ -85,15 +85,19 @@ class PyCharm(PluginBase):
             _check_linux_id(v, "user")
         return v
 
-    @classmethod
-    def get_mcp_upstream(cls) -> Optional[str]:
-        return f"http://localhost:{_MCP_PORT}"
+    def get_mcp_upstream(self) -> Optional[str]:
+        if not self.open_project:
+            return None
+        return f"http://localhost:{_BRIDGE_PORT}"
 
     def apply(self, ctx: BuildContext) -> BuildContext:
-        existing = list(ctx.get_extra("idegym.enabled_server_plugins", []))
-        if "pycharm" not in existing:
-            existing.append("pycharm")
-        return ctx.with_extra("idegym.enabled_server_plugins", existing)
+        has_project = ctx.get_extra("idegym.has_project", False)
+        if has_project and self.open_project:
+            existing = list(ctx.get_extra("idegym.enabled_server_plugins", []))
+            if "pycharm" not in existing:
+                existing.append("pycharm")
+            ctx = ctx.with_extra("idegym.enabled_server_plugins", existing)
+        return ctx
 
     def render(self, ctx: BuildContext) -> str:
         user = self.user or ctx.current_user
@@ -102,7 +106,7 @@ class PyCharm(PluginBase):
 
         parts = [_render("Dockerfile.install.j2", version=self.version, edition=self.edition, config_dir=_CONFIG_DIR)]
 
-        if self.mcp_update_id:
+        if install_plugin and self.mcp_update_id:
             parts.append(
                 _render(
                     "Dockerfile.mcp.j2",

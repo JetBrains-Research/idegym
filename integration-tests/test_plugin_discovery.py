@@ -19,7 +19,7 @@ from importlib.metadata import entry_points
 def test_entry_points_image_group_discovers_all_expected_plugins():
     """All built-in and optional image plugins are reachable via the image entry_points group."""
     eps = {ep.name for ep in entry_points(group="idegym.plugins.image")}
-    expected = {"base-system", "user", "permissions", "mcp-upstream", "project", "idegym-server", "pycharm"}
+    expected = {"base-system", "user", "permissions", "mcp-upstream", "project", "idegym-server", "pycharm", "idea"}
     missing = expected - eps
     assert not missing, f"Missing image plugin entry_points: {missing}"
 
@@ -27,6 +27,7 @@ def test_entry_points_image_group_discovers_all_expected_plugins():
 def test_entry_points_image_group_loads_correct_classes():
     """Each image entry_point loads to the exact plugin class it declares."""
     from idegym.plugins.defaults.image import BaseSystem, IdeGYMServer, MCPUpstream, Permissions, Project, User
+    from idegym.plugins.idea.image import Idea
     from idegym.plugins.pycharm.image import PyCharm
 
     expected_classes = {
@@ -37,6 +38,7 @@ def test_entry_points_image_group_loads_correct_classes():
         "project": Project,
         "idegym-server": IdeGYMServer,
         "pycharm": PyCharm,
+        "idea": Idea,
     }
     eps = {ep.name: ep for ep in entry_points(group="idegym.plugins.image")}
     for name, cls in expected_classes.items():
@@ -73,9 +75,9 @@ def test_image_plugin_entry_points_are_registered_in_registry():
 
 
 def test_entry_points_server_group_discovers_expected_plugins():
-    """tools, rewards, and pycharm are all reachable via the server entry_points group."""
+    """tools, rewards, pycharm, and idea are all reachable via the server entry_points group."""
     eps = {ep.name for ep in entry_points(group="idegym.plugins.server")}
-    expected = {"tools", "rewards", "pycharm"}
+    expected = {"tools", "rewards", "pycharm", "idea"}
     missing = expected - eps
     assert not missing, f"Missing server plugin entry_points: {missing}"
 
@@ -128,6 +130,16 @@ def test_pycharm_server_plugin_router_exposes_inspect_endpoint():
     assert "/pycharm/inspect" in route_paths, f"/pycharm/inspect missing from pycharm router: {route_paths}"
 
 
+def test_idea_server_plugin_router_exposes_inspect_endpoint():
+    """IdeaPlugin.get_server_router() returns a router with POST /idea/inspect."""
+    eps = {ep.name: ep for ep in entry_points(group="idegym.plugins.server")}
+    idea_cls = eps["idea"].load()
+    router = idea_cls.get_server_router()
+
+    route_paths = {r.path for r in router.routes}
+    assert "/idea/inspect" in route_paths, f"/idea/inspect missing from idea router: {route_paths}"
+
+
 def test_loading_server_entry_points_populates_server_registry():
     """Loading server entry_points adds their classes to the @server_plugin registry."""
     from idegym.api.plugin import get_all_server_plugins
@@ -140,6 +152,7 @@ def test_loading_server_entry_points_populates_server_registry():
     assert "ToolsPlugin" in all_names, f"ToolsPlugin missing from server registry: {all_names}"
     assert "RewardsPlugin" in all_names, f"RewardsPlugin missing from server registry: {all_names}"
     assert "PyCharmPlugin" in all_names, f"PyCharmPlugin missing from server registry: {all_names}"
+    assert "IdeaPlugin" in all_names, f"IdeaPlugin missing from server registry: {all_names}"
 
 
 # ---------------------------------------------------------------------------
@@ -147,10 +160,12 @@ def test_loading_server_entry_points_populates_server_registry():
 # ---------------------------------------------------------------------------
 
 
-def test_entry_points_client_group_discovers_pycharm():
-    """pycharm is reachable via the idegym.plugins.client entry_points group."""
+def test_entry_points_client_group_discovers_ide_plugins():
+    """pycharm and idea are reachable via the idegym.plugins.client entry_points group."""
     eps = {ep.name for ep in entry_points(group="idegym.plugins.client")}
-    assert "pycharm" in eps, f"'pycharm' not in client entry_points: {eps}"
+    expected = {"pycharm", "idea"}
+    missing = expected - eps
+    assert not missing, f"Missing client plugin entry_points: {missing}"
 
 
 def test_pycharm_client_entry_point_loads_correct_class():
@@ -162,6 +177,15 @@ def test_pycharm_client_entry_point_loads_correct_class():
     assert loaded is PycharmClientOperations
 
 
+def test_idea_client_entry_point_loads_correct_class():
+    """The 'idea' client entry_point resolves to IdeaClientOperations."""
+    from idegym.plugins.idea.client import IdeaClientOperations
+
+    eps = {ep.name: ep for ep in entry_points(group="idegym.plugins.client")}
+    loaded = eps["idea"].load()
+    assert loaded is IdeaClientOperations
+
+
 # ---------------------------------------------------------------------------
 # Server plugin config-based filtering (simulates server/main.py logic)
 # ---------------------------------------------------------------------------
@@ -169,7 +193,7 @@ def test_pycharm_client_entry_point_loads_correct_class():
 
 def test_server_plugin_filtering_loads_only_configured_plugins():
     """Simulates server startup: only entry_points listed in a config set are loaded."""
-    # Load only tools and rewards — deliberately exclude pycharm
+    # Load only tools and rewards — deliberately exclude pycharm and idea
     enabled = {"tools", "rewards"}
     loaded_classes = []
     for ep in entry_points(group="idegym.plugins.server"):
@@ -180,6 +204,7 @@ def test_server_plugin_filtering_loads_only_configured_plugins():
     assert "ToolsPlugin" in loaded_names
     assert "RewardsPlugin" in loaded_names
     assert "PyCharmPlugin" not in loaded_names
+    assert "IdeaPlugin" not in loaded_names
 
 
 def test_server_plugin_all_available_when_no_config_filter():
@@ -188,6 +213,7 @@ def test_server_plugin_all_available_when_no_config_filter():
     assert "tools" in all_ep_names
     assert "rewards" in all_ep_names
     assert "pycharm" in all_ep_names
+    assert "idea" in all_ep_names
 
 
 def test_server_plugin_unknown_name_in_config_is_silently_skipped():
