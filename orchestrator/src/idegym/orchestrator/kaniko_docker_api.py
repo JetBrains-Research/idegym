@@ -54,6 +54,15 @@ class IdeGYMKanikoDockerAPI:
         if spec.request is not None:
             logger.info(f"Download request: {spec.request.descriptor.url}, {spec.request.descriptor.name}")
 
+        resources = (
+            spec.resources.model_dump(
+                by_alias=True,
+                exclude_none=True,
+            )
+            if spec.resources
+            else None
+        )
+
         job_name = await build_and_push_image_with_kaniko(
             request=spec.request,
             tag=tag,
@@ -63,7 +72,7 @@ class IdeGYMKanikoDockerAPI:
             namespace=self._namespace,
             ttl_seconds_after_finished=300,
             runtime_class_name=spec.runtime_class_name,
-            resources=spec.resources,
+            resources=resources,
             insecure_registry=self._insecure_registry,
             node_pool_taint_key=self._node_pool_taint_key,
             node_pool_preference_weight=self._node_pool_preference_weight,

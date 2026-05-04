@@ -1,5 +1,5 @@
 level: ${oc.env:IDEGYM_LOG_LEVEL, "INFO"}
 json_format: ${oc.env:IDEGYM_LOG_JSON_FORMAT, "False"}
 file_path: ${oc.env:IDEGYM_LOG_FILE_PATH, ""}
-max_file_size: ${oc.env:IDEGYM_LOG_MAX_FILE_SIZE, "10MB"}
+max_file_size: ${oc.env:IDEGYM_LOG_MAX_FILE_SIZE, "10Mi"}
 max_file_count: ${oc.env:IDEGYM_LOG_MAX_FILE_COUNT, "5"}

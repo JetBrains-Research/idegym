@@ -1,7 +1,9 @@
 import pytest
+from idegym.api.cpu import CpuQuantity
+from idegym.api.memory import MemoryQuantity
 from idegym.api.orchestrator.servers import ServerReuseStrategy
+from idegym.api.resources import KubernetesResources, ResourceQuantities
 from idegym.client.client import ServerCloseAction
-from kubernetes_asyncio.client import V1ResourceRequirements
 from utils.constants import DEFAULT_SERVER_START_TIMEOUT
 from utils.idegym_utils import create_http_client
 
@@ -144,9 +146,15 @@ async def test_resource_limits_enforcement(test_image, test_id):
                 image_tag=test_image,
                 server_name=f"limits-excessive-{test_id}",
                 runtime_class_name="gvisor",
-                resources=V1ResourceRequirements(
-                    requests={"cpu": "100", "memory": "1000Gi"},  # Excessive resources
-                    limits={"cpu": "100", "memory": "1000Gi"},
+                resources=KubernetesResources(
+                    requests=ResourceQuantities(
+                        cpu=CpuQuantity(cores=100),
+                        memory=MemoryQuantity(gi=1000),
+                    ),
+                    limits=ResourceQuantities(
+                        cpu=CpuQuantity(cores=100),
+                        memory=MemoryQuantity(gi=1000),
+                    ),
                 ),
                 server_start_wait_timeout_in_seconds=60,
                 close_action=ServerCloseAction.STOP,
