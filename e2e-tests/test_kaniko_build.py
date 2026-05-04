@@ -2,8 +2,10 @@ from importlib.resources import as_file, files
 
 import pytest
 import resources as e2e_resources
+from idegym.api.cpu import CpuQuantity
+from idegym.api.memory import MemoryQuantity
+from idegym.api.resources import KubernetesResources, ResourceQuantities
 from idegym.api.status import Status
-from kubernetes_asyncio.client import V1ResourceRequirements
 from utils.constants import (
     DEFAULT_NAMESPACE,
     DEFAULT_SERVER_START_TIMEOUT,
@@ -58,9 +60,17 @@ async def test_kaniko_build_and_deploy(test_id, kaniko_image_loader):
                 server_name=f"kaniko-server-{test_id}",
                 runtime_class_name="gvisor",
                 run_as_root=True,
-                resources=V1ResourceRequirements(
-                    requests={"cpu": "500m", "memory": "500Mi", "ephemeral-storage": "1Gi"},
-                    limits={"cpu": "500m", "memory": "500Mi", "ephemeral-storage": "1Gi"},
+                resources=KubernetesResources(
+                    requests=ResourceQuantities(
+                        cpu=CpuQuantity(millicores=500),
+                        memory=MemoryQuantity(mi=500),
+                        ephemeral_storage=MemoryQuantity(gi=1),
+                    ),
+                    limits=ResourceQuantities(
+                        cpu=CpuQuantity(millicores=500),
+                        memory=MemoryQuantity(mi=500),
+                        ephemeral_storage=MemoryQuantity(gi=1),
+                    ),
                 ),
                 server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
             ) as server:
@@ -136,9 +146,17 @@ async def test_kaniko_build_plugins(test_id, kaniko_image_loader):
                 server_name=f"plugins-server-{test_id}",
                 runtime_class_name="gvisor",
                 run_as_root=True,
-                resources=V1ResourceRequirements(
-                    requests={"cpu": "500m", "memory": "500Mi", "ephemeral-storage": "1Gi"},
-                    limits={"cpu": "500m", "memory": "500Mi", "ephemeral-storage": "1Gi"},
+                resources=KubernetesResources(
+                    requests=ResourceQuantities(
+                        cpu=CpuQuantity(millicores=500),
+                        memory=MemoryQuantity(mi=500),
+                        ephemeral_storage=MemoryQuantity(gi=1),
+                    ),
+                    limits=ResourceQuantities(
+                        cpu=CpuQuantity(millicores=500),
+                        memory=MemoryQuantity(mi=500),
+                        ephemeral_storage=MemoryQuantity(gi=1),
+                    ),
                 ),
                 server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
             ) as server:
@@ -231,9 +249,17 @@ async def test_kaniko_build_without_project(test_id, kaniko_image_loader):
                 server_name=f"noproject-server-{test_id}",
                 runtime_class_name="gvisor",
                 run_as_root=True,
-                resources=V1ResourceRequirements(
-                    requests={"cpu": "500m", "memory": "500Mi", "ephemeral-storage": "1Gi"},
-                    limits={"cpu": "500m", "memory": "500Mi", "ephemeral-storage": "1Gi"},
+                resources=KubernetesResources(
+                    requests=ResourceQuantities(
+                        cpu=CpuQuantity(millicores=500),
+                        memory=MemoryQuantity(mi=500),
+                        ephemeral_storage=MemoryQuantity(gi=1),
+                    ),
+                    limits=ResourceQuantities(
+                        cpu=CpuQuantity(millicores=500),
+                        memory=MemoryQuantity(mi=500),
+                        ephemeral_storage=MemoryQuantity(gi=1),
+                    ),
                 ),
                 server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
             ) as server:

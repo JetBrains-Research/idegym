@@ -1,7 +1,8 @@
 from enum import StrEnum
-from typing import Any, Optional
+from typing import Optional
 from uuid import UUID
 
+from idegym.api.resources import KubernetesResources
 from idegym.api.type import KubernetesNodeSelector, KubernetesObjectName, OCIImageName
 from pydantic import BaseModel, Field
 
@@ -50,7 +51,7 @@ class StartServerRequest(BaseModel):
         description="Port the server container listens on",
         examples=[8000],
     )
-    resources: Optional[dict[str, Any]] = Field(
+    resources: Optional[KubernetesResources] = Field(
         default=None,
         description="Kubernetes resource requirements as requests/limits dictionaries",
         examples=[

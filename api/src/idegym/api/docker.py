@@ -1,7 +1,7 @@
 from enum import StrEnum
 from typing import Any, Optional
 
-from idegym.api.data import DataSize
+from idegym.api.memory import MemoryQuantity
 from pydantic import BaseModel, Field, model_serializer, model_validator
 from pydantic_core.core_schema import SerializerFunctionWrapHandler
 
@@ -39,14 +39,14 @@ class ContainerConfig(BaseModel):
         default=None,
         gt=0,
     )
-    memory: Optional[DataSize] = Field(
+    memory: Optional[MemoryQuantity] = Field(
         description="Memory limit",
-        ge="6MB",
+        ge="6Mi",
         default=None,
     )
-    memory_reservation: Optional[DataSize] = Field(
+    memory_reservation: Optional[MemoryQuantity] = Field(
         description="Memory soft limit",
-        ge="6MB",
+        ge="6Mi",
         default=None,
     )
     memory_swappiness: Optional[int] = Field(

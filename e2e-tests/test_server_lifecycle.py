@@ -1,7 +1,9 @@
 import pytest
+from idegym.api.cpu import CpuQuantity
+from idegym.api.memory import MemoryQuantity
 from idegym.api.orchestrator.servers import ServerReuseStrategy
+from idegym.api.resources import KubernetesResources, ResourceQuantities
 from idegym.client.client import ServerCloseAction
-from kubernetes_asyncio.client import V1ResourceRequirements
 from utils.constants import DEFAULT_SERVER_START_TIMEOUT
 from utils.idegym_utils import create_http_client
 
@@ -25,9 +27,17 @@ async def test_server_lifecycle_with_reuse(test_image, test_id):
             server_name=f"lifecycle-{test_id}",
             runtime_class_name="gvisor",
             run_as_root=True,
-            resources=V1ResourceRequirements(
-                requests={"cpu": "500m", "memory": "500Mi", "ephemeral-storage": "1Gi"},
-                limits={"cpu": "1", "memory": "1Gi", "ephemeral-storage": "2Gi"},
+            resources=KubernetesResources(
+                requests=ResourceQuantities(
+                    cpu=CpuQuantity(millicores=500),
+                    memory=MemoryQuantity(mi=500),
+                    ephemeral_storage=MemoryQuantity(gi=1),
+                ),
+                limits=ResourceQuantities(
+                    cpu=CpuQuantity(cores=1),
+                    memory=MemoryQuantity(gi=1),
+                    ephemeral_storage=MemoryQuantity(gi=2),
+                ),
             ),
             server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
             reuse_strategy=ServerReuseStrategy.RESTART,
@@ -52,9 +62,17 @@ async def test_server_lifecycle_with_reuse(test_image, test_id):
             server_name=f"lifecycle-{test_id}",
             runtime_class_name="gvisor",
             run_as_root=True,
-            resources=V1ResourceRequirements(
-                requests={"cpu": "500m", "memory": "500Mi", "ephemeral-storage": "1Gi"},
-                limits={"cpu": "1", "memory": "1Gi", "ephemeral-storage": "2Gi"},
+            resources=KubernetesResources(
+                requests=ResourceQuantities(
+                    cpu=CpuQuantity(millicores=500),
+                    memory=MemoryQuantity(mi=500),
+                    ephemeral_storage=MemoryQuantity(gi=1),
+                ),
+                limits=ResourceQuantities(
+                    cpu=CpuQuantity(cores=1),
+                    memory=MemoryQuantity(gi=1),
+                    ephemeral_storage=MemoryQuantity(gi=2),
+                ),
             ),
             server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
             reuse_strategy=ServerReuseStrategy.RESTART,
