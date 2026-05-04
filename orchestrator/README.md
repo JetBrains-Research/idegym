@@ -10,6 +10,7 @@ FastAPI service that manages IdeGYM server pods in Kubernetes: registers clients
 - Async operation tracking — long-running actions return immediately with an `operation_id`
 - HTTP and WebSocket request forwarding to running servers
 - Kaniko image build orchestration (triggered from YAML)
+- MCP server for tool-based access to orchestrator operations
 - Prometheus metrics endpoint
 - Web dashboard for live monitoring of servers, clients, pods, and resource rules
 
@@ -18,6 +19,15 @@ FastAPI service that manages IdeGYM server pods in Kubernetes: registers clients
 The orchestrator uses HTTP Basic Authentication. Set `IDEGYM_AUTH_USERNAME` and `IDEGYM_AUTH_PASSWORD` as environment variables (or Kubernetes secret refs) on the orchestrator pod. All API requests must include a matching `Authorization: Basic ...` header.
 
 The client library (`IdeGYMClient`) handles this automatically when initialized with `username` and `password`.
+
+---
+
+## MCP Server
+
+The orchestrator exposes an MCP server at `/mcp`. It uses the same HTTP Basic Authentication as the REST API and
+provides tool-based access to client, server, forwarding, async operation, and Kaniko build operations.
+
+See [MCP Server](../documentation/mcp.md) for connection examples, available tools, and lifecycle examples.
 
 ---
 
