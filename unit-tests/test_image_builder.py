@@ -938,7 +938,7 @@ def test_idea_render_root_only_container():
 
 def test_pycharm_render_includes_mcp_plugin_when_update_id_set():
     plugin = PyCharm(mcp_update_id="882474")
-    ctx = BuildContext(base="debian:bookworm-slim")
+    ctx = BuildContext(base="debian:bookworm-slim").with_extra("idegym.has_project", True)
     fragment = plugin.render(ctx)
     assert "882474" in fragment
     assert "mcpServer.xml" in fragment
@@ -956,7 +956,7 @@ def test_pycharm_render_skips_mcp_plugin_when_update_id_none():
 
 def test_idea_render_includes_mcp_plugin_when_update_id_set():
     plugin = Idea(mcp_update_id="882474")
-    ctx = BuildContext(base="debian:bookworm-slim")
+    ctx = BuildContext(base="debian:bookworm-slim").with_extra("idegym.has_project", True)
     fragment = plugin.render(ctx)
     assert "882474" in fragment
     assert "mcpServer.xml" in fragment
@@ -1359,7 +1359,8 @@ def test_mcp_upstream_serialize_round_trip():
 
 
 def test_plugin_base_get_mcp_upstream_default_is_none():
-    assert PluginBase.get_mcp_upstream() is None
+    ctx = BuildContext(base="debian:bookworm-slim")
+    assert PluginBase().get_mcp_upstream(ctx) is None
 
 
 # ---------------------------------------------------------------------------
@@ -1368,7 +1369,8 @@ def test_plugin_base_get_mcp_upstream_default_is_none():
 
 
 def test_pycharm_get_mcp_upstream():
-    assert PyCharm.get_mcp_upstream() == "http://localhost:64342"
+    ctx = BuildContext(base="debian:bookworm-slim").with_extra("idegym.has_project", True)
+    assert PyCharm().get_mcp_upstream(ctx) == "http://localhost:64343"
 
 
 def test_pycharm_server_plugin_get_server_router_returns_router():
@@ -1387,7 +1389,8 @@ def test_pycharm_server_plugin_get_server_router_returns_router():
 
 
 def test_idea_get_mcp_upstream():
-    assert Idea.get_mcp_upstream() == "http://localhost:64342"
+    ctx = BuildContext(base="debian:bookworm-slim").with_extra("idegym.has_project", True)
+    assert Idea().get_mcp_upstream(ctx) == "http://localhost:64343"
 
 
 def test_idea_server_plugin_get_server_router_returns_router():
@@ -1401,10 +1404,10 @@ def test_idea_server_plugin_get_server_router_returns_router():
 
 def test_idea_to_spec_auto_emits_mcp_config():
     """When Idea plugin declares get_mcp_upstream(), to_spec() writes the config file."""
-    image = Image.from_base("debian:bookworm-slim").with_plugin(Idea())
+    image = Image.from_base("debian:bookworm-slim").with_plugin(Project.from_local("test-project")).with_plugin(Idea())
     spec = image.to_spec()
     assert "/etc/idegym/mcp-upstreams.d/idea.json" in spec.dockerfile_content
-    assert "http://localhost:64342" in spec.dockerfile_content
+    assert "http://localhost:64343" in spec.dockerfile_content
 
 
 # ---------------------------------------------------------------------------
@@ -1414,10 +1417,12 @@ def test_idea_to_spec_auto_emits_mcp_config():
 
 def test_to_spec_auto_emits_mcp_config_for_plugin_with_mcp_upstream():
     """When a plugin declares get_mcp_upstream(), to_spec() writes the config file."""
-    image = Image.from_base("debian:bookworm-slim").with_plugin(PyCharm())
+    image = (
+        Image.from_base("debian:bookworm-slim").with_plugin(Project.from_local("test-project")).with_plugin(PyCharm())
+    )
     spec = image.to_spec()
     assert "/etc/idegym/mcp-upstreams.d/pycharm.json" in spec.dockerfile_content
-    assert "http://localhost:64342" in spec.dockerfile_content
+    assert "http://localhost:64343" in spec.dockerfile_content
 
 
 def test_to_spec_mcp_config_not_emitted_for_plugin_without_upstream():
@@ -1429,7 +1434,9 @@ def test_to_spec_mcp_config_not_emitted_for_plugin_without_upstream():
 
 def test_to_spec_mcp_config_uses_registered_type_name():
     """The config file is named after the plugin's registered type name."""
-    image = Image.from_base("debian:bookworm-slim").with_plugin(PyCharm())
+    image = (
+        Image.from_base("debian:bookworm-slim").with_plugin(Project.from_local("test-project")).with_plugin(PyCharm())
+    )
     spec = image.to_spec()
     # "pycharm" is the registered @image_plugin name
     assert "mcp-upstreams.d/pycharm.json" in spec.dockerfile_content
@@ -1448,7 +1455,7 @@ def test_mcp_fragment_no_user_switch_when_root():
     """When current_user is root, _mcp_upstream_fragment emits no USER directives."""
     from idegym.image.builder import _mcp_upstream_fragment
 
-    ctx = BuildContext(base="debian:bookworm-slim", current_user="root")
+    ctx = BuildContext(base="debian:bookworm-slim", current_user="root").with_extra("idegym.has_project", True)
     fragment = _mcp_upstream_fragment(PyCharm(), ctx)
     assert "mcp-upstreams.d/pycharm.json" in fragment
     assert "USER" not in fragment
@@ -1458,7 +1465,7 @@ def test_mcp_fragment_wraps_with_user_switch_for_non_root():
     """When current_user is not root, _mcp_upstream_fragment wraps with USER root / USER <user>."""
     from idegym.image.builder import _mcp_upstream_fragment
 
-    ctx = BuildContext(base="debian:bookworm-slim", current_user="appuser")
+    ctx = BuildContext(base="debian:bookworm-slim", current_user="appuser").with_extra("idegym.has_project", True)
     fragment = _mcp_upstream_fragment(PyCharm(), ctx)
     assert "mcp-upstreams.d/pycharm.json" in fragment
     assert "USER root" in fragment
@@ -1527,8 +1534,7 @@ def test_to_spec_raises_for_unregistered_plugin_with_unsafe_class_name():
     """An unregistered plugin whose class name is not a safe filename raises ValueError at to_spec()."""
 
     class UnsafeNamePlugin_With_Underscores(PluginBase):
-        @classmethod
-        def get_mcp_upstream(cls) -> str:
+        def get_mcp_upstream(self, ctx: BuildContext) -> str:
             return "http://localhost:1234/mcp"
 
     image = Image.from_base("debian:bookworm-slim").with_plugin(UnsafeNamePlugin_With_Underscores())
@@ -1648,15 +1654,15 @@ def test_get_all_server_plugins_does_not_include_builtin_image_plugins():
 
 
 def test_pycharm_apply_adds_enabled_server_plugins_extra():
-    """apply() sets 'pycharm' in idegym.enabled_server_plugins list."""
-    ctx = BuildContext(base="debian:bookworm-slim")
+    """apply() sets 'pycharm' in idegym.enabled_server_plugins list when has_project is True."""
+    ctx = BuildContext(base="debian:bookworm-slim").with_extra("idegym.has_project", True)
     result = PyCharm().apply(ctx)
     assert result.get_extra("idegym.enabled_server_plugins") == ["pycharm"]
 
 
 def test_pycharm_apply_is_idempotent():
     """Calling apply() twice does not duplicate 'pycharm' in the extras list."""
-    ctx = BuildContext(base="debian:bookworm-slim")
+    ctx = BuildContext(base="debian:bookworm-slim").with_extra("idegym.has_project", True)
     ctx1 = PyCharm().apply(ctx)
     ctx2 = PyCharm().apply(ctx1)
     assert ctx2.get_extra("idegym.enabled_server_plugins") == ["pycharm"]
@@ -1785,6 +1791,7 @@ def test_to_spec_pycharm_before_idegym_server_writes_pycharm_to_plugins_json():
     """When PyCharm appears before IdeGYMServer in the pipeline, pycharm is added to plugins.json."""
     image = (
         Image.from_base("debian:bookworm-slim")
+        .with_plugin(Project.from_local("test-project"))
         .with_plugin(PyCharm())
         .with_plugin(IdeGYMServer.from_git(url="https://example.com/idegym.git", ref="HEAD"))
     )

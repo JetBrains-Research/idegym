@@ -75,8 +75,9 @@ class Idea(PluginBase):
             _check_linux_id(v, "user")
         return v
 
-    def get_mcp_upstream(self) -> Optional[str]:
-        if not self.open_project:
+    def get_mcp_upstream(self, ctx: BuildContext) -> Optional[str]:
+        has_project = ctx.get_extra("idegym.has_project", False)
+        if not (has_project and self.open_project):
             return None
         return f"http://localhost:{_BRIDGE_PORT}"
 

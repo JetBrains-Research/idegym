@@ -45,7 +45,7 @@ def _mcp_upstream_fragment(plugin: PluginBase, ctx: BuildContext) -> str:
     ``USER root`` / ``USER <current_user>`` so the write always succeeds regardless of
     where in the pipeline the plugin sits.
     """
-    mcp_url = type(plugin).get_mcp_upstream()
+    mcp_url = plugin.get_mcp_upstream(ctx)
     if mcp_url is None:
         return ""
     try:

@@ -248,8 +248,7 @@ declare its URL by overriding `get_mcp_upstream()` on the image build plugin cla
 class PyCharm(PluginBase):
     ...
 
-    @classmethod
-    def get_mcp_upstream(cls) -> Optional[str]:
+    def get_mcp_upstream(self, ctx: BuildContext) -> Optional[str]:
         return "http://localhost:6789/mcp"
 ```
 
@@ -423,8 +422,7 @@ class MyPlugin(PluginBase):
     def render(self, ctx: BuildContext) -> str:
         return f"RUN pip install my-service && my-service --install"
 
-    @classmethod
-    def get_mcp_upstream(cls) -> Optional[str]:
+    def get_mcp_upstream(self, ctx: BuildContext) -> Optional[str]:
         return f"http://localhost:8090/mcp"
 ```
 
