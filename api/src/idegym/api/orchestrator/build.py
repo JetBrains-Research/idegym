@@ -5,7 +5,7 @@ from yaml import safe_load as parse_yaml
 
 
 class BuildFromYamlRequest(BaseModel):
-    namespace: str = Field(default="idegym")
+    namespace: str = Field(default="idegym", description="Kubernetes namespace for the image build jobs")
     yaml_content: str = Field(description="YAML content containing image build job definitions")
 
     @field_validator("yaml_content")

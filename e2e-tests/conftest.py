@@ -80,10 +80,16 @@ def pytest_addoption(parser):
         help="Recreate idegym-local namespace before e2e tests",
     )
     parser.addoption(
-        "--no-cleanup",
+        "--no-cleanup-after-tests",
         action="store_true",
         default=False,
-        help="Do not delete resources after e2e tests",
+        help="Do not run session teardown after all e2e tests complete",
+    )
+    parser.addoption(
+        "--no-cleanup-between-tests",
+        action="store_true",
+        default=False,
+        help="Do not delete sandbox servers, Kaniko jobs, or reset/redeploy orchestrator after each test",
     )
     parser.addoption(
         "--delete-namespace",
@@ -105,6 +111,14 @@ def pytest_addoption(parser):
     )
 
 
+def pytest_configure(config):
+    no_cleanup_after_tests = config.getoption("--no-cleanup-after-tests")
+    if no_cleanup_after_tests and config.getoption("--delete-namespace"):
+        raise pytest.UsageError("--no-cleanup-after-tests cannot be combined with --delete-namespace")
+    if no_cleanup_after_tests and config.getoption("--delete-kustomize-services"):
+        raise pytest.UsageError("--no-cleanup-after-tests cannot be combined with --delete-kustomize-services")
+
+
 @pytest.fixture(scope="session", autouse=True)
 def k8s_config_loader():
     """Load Kubernetes configuration once per test session."""
@@ -118,6 +132,9 @@ def setup_and_cleanup_environment(request, k8s_config_loader):
     skip_build = request.config.getoption("--skip-build")
     reuse_resources = request.config.getoption("--reuse-resources")
     clean_namespace = request.config.getoption("--clean-namespace")
+    delete_namespace_flag = request.config.getoption("--delete-namespace")
+    delete_services_flag = request.config.getoption("--delete-kustomize-services")
+    no_cleanup_after_tests = request.config.getoption("--no-cleanup-after-tests")
 
     logger.info("=" * 80)
     logger.info("E2E SESSION SETUP")
@@ -137,16 +154,12 @@ def setup_and_cleanup_environment(request, k8s_config_loader):
         yield
 
     finally:
-        delete_namespace_flag = request.config.getoption("--delete-namespace")
-        delete_services_flag = request.config.getoption("--delete-kustomize-services")
-        no_cleanup = request.config.getoption("--no-cleanup")
-
         if delete_namespace_flag:
             delete_namespace()
         elif delete_services_flag:
             delete_kustomize_services()
-        elif no_cleanup:
-            logger.info("Skipping post-test cleanup due to --no-cleanup")
+        elif no_cleanup_after_tests:
+            logger.info("Skipping post-test cleanup due to --no-cleanup-after-tests")
         else:
             try:
                 cleanup_kubernetes_environment(clean_namespace=False)
@@ -224,6 +237,9 @@ def cleanup_kaniko_jobs():
 @pytest.fixture(autouse=True)
 def cleanup_after_test(request):
     yield
+    if request.config.getoption("--no-cleanup-between-tests"):
+        logger.info("Skipping per-test cleanup due to --no-cleanup-between-tests")
+        return
     cleanup_servers()
     cleanup_kaniko_jobs()
     if request.config.getoption("--redeploy-orchestrator"):
