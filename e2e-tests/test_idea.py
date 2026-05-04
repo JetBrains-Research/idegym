@@ -32,11 +32,11 @@ from importlib.resources import files
 
 import pytest
 import resources as e2e_resources
+from idegym.api.resources import KubernetesResources, ResourceQuantities
 from idegym.client.operations.utils import PollingConfig
 from idegym.image.builder import Image
 from idegym.plugins.defaults.image import Project
 from idegym.plugins.idea.image import Idea
-from kubernetes_asyncio.client import V1ResourceRequirements
 from utils.build_images import minikube_load_image
 from utils.constants import DEFAULT_SERVER_START_TIMEOUT
 
@@ -50,9 +50,9 @@ _MCP_UPDATE_ID = "882474"
 _IDEA_LOG = "/tmp/ide-system/log/idea.log"
 
 # IDEA is more resource-efficient than PyCharm CE (headless mode, no Xvfb).
-_IDEA_RESOURCES = V1ResourceRequirements(
-    requests={"cpu": "1000m", "memory": "4Gi", "ephemeral-storage": "12Gi"},
-    limits={"cpu": "2000m", "memory": "8Gi", "ephemeral-storage": "12Gi"},
+_IDEA_RESOURCES = KubernetesResources(
+    requests=ResourceQuantities(cpu="1000m", memory="4Gi", ephemeral_storage="12Gi"),
+    limits=ResourceQuantities(cpu="2000m", memory="8Gi", ephemeral_storage="12Gi"),
 )
 
 # Shared 180s MCP wait script (60 × 3s).
@@ -98,7 +98,9 @@ async def test_idea_inspect_produces_results(test_id):
         # open_project=False → no supervisord MCP service; mcp_update_id=None → no MCP plugin
         .with_plugin(Idea(version=_IDEA_VERSION, open_project=False, mcp_update_id=None))
         # Register the idea server plugin so POST /idea/inspect is mounted
-        .run_commands('printf \'%s\\n\' \'{"server":["tools","rewards","idea"]}\' > /etc/idegym/plugins.json')
+        .run_commands(
+            'mkdir -p /etc/idegym && printf \'%s\\n\' \'{"server":["tools","rewards","idea"]}\' > /etc/idegym/plugins.json'
+        )
     )
 
     built = image.build()

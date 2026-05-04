@@ -29,11 +29,11 @@ from importlib.resources import files
 
 import pytest
 import resources as e2e_resources
+from idegym.api.resources import KubernetesResources, ResourceQuantities
 from idegym.client.operations.utils import PollingConfig
 from idegym.image.builder import Image
 from idegym.plugins.defaults.image import Project
 from idegym.plugins.pycharm.image import PyCharm
-from kubernetes_asyncio.client import V1ResourceRequirements
 from utils.build_images import minikube_load_image
 from utils.constants import DEFAULT_SERVER_START_TIMEOUT
 
@@ -42,9 +42,9 @@ _PYCHARM_VERSION = "2025.2.4"
 _MCP_UPDATE_ID = "882474"
 
 # PyCharm needs ample memory; the JVM alone reserves ~1 GB before any project is loaded.
-_PYCHARM_RESOURCES = V1ResourceRequirements(
-    requests={"cpu": "1000m", "memory": "4Gi", "ephemeral-storage": "10Gi"},
-    limits={"cpu": "2000m", "memory": "8Gi", "ephemeral-storage": "10Gi"},
+_PYCHARM_RESOURCES = KubernetesResources(
+    requests=ResourceQuantities(cpu="1000m", memory="4Gi", ephemeral_storage="10Gi"),
+    limits=ResourceQuantities(cpu="2000m", memory="8Gi", ephemeral_storage="10Gi"),
 )
 
 # Shared 180s MCP wait script (60 × 3s); same script used by the IDEA test module.
@@ -88,7 +88,9 @@ async def test_pycharm_inspect_produces_results(test_id):
         # open_project=False → no supervisord MCP service; mcp_update_id=None → no MCP plugin
         .with_plugin(PyCharm(version=_PYCHARM_VERSION, edition="community", open_project=False, mcp_update_id=None))
         # Register the pycharm server plugin so POST /pycharm/inspect is mounted
-        .run_commands('printf \'%s\\n\' \'{"server":["tools","rewards","pycharm"]}\' > /etc/idegym/plugins.json')
+        .run_commands(
+            'mkdir -p /etc/idegym && printf \'%s\\n\' \'{"server":["tools","rewards","pycharm"]}\' > /etc/idegym/plugins.json'
+        )
     )
 
     built = image.build()

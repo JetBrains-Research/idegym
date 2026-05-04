@@ -1,6 +1,6 @@
 import pytest
 from idegym.api.orchestrator.mcp import MCPToolName
-from kubernetes_asyncio.client import V1ResourceRequirements
+from idegym.api.resources import KubernetesResources, ResourceQuantities
 from utils.constants import DEFAULT_NAMESPACE, DEFAULT_SERVER_START_TIMEOUT
 from utils.mcp_utils import (
     create_mcp_client,
@@ -94,10 +94,10 @@ async def test_mcp_start_server_and_run_bash_command(test_image, test_id):
             )
             client_id = register_result.structured_content["id"]
 
-            resources = V1ResourceRequirements(
-                requests={"cpu": "500m", "memory": "500Mi", "ephemeral-storage": "1Gi"},
-                limits={"cpu": "1", "memory": "1Gi", "ephemeral-storage": "2Gi"},
-            ).to_dict()
+            resources = KubernetesResources(
+                requests=ResourceQuantities(cpu="500m", memory="500Mi", ephemeral_storage="1Gi"),
+                limits=ResourceQuantities(cpu="1", memory="1Gi", ephemeral_storage="2Gi"),
+            ).model_dump()
             start_request = {
                 "client_id": client_id,
                 "namespace": DEFAULT_NAMESPACE,
