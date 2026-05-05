@@ -888,12 +888,12 @@ def test_idea_default_version():
 
 
 def test_idea_render_contains_install_steps():
-    plugin = Idea(version="2025.2.4")
+    plugin = Idea(version="2026.1.1")
     ctx = BuildContext(base="debian:bookworm-slim")
     fragment = plugin.render(ctx)
-    assert 'IDEA_VERSION="2025.2.4"' in fragment
+    assert 'IDEA_VERSION="2026.1.1"' in fragment
     # Archive name built at runtime with arch suffix variable.
-    assert 'archive="ideaIC-2025.2.4${suffix}.tar.gz"' in fragment
+    assert 'archive="idea-2026.1.1${suffix}.tar.gz"' in fragment
     assert "dpkg --print-architecture" in fragment
     assert "aarch64" in fragment
     assert "JAVA_HOME" in fragment
@@ -1366,7 +1366,7 @@ def test_plugin_base_get_mcp_upstream_default_is_none():
 
 def test_pycharm_get_mcp_upstream():
     ctx = BuildContext(base="debian:bookworm-slim").with_extra("idegym.has_project", True)
-    assert PyCharm().get_mcp_upstream(ctx) == "http://localhost:64343"
+    assert PyCharm().get_mcp_upstream(ctx) == "http://localhost:64342"
 
 
 def test_pycharm_server_plugin_get_server_router_returns_router():
@@ -1386,7 +1386,7 @@ def test_pycharm_server_plugin_get_server_router_returns_router():
 
 def test_idea_get_mcp_upstream():
     ctx = BuildContext(base="debian:bookworm-slim").with_extra("idegym.has_project", True)
-    assert Idea().get_mcp_upstream(ctx) == "http://localhost:64343"
+    assert Idea().get_mcp_upstream(ctx) == "http://localhost:64342"
 
 
 def test_idea_server_plugin_get_server_router_returns_router():
@@ -1403,7 +1403,7 @@ def test_idea_to_spec_auto_emits_mcp_config():
     image = Image.from_base("debian:bookworm-slim").with_plugin(Project.from_local("test-project")).with_plugin(Idea())
     spec = image.to_spec()
     assert "/etc/idegym/mcp-upstreams.d/idea.json" in spec.dockerfile_content
-    assert "http://localhost:64343" in spec.dockerfile_content
+    assert "http://localhost:64342" in spec.dockerfile_content
 
 
 # ---------------------------------------------------------------------------
@@ -1418,7 +1418,7 @@ def test_to_spec_auto_emits_mcp_config_for_plugin_with_mcp_upstream():
     )
     spec = image.to_spec()
     assert "/etc/idegym/mcp-upstreams.d/pycharm.json" in spec.dockerfile_content
-    assert "http://localhost:64343" in spec.dockerfile_content
+    assert "http://localhost:64342" in spec.dockerfile_content
 
 
 def test_to_spec_mcp_config_not_emitted_for_plugin_without_upstream():

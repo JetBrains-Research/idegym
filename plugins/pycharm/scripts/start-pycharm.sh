@@ -15,7 +15,7 @@
 #   PYCHARM_DIR          – PyCharm installation directory        (default: /opt/pycharm)
 #   IDE_SYSTEM_PATH      – PyCharm system/cache/log directory   (default: /tmp/ide-system)
 #   IDE_CONFIG_PATH      – PyCharm config directory             (default: /tmp/ide-config)
-#   MCP_PORT             – port the MCP SSE endpoint listens on  (default: 64342)
+#   MCP_PORT             – port the MCP endpoint listens on (/sse or /stream, default: 64342)
 #   BRIDGE_PORT          – port socat exposes on 0.0.0.0         (default: 64343)
 #   WAIT_SECONDS         – max seconds to wait for MCP endpoint  (default: 300)
 
@@ -89,12 +89,27 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# ── Wait for the MCP SSE endpoint ─────────────────────────────────────────────
-echo "Waiting for MCP endpoint at ${MCP_URL} (timeout: ${WAIT_SECONDS}s)..."
+# ── Wait for the MCP endpoint (stream or SSE) ────────────────────────────────
+# Source the check-mcp.sh script to get the check_mcp_endpoint function
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/check-mcp.sh"
+
+echo "Waiting for MCP endpoint (checking /stream and /sse, timeout: ${WAIT_SECONDS}s)..."
+MCP_READY=false
 for i in $(seq 1 "${WAIT_SECONDS}"); do
-    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 "${MCP_URL}" 2>/dev/null || true)
-    if [ "${HTTP_CODE}" = "200" ]; then
-        echo ">>> MCP server ready (${i}s)"
+    # Try /stream endpoint first (newer versions)
+    if check_mcp_endpoint "http://localhost:${MCP_PORT}/stream"; then
+        echo ">>> MCP server ready at /stream (${i}s)"
+        MCP_URL="http://localhost:${MCP_PORT}/stream"
+        MCP_READY=true
+        break
+    fi
+
+    # Try /sse endpoint (legacy)
+    if check_mcp_endpoint "http://localhost:${MCP_PORT}/sse"; then
+        echo ">>> MCP server ready at /sse (${i}s)"
+        MCP_URL="http://localhost:${MCP_PORT}/sse"
+        MCP_READY=true
         break
     fi
 

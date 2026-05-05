@@ -20,7 +20,7 @@ RUN set -eux; \
         arm64) suffix="-aarch64" ;; \
         *) echo "Unsupported arch: $arch" >&2; exit 1 ;; \
     esac; \
-    archive="ideaIC-{{ version }}${suffix}.tar.gz"; \
+    archive="idea-{{ version }}${suffix}.tar.gz"; \
     curl -fsSL "https://download.jetbrains.com/idea/${archive}" -o /tmp/idea.tar.gz; \
     curl -fsSL "https://download.jetbrains.com/idea/${archive}.sha256" -o /tmp/idea.sha256; \
     expected=$(cut -d' ' -f1 /tmp/idea.sha256); \

@@ -121,7 +121,9 @@ async def test_pycharm_inspect_produces_results(test_id):
                 timeout=540.0,
                 request_timeout=600,
             )
-            assert result.exit_code == 0, f"inspect.sh exited {result.exit_code} (output_dir: {result.output_dir})"
+            assert result.exit_code == 0, (
+                f"inspect.sh exited {result.exit_code}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+            )
 
             # Verify result files were written and contain XML inspection output
             listing = await server.execute_bash("ls /tmp/pycharm-inspect-out/")
@@ -129,10 +131,18 @@ async def test_pycharm_inspect_produces_results(test_id):
             files_written = listing.stdout.strip().split()
             assert files_written, "Expected inspect.sh to write result files in /tmp/pycharm-inspect-out/"
 
-            first_file = files_written[0]
-            content = await server.execute_bash(f"cat /tmp/pycharm-inspect-out/{first_file}")
-            assert content.exit_code == 0, f"Failed to read {first_file}: {content.stderr}"
-            assert content.stdout.strip(), f"Result file {first_file} is empty"
+            # Verify that buggy.py issues were detected
+            buggy_check = await server.execute_bash("grep -l 'buggy.py' /tmp/pycharm-inspect-out/*.xml || true")
+            assert buggy_check.exit_code == 0, f"Failed to search for buggy.py: {buggy_check.stderr}"
+            buggy_files = [f for f in buggy_check.stdout.strip().split("\n") if f]
+            assert buggy_files, "Expected at least one inspection result file to reference buggy.py with issues"
+
+            # Read one of the files that contains buggy.py issues
+            first_buggy_file = buggy_files[0].split("/")[-1]
+            content = await server.execute_bash(f"cat /tmp/pycharm-inspect-out/{first_buggy_file}")
+            assert content.exit_code == 0, f"Failed to read {first_buggy_file}: {content.stderr}"
+            assert "buggy.py" in content.stdout, f"Expected buggy.py in {first_buggy_file}"
+            assert "<problem>" in content.stdout, f"Expected <problem> XML tags in {first_buggy_file}"
 
 
 @pytest.mark.ide_integrations

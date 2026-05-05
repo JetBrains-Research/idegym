@@ -7,7 +7,7 @@ The entry point name ``"idea"`` becomes the attribute name on ``IdeGYMServer``
 
 from typing import Any
 
-from idegym.plugins.defaults.inspect import InspectClientOperationsMixin
+from idegym.plugins.plugin_utils.inspect import InspectClientOperationsMixin
 
 
 class IdeaClientOperations(InspectClientOperationsMixin):

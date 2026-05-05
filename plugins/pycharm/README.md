@@ -28,7 +28,7 @@ At runtime supervisord calls `start-pycharm.sh`, which:
    container.
 3. Invokes the **open-project** plugin via the `open` `AppStarter` command, which
    opens `IDEGYM_PROJECT_ROOT`.
-4. Waits until the MCP server binds on `127.0.0.1:64342`.
+4. Waits until the MCP server binds on `127.0.0.1:64342` (checks both `/sse` and `/stream` endpoints).
 5. Starts a **socat** bridge: `TCP-LISTEN:64343 → 127.0.0.1:64342`, exposing the
    MCP server on all interfaces at port `64343`.
 
@@ -63,7 +63,7 @@ the image directly and connect any MCP client to it without IdeGYM:
 
 ```bash
 docker run --rm -p 64343:64343 <image>
-# MCP endpoint: http://localhost:64343/mcp
+# MCP endpoint: http://localhost:64343/sse (or /stream on newer versions)
 ```
 
 ## Client operations

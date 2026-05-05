@@ -26,6 +26,11 @@ async def run_ide_inspect(inspect_sh: str, request: InspectRequest) -> InspectRe
     Raises:
         asyncio.TimeoutError: If ``inspect.sh`` does not finish within ``request.timeout``.
     """
+    import os
+
+    # Ensure the output directory exists before running inspect.sh
+    os.makedirs(request.output_dir, exist_ok=True)
+
     cmd = [inspect_sh, request.project_path, request.profile_path, request.output_dir]
     if request.changes_only:
         cmd.append("-changes")
@@ -37,10 +42,10 @@ async def run_ide_inspect(inspect_sh: str, request: InspectRequest) -> InspectRe
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
+        stderr=asyncio.subprocess.PIPE,
     )
     try:
-        await asyncio.wait_for(proc.communicate(), timeout=request.timeout)
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=request.timeout)
     except asyncio.TimeoutError:
         proc.kill()
         try:
@@ -50,7 +55,17 @@ async def run_ide_inspect(inspect_sh: str, request: InspectRequest) -> InspectRe
             # At this point the OS should have received SIGKILL
             pass
         raise
-    return InspectResponse(output_dir=request.output_dir, exit_code=proc.returncode or 0)
+
+    # Decode output for the response
+    stdout_str = stdout.decode("utf-8", errors="replace") if stdout else ""
+    stderr_str = stderr.decode("utf-8", errors="replace") if stderr else ""
+
+    return InspectResponse(
+        output_dir=request.output_dir,
+        exit_code=proc.returncode or 0,
+        stdout=stdout_str,
+        stderr=stderr_str,
+    )
 
 
 class InspectClientOperationsMixin:

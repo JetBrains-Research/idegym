@@ -37,6 +37,8 @@ RUN set -eux; \
 
 # start-pycharm.sh: starts Xvfb on :99 (PyCharm CE requires a display), launches PyCharm,
 # waits for MCP on {{ mcp_port }}, bridges 0.0.0.0:{{ bridge_port }} → 127.0.0.1:{{ mcp_port }} via socat.
+# check-mcp.sh: script for checking MCP endpoint availability.
+COPY plugins/pycharm/scripts/check-mcp.sh /usr/local/bin/check-mcp.sh
 COPY plugins/pycharm/scripts/start-pycharm.sh /usr/local/bin/start-pycharm.sh
-RUN chmod +x /usr/local/bin/start-pycharm.sh
+RUN chmod +x /usr/local/bin/check-mcp.sh /usr/local/bin/start-pycharm.sh
 COPY plugins/pycharm/scripts/supervisord-pycharm.conf /etc/supervisor/conf.d/pycharm.conf

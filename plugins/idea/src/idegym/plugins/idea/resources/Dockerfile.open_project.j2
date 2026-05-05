@@ -36,6 +36,8 @@ RUN set -eux; \
 
 # start-idea.sh: launches IDEA headless, waits for MCP on {{ mcp_port }},
 # then bridges 0.0.0.0:{{ bridge_port }} → 127.0.0.1:{{ mcp_port }} via socat.
+# check-mcp.sh: script for checking MCP endpoint availability.
+COPY plugins/idea/scripts/check-mcp.sh /usr/local/bin/check-mcp.sh
 COPY plugins/idea/scripts/start-idea.sh /usr/local/bin/start-idea.sh
-RUN chmod +x /usr/local/bin/start-idea.sh
+RUN chmod +x /usr/local/bin/check-mcp.sh /usr/local/bin/start-idea.sh
 COPY plugins/idea/scripts/supervisord-idea.conf /etc/supervisor/conf.d/idea.conf

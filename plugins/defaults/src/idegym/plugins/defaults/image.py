@@ -9,23 +9,13 @@ from idegym.api.download import Authorization, DownloadRequest
 from idegym.api.git import GitRepository, GitRepositoryResource, GitRepositorySnapshot
 from idegym.api.plugin import BuildContext, PluginBase, image_plugin
 from idegym.api.type import AuthType
+from idegym.plugins.plugin_utils import check_linux_id
 from pydantic import Field, field_validator
 
-# Linux username/group: starts with letter or underscore, then letters/digits/hyphens/underscores, max 32 chars.
-_LINUX_IDENTIFIER_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 # Valid Debian package name: starts with alphanumeric, rest are lowercase alphanumeric, +, -, .
 _DEBIAN_PACKAGE_RE = re.compile(r"^[a-z0-9][a-z0-9+.-]+$")
 # chmod mode: 3 or 4 octal digits
 _OCTAL_MODE_RE = re.compile(r"^[0-7]{3,4}$")
-
-
-def _check_linux_id(value: str, field: str) -> str:
-    if not _LINUX_IDENTIFIER_RE.match(value):
-        raise ValueError(
-            f"Invalid Linux identifier for {field!r}: {value!r}. "
-            r"Must match ^[a-z_][a-z0-9_-]{0,31}$"
-        )
-    return value
 
 
 def _build_image_labels(value: GitRepository | GitRepositorySnapshot | GitRepositoryResource) -> dict[str, str]:
@@ -149,20 +139,20 @@ class User(PluginBase):
     @field_validator("username")
     @classmethod
     def _validate_username(cls, v: str) -> str:
-        return _check_linux_id(v, "username")
+        return check_linux_id(v, "username")
 
     @field_validator("group")
     @classmethod
     def _validate_group(cls, v: Optional[str]) -> Optional[str]:
         if v is not None:
-            _check_linux_id(v, "group")
+            check_linux_id(v, "group")
         return v
 
     @field_validator("additional_groups")
     @classmethod
     def _validate_additional_groups(cls, v: tuple[str, ...]) -> tuple[str, ...]:
         for g in v:
-            _check_linux_id(g, "additional_groups")
+            check_linux_id(g, "additional_groups")
         return v
 
     @property
@@ -252,7 +242,7 @@ class Permissions(PluginBase):
             for key in ("owner", "group"):
                 val = config.get(key)
                 if val is not None:
-                    _check_linux_id(val, key)
+                    check_linux_id(val, key)
             mode = config.get("mode")
             if mode is not None and not _OCTAL_MODE_RE.match(mode):
                 raise ValueError(f"Invalid file mode: {mode!r}. Expected 3 or 4 octal digits (e.g. '755').")
@@ -359,7 +349,7 @@ class Project(PluginBase):
     @classmethod
     def _validate_owner_group(cls, v: Optional[str]) -> Optional[str]:
         if v is not None:
-            _check_linux_id(v, "owner/group")
+            check_linux_id(v, "owner/group")
         return v
 
     @field_validator("path", "target")

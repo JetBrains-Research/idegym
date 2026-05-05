@@ -46,6 +46,7 @@ idegym-orchestrator = { workspace = true }
 idegym-plugin-defaults = { workspace = true }
 idegym-plugin-idea = { workspace = true }
 idegym-plugin-pycharm = { workspace = true }
+idegym-plugin-utils = { workspace = true }
 idegym-rewards = { workspace = true }
 idegym-server = { workspace = true }
 idegym-tools = { workspace = true }
@@ -61,6 +62,7 @@ members = [
     "plugins/defaults",
     "plugins/idea",
     "plugins/pycharm",
+    "plugins/plugin-utils",
     "rewards",
     "server",
     "tools",
@@ -104,6 +106,9 @@ markers = [
 indent-width = 4
 line-length = 120
 target-version = "py312"
+exclude = [
+    "e2e-tests/test_projects/"
+]
 
 [tool.ruff.lint]
 fixable = ["ALL"]

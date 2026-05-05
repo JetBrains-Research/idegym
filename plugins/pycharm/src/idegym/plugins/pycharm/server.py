@@ -33,7 +33,7 @@ class PyCharmPlugin:
             return None
 
         from idegym.api.inspect import InspectRequest, InspectResponse
-        from idegym.plugins.defaults.inspect import run_ide_inspect
+        from idegym.plugins.plugin_utils.inspect import run_ide_inspect
 
         router = APIRouter(prefix="/pycharm", tags=["pycharm"])
 

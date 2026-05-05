@@ -3,7 +3,7 @@ from importlib.resources import files
 from typing import Optional
 
 from idegym.api.plugin import BuildContext, PluginBase, image_plugin
-from idegym.plugins.defaults.image import _check_linux_id
+from idegym.plugins.plugin_utils import check_linux_id
 from jinja2 import BaseLoader, Environment
 from pydantic import field_validator
 
@@ -72,14 +72,14 @@ class Idea(PluginBase):
     @classmethod
     def _validate_user(cls, v: Optional[str]) -> Optional[str]:
         if v is not None:
-            _check_linux_id(v, "user")
+            check_linux_id(v, "user")
         return v
 
     def get_mcp_upstream(self, ctx: BuildContext) -> Optional[str]:
         has_project = ctx.get_extra("idegym.has_project", False)
         if not (has_project and self.open_project):
             return None
-        return f"http://localhost:{_BRIDGE_PORT}"
+        return f"http://localhost:{_MCP_PORT}"
 
     def apply(self, ctx: BuildContext) -> BuildContext:
         has_project = ctx.get_extra("idegym.has_project", False)

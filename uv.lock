@@ -19,6 +19,7 @@ members = [
     "idegym-plugin-defaults",
     "idegym-plugin-idea",
     "idegym-plugin-pycharm",
+    "idegym-plugin-utils",
     "idegym-rewards",
     "idegym-server",
     "idegym-tools",
@@ -1389,6 +1390,7 @@ version = "0.0.0.dev0"
 source = { editable = "plugins/defaults" }
 dependencies = [
     { name = "idegym-api" },
+    { name = "idegym-plugin-utils" },
     { name = "pydantic" },
 ]
 
@@ -1401,6 +1403,7 @@ server = [
 [package.metadata]
 requires-dist = [
     { name = "idegym-api", editable = "api" },
+    { name = "idegym-plugin-utils", editable = "plugins/plugin-utils" },
     { name = "idegym-rewards", extras = ["server"], marker = "extra == 'server'", editable = "rewards" },
     { name = "idegym-tools", extras = ["server"], marker = "extra == 'server'", editable = "tools" },
     { name = "pydantic", specifier = ">=2.10.6" },
@@ -1413,7 +1416,7 @@ version = "0.0.0.dev0"
 source = { editable = "plugins/idea" }
 dependencies = [
     { name = "idegym-api" },
-    { name = "idegym-plugin-defaults" },
+    { name = "idegym-plugin-utils" },
     { name = "jinja2" },
     { name = "pydantic" },
 ]
@@ -1427,7 +1430,7 @@ server = [
 requires-dist = [
     { name = "fastapi", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.135.2" },
     { name = "idegym-api", editable = "api" },
-    { name = "idegym-plugin-defaults", editable = "plugins/defaults" },
+    { name = "idegym-plugin-utils", editable = "plugins/plugin-utils" },
     { name = "jinja2", specifier = ">=3.1.5" },
     { name = "pydantic", specifier = ">=2.10.6" },
 ]
@@ -1439,7 +1442,7 @@ version = "0.0.0.dev0"
 source = { editable = "plugins/pycharm" }
 dependencies = [
     { name = "idegym-api" },
-    { name = "idegym-plugin-defaults" },
+    { name = "idegym-plugin-utils" },
     { name = "jinja2" },
     { name = "pydantic" },
 ]
@@ -1453,11 +1456,16 @@ server = [
 requires-dist = [
     { name = "fastapi", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.135.2" },
     { name = "idegym-api", editable = "api" },
-    { name = "idegym-plugin-defaults", editable = "plugins/defaults" },
+    { name = "idegym-plugin-utils", editable = "plugins/plugin-utils" },
     { name = "jinja2", specifier = ">=3.1.5" },
     { name = "pydantic", specifier = ">=2.10.6" },
 ]
 provides-extras = ["server"]
+
+[[package]]
+name = "idegym-plugin-utils"
+version = "0.0.0.dev0"
+source = { editable = "plugins/plugin-utils" }
 
 [[package]]
 name = "idegym-rewards"

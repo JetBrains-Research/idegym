@@ -35,3 +35,5 @@ class InspectResponse(BaseModel):
 
     output_dir: str = Field(description="Directory containing the inspection result files")
     exit_code: int = Field(description="Exit code returned by inspect.sh (0 = success)")
+    stdout: str = Field(default="", description="Standard output from inspect.sh")
+    stderr: str = Field(default="", description="Standard error from inspect.sh")

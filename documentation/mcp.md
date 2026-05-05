@@ -190,3 +190,21 @@ To delete the Kubernetes resources instead, call `stop_server`.
 
 Nested MCP server support is planned. The current MCP server is hosted by the orchestrator and exposes orchestrator
 operations only. Future nested support can be documented here without changing the orchestrator API reference.
+
+---
+
+## JetBrains IDE MCP Endpoints
+
+When using the `Idea` or `PyCharm` plugins, the JetBrains MCP server becomes available at `localhost:64342` inside
+the container. The plugin startup scripts check both `/sse` (legacy) and `/stream` (newer versions) endpoints for
+compatibility across different IDE versions.
+
+Externally, the socat bridge exposes port `64343` with the same MCP server. For standalone Docker deployments:
+
+```bash
+docker run --rm -p 64343:64343 <image>
+# MCP endpoint: http://localhost:64343/sse or http://localhost:64343/stream
+```
+
+Both `/sse` and `/stream` endpoints support the same MCP protocol and tools. The startup scripts automatically detect
+which endpoint is available and report the working endpoint in the logs.
