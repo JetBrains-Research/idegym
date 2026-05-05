@@ -27,3 +27,26 @@ jobs:
         uses: astral-sh/ruff-action@v3
         with:
           args: "check --output-format github"
+
+  chart:
+    name: Helm
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout latest
+        uses: actions/checkout@v6
+      - name: Detect changed paths
+        uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            chart:
+              - 'charts/**'
+      - name: Install Helm
+        if: steps.filter.outputs.chart == 'true'
+        uses: azure/setup-helm@v4
+      - name: Build Helm chart dependencies
+        if: steps.filter.outputs.chart == 'true'
+        run: helm dependency update charts/idegym
+      - name: Lint Helm chart
+        if: steps.filter.outputs.chart == 'true'
+        run: helm lint charts/idegym
