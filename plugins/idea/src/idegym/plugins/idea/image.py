@@ -21,12 +21,14 @@ def _render(template_name: str, **kwargs: object) -> str:
 
 @image_plugin("idea")
 class Idea(PluginBase):
-    """Install IntelliJ IDEA Community with the JetBrains MCP server plugin.
+    """Install IntelliJ IDEA with the JetBrains MCP server plugin.
 
-    IDEA Community supports ``-Djava.awt.headless=true`` natively, so no display
-    server is needed — it starts faster and uses less memory than PyCharm CE.
+    Requires IDEA 2026.1.1 or newer. Older versions are not supported.
 
-    **MCP server**: the JetBrains MCP plugin (``mcp_update_id``) binds to
+    IDEA supports ``-Djava.awt.headless=true`` natively, so no display
+    server is needed — it starts faster and uses less memory than PyCharm.
+
+    **MCP server**: the JetBrains MCP plugin is bundled in 2026.1.1+ and binds to
     ``127.0.0.1:64342`` (loopback only). Plugin versions are listed at
     https://plugins.jetbrains.com/plugin/26071-mcp-server/versions. At runtime,
     ``start-idea.sh`` starts a socat bridge that re-listens on ``0.0.0.0:64343``,
@@ -44,20 +46,18 @@ class Idea(PluginBase):
     ``open_project=True``, the pre-built plugin from
     ``plugins/idea/project-opener/project-opener.zip`` is installed into the bundled
     plugins directory (``${IDE_DIR}/plugins/``) so IDEA finds it before the ``open``
-    ``AppStarter`` command is dispatched. Requires build series 252+ (IDEA 2025.2+).
+    ``AppStarter`` command is dispatched. Requires build series 261+
+    (IDEA 2026.1+).
 
     Attributes:
-        version: IDEA version in ``YYYY.N`` or ``YYYY.N.N`` format.
-        mcp_update_id: Marketplace update ID for the MCP server plugin
-            (https://plugins.jetbrains.com/plugin/26071-mcp-server/versions).
-            The default (``"882474"``) targets build series 252. Set to ``None`` to skip.
+        version: IDEA version in ``YYYY.N`` or ``YYYY.N.N`` format. Must be 2026.1.1
+            or newer; older versions are not supported.
         open_project: Install the open-project plugin and supervisord entry when a
             ``Project`` plugin precedes this one in the pipeline.
         user: User to switch back to after installation. Defaults to ``ctx.current_user``.
     """
 
-    version: str = "2025.3"
-    mcp_update_id: Optional[str] = "882474"
+    version: str = "2026.1.1"
     open_project: bool = True
     user: Optional[str] = None
 
@@ -97,11 +97,10 @@ class Idea(PluginBase):
 
         parts = [_render("Dockerfile.install.j2", version=self.version, config_dir=_CONFIG_DIR)]
 
-        if install_plugin and self.mcp_update_id:
+        if install_plugin:
             parts.append(
                 _render(
                     "Dockerfile.mcp.j2",
-                    mcp_update_id=self.mcp_update_id,
                     config_dir=_CONFIG_DIR,
                 )
             )

@@ -1,10 +1,12 @@
-"""E2E tests for IntelliJ IDEA CE: code inspection and MCP server readiness.
+"""E2E tests for IntelliJ IDEA: code inspection and MCP server readiness.
+
+Requires IDEA 2026.1.1+. Older versions are not supported.
 
 Build pipeline:
   inspect test  → Project.from_local("e2e-tests/test_projects/java-project")
   MCP test      → Project.from_local("e2e-tests/test_projects/kotlin-project")
 
-IDEA CE supports ``-Djava.awt.headless=true`` natively, so no Xvfb is needed
+IDEA supports ``-Djava.awt.headless=true`` natively, so no Xvfb is needed
 for any of the tests in this module — including ``inspect()``.
 
 ``test_idea_inspect_produces_results``
@@ -18,13 +20,13 @@ for any of the tests in this module — including ``inspect()``.
     1. IDEA launches in true headless mode.
     2. The open-project plugin opens ``IDEGYM_PROJECT_ROOT`` via an AppStarter
        "open" command.
-    3. The JetBrains MCP plugin binds on 127.0.0.1:64342.
+    3. The JetBrains MCP plugin (bundled in 2026.1.1+) binds on 127.0.0.1:64342.
     4. socat bridges 0.0.0.0:64343 → 127.0.0.1:64342 so the port is reachable
        externally.  Run standalone with ``docker run -p 64343:64343 <image>``
        and connect your MCP client to http://localhost:64343/mcp.
     The test polls http://localhost:64342/sse inside the container until HTTP 200.
 
-Downloads IDEA CE (~800 MB); takes 5-10 min end-to-end. Excluded from CI.
+Downloads IDEA (~800 MB); takes 5-10 min end-to-end. Excluded from CI.
 Run with: ``pytest -m 'e2e and ide_integrations'``
 """
 
@@ -42,21 +44,20 @@ from utils.constants import DEFAULT_SERVER_START_TIMEOUT
 
 _LOCAL_BASE_IMAGE = "ghcr.io/jetbrains-research/idegym/server-debian-bookworm-20250520-slim:latest"
 
-# IDEA 2025.2+ is required for the JetBrains MCP plugin (build series 252+).
-_IDEA_VERSION = "2025.2.4"
-_MCP_UPDATE_ID = "882474"
+# IDEA 2026.1.1+ is required. Older versions are not supported.
+_IDEA_VERSION = "2026.1.1"
 
 # IDEA internal log — IDE_SYSTEM_PATH defaults to /tmp/ide-system in start-idea.sh.
 _IDEA_LOG = "/tmp/ide-system/log/idea.log"
 
-# IDEA is more resource-efficient than PyCharm CE (headless mode, no Xvfb).
+# IDEA is more resource-efficient than PyCharm (headless mode, no Xvfb).
 _IDEA_RESOURCES = KubernetesResources(
     requests=ResourceQuantities(cpu="1000m", memory="4Gi", ephemeral_storage="12Gi"),
     limits=ResourceQuantities(cpu="2000m", memory="8Gi", ephemeral_storage="12Gi"),
 )
 
 # Shared 180s MCP wait script (60 × 3s).
-# IDEA headless starts faster than PyCharm CE (no Xvfb/GUI overhead).
+# IDEA headless starts faster than PyCharm (no Xvfb/GUI overhead).
 _WAIT_MCP_SCRIPT = files(e2e_resources).joinpath("mcp_wait_180s.sh").read_text(encoding="utf-8")
 
 # Inspection profile enabling JavaDoc warnings; targets Calculator.java in java-project.
@@ -73,7 +74,7 @@ _INSPECT_SETUP_SCRIPT = (
 async def test_idea_inspect_produces_results(test_id):
     """Build an IDEA image (no open-project plugin, no MCP daemon) and run inspect.sh.
 
-    Installs IntelliJ IDEA CE and a Kotlin test-project but skips both the
+    Installs IntelliJ IDEA and a Kotlin test-project but skips both the
     open-project supervisord service and the MCP plugin.  inspect.sh is invoked
     on demand via ``server.idea.inspect()`` and writes XML result files to
     ``/tmp/idea-inspect-out`` inside the container.
@@ -81,7 +82,7 @@ async def test_idea_inspect_produces_results(test_id):
     inspect.sh runs in batch/headless mode (``-Djava.awt.headless=true``); no
     Xvfb or display is required.
 
-    Note: this test downloads IDEA CE (~800 MB) and is expected to take
+    Note: this test downloads IDEA (~800 MB) and is expected to take
     10-15 minutes end-to-end.
     """
     from utils.idegym_utils import create_http_client
@@ -95,8 +96,8 @@ async def test_idea_inspect_produces_results(test_id):
                 target="/root/work",
             )
         )
-        # open_project=False → no supervisord MCP service; mcp_update_id=None → no MCP plugin
-        .with_plugin(Idea(version=_IDEA_VERSION, open_project=False, mcp_update_id=None))
+        # open_project=False → no supervisord MCP service
+        .with_plugin(Idea(version=_IDEA_VERSION, open_project=False))
         # Register the idea server plugin so POST /idea/inspect is mounted
         .run_commands(
             'mkdir -p /etc/idegym && printf \'%s\\n\' \'{"server":["tools","rewards","idea"]}\' > /etc/idegym/plugins.json'
@@ -151,7 +152,7 @@ async def test_idea_mcp_server_starts(test_id):
 
     Validates the full IDEA plugin pipeline:
     - Project is copied into the image (Kotlin project with build.gradle.kts)
-    - JetBrains MCP plugin is installed (updateId=882474)
+    - JetBrains MCP plugin is bundled in 2026.1.1+ (no separate installation needed)
     - open-project plugin auto-opens IDEGYM_PROJECT_ROOT on startup
     - IDEA runs in true headless mode (no Xvfb required)
     - start-idea.sh waits for MCP (port 64342) then starts socat bridge
@@ -171,7 +172,6 @@ async def test_idea_mcp_server_starts(test_id):
         .with_plugin(
             Idea(
                 version=_IDEA_VERSION,
-                mcp_update_id=_MCP_UPDATE_ID,
                 open_project=True,
             )
         )

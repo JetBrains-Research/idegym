@@ -388,7 +388,7 @@ The `PyCharm` plugin does this automatically when added to an image:
 ```python
 image = (
     image
-    .with_plugin(PyCharm(version="2024.3.1", user="appuser"))   # adds "pycharm" to the list
+    .with_plugin(PyCharm(version="2026.1.1", user="appuser"))   # adds "pycharm" to the list
     .with_plugin(IdeGYMServer.from_local(root=from_root()))      # writes plugins.json
 )
 ```
@@ -550,7 +550,7 @@ Ships in `plugins/idea/`. Install separately to use the IntelliJ IDEA integratio
 
 | Integration point | Entry point group | Class |
 |---|---|---|
-| Image build | `idegym.plugins.image` | `Idea` — installs IntelliJ IDEA Community; true headless (no Xvfb) |
+| Image build | `idegym.plugins.image` | `Idea` — installs IntelliJ IDEA; true headless (no Xvfb) |
 | Server routing | `idegym.plugins.server` | `IdeaPlugin` — mounts `POST /api/idea/inspect` |
 | Client operations | `idegym.plugins.client` | `IdeaClientOperations` — exposes `server.idea.inspect(...)` |
 

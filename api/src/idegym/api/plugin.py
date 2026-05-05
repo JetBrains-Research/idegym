@@ -105,7 +105,7 @@ class PluginBase(BaseModel):
         """
         return []
 
-    def get_mcp_upstream(self, ctx: "BuildContext") -> Optional[str]:
+    def get_mcp_upstream(self, ctx: BuildContext) -> Optional[str]:
         """Return the MCP server URL accessible inside the container, or ``None``.
 
         Example: ``"http://localhost:6789/mcp"``

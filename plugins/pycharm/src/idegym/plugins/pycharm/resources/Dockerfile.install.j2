@@ -1,5 +1,6 @@
-# Install PyCharm {{ edition }} {{ version }}
+# Install PyCharm {{ version }}
 # https://www.jetbrains.com/pycharm/download/other.html
+# Requires 2026.1.1+; older versions are not supported.
 USER root
 RUN set -eux; \
     apt-get update -qq; \
@@ -19,7 +20,7 @@ RUN set -eux; \
         arm64) suffix="-aarch64" ;; \
         *) echo "Unsupported arch: $arch" >&2; exit 1 ;; \
     esac; \
-    archive="pycharm-{{ edition }}-{{ version }}${suffix}.tar.gz"; \
+    archive="pycharm-{{ version }}${suffix}.tar.gz"; \
     curl -fsSL "https://download.jetbrains.com/python/${archive}" -o /tmp/pycharm.tar.gz; \
     curl -fsSL "https://download.jetbrains.com/python/${archive}.sha256" -o /tmp/pycharm.sha256; \
     expected=$(cut -d' ' -f1 /tmp/pycharm.sha256); \

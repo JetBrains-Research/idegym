@@ -1,11 +1,6 @@
-# Install JetBrains MCP server plugin (updateId={{ mcp_update_id }}, requires build 252+).
-# https://plugins.jetbrains.com/plugin/26071-mcp-server/versions
+# Enable JetBrains MCP server plugin (bundled in 2026.1.1+).
+# Plugin versions and manual download: https://plugins.jetbrains.com/plugin/26071-mcp-server/versions
 # Binds to 127.0.0.1:{{ mcp_port }}; start-pycharm.sh bridges to 0.0.0.0:{{ bridge_port }}.
-RUN set -eux; \
-    curl -fsSL "https://plugins.jetbrains.com/plugin/download?rel=true&updateId={{ mcp_update_id }}" \
-        -o /tmp/mcp-server.zip; \
-    unzip -qo /tmp/mcp-server.zip -d "${PYCHARM_DIR}/plugins/"; \
-    rm /tmp/mcp-server.zip
 
 # Enable MCP auto-start.
 # Note: marketplace/settingsSync are already disabled in Dockerfile.install.j2.

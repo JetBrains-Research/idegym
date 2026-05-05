@@ -1,8 +1,10 @@
-"""E2E tests for PyCharm Community: code inspection and MCP server readiness.
+"""E2E tests for PyCharm: code inspection and MCP server readiness.
+
+Requires PyCharm 2026.1.1+. Older versions are not supported.
 
 Build pipeline (both tests):
   base server image → Project.from_local("e2e-tests/test_projects/python-project")
-    → PyCharm(version=..., edition="community") → image.build() → minikube image load
+    → PyCharm(version=...) → image.build() → minikube image load
 
 ``test_pycharm_inspect_produces_results``
     Builds without open-project plugin or MCP daemon.  inspect.sh runs in
@@ -13,15 +15,15 @@ Build pipeline (both tests):
 ``test_pycharm_mcp_server_starts``
     Builds the full PyCharm + MCP image with the open-project plugin.  At
     runtime (via supervisord → start-pycharm.sh):
-    1. Xvfb starts on :99 — PyCharm CE does not support java.awt.headless=true
+    1. Xvfb starts on :99 — PyCharm does not support java.awt.headless=true
        and requires a virtual display for the full IDE mode.
     2. PyCharm launches; the open-project plugin opens IDEGYM_PROJECT_ROOT.
-    3. The JetBrains MCP plugin binds on 127.0.0.1:64342.
+    3. The JetBrains MCP plugin (bundled) binds on 127.0.0.1:64342.
     4. socat bridges 0.0.0.0:64343 → 127.0.0.1:64342.
     The test polls the MCP SSE endpoint (http://localhost:64342/sse) until
     HTTP 200, confirming both PyCharm and the MCP plugin are up.
 
-Downloads PyCharm CE (~800 MB); takes 15-30 minutes end-to-end.
+Downloads PyCharm (~800 MB); takes 15-30 minutes end-to-end.
 Run with: ``pytest -m 'e2e and ide_integrations'``
 """
 
@@ -38,8 +40,7 @@ from utils.build_images import minikube_load_image
 from utils.constants import DEFAULT_SERVER_START_TIMEOUT
 
 _LOCAL_BASE_IMAGE = "ghcr.io/jetbrains-research/idegym/server-debian-bookworm-20250520-slim:latest"
-_PYCHARM_VERSION = "2025.2.4"
-_MCP_UPDATE_ID = "882474"
+_PYCHARM_VERSION = "2026.1.1"
 
 # PyCharm needs ample memory; the JVM alone reserves ~1 GB before any project is loaded.
 _PYCHARM_RESOURCES = KubernetesResources(
@@ -64,14 +65,14 @@ _INSPECT_SETUP_SCRIPT = (
 async def test_pycharm_inspect_produces_results(test_id):
     """Build a PyCharm image (no open-project plugin, no MCP daemon) and run inspect.sh.
 
-    Installs PyCharm CE and a simple Python test-project but skips both the
+    Installs PyCharm and a simple Python test-project but skips both the
     open-project supervisord service and the MCP plugin.  inspect.sh is invoked
     on demand via ``server.pycharm.inspect()`` and writes XML result files to
     ``/tmp/pycharm-inspect-out`` inside the container.
 
     inspect.sh runs in batch/headless mode; no Xvfb or display is required.
 
-    Note: this test downloads PyCharm CE (~800 MB) and is expected to take
+    Note: this test downloads PyCharm (~800 MB) and is expected to take
     15-20 minutes end-to-end.
     """
     from utils.idegym_utils import create_http_client
@@ -85,8 +86,8 @@ async def test_pycharm_inspect_produces_results(test_id):
                 target="/root/work",
             )
         )
-        # open_project=False → no supervisord MCP service; mcp_update_id=None → no MCP plugin
-        .with_plugin(PyCharm(version=_PYCHARM_VERSION, edition="community", open_project=False, mcp_update_id=None))
+        # open_project=False → no supervisord MCP service
+        .with_plugin(PyCharm(version=_PYCHARM_VERSION, open_project=False))
         # Register the pycharm server plugin so POST /pycharm/inspect is mounted
         .run_commands(
             'mkdir -p /etc/idegym && printf \'%s\\n\' \'{"server":["tools","rewards","pycharm"]}\' > /etc/idegym/plugins.json'
@@ -141,7 +142,7 @@ async def test_pycharm_mcp_server_starts(test_id):
 
     Validates the full PyCharm plugin pipeline:
     - Project is copied into the image
-    - JetBrains MCP plugin is installed (updateId=882474)
+    - JetBrains MCP plugin is bundled in 2026.1.1+ (no separate installation needed)
     - open-project plugin auto-opens IDEGYM_PROJECT_ROOT on startup
     - Xvfb provides the required virtual display for the full IDE mode
     - start-pycharm.sh waits for MCP (port 64342) then starts socat bridge
@@ -161,8 +162,6 @@ async def test_pycharm_mcp_server_starts(test_id):
         .with_plugin(
             PyCharm(
                 version=_PYCHARM_VERSION,
-                edition="community",
-                mcp_update_id=_MCP_UPDATE_ID,
                 open_project=True,
             )
         )

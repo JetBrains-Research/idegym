@@ -1,28 +1,30 @@
 # IdeGYM IDEA Plugin
 
-Adds IntelliJ IDEA Community to an IdeGYM image together with the JetBrains MCP
+Adds IntelliJ IDEA to an IdeGYM image together with the JetBrains MCP
 server plugin, making the IDE fully controllable by an AI agent via the Model
 Context Protocol.
+
+**Requires IDEA 2026.1.1 or newer. Older versions are not supported.**
+
+Starting with 2026.1.1, the MCP server plugin is bundled in IDEA.
 
 ## What it does
 
 When added to an IdeGYM image pipeline, the `Idea` plugin:
 
 1. Installs system dependencies (socat, X11/font libs for the JVM).
-2. Downloads and verifies IntelliJ IDEA Community from JetBrains CDN (sha256-checked).
+2. Downloads and verifies IntelliJ IDEA from JetBrains CDN (sha256-checked).
 3. Adds headless and startup-suppression flags to `idea64.vmoptions` so the IDE
    starts without a display server and without first-run wizards.
-4. Installs the [JetBrains MCP server plugin](https://plugins.jetbrains.com/plugin/26071-mcp-server/versions)
-   into the bundled plugins directory.
-5. Pre-writes IDE settings to `/tmp/ide-config` (MCP auto-start, EUA acceptance,
+4. Pre-writes IDE settings to `/tmp/ide-config` (MCP auto-start, EUA acceptance,
    project trust, suppressed first-run dialogs).
-6. Optionally installs the **open-project** plugin and registers a supervisord
+5. Optionally installs the **open-project** plugin and registers a supervisord
    service that opens the project directory on container start.
 
 At runtime supervisord calls `start-idea.sh`, which:
 
 1. Exports `JAVA_TOOL_OPTIONS="-Djava.awt.headless=true"` so the JVM reads the flag
-   before any application code runs — IDEA Community supports true headless mode and
+   before any application code runs — IDEA supports true headless mode and
    does not require Xvfb.
 2. Launches IDEA with `-Didea.config.path=/tmp/ide-config` and
    `-Didea.system.path=/tmp/ide-system` so all paths are predictable inside the
@@ -43,7 +45,7 @@ from idegym.plugins.idea.image import Idea
 image = (
     Image.from_base("registry.example.com/server-debian-bookworm:latest")
     .with_plugin(Project.from_git("https://github.com/owner/repo.git", ref="main"))
-    .with_plugin(Idea(version="2025.3"))
+    .with_plugin(Idea(version="2026.1.1"))
 )
 spec = image.to_spec()
 ```
@@ -90,7 +92,7 @@ when the IDEA client entry point is discovered:
 | `timeout` | `float` | `600.0` | Maximum seconds for `inspect.sh` to run |
 | `request_timeout` | `Optional[int]` | `None` | HTTP request timeout override (seconds) |
 
-**Note:** IDEA Community supports true headless mode (`java.awt.headless=true`). No
+**Note:** IDEA supports true headless mode (`java.awt.headless=true`). No
 Xvfb is needed; `inspect.sh` works without a display server.
 
 ### Reading inspection results
@@ -114,10 +116,16 @@ xml_output = await server.execute_bash("cat /tmp/inspect-out/*.xml")
 
 | Attribute | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `version` | `str` | `"2025.3"` | IDEA version (`YYYY.N` or `YYYY.N.N`) |
-| `mcp_update_id` | `Optional[str]` | `"882474"` | Marketplace update ID for the MCP plugin (see [versions](https://plugins.jetbrains.com/plugin/26071-mcp-server/versions)); `None` skips installation |
+| `version` | `str` | `"2026.1.1"` | IDEA version (`YYYY.N` or `YYYY.N.N`); must be 2026.1.1+, older versions not supported |
 | `open_project` | `bool` | `True` | Install the open-project plugin and supervisord service when a `Project` plugin is in the pipeline |
 | `user` | `Optional[str]` | `ctx.current_user` | Linux user to switch back to after installation |
+
+### MCP plugin
+
+The [JetBrains MCP server plugin](https://plugins.jetbrains.com/plugin/26071-mcp-server/versions)
+is bundled in IDEA 2026.1.1+. When `open_project=True` and a `Project` plugin is present,
+the plugin automatically enables MCP auto-start by writing
+`/tmp/ide-config/options/mcpServer.xml`.
 
 ## Ports
 
@@ -128,8 +136,8 @@ xml_output = await server.execute_bash("cat /tmp/inspect-out/*.xml")
 
 ## Architecture notes
 
-**Why no Xvfb?** IntelliJ IDEA Community supports `java.awt.headless=true` natively.
-The PyCharm plugin requires Xvfb because PyCharm CE does not have this support.
+**Why no Xvfb?** IntelliJ IDEA supports `java.awt.headless=true` natively.
+The PyCharm plugin requires Xvfb because PyCharm does not have this support.
 Running headless eliminates an entire process, reduces startup time, and lowers memory
 usage.
 
@@ -161,4 +169,4 @@ cp build/distributions/open-project-*.zip project-opener.zip
 ```
 
 Requires JDK 17+ and Gradle (or use the wrapper). The plugin targets build series
-252+ (IDEA 2025.2+).
+261+ (IDEA 2026.1+).

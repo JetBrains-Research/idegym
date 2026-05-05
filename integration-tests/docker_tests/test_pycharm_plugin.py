@@ -1,5 +1,7 @@
-"""Integration test: build a PyCharm community image via the Image API and verify
+"""Integration test: build a PyCharm image via the Image API and verify
 that the image contains the expected artifacts.
+
+Requires PyCharm 2026.1.1+. Older versions are not supported.
 
 The test:
 1. Uses ``Image.from_base`` + ``Project.from_local`` + ``PyCharm`` to produce an
@@ -17,7 +19,7 @@ from from_root import from_root
 from python_on_whales import docker
 
 PROJECT_ROOT = from_root(".")
-_PYCHARM_VERSION = "2025.2.4"
+_PYCHARM_VERSION = "2026.1.1"
 _IMAGE_TAG = f"idegym-pycharm-plugin-test:{_PYCHARM_VERSION}"
 
 
@@ -31,7 +33,7 @@ def _build_and_cleanup():
     spec = (
         Image.from_base("debian:bookworm-slim")
         .with_plugin(Project.from_local("test-project", target="/test-project"))
-        .with_plugin(PyCharm(version=_PYCHARM_VERSION, edition="community"))
+        .with_plugin(PyCharm(version=_PYCHARM_VERSION))
         .to_spec()
     )
 

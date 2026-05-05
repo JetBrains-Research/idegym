@@ -1,25 +1,27 @@
 # IdeGYM PyCharm Plugin
 
-Adds PyCharm Community (or Professional) to an IdeGYM image together with the
-JetBrains MCP server plugin, making the IDE fully controllable by an AI agent
-via the Model Context Protocol.
+Adds PyCharm to an IdeGYM image together with the JetBrains MCP server plugin,
+making the IDE fully controllable by an AI agent via the Model Context Protocol.
+
+**Requires PyCharm 2026.1.1 or newer. Older versions are not supported.**
+
+Starting with 2026.1.1, PyCharm no longer has a community/professional split —
+there is a single unified download and the MCP server plugin is bundled.
 
 ## What it does
 
 When added to an IdeGYM image pipeline, the `PyCharm` plugin:
 
 1. Installs system dependencies (Xvfb, socat, X11 libs, fonts).
-2. Downloads and verifies PyCharm CE/Pro from JetBrains CDN (sha256-checked).
-3. Installs the [JetBrains MCP server plugin](https://plugins.jetbrains.com/plugin/26071-mcp-server/versions)
-   into the bundled plugins directory.
-4. Pre-writes IDE settings to `/tmp/ide-config` (MCP auto-start, EUA acceptance,
+2. Downloads and verifies PyCharm from JetBrains CDN (sha256-checked).
+3. Pre-writes IDE settings to `/tmp/ide-config` (MCP auto-start, EUA acceptance,
    project trust, suppressed first-run dialogs).
-5. Optionally installs the **open-project** plugin and registers a supervisord
+4. Optionally installs the **open-project** plugin and registers a supervisord
    service that opens the project directory on container start.
 
 At runtime supervisord calls `start-pycharm.sh`, which:
 
-1. Starts **Xvfb** on `:99` — PyCharm CE requires a display; `java.awt.headless=true`
+1. Starts **Xvfb** on `:99` — PyCharm requires a display; `java.awt.headless=true`
    is not supported.
 2. Launches PyCharm with `-Didea.config.path=/tmp/ide-config` and
    `-Didea.system.path=/tmp/ide-system` so all paths are predictable inside the
@@ -40,7 +42,7 @@ from idegym.plugins.pycharm.image import PyCharm
 image = (
     Image.from_base("registry.example.com/server-debian-bookworm:latest")
     .with_plugin(Project.from_git("https://github.com/owner/repo.git", ref="main"))
-    .with_plugin(PyCharm(version="2025.3"))
+    .with_plugin(PyCharm(version="2026.1.1"))
 )
 spec = image.to_spec()
 ```
@@ -111,11 +113,16 @@ xml_output = await server.execute_bash("cat /tmp/inspect-out/*.xml")
 
 | Attribute | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `version` | `str` | `"2025.3"` | PyCharm version (`YYYY.N` or `YYYY.N.N`) |
-| `edition` | `str` | `"community"` | `"community"` or `"professional"` |
-| `mcp_update_id` | `Optional[str]` | `"882474"` | Marketplace update ID for the MCP plugin (see [versions](https://plugins.jetbrains.com/plugin/26071-mcp-server/versions)); `None` skips installation |
+| `version` | `str` | `"2026.1.1"` | PyCharm version (`YYYY.N` or `YYYY.N.N`); must be 2026.1.1+, older versions not supported |
 | `open_project` | `bool` | `True` | Install the open-project plugin and supervisord service when a `Project` plugin is in the pipeline |
 | `user` | `Optional[str]` | `ctx.current_user` | Linux user to switch back to after installation |
+
+### MCP plugin
+
+The [JetBrains MCP server plugin](https://plugins.jetbrains.com/plugin/26071-mcp-server/versions)
+is bundled in PyCharm 2026.1.1+. When `open_project=True` and a `Project` plugin is present,
+the plugin automatically enables MCP auto-start by writing
+`/tmp/ide-config/options/mcpServer.xml`.
 
 ## Ports
 
@@ -126,7 +133,7 @@ xml_output = await server.execute_bash("cat /tmp/inspect-out/*.xml")
 
 ## Architecture notes
 
-**Why Xvfb?** PyCharm CE does not support `java.awt.headless=true`. A virtual
+**Why Xvfb?** PyCharm does not support `java.awt.headless=true`. A virtual
 framebuffer is mandatory even when no UI interaction is expected. The IDEA plugin
 does not have this limitation.
 
@@ -140,7 +147,7 @@ explicitly guarantees the IDE picks up the correct settings.
 for security. socat forwards `0.0.0.0:64343 → 127.0.0.1:64342` so the MCP server
 is reachable from outside the container without patching the plugin.
 
-**Why Marketplace/SettingsSync disabled?** PyCharm CE shows blocking modal dialogs
+**Why Marketplace/SettingsSync disabled?** PyCharm shows blocking modal dialogs
 on the Xvfb display when these plugins are active at first start. They are listed in
 `/tmp/ide-config/disabled_plugins.txt` to prevent this.
 
@@ -157,4 +164,4 @@ cp build/distributions/open-project-*.zip project-opener.zip
 ```
 
 Requires JDK 17+ and Gradle (or use the wrapper). The plugin targets build series
-252+ (PyCharm 2025.2+).
+261+ (PyCharm 2026.1+).

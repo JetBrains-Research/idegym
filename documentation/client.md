@@ -343,7 +343,7 @@ result = await server.idea.inspect(
 )
 ```
 
-IntelliJ IDEA Community supports true headless mode (`java.awt.headless=true`) — no Xvfb is needed.
+IntelliJ IDEA supports true headless mode (`java.awt.headless=true`) — no Xvfb is needed.
 
 ### Checking for a plugin at runtime
 

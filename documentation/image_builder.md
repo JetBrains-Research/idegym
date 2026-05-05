@@ -67,7 +67,7 @@ The `Image` class provides a chainable API. Every method returns a new `Image` (
 
 ```python
 from idegym.image.builder import Image
-from idegym.image.plugins import BaseSystem, User, Permissions, Project, IdeGYMServer, PyCharm
+from idegym.plugins.defaults.image import BaseSystem, User, Permissions, Project, IdeGYMServer
 ```
 
 ### `Image.from_base(base)`
@@ -599,29 +599,29 @@ image = (
 
 ### `pycharm`
 
-Installs PyCharm IDE and Java (via SDKMAN) into the image.
+Installs PyCharm into the image. Requires PyCharm **2026.1.1 or newer** — older versions are not
+supported. Starting with 2026.1.1, there is no community/professional split: the download is unified
+and the JetBrains MCP server plugin is bundled.
 
 ```python
-from idegym.image.plugins import PyCharm
+from idegym.plugins.pycharm.image import PyCharm
 
 PyCharm(
-    version="2024.3.1",            # YYYY.N or YYYY.N.N
-    edition="professional",        # "professional" or "community"
-    user="appuser",                # user who will run PyCharm
+    version="2026.1.1",            # YYYY.N or YYYY.N.N; must be 2026.1.1+
+    user="appuser",                # user to switch back to after installation
 )
 ```
 
 ```yaml
 - type: pycharm
-  version: "2024.3.1"
-  edition: professional
+  version: "2026.1.1"
   user: appuser
 ```
 
 **Notes:**
-- Emits `USER root` to install Java and PyCharm, then switches back to the user from `ctx.current_user`
-- Requires a `User` plugin to have run first to set `ctx.current_user`
-- Version format: `YYYY.N` or `YYYY.N.N` (e.g., `2024.3`, `2024.3.1`)
+- Emits `USER root` to install PyCharm and its dependencies, then switches back to `ctx.current_user`
+- Version format: `YYYY.N` or `YYYY.N.N` (e.g., `2026.1`, `2026.1.1`)
+- See [IdeGYM PyCharm Plugin](../plugins/pycharm/README.md) for the full reference
 
 ---
 

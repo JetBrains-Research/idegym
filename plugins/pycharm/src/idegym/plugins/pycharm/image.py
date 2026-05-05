@@ -21,12 +21,17 @@ def _render(template_name: str, **kwargs: object) -> str:
 
 @image_plugin("pycharm")
 class PyCharm(PluginBase):
-    """Install PyCharm Community with the JetBrains MCP server plugin.
+    """Install PyCharm with the JetBrains MCP server plugin.
 
-    PyCharm CE does not support ``-Djava.awt.headless=true``, so ``start-pycharm.sh``
+    Requires PyCharm 2026.1.1 or newer. Older versions are not supported.
+
+    Starting with 2026.1.1, PyCharm no longer has a community/professional
+    split — there is a single unified download.
+
+    PyCharm does not support ``-Djava.awt.headless=true``, so ``start-pycharm.sh``
     starts Xvfb on ``:99`` to provide a virtual display before launching the IDE.
 
-    **MCP server**: the JetBrains MCP plugin (``mcp_update_id``) binds to
+    **MCP server**: the JetBrains MCP plugin is bundled in 2026.1.1+ and binds to
     ``127.0.0.1:64342`` (loopback only). Plugin versions are listed at
     https://plugins.jetbrains.com/plugin/26071-mcp-server/versions. At runtime,
     ``start-pycharm.sh`` starts a socat bridge that re-listens on ``0.0.0.0:64343``,
@@ -44,23 +49,18 @@ class PyCharm(PluginBase):
     ``open_project=True``, the pre-built plugin from
     ``plugins/pycharm/project-opener/project-opener.zip`` is installed into the
     bundled plugins directory (``${PYCHARM_DIR}/plugins/``) so PyCharm finds it before
-    the ``open`` ``AppStarter`` command is dispatched. Requires build series 252+
-    (PyCharm 2025.2+).
+    the ``open`` ``AppStarter`` command is dispatched. Requires build series 261+
+    (PyCharm 2026.1+).
 
     Attributes:
-        version: PyCharm version in ``YYYY.N`` or ``YYYY.N.N`` format.
-        edition: ``"community"`` (default) or ``"professional"``.
-        mcp_update_id: Marketplace update ID for the MCP server plugin
-            (https://plugins.jetbrains.com/plugin/26071-mcp-server/versions).
-            The default (``"882474"``) targets build series 252. Set to ``None`` to skip.
+        version: PyCharm version in ``YYYY.N`` or ``YYYY.N.N`` format. Must be 2026.1.1
+            or newer; older versions are not supported.
         open_project: Install the open-project plugin and supervisord entry when a
             ``Project`` plugin precedes this one in the pipeline.
         user: User to switch back to after installation. Defaults to ``ctx.current_user``.
     """
 
-    version: str = "2025.3"
-    edition: str = "community"
-    mcp_update_id: Optional[str] = "882474"
+    version: str = "2026.1.1"
     open_project: bool = True
     user: Optional[str] = None
 
@@ -69,13 +69,6 @@ class PyCharm(PluginBase):
     def _validate_version(cls, v: str) -> str:
         if not _PYCHARM_VERSION_RE.match(v):
             raise ValueError(f"Invalid PyCharm version: {v!r}. Expected format: YYYY.N or YYYY.N.N")
-        return v
-
-    @field_validator("edition")
-    @classmethod
-    def _validate_edition(cls, v: str) -> str:
-        if v not in ("professional", "community"):
-            raise ValueError(f"Invalid PyCharm edition: {v!r}. Must be 'professional' or 'community'.")
         return v
 
     @field_validator("user")
@@ -105,16 +98,13 @@ class PyCharm(PluginBase):
         has_project = ctx.get_extra("idegym.has_project", False)
         install_plugin = has_project and self.open_project
 
-        parts = [_render("Dockerfile.install.j2", version=self.version, edition=self.edition, config_dir=_CONFIG_DIR)]
+        parts = [_render("Dockerfile.install.j2", version=self.version, config_dir=_CONFIG_DIR)]
 
-        if install_plugin and self.mcp_update_id:
+        if install_plugin:
             parts.append(
                 _render(
                     "Dockerfile.mcp.j2",
-                    mcp_update_id=self.mcp_update_id,
                     config_dir=_CONFIG_DIR,
-                    mcp_port=_MCP_PORT,
-                    bridge_port=_BRIDGE_PORT,
                 )
             )
 

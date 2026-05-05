@@ -470,7 +470,7 @@ def test_builtin_plugins_auto_registered_on_builder_import():
         ),
         param(Project.from_local("./src", target="/app"), id="project-local"),
         param(PyCharm(), id="pycharm-defaults"),
-        param(PyCharm(version="2024.1", edition="community"), id="pycharm-custom"),
+        param(PyCharm(version="2024.1"), id="pycharm-custom"),
     ],
 )
 def test_plugin_serialize_deserialize_round_trip(plugin: PluginBase):
@@ -649,8 +649,7 @@ def test_image_pip_install_chains_with_run_commands():
 
 def test_pycharm_default_version():
     plugin = PyCharm()
-    assert plugin.version == "2025.3"
-    assert plugin.edition == "community"
+    assert plugin.version == "2026.1.1"
 
 
 def test_pycharm_render_contains_install_steps():
@@ -660,7 +659,7 @@ def test_pycharm_render_contains_install_steps():
     assert 'PYCHARM_VERSION="2024.1"' in fragment
     # Archive name is now built at runtime with an arch suffix variable so that
     # amd64 and arm64 images can be built from the same Dockerfile.
-    assert 'archive="pycharm-community-2024.1${suffix}.tar.gz"' in fragment
+    assert 'archive="pycharm-2024.1${suffix}.tar.gz"' in fragment
     assert "dpkg --print-architecture" in fragment
     assert "aarch64" in fragment
     assert "JAVA_HOME" in fragment
@@ -843,11 +842,6 @@ def test_pycharm_accepts_valid_version(version):
     assert PyCharm(version=version).version == version
 
 
-def test_pycharm_rejects_invalid_edition():
-    with raises(ValueError, match="edition"):
-        PyCharm(edition="enterprise")
-
-
 def test_pycharm_rejects_injection_in_user():
     with raises(ValueError, match="user"):
         PyCharm(user="root; id")
@@ -890,7 +884,7 @@ def test_pycharm_render_skips_open_project_plugin_when_no_project():
 
 def test_idea_default_version():
     plugin = Idea()
-    assert plugin.version == "2025.3"
+    assert plugin.version == "2026.1.1"
 
 
 def test_idea_render_contains_install_steps():
@@ -909,7 +903,7 @@ def test_idea_render_contains_install_steps():
     assert ".sha256" in fragment
     # Java must come from IDEA's bundled JBR
     assert "/jbr" in fragment
-    # IDEA supports headless mode (unlike PyCharm CE)
+    # IDEA supports headless mode (unlike PyCharm)
     assert "java.awt.headless=true" in fragment
 
 
@@ -936,37 +930,39 @@ def test_idea_render_root_only_container():
     assert fragment.strip().endswith("USER root")
 
 
-def test_pycharm_render_includes_mcp_plugin_when_update_id_set():
-    plugin = PyCharm(mcp_update_id="882474")
+def test_pycharm_render_includes_mcp_config_when_project_present():
+    plugin = PyCharm()
     ctx = BuildContext(base="debian:bookworm-slim").with_extra("idegym.has_project", True)
     fragment = plugin.render(ctx)
-    assert "882474" in fragment
     assert "mcpServer.xml" in fragment
     assert "enableMcpServer" in fragment
     assert "plugins.jetbrains.com/plugin/26071-mcp-server/versions" in fragment
+    # Plugin is bundled in 2026.1.1+; no separate download step
+    assert "plugins.jetbrains.com/plugin/download" not in fragment
 
 
-def test_pycharm_render_skips_mcp_plugin_when_update_id_none():
-    plugin = PyCharm(mcp_update_id=None)
-    ctx = BuildContext(base="debian:bookworm-slim")
+def test_pycharm_render_skips_mcp_config_when_open_project_false():
+    plugin = PyCharm(open_project=False)
+    ctx = BuildContext(base="debian:bookworm-slim").with_extra("idegym.has_project", True)
     fragment = plugin.render(ctx)
     assert "mcpServer.xml" not in fragment
     assert "enableMcpServer" not in fragment
 
 
-def test_idea_render_includes_mcp_plugin_when_update_id_set():
-    plugin = Idea(mcp_update_id="882474")
+def test_idea_render_includes_mcp_config_when_project_present():
+    plugin = Idea()
     ctx = BuildContext(base="debian:bookworm-slim").with_extra("idegym.has_project", True)
     fragment = plugin.render(ctx)
-    assert "882474" in fragment
     assert "mcpServer.xml" in fragment
     assert "enableMcpServer" in fragment
     assert "plugins.jetbrains.com/plugin/26071-mcp-server/versions" in fragment
+    # Plugin is bundled in 2026.1.1+; no separate download step
+    assert "plugins.jetbrains.com/plugin/download" not in fragment
 
 
-def test_idea_render_skips_mcp_plugin_when_update_id_none():
-    plugin = Idea(mcp_update_id=None)
-    ctx = BuildContext(base="debian:bookworm-slim")
+def test_idea_render_skips_mcp_config_when_open_project_false():
+    plugin = Idea(open_project=False)
+    ctx = BuildContext(base="debian:bookworm-slim").with_extra("idegym.has_project", True)
     fragment = plugin.render(ctx)
     assert "mcpServer.xml" not in fragment
     assert "enableMcpServer" not in fragment
