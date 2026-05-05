@@ -193,7 +193,7 @@ class ServerOperations:
         response_raw = await self._utils.make_request("POST", "/api/idegym-servers/finish", request)
         return ServerActionResponse.model_validate(response_raw)
 
-    async def capabilities(self, server_id: int, client_id: Optional[UUID] = None) -> CapabilitiesResponse:
+    async def list_capabilities(self, server_id: int, client_id: Optional[UUID] = None) -> CapabilitiesResponse:
         client_id = self._utils.validate_client_id(client_id)
         response_raw = await self._utils.make_request(
             "GET",

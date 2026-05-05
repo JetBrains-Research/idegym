@@ -236,12 +236,12 @@ response = await server.restart_server(
 )
 ```
 
-### `capabilities()` — loaded plugin list
+### `list_capabilities()` — loaded plugin list
 
 Return the list of server plugins running in the container:
 
 ```python
-result = await server.capabilities()
+result = await server.list_capabilities()
 print(result.plugins)  # → ["tools", "rewards"]
 ```
 
@@ -250,7 +250,7 @@ This calls `GET /api/idegym-servers/{id}/capabilities` on the orchestrator, whic
 `/etc/idegym/plugins.json` written at image build time.
 
 ```python
-result: CapabilitiesResponse = await server.capabilities()
+result: CapabilitiesResponse = await server.list_capabilities()
 ```
 
 ---
@@ -347,11 +347,11 @@ IntelliJ IDEA Community supports true headless mode (`java.awt.headless=true`) �
 
 ### Checking for a plugin at runtime
 
-Use `server.capabilities()` to get the definitive list of plugins loaded in the running container,
+Use `server.list_capabilities()` to get the definitive list of plugins loaded in the running container,
 then check membership before calling plugin-specific methods:
 
 ```python
-caps = await server.capabilities()
+caps = await server.list_capabilities()
 # → CapabilitiesResponse(plugins=["tools", "rewards", "pycharm"])
 
 if "pycharm" in caps.plugins and hasattr(server, "pycharm"):
@@ -362,7 +362,7 @@ if "pycharm" in caps.plugins and hasattr(server, "pycharm"):
     )
 ```
 
-`capabilities()` calls `GET /api/idegym-servers/{id}/capabilities` on the orchestrator, which
+`list_capabilities()` calls `GET /api/idegym-servers/{id}/capabilities` on the orchestrator, which
 proxies to `GET /api/capabilities` on the server container and returns the contents of
 `/etc/idegym/plugins.json` — the file written at image build time that controls which plugins are
 loaded at startup.

@@ -129,9 +129,9 @@ class IdeGYMServer:
             polling_config=polling_config or self.polling_config,
         )
 
-    async def capabilities(self) -> CapabilitiesResponse:
+    async def list_capabilities(self) -> CapabilitiesResponse:
         """Return the list of server plugins loaded in the running container."""
-        return await self.server.capabilities(server_id=self.server_id, client_id=self.client_id)
+        return await self.server.list_capabilities(server_id=self.server_id, client_id=self.client_id)
 
     async def restart_server(
         self,

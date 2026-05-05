@@ -204,7 +204,7 @@ class Image(BaseModel):
             if mcp_fragment:
                 fragments.append(mcp_fragment)
 
-        dockerfile_content = self._render_dockerfile(ctx, tuple(fragments), tuple(build_stages))
+        dockerfile_content = self._render_dockerfile(ctx, fragments, build_stages)
         return ImageBuildSpec(
             name=self.name,
             request=ctx.request,
@@ -216,44 +216,47 @@ class Image(BaseModel):
             resources=self.resources,
         )
 
+    def _render_base_stage_header(self) -> str:
+        return "\n\n".join(
+            [
+                f"FROM {self.base}",
+                'SHELL ["/bin/bash", "-c"]',
+                "USER root",
+            ]
+        )
+
+    def _render_project_archive_env(self) -> str:
+        return "\n".join(
+            [
+                "ARG IDEGYM_PROJECT_ARCHIVE_URL",
+                "ARG IDEGYM_PROJECT_ARCHIVE_PATH",
+                "ARG IDEGYM_AUTH_TOKEN",
+                "ARG IDEGYM_AUTH_TYPE",
+                "",
+                'ENV IDEGYM_PROJECT_ARCHIVE_URL="$IDEGYM_PROJECT_ARCHIVE_URL"',
+                'ENV IDEGYM_PROJECT_ARCHIVE_PATH="$IDEGYM_PROJECT_ARCHIVE_PATH"',
+            ]
+        )
+
     def _render_dockerfile(
         self,
         ctx: BuildContext,
-        fragments: tuple[str, ...],
-        build_stages: tuple[str, ...] = (),
+        fragments: list[str],
+        build_stages: Optional[list[str]] = None,
     ) -> str:
-        lines: list[str] = []
-        for stage in build_stages:
-            lines.append(stage)
-            lines.append("")
-        lines.extend([f"FROM {self.base}", "", 'SHELL ["/bin/bash", "-c"]', "", "USER root"])
+        if build_stages is None:
+            build_stages = []
+        sections = [
+            *build_stages,
+            self._render_base_stage_header(),
+            self._render_project_archive_env() if ctx.request is not None else "",
+            f'ENV IDEGYM_PROJECT_ROOT="{ctx.project_root}"',
+            *fragments,
+            f"USER {ctx.current_user}",
+            _run_block(self.commands),
+        ]
 
-        if ctx.request is not None:
-            lines.extend(
-                [
-                    "",
-                    "ARG IDEGYM_PROJECT_ARCHIVE_URL",
-                    "ARG IDEGYM_PROJECT_ARCHIVE_PATH",
-                    "ARG IDEGYM_AUTH_TOKEN",
-                    "ARG IDEGYM_AUTH_TYPE",
-                    "",
-                    'ENV IDEGYM_PROJECT_ARCHIVE_URL="$IDEGYM_PROJECT_ARCHIVE_URL"',
-                    'ENV IDEGYM_PROJECT_ARCHIVE_PATH="$IDEGYM_PROJECT_ARCHIVE_PATH"',
-                ]
-            )
-
-        lines.extend(["", f'ENV IDEGYM_PROJECT_ROOT="{ctx.project_root}"'])
-
-        for fragment in fragments:
-            lines.extend(["", fragment])
-
-        lines.extend(["", f"USER {ctx.current_user}"])
-
-        commands_block = _run_block(self.commands)
-        if commands_block:
-            lines.extend(["", commands_block])
-
-        return "\n".join(lines).strip() + "\n"
+        return "\n\n".join(section for section in sections if section.strip()).strip() + "\n"
 
     def to_dict(self) -> dict[str, Any]:
         return self.model_dump(mode="json")

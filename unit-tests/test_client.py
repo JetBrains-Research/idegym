@@ -195,12 +195,12 @@ def test_hyphenated_entry_point_name_becomes_underscore_attribute(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# IdeGYMServer.capabilities()
+# IdeGYMServer.list_capabilities()
 # ---------------------------------------------------------------------------
 
 
 def test_capabilities_delegates_to_server_operations():
-    """capabilities() delegates to self.server.capabilities with server_id and client_id."""
+    """list_capabilities() delegates to self.server.list_capabilities with server_id and client_id."""
     from uuid import uuid4
 
     from idegym.api.capabilities import CapabilitiesResponse
@@ -208,29 +208,29 @@ def test_capabilities_delegates_to_server_operations():
     cid = uuid4()
     server = _make_server(server_id=7, client_id=cid)
     server.server = MagicMock()
-    server.server.capabilities = AsyncMock(return_value=CapabilitiesResponse(plugins=["tools", "rewards"]))
+    server.server.list_capabilities = AsyncMock(return_value=CapabilitiesResponse(plugins=["tools", "rewards"]))
 
-    result = asyncio.run(server.capabilities())
+    result = asyncio.run(server.list_capabilities())
 
     assert result.plugins == ["tools", "rewards"]
-    server.server.capabilities.assert_called_once_with(server_id=7, client_id=cid)
+    server.server.list_capabilities.assert_called_once_with(server_id=7, client_id=cid)
 
 
 def test_capabilities_returns_capabilities_response():
-    """capabilities() returns a typed CapabilitiesResponse, not a raw dict."""
+    """list_capabilities() returns a typed CapabilitiesResponse, not a raw dict."""
     from idegym.api.capabilities import CapabilitiesResponse
 
     server = _make_server(server_id=1)
     server.server = MagicMock()
-    server.server.capabilities = AsyncMock(return_value=CapabilitiesResponse(plugins=["tools"]))
+    server.server.list_capabilities = AsyncMock(return_value=CapabilitiesResponse(plugins=["tools"]))
 
-    result = asyncio.run(server.capabilities())
+    result = asyncio.run(server.list_capabilities())
 
     assert isinstance(result, CapabilitiesResponse)
 
 
 def test_server_operations_capabilities_calls_correct_url():
-    """ServerOperations.capabilities() calls GET /api/idegym-servers/{id}/capabilities?client_id=..."""
+    """ServerOperations.list_capabilities() calls GET /api/idegym-servers/{id}/capabilities?client_id=..."""
     from uuid import uuid4
 
     from idegym.api.capabilities import CapabilitiesResponse
@@ -242,7 +242,7 @@ def test_server_operations_capabilities_calls_correct_url():
     http_utils.make_request = AsyncMock(return_value={"plugins": ["tools", "rewards"]})
 
     ops = ServerOperations(utils=http_utils, project=MagicMock())
-    result = asyncio.run(ops.capabilities(server_id=42, client_id=cid))
+    result = asyncio.run(ops.list_capabilities(server_id=42, client_id=cid))
 
     assert isinstance(result, CapabilitiesResponse)
     assert result.plugins == ["tools", "rewards"]

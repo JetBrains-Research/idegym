@@ -30,7 +30,7 @@ Covers the integration points introduced by the plugin system:
 6. **Plugin endpoint filtering** — when a plugin is absent from
    ``plugins.json``, its server endpoint is not mounted (returns 404 / raises).
 
-7. **Capabilities endpoint** — ``server.capabilities()`` returns the list of
+7. **Capabilities endpoint** — ``server.list_capabilities()`` returns the list of
    plugins from ``/etc/idegym/plugins.json`` loaded at server startup.
 
 All tests use a local Docker build (no Kaniko) for speed.
@@ -391,7 +391,7 @@ async def test_server_does_not_expose_pycharm_endpoint_when_not_in_plugins_json(
 @pytest.mark.asyncio
 async def test_capabilities_returns_loaded_plugins(test_id):
     """
-    ``server.capabilities()`` calls ``GET /api/idegym-servers/{id}/capabilities``
+    ``server.list_capabilities()`` calls ``GET /api/idegym-servers/{id}/capabilities``
     on the orchestrator, which proxies to ``GET /api/capabilities`` on the server
     container and returns the list of plugins loaded from ``/etc/idegym/plugins.json``.
 
@@ -430,7 +430,7 @@ async def test_capabilities_returns_loaded_plugins(test_id):
             resources=_DEFAULT_RESOURCES,
             server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
         ) as server:
-            result = await server.capabilities()
+            result = await server.list_capabilities()
             assert isinstance(result.plugins, list), f"Expected list, got {type(result.plugins)}"
             assert "tools" in result.plugins, f"'tools' missing from capabilities: {result.plugins}"
             assert "rewards" in result.plugins, f"'rewards' missing from capabilities: {result.plugins}"

@@ -39,7 +39,17 @@ async def run_ide_inspect(inspect_sh: str, request: InspectRequest) -> InspectRe
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     )
-    await asyncio.wait_for(proc.communicate(), timeout=request.timeout)
+    try:
+        await asyncio.wait_for(proc.communicate(), timeout=request.timeout)
+    except asyncio.TimeoutError:
+        proc.kill()
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=1)
+        except asyncio.TimeoutError:
+            # Last resort: nothing more asyncio can do
+            # At this point the OS should have received SIGKILL
+            pass
+        raise
     return InspectResponse(output_dir=request.output_dir, exit_code=proc.returncode or 0)
 
 
