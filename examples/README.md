@@ -65,8 +65,20 @@ kubectl create secret docker-registry regcred \
   --docker-password=<ghp_your_token> \
   --namespace=idegym
 
-# repo root — deploy orchestrator and supporting services
-kubectl apply -k orchestrator/kubernetes/
+# Create the postgres secret consumed by the orchestrator and the bundled Bitnami PostgreSQL chart.
+# See the Local Deployment Guide for the full list of supported secrets (grafana, tracing, and so on).
+kubectl create secret generic postgres -n idegym \
+  --from-literal=host=postgres \
+  --from-literal=port=5432 \
+  --from-literal=database=idegym \
+  --from-literal=username=idegym \
+  --from-literal=password='<strong-password>' \
+  --from-literal=postgres-password='<strong-password>'
+
+# repo root — deploy orchestrator and supporting services via the Helm chart
+helm dependency update charts/idegym
+helm install idegym charts/idegym -n idegym \
+  --set deployment.imagePullSecrets[0].name=regcred # overriding pull secrets not needed if loading images into minikube
 
 # repo root — map hostname (run once, persists across restarts)
 echo "127.0.0.1 idegym.test" | sudo tee -a /etc/hosts
