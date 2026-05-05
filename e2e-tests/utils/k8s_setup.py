@@ -11,9 +11,11 @@ from idegym.utils.logging import get_logger
 from utils import k8s_client
 from utils.constants import (
     BASE_URL,
+    CHART_PATH,
     DEFAULT_HEALTH_CHECK_TIMEOUT,
     DEFAULT_NAMESPACE,
     HEALTH_CHECK_INTERVAL,
+    HELM_RELEASE,
     INGRESS_CONTROLLER_SERVICE,
     INGRESS_NAMESPACE,
     POSTGRESQL_APP_LABEL,
@@ -22,6 +24,15 @@ from utils.constants import (
 )
 
 logger = get_logger(__name__)
+
+POSTGRES_SECRET_NAME = "postgres"
+POSTGRES_APP_USER = "idegym"
+POSTGRES_APP_PASSWORD = "idegym"
+POSTGRES_SUPERUSER_PASSWORD = "postgres"
+
+GRAFANA_SECRET_NAME = "grafana"
+GRAFANA_ADMIN_USER = "admin"
+GRAFANA_ADMIN_PASSWORD = "changeme"
 
 
 @contextmanager
@@ -52,29 +63,74 @@ def ensure_ingress_loadbalancer() -> None:
         logger.warning(f"Could not configure ingress: {exc}")
 
 
-def apply_kubernetes_resources() -> None:
-    logger.info("Applying Kubernetes resources...")
+def provision_secrets() -> None:
+    """
+    Create the Secrets the chart and its subcharts consume.
 
-    with get_config_dir() as kustomization_dir:
-        cmd = ["kubectl", "apply", "-k", str(kustomization_dir)]
+    - `postgres`: chart's deployment.yaml (host/port/database/username/password)
+      and postgresql subchart (password/postgres-password).
+    - `grafana`: grafana subchart admin credentials (username/password).
+    """
+    logger.info(f"Provisioning {POSTGRES_SECRET_NAME} secret in {DEFAULT_NAMESPACE}...")
+    k8s_client.upsert_secret(
+        namespace=DEFAULT_NAMESPACE,
+        name=POSTGRES_SECRET_NAME,
+        string_data={
+            "host": "postgres",
+            "port": "5432",
+            "database": POSTGRESQL_DB,
+            "username": POSTGRES_APP_USER,
+            "password": POSTGRES_APP_PASSWORD,
+            "postgres-password": POSTGRES_SUPERUSER_PASSWORD,
+        },
+    )
+    logger.info(f"✓ {POSTGRES_SECRET_NAME} secret ready")
+
+    logger.info(f"Provisioning {GRAFANA_SECRET_NAME} secret in {DEFAULT_NAMESPACE}...")
+    k8s_client.upsert_secret(
+        namespace=DEFAULT_NAMESPACE,
+        name=GRAFANA_SECRET_NAME,
+        string_data={
+            "username": GRAFANA_ADMIN_USER,
+            "password": GRAFANA_ADMIN_PASSWORD,
+        },
+    )
+    logger.info(f"✓ {GRAFANA_SECRET_NAME} secret ready")
+
+
+def apply_kubernetes_resources() -> None:
+    logger.info("Installing Helm release...")
+    provision_secrets()
+
+    with get_config_dir() as cfg:
+        cmd = [
+            "helm",
+            "upgrade",
+            "--install",
+            HELM_RELEASE,
+            str(CHART_PATH),
+            "-n",
+            DEFAULT_NAMESPACE,
+            "-f",
+            str(cfg / "values.yaml"),
+            "--wait",
+            "--timeout",
+            "5m",
+        ]
         subprocess.run(cmd, check=True, capture_output=True, text=True)
 
-    logger.info("✓ Kubernetes resources applied successfully")
+    logger.info("✓ Helm release installed successfully")
 
 
 def delete_kubernetes_resources() -> None:
-    logger.info("Deleting Kubernetes resources from kustomization...")
-
-    with get_config_dir() as kustomization_dir:
-        cmd = ["kubectl", "delete", "-k", str(kustomization_dir), "--ignore-not-found=true"]
-        result = subprocess.run(cmd, check=False, capture_output=True, text=True)
+    logger.info(f"Uninstalling Helm release {HELM_RELEASE}...")
+    cmd = ["helm", "uninstall", HELM_RELEASE, "-n", DEFAULT_NAMESPACE, "--ignore-not-found"]
+    result = subprocess.run(cmd, check=False, capture_output=True, text=True)
 
     if result.returncode == 0:
-        logger.info("✓ Kubernetes resources deleted successfully")
-    else:
-        # Only warn if there are actual errors (not just NotFound)
-        if result.stderr and "NotFound" not in result.stderr:
-            logger.warning(f"Could not delete all resources: {result.stderr}")
+        logger.info("✓ Helm release uninstalled successfully")
+    elif result.stderr and "not found" not in result.stderr.lower():
+        logger.warning(f"Could not uninstall release: {result.stderr}")
 
 
 def ensure_namespace_exists() -> None:
@@ -170,11 +226,9 @@ def reset_orchestrator_db() -> None:
         pod_name=pod_names[0],
         namespace=DEFAULT_NAMESPACE,
         command=[
+            "env",
+            f"PGPASSWORD={POSTGRES_SUPERUSER_PASSWORD}",
             "psql",
-            "-h",
-            "localhost",
-            "-p",
-            "5432",
             "-U",
             POSTGRESQL_USER,
             "-d",

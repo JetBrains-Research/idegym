@@ -15,6 +15,7 @@ from kubernetes_asyncio.client import (
     V1Namespace,
     V1ObjectMeta,
     V1Pod,
+    V1Secret,
 )
 from kubernetes_asyncio.stream import WsApiClient
 from kubernetes_asyncio.stream.ws_client import ERROR_CHANNEL, STDERR_CHANNEL, STDOUT_CHANNEL
@@ -118,6 +119,26 @@ def delete_namespace(namespace: str, timeout: int = 180, check_interval: int = 2
             return True
         time.sleep(check_interval)
     return False
+
+
+def upsert_secret(namespace: str, name: str, string_data: dict[str, str]) -> None:
+    """Create or replace an Opaque Secret with the given data."""
+    body = V1Secret(
+        metadata=V1ObjectMeta(name=name, namespace=namespace),
+        string_data=string_data,
+        type="Opaque",
+    )
+
+    async def _op(core: CoreV1Api, _apps: AppsV1Api, _policy: PolicyV1Api) -> None:
+        try:
+            await _await_api_result(core.create_namespaced_secret(namespace=namespace, body=body))
+            return
+        except ApiException as exc:
+            if exc.status != 409:
+                raise
+        await _await_api_result(core.replace_namespaced_secret(name=name, namespace=namespace, body=body))
+
+    _run_async(_with_clients(_op))
 
 
 def patch_service_type(name: str, namespace: str, service_type: str) -> bool:
@@ -274,21 +295,6 @@ def delete_deployment(namespace: str, deployment_name: str) -> None:
         except ApiException as exc:
             if exc.status != 404:
                 raise
-
-    _run_async(_with_clients(_op))
-
-
-def delete_services(namespace: str, service_names: list[str]) -> None:
-    if not service_names:
-        return
-
-    async def _op(core: CoreV1Api, _apps: AppsV1Api, _policy: PolicyV1Api) -> None:
-        for service_name in service_names:
-            try:
-                await _await_api_result(core.delete_namespaced_service(name=service_name, namespace=namespace))
-            except ApiException as exc:
-                if exc.status != 404:
-                    raise
 
     _run_async(_with_clients(_op))
 
