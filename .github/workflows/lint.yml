@@ -43,7 +43,7 @@ jobs:
               - 'charts/**'
       - name: Install Helm
         if: steps.filter.outputs.chart == 'true'
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@v5
       - name: Build Helm chart dependencies
         if: steps.filter.outputs.chart == 'true'
         run: helm dependency update charts/idegym

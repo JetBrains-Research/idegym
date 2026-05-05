@@ -82,7 +82,7 @@ jobs:
           start-args: --docker-opt containerd=/var/run/containerd/containerd.sock
 
       - name: Install Helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@v5
 
       - name: Build Helm chart dependencies
         run: helm dependency update charts/idegym
