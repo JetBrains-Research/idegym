@@ -1,0 +1,144 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "idegym.fullname" . }}
+  labels:
+    {{- include "idegym.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.deployment.replicas }}
+  selector:
+    matchLabels:
+      {{- include "idegym.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "idegym.selectorLabels" . | nindent 8 }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "{{ .Values.service.containerPort }}"
+    spec:
+      serviceAccountName: {{ include "idegym.serviceAccountName" . }}
+      {{- with .Values.deployment.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.securityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: orchestrator
+          image: "{{ .Values.deployment.image.repository }}:{{ .Values.deployment.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.deployment.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.containerPort }}
+              protocol: TCP
+          env:
+            - name: __POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+            - name: __POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: __NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: __NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            {{- with .Values.deployment.log }}
+            - name: IDEGYM_LOG_LEVEL
+              value: {{ quote .level | upper }}
+            - name: IDEGYM_LOG_JSON_FORMAT
+              value: {{ quote .json | title }}
+            {{- end }}
+            - name: IDEGYM_MANAGER_PORT
+              value: {{ .Values.service.containerPort | quote }}
+            - name: IDEGYM_OTEL_ATTRIBUTES
+              value: |-
+                { k8s.pod.uid: "$(__POD_UID)", k8s.pod.name: "$(__POD_NAME)", k8s.namespace.name: "$(__NAMESPACE)", k8s.node.name: "$(__NODE_NAME)" }
+            - name: IDEGYM_OTEL_SERVICE_NAME
+              value: {{ include "idegym.fullname" . | quote }}
+            {{- with .Values.deployment.otel.tracing }}
+            - name: IDEGYM_OTEL_TRACING_ENDPOINT
+              value: {{ .endpoint | quote }}
+            - name: IDEGYM_OTEL_TRACING_AUTH_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: tracing
+                  key: username
+                  optional: true
+            - name: IDEGYM_OTEL_TRACING_AUTH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: tracing
+                  key: password
+                  optional: true
+            {{- end }}
+            - name: IDEGYM_UVICORN_WORKERS
+              value: {{ .Values.deployment.uvicornWorkers | quote }}
+            {{- with .Values.deployment.sqlalchemy }}
+            - name: IDEGYM_SQLALCHEMY_POOL_SIZE
+              value: {{ .poolSize | quote }}
+            - name: IDEGYM_SQLALCHEMY_MAX_OVERFLOW
+              value: {{ .maxOverflow | quote }}
+            {{- end }}
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: postgres
+                  key: database
+            - name: POSTGRES_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: postgres
+                  key: host
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres
+                  key: password
+            - name: POSTGRES_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: postgres
+                  key: port
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres
+                  key: username
+            {{- with .Values.deployment.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.deployment.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 60
+      {{- with .Values.deployment.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

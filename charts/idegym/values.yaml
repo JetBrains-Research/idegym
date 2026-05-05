@@ -1,0 +1,59 @@
+deployment:
+  image:
+    pullPolicy: Always
+    repository: ghcr.io/jetbrains-research/idegym/orchestrator
+    tag: ""
+  imagePullSecrets: [ ]
+  extraEnv: [ ]
+  log:
+    json: true
+    level: info
+  otel:
+    tracing: { }
+  replicas: 4
+  uvicornWorkers: 4
+  sqlalchemy: { }
+  resources: { }
+  securityContext: { }
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          preference:
+            matchExpressions:
+              - key: jetbrains.com/idegym
+                operator: Exists
+  tolerations:
+    - key: jetbrains.com/idegym
+      operator: Exists
+      effect: NoSchedule
+
+service:
+  type: ClusterIP
+  port: 80
+  containerPort: 8000
+
+ingress:
+  enabled: false
+  annotations: { }
+  className: ""
+  host: ""
+  tls:
+    enabled: false
+    secretName: ""
+
+limitRange:
+  enabled: false
+  limits: [ ]
+
+resourceQuota:
+  enabled: false
+  hard: { }
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: { }
+
+rbac:
+  extraRules: [ ]
