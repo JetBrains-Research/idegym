@@ -29,3 +29,7 @@ repos:
   hooks:
     - id: uv-lock
       files: \.toml$
+- repo: https://github.com/gruntwork-io/pre-commit
+  rev: v0.1.30
+  hooks:
+    - id: helmlint
