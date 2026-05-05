@@ -102,6 +102,12 @@ jobs:
           kubernetes-version: v1.35.0
           start-args: --docker-opt containerd=/var/run/containerd/containerd.sock
 
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Build Helm chart dependencies
+        run: helm dependency update charts/idegym
+
       - name: Configure hosts and wait for ingress controller to be ready
         run: |
           echo "127.0.0.1 idegym-local.test" | sudo tee -a /etc/hosts
