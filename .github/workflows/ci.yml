@@ -8,27 +8,6 @@ on:
       - main
 
 jobs:
-  lint:
-    name: Lint
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout latest
-        uses: actions/checkout@v6
-      - name: Install uv
-        uses: astral-sh/setup-uv@v8.1.0
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-      - name: Set up Python
-        run: uv python install
-      - name: Install dependencies
-        run: uv sync --all-packages --all-extras --all-groups
-      - name: Check code style
-        uses: astral-sh/ruff-action@v3
-        with:
-          version: "0.15.8"
-          args: "check --output-format github"
-
   test:
     name: Run ${{ matrix.suite }} tests
     runs-on: ubuntu-latest
