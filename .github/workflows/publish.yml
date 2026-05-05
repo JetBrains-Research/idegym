@@ -81,6 +81,35 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  chart:
+    name: Build and publish Helm chart
+    needs: [orchestrator-image]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.ref_name }}
+      - name: Extract version from tag
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+      - name: Login to GHCR
+        run: |
+          helm registry login ghcr.io \
+            --username github-actions[bot] \
+            --password ${{ secrets.GITHUB_TOKEN }}
+      - name: Build chart dependencies
+        run: helm dependency update charts/idegym
+      - name: Package chart
+        run: |
+          helm package charts/idegym \
+            --version "$VERSION" \
+            --app-version "$VERSION" \
+            --destination .
+      - name: Publish chart
+        run: helm push "idegym-${VERSION}.tgz" oci://ghcr.io/jetbrains-research/idegym
+
   packages:
     name: Build and publish packages
     needs: [server-images, orchestrator-image]
