@@ -52,3 +52,16 @@ app: {{ include "idegym.name" . }}
 app.kubernetes.io/name: {{ include "idegym.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
+
+{{/*
+Helpers from subcharts
+*/}}
+{{- define "idegym.subchart.grafana.fullname" -}}
+{{- include "grafana.fullname" .Subcharts.grafana -}}
+{{- end -}}
+{{- define "idegym.subchart.prometheus.server.fullname" -}}
+{{- include "prometheus.server.fullname" .Subcharts.prometheus -}}
+{{- end -}}
+{{- define "idegym.subchart.tempo.fullname" -}}
+{{- include "tempo.fullname" .Subcharts.tempo -}}
+{{- end -}}

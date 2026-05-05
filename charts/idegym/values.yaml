@@ -57,3 +57,109 @@ serviceAccount:
 
 rbac:
   extraRules: [ ]
+
+postgresql:
+  enabled: true
+  fullnameOverride: postgres
+  auth:
+    existingSecret: postgres
+    username: idegym
+    database: idegym
+  primary:
+    affinity:
+      nodeAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+                - key: jetbrains.com/idegym
+                  operator: Exists
+    networkPolicy:
+      enabled: false
+    tolerations:
+      - key: jetbrains.com/idegym
+        operator: Exists
+        effect: NoSchedule
+
+grafana:
+  enabled: false
+  fullnameOverride: grafana
+  admin:
+    existingSecret: grafana
+    userKey: username
+    passwordKey: password
+  resources:
+    requests:
+      memory: 128Mi
+      cpu: 50m
+    limits:
+      memory: 512Mi
+      cpu: 500m
+  sidecar:
+    datasources:
+      enabled: true
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          preference:
+            matchExpressions:
+              - key: jetbrains.com/idegym
+                operator: Exists
+  tolerations:
+    - key: jetbrains.com/idegym
+      operator: Exists
+      effect: NoSchedule
+
+prometheus:
+  enabled: false
+  alertmanager:
+    enabled: false
+  kube-state-metrics:
+    enabled: false
+  prometheus-pushgateway:
+    enabled: false
+  prometheus-node-exporter:
+    enabled: false
+  server:
+    fullnameOverride: prometheus
+    service:
+      servicePort: 9090
+    affinity:
+      nodeAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+                - key: jetbrains.com/idegym
+                  operator: Exists
+    tolerations:
+      - key: jetbrains.com/idegym
+        operator: Exists
+        effect: NoSchedule
+
+tempo:
+  enabled: false
+  fullnameOverride: tempo
+  tempo:
+    server:
+      http_listen_port: 3200
+    resources:
+      requests:
+        memory: 128Mi
+        cpu: 50m
+      limits:
+        memory: 512Mi
+        cpu: 500m
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          preference:
+            matchExpressions:
+              - key: jetbrains.com/idegym
+                operator: Exists
+  tolerations:
+    - key: jetbrains.com/idegym
+      operator: Exists
+      effect: NoSchedule

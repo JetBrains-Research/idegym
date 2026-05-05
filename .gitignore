@@ -285,6 +285,11 @@ Temporary Items
 ### Dev Container template
 .*.temp.dockerfile
 
+### Helm template
+charts/*/charts/
+deploy.yaml
+Chart.lock
+
 ### Project template
 .project/
 /test-results.xml
