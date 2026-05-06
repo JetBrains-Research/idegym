@@ -10,8 +10,16 @@ def pg_container():
     """Start a PostgreSQL Docker container for the test session."""
     from testcontainers.postgres import PostgresContainer
 
-    with PostgresContainer(_PG_IMAGE) as container:
+    container = PostgresContainer(_PG_IMAGE)
+    container.start()
+    try:
         yield container
+    finally:
+        try:
+            container.stop()
+        except Exception:
+            # Container may have already been removed - ignore cleanup errors
+            pass
 
 
 @pytest.fixture(scope="session")
