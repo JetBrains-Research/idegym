@@ -8,10 +8,13 @@ from jinja2 import BaseLoader, Environment
 from pydantic import field_validator
 
 _IDEA_VERSION_RE = re.compile(r"^\d{4}\.\d+(\.\d+)?$")
+_MCP_STEROID_VERSION_RE = re.compile(r"^\d+\.\d+\.\d+(-[a-f0-9]+)?$")
 
 _MCP_PORT = 64342
 _BRIDGE_PORT = 64343
 _CONFIG_DIR = "/tmp/ide-config"
+_MCP_STEROID_PORT = 6315
+_MCP_STEROID_BRIDGE_PORT = 6316
 
 
 def _render(template_name: str, **kwargs: object) -> str:
@@ -38,6 +41,18 @@ class Idea(PluginBase):
 
     then connect your MCP client to ``http://localhost:64343/mcp``.
 
+    **mcp-steroid**: when ``mcp_steroid=True``, the
+    `mcp-steroid <https://github.com/jonnyzzz/mcp-steroid>`_ plugin is downloaded and
+    installed at build time. It provides 9 MCP tools including ``open-project``,
+    ``list-projects``, ``execute-code`` (Kotlin in the IDE JVM), screenshots, and more.
+    mcp-steroid binds to ``127.0.0.1:6315``; a socat bridge re-listens on
+    ``0.0.0.0:6316``. When enabled, ``get_mcp_upstream()`` advertises port 6315 instead
+    of 64342.
+
+    When ``mcp_steroid=True`` and ``open_project=False`` (or no ``Project`` plugin in
+    the pipeline), the IDE starts without opening a project. Agents can then open any
+    project via the mcp-steroid ``open-project`` MCP tool at runtime.
+
     **Config path**: all IDE settings are written to ``/tmp/ide-config`` at build time,
     and ``-Didea.config.path=/tmp/ide-config`` is passed at startup. This avoids
     relying on XDG path detection in containers where ``$HOME`` may be unset.
@@ -54,11 +69,19 @@ class Idea(PluginBase):
             or newer; older versions are not supported.
         open_project: Install the open-project plugin and supervisord entry when a
             ``Project`` plugin precedes this one in the pipeline.
+        mcp_steroid: Download and install the mcp-steroid plugin at build time.
+            When ``True`` and ``open_project`` resolves to ``False``, the IDE starts
+            without a project and agents can open one via the ``open-project`` MCP tool.
+        mcp_steroid_version: mcp-steroid version to install. Format: ``X.Y.Z`` or
+            ``X.Y.Z-HASH`` (e.g. ``0.94.0-8682a5ce``). Defaults to the latest tested
+            version.
         user: User to switch back to after installation. Defaults to ``ctx.current_user``.
     """
 
     version: str = "2026.1.1"
     open_project: bool = True
+    mcp_steroid: bool = False
+    mcp_steroid_version: str = "0.94.0-8682a5ce"
     user: Optional[str] = None
 
     @field_validator("version")
@@ -66,6 +89,13 @@ class Idea(PluginBase):
     def _validate_version(cls, v: str) -> str:
         if not _IDEA_VERSION_RE.match(v):
             raise ValueError(f"Invalid IDEA version: {v!r}. Expected format: YYYY.N or YYYY.N.N")
+        return v
+
+    @field_validator("mcp_steroid_version")
+    @classmethod
+    def _validate_mcp_steroid_version(cls, v: str) -> str:
+        if not _MCP_STEROID_VERSION_RE.match(v):
+            raise ValueError(f"Invalid mcp-steroid version: {v!r}. Expected format: X.Y.Z or X.Y.Z-HASH")
         return v
 
     @field_validator("user")
@@ -76,6 +106,8 @@ class Idea(PluginBase):
         return v
 
     def get_mcp_upstream(self, ctx: BuildContext) -> Optional[str]:
+        if self.mcp_steroid:
+            return f"http://localhost:{_MCP_STEROID_PORT}/mcp"
         has_project = ctx.get_extra("idegym.has_project", False)
         if not (has_project and self.open_project):
             return None
@@ -98,10 +130,14 @@ class Idea(PluginBase):
         parts = [_render("Dockerfile.install.j2", version=self.version, config_dir=_CONFIG_DIR)]
 
         if install_plugin:
+            parts.append(_render("Dockerfile.mcp.j2", config_dir=_CONFIG_DIR))
+
+        if self.mcp_steroid:
             parts.append(
                 _render(
-                    "Dockerfile.mcp.j2",
-                    config_dir=_CONFIG_DIR,
+                    "Dockerfile.mcp_steroid.j2",
+                    mcp_steroid_version=self.mcp_steroid_version,
+                    plugins_dir="${IDE_DIR}/plugins",
                 )
             )
 
@@ -113,6 +149,17 @@ class Idea(PluginBase):
                     project_root=ctx.project_root,
                     mcp_port=_MCP_PORT,
                     bridge_port=_BRIDGE_PORT,
+                )
+            )
+        elif self.mcp_steroid:
+            # No project opener; start the IDE without a project so the agent can
+            # open one at runtime using mcp-steroid's "open-project" MCP tool.
+            parts.append(
+                _render(
+                    "Dockerfile.mcp_steroid_start.j2",
+                    config_dir=_CONFIG_DIR,
+                    mcp_steroid_port=_MCP_STEROID_PORT,
+                    mcp_steroid_bridge_port=_MCP_STEROID_BRIDGE_PORT,
                 )
             )
 

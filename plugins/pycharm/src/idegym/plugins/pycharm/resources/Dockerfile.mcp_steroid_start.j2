@@ -1,0 +1,10 @@
+# Configure PyCharm to start without a project and wait for mcp-steroid.
+# Agents can open any project at runtime via the mcp-steroid "open-project" MCP tool.
+#
+# start-pycharm-mcp-steroid.sh: starts Xvfb on :99, launches PyCharm (no project arg),
+# waits for mcp-steroid on {{ mcp_steroid_port }}, then bridges
+# 0.0.0.0:{{ mcp_steroid_bridge_port }} -> 127.0.0.1:{{ mcp_steroid_port }} via socat.
+COPY plugins/pycharm/scripts/check-mcp.sh /usr/local/bin/check-mcp.sh
+COPY plugins/pycharm/scripts/start-pycharm-mcp-steroid.sh /usr/local/bin/start-pycharm.sh
+RUN chmod +x /usr/local/bin/check-mcp.sh /usr/local/bin/start-pycharm.sh
+COPY plugins/pycharm/scripts/supervisord-pycharm.conf /etc/supervisor/conf.d/pycharm.conf

@@ -1,0 +1,10 @@
+# Configure IDEA to start headless without a project and wait for mcp-steroid.
+# Agents can open any project at runtime via the mcp-steroid "open-project" MCP tool.
+#
+# start-idea-mcp-steroid.sh: launches IDEA headless (no project arg),
+# waits for mcp-steroid on {{ mcp_steroid_port }}, then bridges
+# 0.0.0.0:{{ mcp_steroid_bridge_port }} -> 127.0.0.1:{{ mcp_steroid_port }} via socat.
+COPY plugins/idea/scripts/check-mcp.sh /usr/local/bin/check-mcp.sh
+COPY plugins/idea/scripts/start-idea-mcp-steroid.sh /usr/local/bin/start-idea.sh
+RUN chmod +x /usr/local/bin/check-mcp.sh /usr/local/bin/start-idea.sh
+COPY plugins/idea/scripts/supervisord-idea.conf /etc/supervisor/conf.d/idea.conf
