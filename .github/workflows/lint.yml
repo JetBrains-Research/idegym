@@ -1,0 +1,52 @@
+name: Lint
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  python:
+    name: Python
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout latest
+        uses: actions/checkout@v6
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: Set up Python
+        run: uv python install
+      - name: Install dependencies
+        run: uv sync --all-packages --all-extras --all-groups
+      - name: Check code style
+        uses: astral-sh/ruff-action@v3
+        with:
+          args: "check --output-format github"
+
+  chart:
+    name: Helm
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout latest
+        uses: actions/checkout@v6
+      - name: Detect changed paths
+        uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            chart:
+              - 'charts/**'
+      - name: Install Helm
+        if: steps.filter.outputs.chart == 'true'
+        uses: azure/setup-helm@v5
+      - name: Build Helm chart dependencies
+        if: steps.filter.outputs.chart == 'true'
+        run: helm dependency update charts/idegym
+      - name: Lint Helm chart
+        if: steps.filter.outputs.chart == 'true'
+        run: helm lint charts/idegym

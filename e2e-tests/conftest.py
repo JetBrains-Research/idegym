@@ -1,11 +1,9 @@
 import asyncio
 import subprocess
-from importlib.resources import as_file, files
+from importlib.resources import files
 
-import config as e2e_config
 import pytest
 import resources as e2e_resources
-import yaml
 from idegym.api.docker import BaseImage
 from idegym.api.git import GitRepository, GitRepositorySnapshot
 from idegym.image.docker_api import IdeGYMDockerAPI
@@ -98,12 +96,6 @@ def pytest_addoption(parser):
         help="Delete the entire idegym-local namespace after all tests complete",
     )
     parser.addoption(
-        "--delete-kustomize-services",
-        action="store_true",
-        default=False,
-        help="Delete only services defined in kustomization.yaml after all tests complete",
-    )
-    parser.addoption(
         "--redeploy-orchestrator",
         action="store_true",
         default=False,
@@ -115,8 +107,6 @@ def pytest_configure(config):
     no_cleanup_after_tests = config.getoption("--no-cleanup-after-tests")
     if no_cleanup_after_tests and config.getoption("--delete-namespace"):
         raise pytest.UsageError("--no-cleanup-after-tests cannot be combined with --delete-namespace")
-    if no_cleanup_after_tests and config.getoption("--delete-kustomize-services"):
-        raise pytest.UsageError("--no-cleanup-after-tests cannot be combined with --delete-kustomize-services")
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -133,7 +123,6 @@ def setup_and_cleanup_environment(request, k8s_config_loader):
     reuse_resources = request.config.getoption("--reuse-resources")
     clean_namespace = request.config.getoption("--clean-namespace")
     delete_namespace_flag = request.config.getoption("--delete-namespace")
-    delete_services_flag = request.config.getoption("--delete-kustomize-services")
     no_cleanup_after_tests = request.config.getoption("--no-cleanup-after-tests")
 
     logger.info("=" * 80)
@@ -156,8 +145,6 @@ def setup_and_cleanup_environment(request, k8s_config_loader):
     finally:
         if delete_namespace_flag:
             delete_namespace()
-        elif delete_services_flag:
-            delete_kustomize_services()
         elif no_cleanup_after_tests:
             logger.info("Skipping post-test cleanup due to --no-cleanup-after-tests")
         else:
@@ -280,49 +267,6 @@ def delete_namespace():
         logger.info("✓ Namespace deleted")
     else:
         logger.warning("Namespace deletion timed out")
-
-
-def _extract_service_names_from_kustomize(kustomize_output: str) -> set[str]:
-    service_names: set[str] = set()
-    for doc in yaml.safe_load_all(kustomize_output):
-        if not isinstance(doc, dict):
-            continue
-        if doc.get("kind") != "Service":
-            continue
-        metadata = doc.get("metadata") or {}
-        name = metadata.get("name")
-        if name:
-            service_names.add(name)
-    return service_names
-
-
-def delete_kustomize_services():
-    logger.info("Deleting kustomize services...")
-    with as_file(files(e2e_config)) as config_dir:
-        build_result = subprocess.run(
-            ["kubectl", "kustomize", str(config_dir)],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-
-    if build_result.returncode != 0:
-        logger.warning(f"Could not render kustomization: {build_result.stderr}")
-        return
-
-    try:
-        service_names = _extract_service_names_from_kustomize(build_result.stdout)
-    except yaml.YAMLError as e:
-        logger.warning(f"Could not parse kustomize output: {e}")
-        return
-
-    if not service_names:
-        logger.info("✓ No kustomize services found to delete")
-        return
-
-    k8s_client.delete_services(namespace=DEFAULT_NAMESPACE, service_names=sorted(service_names))
-    logger.info(f"✓ Kustomize services deleted ({len(service_names)})")
 
 
 async def pull_image_from_registry_to_containerd(image_tag: str) -> None:

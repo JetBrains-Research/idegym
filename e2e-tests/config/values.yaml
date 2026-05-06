@@ -1,0 +1,47 @@
+deployment:
+  image:
+    pullPolicy: IfNotPresent
+    tag: latest
+  replicas: 1
+  uvicornWorkers: 1
+  otel:
+    tracing:
+      endpoint: http://tempo:4318/v1/traces
+  extraEnv:
+    - name: IDEGYM_CLEAN_DATABASE
+      value: "True"
+    - name: IDEGYM_NODE_POOL_ENABLED
+      value: "True"
+    - name: KANIKO_INSECURE_REGISTRY
+      value: "true"
+    - name: DOCKER_REGISTRY
+      value: "registry.kube-system.svc.cluster.local"
+
+rbac:
+  extraRules:
+    - apiGroups: [""]
+      resources: ["configmaps"]
+      verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+
+ingress:
+  enabled: true
+  className: nginx
+  host: idegym-local.test
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "1800"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "1800"
+
+postgresql:
+  primary:
+    image:
+      pullPolicy: IfNotPresent
+
+grafana:
+  enabled: true
+
+prometheus:
+  enabled: true
+
+tempo:
+  enabled: true

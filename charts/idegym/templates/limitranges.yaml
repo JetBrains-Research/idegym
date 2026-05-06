@@ -1,0 +1,13 @@
+{{- if .Values.limitRange.enabled }}
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: {{ include "idegym.fullname" . }}-limit-range
+  labels:
+    {{- include "idegym.labels" . | nindent 4 }}
+spec:
+  {{- with .Values.limitRange.limits }}
+  limits:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

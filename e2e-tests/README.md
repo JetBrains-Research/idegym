@@ -4,7 +4,7 @@ End-to-end tests for IdeGYM running on a local Minikube cluster.
 The tests cover the full stack: image building (via Kaniko and local Docker),
 server lifecycle, request forwarding, and the WebSocket protocol.
 
-For the broader deployment context see [Local Deployment](../documentation/local_deployment.md).
+For the broader deployment context see [Local Deployment](/documentation/local_deployment.md).
 
 ## Prerequisites
 
@@ -16,7 +16,7 @@ brew install --cask docker-desktop
 # or
 brew install docker
 
-brew install kubernetes-cli minikube uv
+brew install helm kubernetes-cli minikube uv
 ```
 
 Verify:
@@ -25,6 +25,7 @@ Verify:
 docker version
 kubectl version --client
 minikube version
+helm version
 uv --version
 ```
 
@@ -86,9 +87,10 @@ uv run pytest -m e2e
 ```
 
 This will automatically:
+
 1. Build the orchestrator and base server images
 2. Load images into Minikube
-3. Deploy all Kubernetes resources
+3. Provision the `postgres` Secret and install the `idegym` Helm release
 4. Wait for services to become ready
 5. Run all tests
 6. Clean up resources
@@ -99,7 +101,7 @@ This will automatically:
 # Skip image building (use already-loaded images)
 uv run pytest -m e2e --skip-build
 
-# Reuse existing Kubernetes resources (skip kubectl apply)
+# Reuse existing Kubernetes resources (skip helm install)
 uv run pytest -m e2e --reuse-resources
 
 # Both flags together — fastest iteration when nothing changed
@@ -135,30 +137,29 @@ uv run pytest -m e2e -vv -s -o log_cli=true --log-cli-level=INFO
 
 ## CLI Parameters Reference
 
-| Flag | Description |
-|------|-------------|
-| `--skip-build` | Skip building orchestrator and base server images |
-| `--reuse-resources` | Skip `kubectl apply -k` — reuse current cluster resources |
-| `--no-cleanup-after-tests` | Skip final session teardown after all tests complete |
+| Flag                         | Description                                                                  |
+|------------------------------|------------------------------------------------------------------------------|
+| `--skip-build`               | Skip building orchestrator and base server images                            |
+| `--reuse-resources`          | Skip `helm upgrade --install` and reuse current cluster resources            |
+| `--no-cleanup-after-tests`   | Skip final session teardown after all tests complete                         |
 | `--no-cleanup-between-tests` | Skip sandbox, helper job, database, and orchestrator cleanup after each test |
-| `--clean-namespace` | Delete and recreate `idegym-local` namespace before setup |
-| `--delete-namespace` | Delete `idegym-local` namespace in pytest teardown |
-| `--delete-kustomize-services` | Delete only kustomize-managed services in pytest teardown |
+| `--clean-namespace`          | Delete and recreate `idegym-local` namespace before setup                    |
+| `--delete-namespace`         | Delete `idegym-local` namespace in pytest teardown                           |
 
 ---
 
 ## Environment Variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `IDEGYM_TEST_BASE_URL` | `http://idegym-local.test` | Orchestrator URL |
-| `IDEGYM_TEST_USERNAME` | `test` | Auth username |
-| `IDEGYM_TEST_PASSWORD` | `test` | Auth password |
-| `DOCKER_REGISTRY` | `registry.kube-system.svc.cluster.local` | Kaniko push registry |
-| `KANIKO_INSECURE_REGISTRY` | `true` | Enable HTTP registry for Kaniko |
+| Variable                   | Default                                  | Description                     |
+|----------------------------|------------------------------------------|---------------------------------|
+| `IDEGYM_TEST_BASE_URL`     | `http://idegym-local.test`               | Orchestrator URL                |
+| `IDEGYM_TEST_USERNAME`     | `test`                                   | Auth username                   |
+| `IDEGYM_TEST_PASSWORD`     | `test`                                   | Auth password                   |
+| `DOCKER_REGISTRY`          | `registry.kube-system.svc.cluster.local` | Kaniko push registry            |
+| `KANIKO_INSECURE_REGISTRY` | `true`                                   | Enable HTTP registry for Kaniko |
 
-The kustomize overlay (`e2e-tests/config/`) sets `DOCKER_REGISTRY` and `KANIKO_INSECURE_REGISTRY`
-automatically — no manual configuration needed.
+The Helm values overlay (`e2e-tests/config/values.yaml`) sets `DOCKER_REGISTRY` and
+`KANIKO_INSECURE_REGISTRY` via `deployment.extraEnv` — no manual configuration needed.
 
 ---
 
@@ -167,7 +168,8 @@ automatically — no manual configuration needed.
 When you run `uv run pytest -m e2e`, the session fixtures do four things:
 
 1. Build and load the required images
-2. Apply the local Kubernetes overlay from `e2e-tests/config/`
+2. Provision the `postgres` Secret and install the chart via
+   `helm upgrade --install -f e2e-tests/config/values.yaml charts/idegym`
 3. Wait for the orchestrator at `http://idegym-local.test/health`
 4. Run tests, then clean up sandbox deployments, jobs, and database state
 
@@ -179,21 +181,25 @@ The e2e suite runs against a single local Minikube cluster with these addons ena
 - `gvisor` for sandboxed test containers
 - `registry` for Kaniko-built images
 
-### 2. Local Overlay
+### 2. Helm Values Overlay
 
-The local test overlay in `e2e-tests/config/` defines the main runtime settings:
+`e2e-tests/config/values.yaml` overrides the chart for local testing:
 
-- `Namespace`: `idegym-local`
+- `Namespace`: `idegym-local` (passed via `helm -n`)
 - `Image pull policy`: `IfNotPresent`
-- `Ingress host`: `idegym-local.test`
+- `Replicas` / `uvicornWorkers`: `1` (deterministic for tests)
+- `extraEnv`: `IDEGYM_CLEAN_DATABASE=True`, `KANIKO_INSECURE_REGISTRY=true`,
+  `DOCKER_REGISTRY=registry.kube-system.svc.cluster.local`
+- `Ingress`: `nginx` className, host `idegym-local.test`
+- `OTEL tracing endpoint`: `http://tempo:4318/v1/traces`
+- Subcharts: enable `grafana`, `prometheus` and `tempo`
 
 ### 3. Deployed Services
 
-The overlay deploys the local test stack into `idegym-local`:
+The release deploys the test stack into `idegym-local`:
 
-- PostgreSQL (database)
-- Orchestrator (API server)
-- Ingress resources (HTTP entrypoint)
+- Orchestrator (API server) + Service + Ingress + RBAC
+- PostgreSQL (Bitnami subchart)
 - Prometheus (metrics)
 - Grafana (dashboards)
 - Tempo (distributed traces)
@@ -277,7 +283,8 @@ pytest session starts
   -> build base server image locally
   -> load local images into Minikube
   -> push base server image to Minikube registry
-  -> kubectl apply -k e2e-tests/config
+  -> upsert postgres Secret in idegym-local
+  -> helm upgrade --install idegym charts/idegym -f e2e-tests/config/values.yaml
   -> wait for orchestrator health endpoint
   -> tests call orchestrator APIs
   -> orchestrator schedules sandbox pods in Minikube
@@ -311,14 +318,14 @@ Minikube's containerd runtime. This is needed for:
 
 ## Test Files
 
-| File | Description |
-|------|-------------|
-| `test_health.py` | Orchestrator health check |
-| `test_kaniko_build.py` | Kaniko image build and push |
-| `test_python_api_build.py` | Python fluent API build + deploy (Kaniko and local Docker) |
-| `test_server_lifecycle.py` | Server start, stop, restart |
-| `test_server_strategies.py` | Server scheduling strategies |
-| `test_openenv_websocket.py` | WebSocket protocol tests |
+| File                        | Description                                                |
+|-----------------------------|------------------------------------------------------------|
+| `test_health.py`            | Orchestrator health check                                  |
+| `test_kaniko_build.py`      | Kaniko image build and push                                |
+| `test_python_api_build.py`  | Python fluent API build + deploy (Kaniko and local Docker) |
+| `test_server_lifecycle.py`  | Server start, stop, restart                                |
+| `test_server_strategies.py` | Server scheduling strategies                               |
+| `test_openenv_websocket.py` | WebSocket protocol tests                                   |
 
 ---
 
@@ -450,10 +457,11 @@ async def test_my_feature(test_id):
 
 ## Modifying Infrastructure
 
-| What | Where |
-|------|-------|
-| Kubernetes resource changes | `e2e-tests/config/kustomization.yaml` |
-| Image building logic | `e2e-tests/utils/build_images.py` |
-| Cluster setup/teardown | `e2e-tests/utils/k8s_setup.py` |
-| Shared constants | `e2e-tests/utils/constants.py` |
-| Kubernetes API helpers | `e2e-tests/utils/k8s_client.py` |
+| What                   | Where                             |
+|------------------------|-----------------------------------|
+| Chart templates        | `charts/idegym/templates/`        |
+| Helm value overrides   | `e2e-tests/config/values.yaml`    |
+| Image building logic   | `e2e-tests/utils/build_images.py` |
+| Cluster setup/teardown | `e2e-tests/utils/k8s_setup.py`    |
+| Shared constants       | `e2e-tests/utils/constants.py`    |
+| Kubernetes API helpers | `e2e-tests/utils/k8s_client.py`   |
