@@ -1914,7 +1914,7 @@ def test_pycharm_mcp_steroid_copies_start_script_when_no_project():
     plugin = PyCharm(open_project=False, mcp_steroid=True)
     ctx = BuildContext(base="debian:bookworm-slim")
     fragment = plugin.render(ctx)
-    assert "start-pycharm-mcp-steroid.sh" in fragment
+    assert "ENV MCP_STEROID=true" in fragment
     assert "COPY plugins/pycharm/scripts/supervisord-pycharm.conf" in fragment
     # project-opener must not be present
     assert "open-project.zip" not in fragment
@@ -1926,8 +1926,8 @@ def test_pycharm_mcp_steroid_no_start_script_when_open_project_active():
     fragment = plugin.render(ctx)
     # Project opener is installed via open_project path
     assert "open-project.zip" in fragment
-    # mcp-steroid no-project start script is NOT used (project opener handles startup)
-    assert "start-pycharm-mcp-steroid.sh" not in fragment
+    # mcp-steroid mode env var is NOT set (project opener handles startup)
+    assert "ENV MCP_STEROID=true" not in fragment
 
 
 def test_pycharm_get_mcp_upstream_returns_steroid_port_when_enabled():
@@ -1991,7 +1991,7 @@ def test_idea_mcp_steroid_copies_start_script_when_no_project():
     plugin = Idea(open_project=False, mcp_steroid=True)
     ctx = BuildContext(base="debian:bookworm-slim")
     fragment = plugin.render(ctx)
-    assert "start-idea-mcp-steroid.sh" in fragment
+    assert "ENV MCP_STEROID=true" in fragment
     assert "COPY plugins/idea/scripts/supervisord-idea.conf" in fragment
     assert "open-project.zip" not in fragment
 
@@ -2001,7 +2001,8 @@ def test_idea_mcp_steroid_no_start_script_when_open_project_active():
     ctx = BuildContext(base="debian:bookworm-slim").with_extra("idegym.has_project", True)
     fragment = plugin.render(ctx)
     assert "open-project.zip" in fragment
-    assert "start-idea-mcp-steroid.sh" not in fragment
+    # mcp-steroid mode env var is NOT set (project opener handles startup)
+    assert "ENV MCP_STEROID=true" not in fragment
 
 
 def test_idea_get_mcp_upstream_returns_steroid_port_when_enabled():

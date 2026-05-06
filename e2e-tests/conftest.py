@@ -12,7 +12,7 @@ from idegym.image.docker_api import IdeGYMDockerAPI
 from idegym.utils.logging import get_logger
 from kubernetes_asyncio import config as k8s_config
 from utils import k8s_client
-from utils.build_images import build_all_images
+from utils.build_images import build_all_images, cleanup_session_images, enable_image_tracking
 from utils.constants import (
     DEFAULT_NAMESPACE,
     KUBE_SYSTEM_NAMESPACE,
@@ -109,6 +109,15 @@ def pytest_addoption(parser):
         default=False,
         help="Redeploy orchestrator between tests instead of resetting the database",
     )
+    parser.addoption(
+        "--no-cleanup-images",
+        action="store_true",
+        default=False,
+        help=(
+            "Skip removal of test images from local Docker and minikube after the session. "
+            "Useful when you need the images for manual inspection or debugging."
+        ),
+    )
 
 
 def pytest_configure(config):
@@ -135,6 +144,7 @@ def setup_and_cleanup_environment(request, k8s_config_loader):
     delete_namespace_flag = request.config.getoption("--delete-namespace")
     delete_services_flag = request.config.getoption("--delete-kustomize-services")
     no_cleanup_after_tests = request.config.getoption("--no-cleanup-after-tests")
+    no_cleanup_images = request.config.getoption("--no-cleanup-images")
 
     logger.info("=" * 80)
     logger.info("E2E SESSION SETUP")
@@ -151,6 +161,9 @@ def setup_and_cleanup_environment(request, k8s_config_loader):
         if not setup_kubernetes_environment(reuse_resources=reuse_resources, clean_namespace=clean_namespace):
             pytest.exit("Failed to set up Kubernetes environment", returncode=1)
 
+        # Enable tracking only after setup so base/infrastructure images are not tracked.
+        enable_image_tracking()
+
         yield
 
     finally:
@@ -165,6 +178,14 @@ def setup_and_cleanup_environment(request, k8s_config_loader):
                 cleanup_kubernetes_environment(clean_namespace=False)
             except Exception as cleanup_error:
                 logger.error(f"Error during cleanup: {cleanup_error}", exc_info=True)
+
+        if no_cleanup_images:
+            logger.info("Skipping test image cleanup due to --no-cleanup-images")
+        else:
+            try:
+                cleanup_session_images()
+            except Exception as cleanup_error:
+                logger.error(f"Error during image cleanup: {cleanup_error}", exc_info=True)
 
 
 def cleanup_servers():

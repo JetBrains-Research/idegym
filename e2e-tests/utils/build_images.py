@@ -10,6 +10,47 @@ logger = get_logger(__name__)
 
 docker = DockerClient()
 
+# Tags accumulated while _tracking_enabled is True (set after setup, before yield).
+# Base images loaded during setup are excluded automatically.
+_tracking_enabled: bool = False
+_tracked_tags: set[str] = set()
+
+
+def enable_image_tracking() -> None:
+    """Start tracking images loaded via minikube_load_image. Called after setup."""
+    global _tracking_enabled
+    _tracking_enabled = True
+
+
+def cleanup_session_images() -> None:
+    """Remove tracked test images from local Docker and minikube.
+
+    Called at session teardown. Failures are logged but do not raise.
+    """
+    if not _tracked_tags:
+        logger.info("No test images to clean up")
+        return
+
+    logger.info(f"Cleaning up {len(_tracked_tags)} test image(s) from local Docker and minikube...")
+    for tag in sorted(_tracked_tags):
+        # Remove from local Docker.
+        try:
+            subprocess.run(["docker", "rmi", "--force", tag], check=True, capture_output=True, timeout=60)
+            logger.info(f"  ✓ Removed local Docker image: {tag}")
+        except subprocess.CalledProcessError as e:
+            logger.warning(f"  Could not remove local Docker image {tag}: {e.stderr.decode().strip()}")
+        except Exception as e:
+            logger.warning(f"  Could not remove local Docker image {tag}: {e}")
+
+        # Remove from minikube.
+        try:
+            subprocess.run(["minikube", "image", "rm", tag], check=True, capture_output=True, timeout=60)
+            logger.info(f"  ✓ Removed minikube image: {tag}")
+        except subprocess.CalledProcessError as e:
+            logger.warning(f"  Could not remove minikube image {tag}: {e.stderr.decode().strip()}")
+        except Exception as e:
+            logger.warning(f"  Could not remove minikube image {tag}: {e}")
+
 
 def minikube_load_image(image_tag: str, timeout: int = 180) -> None:
     """Load a locally-built Docker image into minikube's containerd.
@@ -26,6 +67,8 @@ def minikube_load_image(image_tag: str, timeout: int = 180) -> None:
         capture_output=True,
         timeout=timeout,
     )
+    if _tracking_enabled:
+        _tracked_tags.add(image_tag)
 
 
 def _push_to_registry_from_cluster(source_image_tag: str) -> None:

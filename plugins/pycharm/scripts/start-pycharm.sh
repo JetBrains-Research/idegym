@@ -1,43 +1,71 @@
 #!/usr/bin/env bash
-# Starts PyCharm Community with MCP server enabled, waits until the MCP
-# endpoint is reachable, then blocks (keeping the container alive).
+# Starts PyCharm Community with an MCP endpoint.
 #
-# PyCharm CE does not support java.awt.headless=true; Xvfb is used to provide a
-# virtual X11 display. Config files pre-created in the image under the XDG
-# default (~/.config/JetBrains/PyCharmCE<version>/) are picked up automatically.
+# Mode is selected by the MCP_STEROID environment variable:
+#
+#   MCP_STEROID=false (default)
+#     Opens IDEGYM_PROJECT_ROOT via the open-project AppStarter, waits for the
+#     bundled JetBrains MCP plugin on port 64342 (/stream or /sse), then bridges
+#     0.0.0.0:64343 → 127.0.0.1:64342 via socat.
+#
+#   MCP_STEROID=true
+#     Starts PyCharm without a project (welcome screen); mcp-steroid handles project
+#     opening at runtime via the steroid_open_project MCP tool. Waits for
+#     mcp-steroid on port 6315 (/mcp), then bridges 0.0.0.0:6316 → 127.0.0.1:6315.
+#
+# PyCharm CE does not support -Djava.awt.headless=true; Xvfb provides a virtual
+# X11 display that satisfies AWT without real hardware.
 #
 # Log locations:
 #   /tmp/pycharm.log                    - IDE launcher stdout/stderr
-#   ${IDE_SYSTEM_PATH}/log/idea.log     - PyCharm internal log (idea.log)
+#   ${IDE_SYSTEM_PATH}/log/idea.log     - PyCharm internal log
 #
-# Environment variables used at runtime (all have defaults):
-#   IDEGYM_PROJECT_ROOT  – project to open                      (default: /root/work)
-#   PYCHARM_DIR          – PyCharm installation directory        (default: /opt/pycharm)
-#   IDE_SYSTEM_PATH      – PyCharm system/cache/log directory   (default: /tmp/ide-system)
-#   IDE_CONFIG_PATH      – PyCharm config directory             (default: /tmp/ide-config)
-#   MCP_PORT             – port the MCP endpoint listens on (/sse or /stream, default: 64342)
-#   BRIDGE_PORT          – port socat exposes on 0.0.0.0         (default: 64343)
-#   WAIT_SECONDS         – max seconds to wait for MCP endpoint  (default: 300)
+# Common environment variables (all have defaults):
+#   MCP_STEROID      – select mcp-steroid mode                     (default: false)
+#   PYCHARM_DIR      – PyCharm installation directory               (default: /opt/pycharm)
+#   IDE_SYSTEM_PATH  – PyCharm system/cache/log directory          (default: /tmp/ide-system)
+#   IDE_CONFIG_PATH  – PyCharm config directory                    (default: /tmp/ide-config)
+#   WAIT_SECONDS     – max seconds to wait for MCP endpoint         (default: 300)
+#
+# Standard-mode variables:
+#   IDEGYM_PROJECT_ROOT  – project to open                         (default: /root/work)
+#   MCP_PORT             – bundled MCP plugin listen port          (default: 64342)
+#   BRIDGE_PORT          – socat bridge port on 0.0.0.0            (default: 64343)
+#
+# mcp-steroid mode variables:
+#   MCP_STEROID_PORT         – mcp-steroid listen port             (default: 6315)
+#   MCP_STEROID_BRIDGE_PORT  – socat bridge port on 0.0.0.0        (default: 6316)
 
 set -euo pipefail
 
-PROJECT="${IDEGYM_PROJECT_ROOT:-/root/work}"
+MCP_STEROID="${MCP_STEROID:-false}"
 PYCHARM_DIR="${PYCHARM_DIR:-/opt/pycharm}"
 IDE_SYSTEM_PATH="${IDE_SYSTEM_PATH:-/tmp/ide-system}"
 IDE_CONFIG_PATH="${IDE_CONFIG_PATH:-/tmp/ide-config}"
-MCP_PORT="${MCP_PORT:-64342}"
-BRIDGE_PORT="${BRIDGE_PORT:-64343}"
 WAIT_SECONDS="${WAIT_SECONDS:-300}"
-MCP_URL="http://localhost:${MCP_PORT}/sse"
 LOG_FILE="/tmp/pycharm.log"
 PYCHARM_LOG="${IDE_SYSTEM_PATH}/log/idea.log"
 
+if [ "${MCP_STEROID}" = "true" ]; then
+    LISTEN_PORT="${MCP_STEROID_PORT:-6315}"
+    BRIDGE_PORT="${MCP_STEROID_BRIDGE_PORT:-6316}"
+else
+    PROJECT="${IDEGYM_PROJECT_ROOT:-/root/work}"
+    LISTEN_PORT="${MCP_PORT:-64342}"
+    BRIDGE_PORT="${BRIDGE_PORT:-64343}"
+fi
+
 mkdir -p "${IDE_SYSTEM_PATH}" "${IDE_CONFIG_PATH}/options"
 
-echo "=== PyCharm Community MCP ==="
-echo "  Project     : ${PROJECT}"
+if [ "${MCP_STEROID}" = "true" ]; then
+    echo "=== PyCharm + mcp-steroid (no project) ==="
+    echo "  mcp-steroid  : http://localhost:${LISTEN_PORT}/mcp"
+else
+    echo "=== PyCharm Community MCP ==="
+    echo "  Project     : ${PROJECT}"
+    echo "  MCP URL     : http://localhost:${LISTEN_PORT}/sse"
+fi
 echo "  PyCharm     : ${PYCHARM_DIR}"
-echo "  MCP URL     : ${MCP_URL}"
 echo "  Config      : ${IDE_CONFIG_PATH}"
 echo "  Launcher log: ${LOG_FILE}"
 echo "  PyCharm log : ${PYCHARM_LOG}"
@@ -57,10 +85,14 @@ echo "Xvfb started (PID=${XVFB_PID}, DISPLAY=${DISPLAY})"
 sleep 1
 
 # ── Start PyCharm in background ───────────────────────────────────────────────
-# JVM properties passed directly to pycharm.sh.
-# The JetBrains launcher recognises -D* / -X* flags and routes them to the JVM
-# before any application arguments.
-echo ">>> Launching PyCharm with open-project AppStarter (project: ${PROJECT})"
+OPEN_ARGS=()
+if [ "${MCP_STEROID}" = "true" ]; then
+    echo ">>> Launching PyCharm (no project; mcp-steroid handles project opening)"
+else
+    OPEN_ARGS=("open" "${PROJECT}")
+    echo ">>> Launching PyCharm with open-project AppStarter (project: ${PROJECT})"
+fi
+
 "${PYCHARM_DIR}/bin/pycharm.sh" \
     -Didea.trust.all.projects=true \
     -Didea.system.path="${IDE_SYSTEM_PATH}" \
@@ -69,7 +101,7 @@ echo ">>> Launching PyCharm with open-project AppStarter (project: ${PROJECT})"
     -Dide.no.platform.update=true \
     -Dide.show.tips.on.startup.default.value=false \
     -Djb.consents.confirmation.enabled=false \
-    open "${PROJECT}" > "${LOG_FILE}" 2>&1 &
+    "${OPEN_ARGS[@]+"${OPEN_ARGS[@]}"}" > "${LOG_FILE}" 2>&1 &
 PYCHARM_PID=$!
 echo "PyCharm started (PID=${PYCHARM_PID})"
 
@@ -89,28 +121,26 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# ── Wait for the MCP endpoint (stream or SSE) ────────────────────────────────
-# Source the check-mcp.sh script to get the check_mcp_endpoint function
+# ── Wait for MCP endpoint ─────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/check-mcp.sh"
 
-echo "Waiting for MCP endpoint (checking /stream and /sse, timeout: ${WAIT_SECONDS}s)..."
-MCP_READY=false
+echo "Waiting for MCP endpoint (timeout: ${WAIT_SECONDS}s)..."
 for i in $(seq 1 "${WAIT_SECONDS}"); do
-    # Try /stream endpoint first (newer versions)
-    if check_mcp_endpoint "http://localhost:${MCP_PORT}/stream"; then
-        echo ">>> MCP server ready at /stream (${i}s)"
-        MCP_URL="http://localhost:${MCP_PORT}/stream"
-        MCP_READY=true
-        break
-    fi
-
-    # Try /sse endpoint (legacy)
-    if check_mcp_endpoint "http://localhost:${MCP_PORT}/sse"; then
-        echo ">>> MCP server ready at /sse (${i}s)"
-        MCP_URL="http://localhost:${MCP_PORT}/sse"
-        MCP_READY=true
-        break
+    if [ "${MCP_STEROID}" = "true" ]; then
+        if check_mcp_endpoint "http://localhost:${LISTEN_PORT}/mcp"; then
+            echo ">>> mcp-steroid ready at /mcp (${i}s)"
+            break
+        fi
+    else
+        if check_mcp_endpoint "http://localhost:${LISTEN_PORT}/stream"; then
+            echo ">>> MCP server ready at /stream (${i}s)"
+            break
+        fi
+        if check_mcp_endpoint "http://localhost:${LISTEN_PORT}/sse"; then
+            echo ">>> MCP server ready at /sse (${i}s)"
+            break
+        fi
     fi
 
     if ! kill -0 "${PYCHARM_PID}" 2>/dev/null; then
@@ -135,7 +165,6 @@ for i in $(seq 1 "${WAIT_SECONDS}"); do
         exit 1
     fi
 
-    # Print pycharm log tail every 30 s so it's visible in container logs
     if (( i % 30 == 0 )); then
         if [ -f "${PYCHARM_LOG}" ]; then
             echo "--- pycharm log tail at ${i}s ---"
@@ -147,9 +176,9 @@ for i in $(seq 1 "${WAIT_SECONDS}"); do
 done
 
 # ── Start socat bridge ────────────────────────────────────────────────────────
-socat TCP-LISTEN:${BRIDGE_PORT},fork,reuseaddr TCP:127.0.0.1:${MCP_PORT} &
+socat TCP-LISTEN:${BRIDGE_PORT},fork,reuseaddr TCP:127.0.0.1:${LISTEN_PORT} &
 SOCAT_PID=$!
-echo ">>> socat bridge: 0.0.0.0:${BRIDGE_PORT} -> 127.0.0.1:${MCP_PORT} (PID=${SOCAT_PID})"
+echo ">>> socat bridge: 0.0.0.0:${BRIDGE_PORT} -> 127.0.0.1:${LISTEN_PORT} (PID=${SOCAT_PID})"
 
 # ── Keep the container alive until PyCharm exits ──────────────────────────────
 echo "Container running. Waiting for PyCharm to exit..."

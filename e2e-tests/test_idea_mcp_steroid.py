@@ -46,9 +46,6 @@ _LOCAL_BASE_IMAGE = "ghcr.io/jetbrains-research/idegym/server-debian-bookworm-20
 # IDEA 2026.1.1+ is required.
 _IDEA_VERSION = "2026.1.1"
 
-# mcp-steroid binds on 127.0.0.1:6315; endpoint is /mcp (streamable HTTP).
-_MCP_STEROID_URL = "http://localhost:6315/mcp"
-
 # IDEA resources: more memory than a plain server because the IDE + mcp-steroid JVM
 # runs alongside the IdeGYM server process.
 _IDEA_RESOURCES = KubernetesResources(
@@ -56,8 +53,8 @@ _IDEA_RESOURCES = KubernetesResources(
     limits=ResourceQuantities(cpu="2000m", memory="8Gi", ephemeral_storage="12Gi"),
 )
 
-# Shell script that polls mcp-steroid until it responds to MCP initialize (up to 300s).
-_WAIT_MCP_STEROID_SCRIPT = files(e2e_resources).joinpath("mcp_steroid_wait_300s.sh").read_text(encoding="utf-8")
+# Project path inside the container (Project.from_local copies here).
+_PROJECT_PATH = "/root/work"
 
 # mcp-steroid tools that must always be present (subset of the full 9-tool set).
 # Full list from https://github.com/jonnyzzz/mcp-steroid README:
@@ -66,8 +63,12 @@ _WAIT_MCP_STEROID_SCRIPT = files(e2e_resources).joinpath("mcp_steroid_wait_300s.
 #   steroid_execute_feedback
 _REQUIRED_TOOLS = {"steroid_open_project", "steroid_list_projects"}
 
-# Project path inside the container (Project.from_local copies here).
-_PROJECT_PATH = "/root/work"
+_WAIT_MCP_STEROID_SCRIPT = files(e2e_resources).joinpath("mcp_steroid_wait_300s.sh").read_text(encoding="utf-8")
+_TOOLS_LIST_SCRIPT = files(e2e_resources).joinpath("mcp_steroid_tools_list.sh").read_text(encoding="utf-8")
+_LIST_PROJECTS_SCRIPT = files(e2e_resources).joinpath("mcp_steroid_list_projects.sh").read_text(encoding="utf-8")
+_OPEN_PROJECT_SCRIPT = f"PROJECT_PATH={_PROJECT_PATH}\n" + files(e2e_resources).joinpath(
+    "mcp_steroid_open_project.sh"
+).read_text(encoding="utf-8")
 
 
 @pytest.mark.ide_integrations
@@ -136,25 +137,9 @@ async def test_mcp_steroid_idea(test_id):
             )
 
             # --- tools/list -------------------------------------------------
-            # MCP initialize must be sent first on each new connection.
-            tools_result = await server.execute_bash(
-                script=f"""
-curl -s --max-time 10 \\
-    -H "Content-Type: application/json" \\
-    -H "Accept: application/json, text/event-stream" \\
-    -d '{{"jsonrpc":"2.0","id":1,"method":"initialize","params":{{"protocolVersion":"2025-03-26","capabilities":{{}},"clientInfo":{{"name":"idegym-e2e","version":"0.1.0"}}}}}}' \\
-    {_MCP_STEROID_URL} > /dev/null 2>&1
-curl -s --max-time 10 \\
-    -H "Content-Type: application/json" \\
-    -H "Accept: application/json, text/event-stream" \\
-    -d '{{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{{}}}}' \\
-    {_MCP_STEROID_URL}
-""",
-                command_timeout=30.0,
-            )
+            tools_result = await server.execute_bash(script=_TOOLS_LIST_SCRIPT, command_timeout=30.0)
             assert tools_result.exit_code == 0, f"tools/list request failed:\n{tools_result.stderr}"
 
-            # The last line of stdout is the tools/list JSON response.
             lines = [ln for ln in tools_result.stdout.strip().splitlines() if ln.strip()]
             response = json.loads(lines[-1])
             assert "result" in response, f"tools/list returned no result field.\nResponse: {response}"
@@ -171,22 +156,7 @@ curl -s --max-time 10 \\
                 )
 
             # --- Open project via steroid_open_project tool ----------------
-            # steroid_open_project requires: project_path, task_id, reason.
-            open_result = await server.execute_bash(
-                script=f"""
-curl -s --max-time 10 \\
-    -H "Content-Type: application/json" \\
-    -H "Accept: application/json, text/event-stream" \\
-    -d '{{"jsonrpc":"2.0","id":1,"method":"initialize","params":{{"protocolVersion":"2025-03-26","capabilities":{{}},"clientInfo":{{"name":"idegym-e2e","version":"0.1.0"}}}}}}' \\
-    {_MCP_STEROID_URL} > /dev/null 2>&1
-curl -s --max-time 30 \\
-    -H "Content-Type: application/json" \\
-    -H "Accept: application/json, text/event-stream" \\
-    -d '{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"steroid_open_project","arguments":{{"project_path":"{_PROJECT_PATH}","task_id":"e2e-test","reason":"E2E test: verify project opens via mcp-steroid"}}}}}}' \\
-    {_MCP_STEROID_URL}
-""",
-                command_timeout=60.0,
-            )
+            open_result = await server.execute_bash(script=_OPEN_PROJECT_SCRIPT, command_timeout=60.0)
             assert open_result.exit_code == 0, f"steroid_open_project call failed:\n{open_result.stderr}"
 
             lines = [ln for ln in open_result.stdout.strip().splitlines() if ln.strip()]
@@ -199,16 +169,7 @@ curl -s --max-time 30 \\
             # --- Poll steroid_list_projects until the project appears -------
             # Wait up to 60s for the project to appear (IDE may take time to index).
             for attempt in range(12):  # 12 attempts × 5s = 60s
-                list_result = await server.execute_bash(
-                    script=f"""
-curl -s --max-time 10 \\
-    -H "Content-Type: application/json" \\
-    -H "Accept: application/json, text/event-stream" \\
-    -d '{{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{{"name":"steroid_list_projects","arguments":{{}}}}}}' \\
-    {_MCP_STEROID_URL}
-""",
-                    command_timeout=15.0,
-                )
+                list_result = await server.execute_bash(script=_LIST_PROJECTS_SCRIPT, command_timeout=15.0)
                 assert list_result.exit_code == 0, f"steroid_list_projects call failed:\n{list_result.stderr}"
 
                 lines = [ln for ln in list_result.stdout.strip().splitlines() if ln.strip()]
