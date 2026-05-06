@@ -11,6 +11,23 @@ logger = get_logger(__name__)
 docker = DockerClient()
 
 
+def minikube_load_image(image_tag: str, timeout: int = 180) -> None:
+    """Load a locally-built Docker image into minikube's containerd.
+
+    Raises ``subprocess.CalledProcessError`` if minikube exits non-zero.
+
+    Args:
+        image_tag: Full image tag to load (e.g., "my-image:latest").
+        timeout: Maximum seconds to wait for the load operation (default: 180).
+    """
+    subprocess.run(
+        ["minikube", "image", "load", image_tag],
+        check=True,
+        capture_output=True,
+        timeout=timeout,
+    )
+
+
 def _push_to_registry_from_cluster(source_image_tag: str) -> None:
     """
     Push an image to the local Minikube registry from inside the cluster.
@@ -142,14 +159,8 @@ def build_base_server_image() -> str:
 
     # Load both tags into minikube
     logger.info("Loading base image into minikube...")
-    subprocess.run(
-        ["minikube", "image", "load", image_tag],
-        check=True,
-    )
-    subprocess.run(
-        ["minikube", "image", "load", registry_tag],
-        check=True,
-    )
+    minikube_load_image(image_tag)
+    minikube_load_image(registry_tag)
 
     # Push to local registry using a Kubernetes job (from inside cluster)
     logger.info("Pushing base image to local registry...")

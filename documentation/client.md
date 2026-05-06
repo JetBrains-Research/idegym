@@ -236,6 +236,25 @@ response = await server.restart_server(
 )
 ```
 
+### `list_capabilities()` — loaded plugin list
+
+Return the list of server plugins running in the container:
+
+```python
+result = await server.list_capabilities()
+print(result.plugins)  # → ["tools", "rewards"]
+```
+
+This calls `GET /api/idegym-servers/{id}/capabilities` on the orchestrator, which proxies to
+`GET /api/capabilities` on the server. The response reflects the contents of
+`/etc/idegym/plugins.json` written at image build time.
+
+```python
+result: CapabilitiesResponse = await server.list_capabilities()
+```
+
+---
+
 ### `forward(method, path, body, ...)` — generic plugin endpoint call
 
 An escape hatch for calling plugin-provided endpoints that do not have a typed wrapper:
@@ -275,24 +294,81 @@ attribute under the entry point name.
 
 ### PyCharm operations (`server.pycharm`)
 
-When the `pycharm` plugin is installed and the image includes a PyCharm plugin, `server.pycharm`
-is attached automatically:
+`server.pycharm` is attached automatically when the `idegym-plugin-pycharm` package is installed
+in the **local** Python environment and its `idegym.plugins.client` entry point loads successfully.
+This is a purely local check — it is independent of whether the running server image was built with
+the PyCharm plugin.
+
+#### `inspect(...)`
+
+Runs the JetBrains built-in `inspect.sh` script on the server and returns an `InspectResponse`:
 
 ```python
-health = await server.pycharm.health()
-# → {"mcp_url": "http://localhost:6789/mcp"}
+result = await server.pycharm.inspect(
+    project_path="/root/work",
+    profile_path="/root/work/.idea/inspectionProfiles/Default.xml",
+    output_dir="/tmp/inspect-out",
+    timeout=300.0,
+)
+assert result.exit_code == 0
+# Read result files from the container:
+xml = await server.execute_bash("cat /tmp/inspect-out/*.xml")
 ```
 
-The `pycharm` attribute is only present if the `idegym-plugin-pycharm` package is installed and
-the `pycharm` client entry point loads successfully. Accessing it on a server whose image was built
-without the PyCharm plugin will raise `AttributeError`.
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `project_path` | `str` | — | Absolute path to the project inside the container |
+| `profile_path` | `str` | — | Absolute path to an inspection profile XML file |
+| `output_dir` | `str` | — | Directory where result files will be written |
+| `changes_only` | `bool` | `False` | Only inspect locally changed files (`-changes`) |
+| `directory` | `Optional[str]` | `None` | Limit scope to a subdirectory (`-d`) |
+| `format` | `str` | `"xml"` | Output format: `"xml"` or `"json"` |
+| `verbosity` | `int` | `0` | Verbosity level 0–2 |
+| `timeout` | `float` | `600.0` | Maximum seconds for `inspect.sh` to run |
+| `request_timeout` | `Optional[int]` | `None` | HTTP request timeout override (seconds) |
 
-### Checking for a plugin
+**Note:** `inspect.sh` runs in batch/headless mode — no Xvfb or display server is required for
+inspection. Xvfb is only needed when PyCharm opens projects interactively (`open_project=True`).
+
+### IDEA operations (`server.idea`)
+
+`server.idea` is attached automatically when the `idegym-plugin-idea` package is installed in the
+**local** Python environment. It provides the same `inspect()` interface as `server.pycharm`:
 
 ```python
-if hasattr(server, "pycharm"):
-    health = await server.pycharm.health()
+result = await server.idea.inspect(
+    project_path="/root/work",
+    profile_path="/root/work/.idea/inspectionProfiles/Default.xml",
+    output_dir="/tmp/inspect-out",
+)
 ```
+
+IntelliJ IDEA supports true headless mode (`java.awt.headless=true`) — no Xvfb is needed.
+
+### Checking for a plugin at runtime
+
+Use `server.list_capabilities()` to get the definitive list of plugins loaded in the running container,
+then check membership before calling plugin-specific methods:
+
+```python
+caps = await server.list_capabilities()
+# → CapabilitiesResponse(plugins=["tools", "rewards", "pycharm"])
+
+if "pycharm" in caps.plugins and hasattr(server, "pycharm"):
+    result = await server.pycharm.inspect(
+        project_path="/root/work",
+        profile_path="/root/work/.idea/inspectionProfiles/Default.xml",
+        output_dir="/tmp/inspect-out",
+    )
+```
+
+`list_capabilities()` calls `GET /api/idegym-servers/{id}/capabilities` on the orchestrator, which
+proxies to `GET /api/capabilities` on the server container and returns the contents of
+`/etc/idegym/plugins.json` — the file written at image build time that controls which plugins are
+loaded at startup.
+
+`hasattr(server, "pycharm")` still guards against the local package not being installed, but
+`caps.plugins` is the authoritative runtime check for whether the server image supports a plugin.
 
 ---
 

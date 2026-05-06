@@ -1,8 +1,10 @@
 import asyncio
 from asyncio import CancelledError
 from os import environ as env
+from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request, status
+from idegym.api.capabilities import CapabilitiesResponse
 from idegym.api.config import Config, NodePoolConfig, OTELConfig, PodSnapshotConfig
 from idegym.api.memory import MemoryUnit
 from idegym.api.orchestrator.clients import AvailabilityStatus
@@ -34,6 +36,7 @@ from idegym.orchestrator.database.helpers import (
     validate_client,
     validate_server,
 )
+from idegym.orchestrator.router.forwarding import build_server_host
 from idegym.orchestrator.util.decorators import handle_async_task_exceptions, handle_server_exceptions
 from idegym.orchestrator.util.errors import format_error
 from idegym.utils.decorators import executes_operation_in_background
@@ -103,6 +106,18 @@ async def finish_server(request: FinishServerRequest):
         server_name=server.generated_name,
         message=f"Finished IdeGYM server {server.generated_name} (available for reuse)",
     )
+
+
+@router.get("/api/idegym-servers/{server_id}/capabilities")
+@handle_server_exceptions("fetching server capabilities")
+async def get_server_capabilities(server_id: int, client_id: UUID, low_level_request: Request):
+    server = await validate_server(client_id=client_id, server_id=server_id)
+    host = build_server_host(server.generated_name, server.namespace)
+    target_url = f"http://{host}:{server.service_port}/api/capabilities"
+    response = await low_level_request.app.state.http_client.get(target_url)
+    if response.status_code >= 400:
+        raise HTTPException(status_code=response.status_code, detail=response.text)
+    return CapabilitiesResponse.model_validate_json(response.text)
 
 
 @executes_operation_in_background
@@ -280,7 +295,7 @@ async def _task_start_server(config: Config, request: StartServerRequest, async_
 
             service_account_name = pod_snapshot.service_account_name if pod_snapshot.enabled else None
             snapshot_id = request.snapshot_id or str(server_id)
-            
+
             resources = (
                 request.resources.model_dump(
                     by_alias=True,

@@ -6,6 +6,7 @@ from idegym.api.plugin import BuildContext, PluginBase, get_all_server_plugins, 
 from idegym.image.builder import Image
 from idegym.image.serialization import deserialize_plugin, serialize_plugin
 from idegym.plugins.defaults.image import BaseSystem, IdeGYMServer, MCPUpstream, Permissions, Project, User
+from idegym.plugins.idea.image import Idea
 from idegym.plugins.pycharm.image import PyCharm
 from pytest import mark, param, raises
 
@@ -469,7 +470,7 @@ def test_builtin_plugins_auto_registered_on_builder_import():
         ),
         param(Project.from_local("./src", target="/app"), id="project-local"),
         param(PyCharm(), id="pycharm-defaults"),
-        param(PyCharm(version="2024.1", edition="community"), id="pycharm-custom"),
+        param(PyCharm(version="2024.1"), id="pycharm-custom"),
     ],
 )
 def test_plugin_serialize_deserialize_round_trip(plugin: PluginBase):
@@ -648,8 +649,7 @@ def test_image_pip_install_chains_with_run_commands():
 
 def test_pycharm_default_version():
     plugin = PyCharm()
-    assert plugin.version == "2025.3"
-    assert plugin.edition == "professional"
+    assert plugin.version == "2026.1.1"
 
 
 def test_pycharm_render_contains_install_steps():
@@ -657,7 +657,11 @@ def test_pycharm_render_contains_install_steps():
     ctx = BuildContext(base="debian:bookworm-slim")
     fragment = plugin.render(ctx)
     assert 'PYCHARM_VERSION="2024.1"' in fragment
-    assert "pycharm-professional-2024.1.tar.gz" in fragment
+    # Archive name is now built at runtime with an arch suffix variable so that
+    # amd64 and arm64 images can be built from the same Dockerfile.
+    assert 'archive="pycharm-2024.1${suffix}.tar.gz"' in fragment
+    assert "dpkg --print-architecture" in fragment
+    assert "aarch64" in fragment
     assert "JAVA_HOME" in fragment
     assert "PYCHARM_DIR" in fragment
     # Must not use the curl-pipe-bash pattern (supply chain risk)
@@ -838,14 +842,185 @@ def test_pycharm_accepts_valid_version(version):
     assert PyCharm(version=version).version == version
 
 
-def test_pycharm_rejects_invalid_edition():
-    with raises(ValueError, match="edition"):
-        PyCharm(edition="enterprise")
-
-
 def test_pycharm_rejects_injection_in_user():
     with raises(ValueError, match="user"):
         PyCharm(user="root; id")
+
+
+def test_pycharm_render_installs_open_project_plugin_when_project_in_ctx():
+    plugin = PyCharm(open_project=True)
+    ctx = BuildContext(base="debian:bookworm-slim")
+    ctx = ctx.with_extra("idegym.has_project", True)
+    fragment = plugin.render(ctx)
+    assert "open-project.zip" in fragment
+    assert "trusted-paths.xml" in fragment
+    # Plugin installed to bundled dir so the "open" AppStarter is discovered on launch
+    assert "${PYCHARM_DIR}/plugins/" in fragment
+    # Start script and supervisord config are COPY'd from the build context
+    assert "COPY plugins/pycharm/scripts/start-pycharm.sh" in fragment
+    assert "COPY plugins/pycharm/scripts/supervisord-pycharm.conf" in fragment
+
+
+def test_pycharm_render_skips_open_project_plugin_when_open_project_false():
+    plugin = PyCharm(open_project=False)
+    ctx = BuildContext(base="debian:bookworm-slim")
+    ctx = ctx.with_extra("idegym.has_project", True)
+    fragment = plugin.render(ctx)
+    assert "open-project.zip" not in fragment
+
+
+def test_pycharm_render_skips_open_project_plugin_when_no_project():
+    plugin = PyCharm(open_project=True)
+    ctx = BuildContext(base="debian:bookworm-slim")
+    # No project in context
+    fragment = plugin.render(ctx)
+    assert "open-project.zip" not in fragment
+
+
+# ---------------------------------------------------------------------------
+# IDEA plugin
+# ---------------------------------------------------------------------------
+
+
+def test_idea_default_version():
+    plugin = Idea()
+    assert plugin.version == "2026.1.1"
+
+
+def test_idea_render_contains_install_steps():
+    plugin = Idea(version="2026.1.1")
+    ctx = BuildContext(base="debian:bookworm-slim")
+    fragment = plugin.render(ctx)
+    assert 'IDEA_VERSION="2026.1.1"' in fragment
+    # Archive name built at runtime with arch suffix variable.
+    assert 'archive="idea-2026.1.1${suffix}.tar.gz"' in fragment
+    assert "dpkg --print-architecture" in fragment
+    assert "aarch64" in fragment
+    assert "JAVA_HOME" in fragment
+    assert "IDE_DIR" in fragment
+    # Must verify the tarball checksum before extracting
+    assert "sha256sum" in fragment
+    assert ".sha256" in fragment
+    # Java must come from IDEA's bundled JBR
+    assert "/jbr" in fragment
+    # IDEA supports headless mode (unlike PyCharm)
+    assert "java.awt.headless=true" in fragment
+
+
+def test_idea_render_switches_back_to_current_user():
+    plugin = Idea()
+    user_plugin = User(username="appuser", uid=1000, gid=1000)
+    ctx = BuildContext(base="debian:bookworm-slim")
+    ctx = user_plugin.apply(ctx)
+    fragment = plugin.render(ctx)
+    assert fragment.strip().endswith("USER appuser")
+
+
+def test_idea_render_uses_explicit_user_field():
+    plugin = Idea(user="developer")
+    ctx = BuildContext(base="debian:bookworm-slim")
+    fragment = plugin.render(ctx)
+    assert fragment.strip().endswith("USER developer")
+
+
+def test_idea_render_root_only_container():
+    plugin = Idea()
+    ctx = BuildContext(base="debian:bookworm-slim")
+    fragment = plugin.render(ctx)
+    assert fragment.strip().endswith("USER root")
+
+
+def test_pycharm_render_includes_mcp_config_when_project_present():
+    plugin = PyCharm()
+    ctx = BuildContext(base="debian:bookworm-slim").with_extra("idegym.has_project", True)
+    fragment = plugin.render(ctx)
+    assert "mcpServer.xml" in fragment
+    assert "enableMcpServer" in fragment
+    assert "plugins.jetbrains.com/plugin/26071-mcp-server/versions" in fragment
+    # Plugin is bundled in 2026.1.1+; no separate download step
+    assert "plugins.jetbrains.com/plugin/download" not in fragment
+
+
+def test_pycharm_render_skips_mcp_config_when_open_project_false():
+    plugin = PyCharm(open_project=False)
+    ctx = BuildContext(base="debian:bookworm-slim").with_extra("idegym.has_project", True)
+    fragment = plugin.render(ctx)
+    assert "mcpServer.xml" not in fragment
+    assert "enableMcpServer" not in fragment
+
+
+def test_idea_render_includes_mcp_config_when_project_present():
+    plugin = Idea()
+    ctx = BuildContext(base="debian:bookworm-slim").with_extra("idegym.has_project", True)
+    fragment = plugin.render(ctx)
+    assert "mcpServer.xml" in fragment
+    assert "enableMcpServer" in fragment
+    assert "plugins.jetbrains.com/plugin/26071-mcp-server/versions" in fragment
+    # Plugin is bundled in 2026.1.1+; no separate download step
+    assert "plugins.jetbrains.com/plugin/download" not in fragment
+
+
+def test_idea_render_skips_mcp_config_when_open_project_false():
+    plugin = Idea(open_project=False)
+    ctx = BuildContext(base="debian:bookworm-slim").with_extra("idegym.has_project", True)
+    fragment = plugin.render(ctx)
+    assert "mcpServer.xml" not in fragment
+    assert "enableMcpServer" not in fragment
+
+
+def test_idea_render_installs_open_project_plugin_when_project_in_ctx():
+    plugin = Idea(open_project=True)
+    ctx = BuildContext(base="debian:bookworm-slim")
+    ctx = ctx.with_extra("idegym.has_project", True)
+    fragment = plugin.render(ctx)
+    assert "open-project.zip" in fragment
+    assert "trusted-paths.xml" in fragment
+    # Plugin is installed to bundled dir so it's loaded before the "open" command dispatches
+    assert "${IDE_DIR}/plugins/" in fragment
+    # Start script and supervisord config are COPY'd from the build context
+    assert "COPY plugins/idea/scripts/start-idea.sh" in fragment
+    assert "COPY plugins/idea/scripts/supervisord-idea.conf" in fragment
+
+
+def test_idea_render_skips_open_project_plugin_when_open_project_false():
+    plugin = Idea(open_project=False)
+    ctx = BuildContext(base="debian:bookworm-slim")
+    ctx = ctx.with_extra("idegym.has_project", True)
+    fragment = plugin.render(ctx)
+    assert "open-project.zip" not in fragment
+
+
+def test_idea_render_skips_open_project_plugin_when_no_project():
+    plugin = Idea(open_project=True)
+    ctx = BuildContext(base="debian:bookworm-slim")
+    # No project in context
+    fragment = plugin.render(ctx)
+    assert "open-project.zip" not in fragment
+
+
+@mark.parametrize(
+    "version",
+    [
+        param("2025.3; rm -rf /", id="injection"),
+        param("latest", id="non-numeric"),
+        param("25.3", id="short-year"),
+        param("2025", id="no-minor"),
+        param("2025.3.1.2", id="too-many-parts"),
+    ],
+)
+def test_idea_rejects_invalid_version(version):
+    with raises(ValueError, match="version"):
+        Idea(version=version)
+
+
+@mark.parametrize("version", [param("2025.3", id="two-parts"), param("2025.3.1", id="three-parts")])
+def test_idea_accepts_valid_version(version):
+    assert Idea(version=version).version == version
+
+
+def test_idea_rejects_injection_in_user():
+    with raises(ValueError, match="user"):
+        Idea(user="root; id")
 
 
 # ---------------------------------------------------------------------------
@@ -1057,6 +1232,13 @@ def test_idegym_server_from_git_render_contains_git_clone():
     assert "https://github.com/owner/idegym.git" in fragment
 
 
+def test_idegym_server_from_git_render_copies_plugins():
+    plugin = IdeGYMServer.from_git(url="https://github.com/owner/idegym.git")
+    ctx = BuildContext(base="debian:bookworm-slim")
+    fragment = plugin.render(ctx)
+    assert "cp -r /tmp/idegym-src/plugins $IDEGYM_PATH/plugins" in fragment
+
+
 def test_idegym_server_from_git_render_non_head_ref_adds_checkout():
     plugin = IdeGYMServer.from_git(url="https://github.com/owner/idegym.git", ref="v1.2.3")
     ctx = BuildContext(base="debian:bookworm-slim")
@@ -1173,7 +1355,8 @@ def test_mcp_upstream_serialize_round_trip():
 
 
 def test_plugin_base_get_mcp_upstream_default_is_none():
-    assert PluginBase.get_mcp_upstream() is None
+    ctx = BuildContext(base="debian:bookworm-slim")
+    assert PluginBase().get_mcp_upstream(ctx) is None
 
 
 # ---------------------------------------------------------------------------
@@ -1182,7 +1365,8 @@ def test_plugin_base_get_mcp_upstream_default_is_none():
 
 
 def test_pycharm_get_mcp_upstream():
-    assert PyCharm.get_mcp_upstream() == "http://localhost:6789/mcp"
+    ctx = BuildContext(base="debian:bookworm-slim").with_extra("idegym.has_project", True)
+    assert PyCharm().get_mcp_upstream(ctx) == "http://localhost:64342"
 
 
 def test_pycharm_server_plugin_get_server_router_returns_router():
@@ -1192,7 +1376,34 @@ def test_pycharm_server_plugin_get_server_router_returns_router():
     router = PyCharmPlugin.get_server_router()
     assert router is not None
     route_paths = [r.path for r in router.routes]
-    assert "/pycharm/health" in route_paths
+    assert "/pycharm/inspect" in route_paths
+
+
+# ---------------------------------------------------------------------------
+# IDEA MCP upstream / server plugin router
+# ---------------------------------------------------------------------------
+
+
+def test_idea_get_mcp_upstream():
+    ctx = BuildContext(base="debian:bookworm-slim").with_extra("idegym.has_project", True)
+    assert Idea().get_mcp_upstream(ctx) == "http://localhost:64342"
+
+
+def test_idea_server_plugin_get_server_router_returns_router():
+    from idegym.plugins.idea.server import IdeaPlugin
+
+    router = IdeaPlugin.get_server_router()
+    assert router is not None
+    route_paths = [r.path for r in router.routes]
+    assert "/idea/inspect" in route_paths
+
+
+def test_idea_to_spec_auto_emits_mcp_config():
+    """When Idea plugin declares get_mcp_upstream(), to_spec() writes the config file."""
+    image = Image.from_base("debian:bookworm-slim").with_plugin(Project.from_local("test-project")).with_plugin(Idea())
+    spec = image.to_spec()
+    assert "/etc/idegym/mcp-upstreams.d/idea.json" in spec.dockerfile_content
+    assert "http://localhost:64342" in spec.dockerfile_content
 
 
 # ---------------------------------------------------------------------------
@@ -1202,10 +1413,12 @@ def test_pycharm_server_plugin_get_server_router_returns_router():
 
 def test_to_spec_auto_emits_mcp_config_for_plugin_with_mcp_upstream():
     """When a plugin declares get_mcp_upstream(), to_spec() writes the config file."""
-    image = Image.from_base("debian:bookworm-slim").with_plugin(PyCharm())
+    image = (
+        Image.from_base("debian:bookworm-slim").with_plugin(Project.from_local("test-project")).with_plugin(PyCharm())
+    )
     spec = image.to_spec()
     assert "/etc/idegym/mcp-upstreams.d/pycharm.json" in spec.dockerfile_content
-    assert "http://localhost:6789/mcp" in spec.dockerfile_content
+    assert "http://localhost:64342" in spec.dockerfile_content
 
 
 def test_to_spec_mcp_config_not_emitted_for_plugin_without_upstream():
@@ -1217,7 +1430,9 @@ def test_to_spec_mcp_config_not_emitted_for_plugin_without_upstream():
 
 def test_to_spec_mcp_config_uses_registered_type_name():
     """The config file is named after the plugin's registered type name."""
-    image = Image.from_base("debian:bookworm-slim").with_plugin(PyCharm())
+    image = (
+        Image.from_base("debian:bookworm-slim").with_plugin(Project.from_local("test-project")).with_plugin(PyCharm())
+    )
     spec = image.to_spec()
     # "pycharm" is the registered @image_plugin name
     assert "mcp-upstreams.d/pycharm.json" in spec.dockerfile_content
@@ -1236,7 +1451,7 @@ def test_mcp_fragment_no_user_switch_when_root():
     """When current_user is root, _mcp_upstream_fragment emits no USER directives."""
     from idegym.image.builder import _mcp_upstream_fragment
 
-    ctx = BuildContext(base="debian:bookworm-slim", current_user="root")
+    ctx = BuildContext(base="debian:bookworm-slim", current_user="root").with_extra("idegym.has_project", True)
     fragment = _mcp_upstream_fragment(PyCharm(), ctx)
     assert "mcp-upstreams.d/pycharm.json" in fragment
     assert "USER" not in fragment
@@ -1246,7 +1461,7 @@ def test_mcp_fragment_wraps_with_user_switch_for_non_root():
     """When current_user is not root, _mcp_upstream_fragment wraps with USER root / USER <user>."""
     from idegym.image.builder import _mcp_upstream_fragment
 
-    ctx = BuildContext(base="debian:bookworm-slim", current_user="appuser")
+    ctx = BuildContext(base="debian:bookworm-slim", current_user="appuser").with_extra("idegym.has_project", True)
     fragment = _mcp_upstream_fragment(PyCharm(), ctx)
     assert "mcp-upstreams.d/pycharm.json" in fragment
     assert "USER root" in fragment
@@ -1315,8 +1530,7 @@ def test_to_spec_raises_for_unregistered_plugin_with_unsafe_class_name():
     """An unregistered plugin whose class name is not a safe filename raises ValueError at to_spec()."""
 
     class UnsafeNamePlugin_With_Underscores(PluginBase):
-        @classmethod
-        def get_mcp_upstream(cls) -> str:
+        def get_mcp_upstream(self, ctx: BuildContext) -> str:
             return "http://localhost:1234/mcp"
 
     image = Image.from_base("debian:bookworm-slim").with_plugin(UnsafeNamePlugin_With_Underscores())
@@ -1351,15 +1565,15 @@ def test_get_all_server_plugins_nonempty():
 # ---------------------------------------------------------------------------
 
 
-def test_pycharm_client_operations_health_calls_forward():
-    """PycharmClientOperations.health() calls forward_request with the expected arguments."""
+def test_pycharm_client_operations_inspect_calls_forward():
+    """PycharmClientOperations.inspect() calls forward_request with the expected arguments."""
     import asyncio
     from unittest.mock import AsyncMock, MagicMock
 
     from idegym.plugins.pycharm.client import PycharmClientOperations
 
     mock_forward = MagicMock()
-    mock_forward.forward_request = AsyncMock(return_value={"mcp_url": "http://localhost:6789/mcp"})
+    mock_forward.forward_request = AsyncMock(return_value={"output_dir": "/tmp/out", "exit_code": 0})
 
     ops = PycharmClientOperations(
         forward=mock_forward,
@@ -1368,14 +1582,17 @@ def test_pycharm_client_operations_health_calls_forward():
         polling_config=None,
     )
 
-    result = asyncio.run(ops.health())
+    result = asyncio.run(ops.inspect("/project", "/profile.xml", "/tmp/out"))
 
-    assert result == {"mcp_url": "http://localhost:6789/mcp"}
+    assert result.output_dir == "/tmp/out"
+    assert result.exit_code == 0
     mock_forward.forward_request.assert_called_once_with(
-        method="GET",
+        method="POST",
         server_id=42,
-        path="pycharm/health",
+        path="pycharm/inspect",
+        body=mock_forward.forward_request.call_args.kwargs["body"],
         client_id=None,
+        request_timeout=None,
         polling_config=None,
     )
 
@@ -1433,15 +1650,15 @@ def test_get_all_server_plugins_does_not_include_builtin_image_plugins():
 
 
 def test_pycharm_apply_adds_enabled_server_plugins_extra():
-    """apply() sets 'pycharm' in idegym.enabled_server_plugins list."""
-    ctx = BuildContext(base="debian:bookworm-slim")
+    """apply() sets 'pycharm' in idegym.enabled_server_plugins list when has_project is True."""
+    ctx = BuildContext(base="debian:bookworm-slim").with_extra("idegym.has_project", True)
     result = PyCharm().apply(ctx)
     assert result.get_extra("idegym.enabled_server_plugins") == ["pycharm"]
 
 
 def test_pycharm_apply_is_idempotent():
     """Calling apply() twice does not duplicate 'pycharm' in the extras list."""
-    ctx = BuildContext(base="debian:bookworm-slim")
+    ctx = BuildContext(base="debian:bookworm-slim").with_extra("idegym.has_project", True)
     ctx1 = PyCharm().apply(ctx)
     ctx2 = PyCharm().apply(ctx1)
     assert ctx2.get_extra("idegym.enabled_server_plugins") == ["pycharm"]
@@ -1570,6 +1787,7 @@ def test_to_spec_pycharm_before_idegym_server_writes_pycharm_to_plugins_json():
     """When PyCharm appears before IdeGYMServer in the pipeline, pycharm is added to plugins.json."""
     image = (
         Image.from_base("debian:bookworm-slim")
+        .with_plugin(Project.from_local("test-project"))
         .with_plugin(PyCharm())
         .with_plugin(IdeGYMServer.from_git(url="https://example.com/idegym.git", ref="HEAD"))
     )

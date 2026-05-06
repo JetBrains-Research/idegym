@@ -1,0 +1,43 @@
+# Install the open-project plugin into the bundled plugins dir so it is
+# present before the "open" AppStarter command is dispatched. Pre-built
+# ZIP checked into the repository to avoid a Gradle build stage.
+COPY plugins/idea/project-opener/project-opener.zip /tmp/open-project.zip
+RUN set -eux; \
+    unzip -qo /tmp/open-project.zip -d "${IDE_DIR}/plugins/" && rm /tmp/open-project.zip
+
+# Suppress first-run wizard, trust project path, accept EUA.
+RUN set -eux; \
+    mkdir -p "{{ config_dir }}/options"; \
+    printf '%s\n' \
+        '<application>' \
+        '  <component name="GeneralSettings">' \
+        '    <option name="showTipsOnStartup" value="false" />' \
+        '  </component>' \
+        '</application>' > "{{ config_dir }}/options/ide.general.xml"; \
+    printf '%s\n' \
+        '<application>' \
+        '  <component name="Trusted.Paths.Settings">' \
+        '    <option name="TRUSTED_PATHS">' \
+        '      <list>' \
+        '        <option value="{{ project_root }}" />' \
+        '      </list>' \
+        '    </option>' \
+        '    <option name="TRUSTED_PROJECT_LOCATORS">' \
+        '      <list />' \
+        '    </option>' \
+        '  </component>' \
+        '</application>' > "{{ config_dir }}/options/trusted-paths.xml"; \
+    printf '%s\n' \
+        '<application>' \
+        '  <component name="PrivacyPolicyAgreement">' \
+        '    <option name="versionOfAccepted" value="999.999"/>' \
+        '  </component>' \
+        '</application>' > "{{ config_dir }}/options/privacyPolicy.xml"
+
+# start-idea.sh: launches IDEA headless, waits for MCP on {{ mcp_port }},
+# then bridges 0.0.0.0:{{ bridge_port }} → 127.0.0.1:{{ mcp_port }} via socat.
+# check-mcp.sh: script for checking MCP endpoint availability.
+COPY plugins/idea/scripts/check-mcp.sh /usr/local/bin/check-mcp.sh
+COPY plugins/idea/scripts/start-idea.sh /usr/local/bin/start-idea.sh
+RUN chmod +x /usr/local/bin/check-mcp.sh /usr/local/bin/start-idea.sh
+COPY plugins/idea/scripts/supervisord-idea.conf /etc/supervisor/conf.d/idea.conf

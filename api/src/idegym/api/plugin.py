@@ -93,14 +93,30 @@ class PluginBase(BaseModel):
         """Return Dockerfile instructions for this plugin, or an empty string."""
         return ""
 
-    @classmethod
-    def get_mcp_upstream(cls) -> Optional[str]:
+    def get_build_stages(self, ctx: BuildContext) -> list[str]:
+        """Return Dockerfile build stage fragments to prepend before the main image stage.
+
+        Each returned string is a complete ``FROM … AS …`` stage. Stages are inserted
+        before the primary ``FROM`` instruction so they can produce artifacts that are
+        later consumed via ``COPY --from=<stage>``.
+
+        Override when your plugin needs to compile an artifact (e.g. a JetBrains plugin
+        JAR) inside Docker without including the build toolchain in the final image.
+        """
+        return []
+
+    def get_mcp_upstream(self, ctx: BuildContext) -> Optional[str]:
         """Return the MCP server URL accessible inside the container, or ``None``.
 
         Example: ``"http://localhost:6789/mcp"``
 
         When non-``None``, ``Image.to_spec()`` automatically emits a Dockerfile instruction
         that writes ``/etc/idegym/mcp-upstreams.d/<plugin-name>.json`` with the URL.
+
+        Args:
+            ctx: The current build context. Plugins can use this to conditionally
+                 return the URL based on the build state (e.g., check if a Project
+                 plugin is present in the pipeline).
         """
         return None
 

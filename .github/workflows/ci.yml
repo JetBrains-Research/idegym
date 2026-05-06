@@ -87,7 +87,7 @@ jobs:
           IDEGYM_TEST_REGISTRY: ${{ matrix.registry }}
 
   e2e:
-    name: Run e2e tests
+    name: Run e2e tests (excluding IDE integrations)
     runs-on: Ubuntu-Latest-8-32-x64
 
     steps:
@@ -130,8 +130,58 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-packages --all-extras --all-groups
 
-      - name: Run e2e tests
+      - name: Run e2e tests (excluding IDE integrations)
         run: |
           sudo -E kubectl port-forward -n ingress-nginx svc/ingress-nginx-controller 80:80 > /dev/null 2>&1 &
           sleep 5
-          uv run pytest -m "e2e" -vv
+          uv run pytest -m "e2e and not ide_integrations" -vv
+
+  e2e-ide-integrations:
+    name: Run e2e IDE integration tests
+    runs-on: Ubuntu-Latest-8-32-x64
+
+    steps:
+      - name: Checkout latest
+        uses: actions/checkout@v6
+
+      - name: Start minikube
+        uses: medyagh/setup-minikube@v0.0.21
+        with:
+          addons: gvisor,ingress,registry
+          container-runtime: containerd
+          kubernetes-version: v1.35.0
+          start-args: --docker-opt containerd=/var/run/containerd/containerd.sock
+
+      - name: Configure hosts and wait for ingress controller to be ready
+        run: |
+          echo "127.0.0.1 idegym-local.test" | sudo tee -a /etc/hosts
+          kubectl wait pod \
+            --namespace=ingress-nginx \
+            --for=condition=ready \
+            --selector=app.kubernetes.io/component=controller \
+            --timeout=120s
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Set up Python
+        run: uv python install
+
+      - name: Login to Docker registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: github-actions[bot]
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install dependencies
+        run: uv sync --all-packages --all-extras --all-groups
+
+      - name: Run e2e IDE integration tests
+        run: |
+          sudo -E kubectl port-forward -n ingress-nginx svc/ingress-nginx-controller 80:80 > /dev/null 2>&1 &
+          sleep 5
+          uv run pytest -m "e2e and ide_integrations" -vv

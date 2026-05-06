@@ -16,6 +16,7 @@ dependencies = [
     "idegym-backend-utils",
     "idegym-common-utils",
     "idegym-plugin-defaults[server]",
+    "idegym-plugin-idea[server]",
     "idegym-plugin-pycharm[server]",
     "idegym-rewards",
     "idegym-tools",

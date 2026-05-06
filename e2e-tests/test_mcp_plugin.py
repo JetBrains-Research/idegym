@@ -234,68 +234,6 @@ async def test_forward_generic_method_calls_plugin_endpoint(test_id):
 
 
 @pytest.mark.asyncio
-async def test_typed_plugin_operations_pycharm_health(test_id):
-    """
-    ``server.pycharm.health()`` calls the ``GET /pycharm/health`` endpoint and
-    returns the MCP URL declared by the PyCharm server plugin.
-
-    The image writes ``/etc/idegym/plugins.json`` with ``"pycharm"`` included via
-    ``run_commands``, loading the PyCharm server router without installing PyCharm IDE.
-    The ``server.pycharm`` attribute is attached automatically via the
-    ``idegym.plugins.client`` entry_point.
-    """
-    # Inject pycharm into plugins.json by overwriting the file after IdeGYMServer.render()
-    # writes the default {"server": ["tools", "rewards"]} content.  This enables the
-    # PyCharmPlugin server router at runtime without requiring PyCharm to be installed.
-    _plugins_json = '{"server": ["tools", "rewards", "pycharm"]}'
-    image = (
-        Image.from_base(_LOCAL_BASE_IMAGE)
-        .named(f"typed-plugin-ops-{test_id}")
-        .with_plugin(User(username="appuser", uid=1000, gid=1000, sudo=True))
-        .with_plugin(IdeGYMServer.from_local(root=from_root()))
-        .run_commands(f"printf '%s\\n' '{_plugins_json}' > /etc/idegym/plugins.json")
-        .with_runtime(
-            runtime_class_name="gvisor",
-            resources={
-                "requests": {"cpu": "500m", "memory": "500Mi", "ephemeral-storage": "1Gi"},
-                "limits": {"cpu": "500m", "memory": "500Mi", "ephemeral-storage": "1Gi"},
-            },
-        )
-    )
-
-    built = IdeGYMDockerAPI().build_image(image)
-    image_tag = str(built.repo_tags[0])
-
-    subprocess.run(
-        ["minikube", "image", "load", image_tag],
-        check=True,
-        capture_output=True,
-        timeout=120,
-    )
-
-    async with create_http_client(
-        name=f"typed-plugin-{test_id}",
-        nodes_count=0,
-        request_timeout_in_seconds=300,
-    ) as client:
-        async with client.with_server(
-            image_tag=image_tag,
-            server_name=f"typed-plugin-server-{test_id}",
-            runtime_class_name="gvisor",
-            run_as_root=True,
-            resources=_DEFAULT_RESOURCES,
-            server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
-        ) as server:
-            assert hasattr(server, "pycharm"), "server.pycharm not attached — plugin ops loop failed"
-            result = await server.pycharm.health()
-            assert isinstance(result, dict), f"Expected dict, got {type(result)}"
-            assert "mcp_url" in result, f"Key 'mcp_url' missing from pycharm.health() response: {result}"
-            assert result["mcp_url"] == "http://localhost:6789/mcp", (
-                f"Unexpected mcp_url in pycharm.health(): {result['mcp_url']}"
-            )
-
-
-@pytest.mark.asyncio
 async def test_plugins_json_written_with_default_content(test_id):
     """
     ``IdeGYMServer`` writes ``/etc/idegym/plugins.json`` at image build time.

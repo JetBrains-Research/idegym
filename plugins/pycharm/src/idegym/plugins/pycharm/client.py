@@ -7,8 +7,10 @@ The entry point name ``"pycharm"`` becomes the attribute name on ``IdeGYMServer`
 
 from typing import Any
 
+from idegym.plugins.plugin_utils.inspect import InspectClientOperationsMixin
 
-class PycharmClientOperations:
+
+class PycharmClientOperations(InspectClientOperationsMixin):
     """Typed client operations for PyCharm plugin endpoints.
 
     Attached to ``IdeGYMServer`` as ``server.pycharm`` when the PyCharm client
@@ -22,22 +24,10 @@ class PycharmClientOperations:
         polling_config: Polling configuration for async operations.
     """
 
+    _PLUGIN_NAME = "pycharm"
+
     def __init__(self, forward: Any, server_id: int, client_id: Any, polling_config: Any) -> None:
         self._forward = forward
         self._server_id = server_id
         self._client_id = client_id
         self._polling_config = polling_config
-
-    async def health(self) -> dict[str, Any]:
-        """Call the PyCharm health endpoint and return the response dict.
-
-        Returns a dict with the key ``mcp_url`` containing the MCP server URL
-        configured in this image (e.g. ``{"mcp_url": "http://localhost:6789/mcp"}``).
-        """
-        return await self._forward.forward_request(
-            method="GET",
-            server_id=self._server_id,
-            path="pycharm/health",
-            client_id=self._client_id,
-            polling_config=self._polling_config,
-        )

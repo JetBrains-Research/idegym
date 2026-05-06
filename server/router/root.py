@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, status
 from fastapi.background import BackgroundTasks
 from fastapi.requests import Request
 from fastapi.responses import RedirectResponse, Response, StreamingResponse
+from idegym.api.capabilities import CapabilitiesResponse
 from idegym.api.memory import MemoryQuantity
 from idegym.api.paths import ActuatorPath
 from idegym.api.type import Duration
@@ -17,6 +18,7 @@ from prometheus_client import REGISTRY
 from prometheus_client.openmetrics.exposition import CONTENT_TYPE_LATEST, generate_latest
 
 from server.dependencies import Container
+from server.plugin_state import loaded_plugin_names
 
 logger = get_logger(__name__)
 
@@ -32,6 +34,11 @@ async def root(request: Request):
 @router.get(ActuatorPath.HEALTH)
 async def health():
     return Response()
+
+
+@router.get(ActuatorPath.CAPABILITIES)
+async def capabilities():
+    return CapabilitiesResponse(plugins=loaded_plugin_names)
 
 
 @router.get(ActuatorPath.LOG)

@@ -13,7 +13,6 @@ Two build paths are covered:
    in-cluster registry at all.
 """
 
-import subprocess
 import tempfile
 from pathlib import Path
 
@@ -26,6 +25,7 @@ from idegym.api.status import Status
 from idegym.image.builder import Image
 from idegym.image.docker_api import IdeGYMDockerAPI
 from idegym.plugins.defaults.image import BaseSystem, IdeGYMServer, Permissions, Project, User
+from utils.build_images import minikube_load_image
 from utils.constants import (
     DEFAULT_NAMESPACE,
     DEFAULT_SERVER_START_TIMEOUT,
@@ -270,12 +270,7 @@ async def test_local_docker_build_and_deploy(test_id):
     image_tag = str(built.repo_tags[0])
 
     # Load into minikube's containerd so pods can use it
-    subprocess.run(
-        ["minikube", "image", "load", image_tag],
-        check=True,
-        capture_output=True,
-        timeout=120,
-    )
+    minikube_load_image(image_tag, timeout=120)
 
     async with create_http_client(
         name=f"local-docker-{test_id}",
@@ -341,13 +336,7 @@ async def test_local_docker_build_from_idegym_server_plugin(test_id):
 
     built = IdeGYMDockerAPI().build_image(image)
     image_tag = str(built.repo_tags[0])
-
-    subprocess.run(
-        ["minikube", "image", "load", image_tag],
-        check=True,
-        capture_output=True,
-        timeout=120,
-    )
+    minikube_load_image(image_tag, timeout=120)
 
     async with create_http_client(
         name=f"idegym-from-local-{test_id}",

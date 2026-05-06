@@ -4,6 +4,7 @@ from http import HTTPStatus
 from typing import Optional
 from uuid import UUID
 
+from idegym.api.capabilities import CapabilitiesResponse
 from idegym.api.orchestrator.servers import (
     ErrorResponse,
     FinishServerRequest,
@@ -191,6 +192,14 @@ class ServerOperations:
         request = FinishServerRequest(client_id=client_id, namespace=namespace, server_id=server_id)
         response_raw = await self._utils.make_request("POST", "/api/idegym-servers/finish", request)
         return ServerActionResponse.model_validate(response_raw)
+
+    async def list_capabilities(self, server_id: int, client_id: Optional[UUID] = None) -> CapabilitiesResponse:
+        client_id = self._utils.validate_client_id(client_id)
+        response_raw = await self._utils.make_request(
+            "GET",
+            f"/api/idegym-servers/{server_id}/capabilities?client_id={client_id}",
+        )
+        return CapabilitiesResponse.model_validate(response_raw)
 
     async def snapshot_server(
         self,

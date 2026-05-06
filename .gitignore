@@ -254,6 +254,8 @@ Temporary Items
 *.jar
 *.rar
 *.zip
+!plugins/pycharm/project-opener/project-opener.zip
+!plugins/idea/project-opener/project-opener.zip
 *.gz
 *.gzip
 *.tgz

@@ -1,0 +1,17 @@
+<idea-plugin>
+    <id>com.idegym.open-project</id>
+    <name>IdeGYM Open Project</name>
+    <vendor>JetBrains</vendor>
+    <description>
+        AppStarter that opens the project at IDEGYM_PROJECT_ROOT (or via CLI argument)
+        when IDEA is launched as: idea.sh open /path/to/project
+        Keeps the IDE process alive so the MCP server continues to serve requests.
+    </description>
+
+    <idea-version since-build="252"/>
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <appStarter id="open" implementation="com.idegym.OpenProjectStarter"/>
+    </extensions>
+</idea-plugin>

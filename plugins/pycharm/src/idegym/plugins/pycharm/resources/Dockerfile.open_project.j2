@@ -1,0 +1,44 @@
+# Install the open-project plugin into the bundled plugins dir so it is
+# present before the "open" AppStarter command is dispatched. Pre-built
+# ZIP checked into the repository to avoid a Gradle build stage.
+COPY plugins/pycharm/project-opener/project-opener.zip /tmp/open-project.zip
+RUN set -eux; \
+    unzip -qo /tmp/open-project.zip -d "${PYCHARM_DIR}/plugins/" && rm /tmp/open-project.zip
+
+# Pre-configure IDE settings for the open-project workflow.
+# Note: trust-all-projects and consent are already set in Dockerfile.install.j2.
+RUN set -eux; \
+    mkdir -p "{{ config_dir }}/options"; \
+    printf '%s\n' \
+        '<application>' \
+        '  <component name="PropertiesComponent">' \
+        '    <property name="toolwindow.stripes.buttons.added" value="true" />' \
+        '  </component>' \
+        '</application>' > "{{ config_dir }}/options/other.xml"; \
+    printf '%s\n' \
+        '<application>' \
+        '  <component name="GeneralSettings">' \
+        '    <option name="showTipsOnStartup" value="false" />' \
+        '  </component>' \
+        '</application>' > "{{ config_dir }}/options/ide.general.xml"; \
+    printf '%s\n' \
+        '<application>' \
+        '  <component name="Trusted.Paths.Settings">' \
+        '    <option name="TRUSTED_PATHS">' \
+        '      <list>' \
+        '        <option value="{{ project_root }}" />' \
+        '      </list>' \
+        '    </option>' \
+        '    <option name="TRUSTED_PROJECT_LOCATORS">' \
+        '      <list />' \
+        '    </option>' \
+        '  </component>' \
+        '</application>' > "{{ config_dir }}/options/trusted-paths.xml"
+
+# start-pycharm.sh: starts Xvfb on :99 (PyCharm CE requires a display), launches PyCharm,
+# waits for MCP on {{ mcp_port }}, bridges 0.0.0.0:{{ bridge_port }} → 127.0.0.1:{{ mcp_port }} via socat.
+# check-mcp.sh: script for checking MCP endpoint availability.
+COPY plugins/pycharm/scripts/check-mcp.sh /usr/local/bin/check-mcp.sh
+COPY plugins/pycharm/scripts/start-pycharm.sh /usr/local/bin/start-pycharm.sh
+RUN chmod +x /usr/local/bin/check-mcp.sh /usr/local/bin/start-pycharm.sh
+COPY plugins/pycharm/scripts/supervisord-pycharm.conf /etc/supervisor/conf.d/pycharm.conf

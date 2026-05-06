@@ -12,6 +12,7 @@ class ActuatorPath(APIPath):
     LOG = "/log"
     METRICS = "/metrics"
     SHUTDOWN = "/shutdown"
+    CAPABILITIES = "/capabilities"
 
 
 class OpenenvPath(APIPath):

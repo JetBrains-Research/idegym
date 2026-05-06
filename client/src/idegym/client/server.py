@@ -1,6 +1,7 @@
 from typing import Any, Optional
 from uuid import UUID
 
+from idegym.api.capabilities import CapabilitiesResponse
 from idegym.api.orchestrator.servers import (
     ServerActionResponse,
     ServerKind,
@@ -127,6 +128,10 @@ class IdeGYMServer:
             namespace=self.namespace,
             polling_config=polling_config or self.polling_config,
         )
+
+    async def list_capabilities(self) -> CapabilitiesResponse:
+        """Return the list of server plugins loaded in the running container."""
+        return await self.server.list_capabilities(server_id=self.server_id, client_id=self.client_id)
 
     async def restart_server(
         self,

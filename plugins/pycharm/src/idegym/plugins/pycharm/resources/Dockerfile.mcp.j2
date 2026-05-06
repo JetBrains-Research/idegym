@@ -1,0 +1,15 @@
+# Enable JetBrains MCP server plugin (bundled in 2026.1.1+).
+# Plugin versions and manual download: https://plugins.jetbrains.com/plugin/26071-mcp-server/versions
+# Binds to 127.0.0.1:{{ mcp_port }}; start-pycharm.sh bridges to 0.0.0.0:{{ bridge_port }}.
+
+# Enable MCP auto-start.
+# Note: marketplace/settingsSync are already disabled in Dockerfile.install.j2.
+RUN set -eux; \
+    mkdir -p "{{ config_dir }}/options"; \
+    printf '%s\n' \
+        '<application>' \
+        '  <component name="McpServerSettings">' \
+        '    <option name="enableMcpServer" value="true" />' \
+        '    <option name="enableBraveMode" value="true" />' \
+        '  </component>' \
+        '</application>' > "{{ config_dir }}/options/mcpServer.xml"
