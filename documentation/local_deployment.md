@@ -28,7 +28,7 @@ Start Docker Desktop and wait for it to be ready.
 ### Kubernetes tools
 
 ```shell
-brew install kubernetes-cli minikube
+brew install helm kubernetes-cli minikube
 ```
 
 Verify the installations:
@@ -36,6 +36,7 @@ Verify the installations:
 ```shell
 kubectl version --client
 minikube version
+helm version
 ```
 
 ### uv (Python package manager)
@@ -104,61 +105,129 @@ kubectl create namespace idegym
 
 ## Approach 1: Pre-built GHCR Images
 
-This is the simplest way to run IdeGYM locally. The orchestrator and server images are pulled directly from
-[GitHub Container Registry](https://github.com/orgs/JetBrains-Research/packages?ecosystem=container).
+This is the simplest way to run IdeGYM locally.
+The orchestrator image is pulled directly from
+[GitHub Container Registry](https://github.com/orgs/JetBrains-Research/packages?ecosystem=container)
+and installed with the bundled Helm chart.
 
-### Configure Docker registry access
+### Configure Docker registry access (optional)
 
-Create a [GitHub PAT](https://github.com/settings/tokens) with the `read:packages` scope, then register it
-as a Kubernetes secret:
+The orchestrator and bundled server images are public on GHCR, so a minimal installation needs no pull credentials.
+You only need a dedicated `Secret` when your client spawns environments whose images live in a private registry.
+The orchestrator looks the secret up by the fixed name `regcred` and mounts it into environment and Kaniko pods.
+Create a [GitHub PAT](https://github.com/settings/tokens) with the `read:packages` scope and register it as a
+Kubernetes secret:
 
 ```shell
 kubectl create secret docker-registry regcred \
   --docker-server=ghcr.io \
-  --docker-username=<your-github-username> \
-  --docker-password=<ghp_your_token> \
+  --docker-username=username \
+  --docker-password=ghp_... \
   --namespace=idegym
 ```
 
 > [!TIP]
 > Verify the secret was created:
+>
 > ```shell
 > kubectl get secrets -n idegym
 > ```
 
-### Deploy all resources
+Separately, `deployment.imagePullSecrets` on the chart controls credentials for pulling the orchestrator image itself.
+Set it if you've built a custom orchestrator image and pushed it to a private registry.
 
-All Kubernetes manifests live under `orchestrator/kubernetes/`. Deploy everything at once with Kustomize:
+### Create the application secrets
+
+By default, the bundled PostgreSQL and Grafana subcharts each provision their own credentials Secret,
+and the orchestrator reads the database password from PostgreSQL's. The only Secret below is needed
+when you opt into a tracing backend that requires credentials.
+
+> [!TIP]
+> Grafana's admin password is randomly generated on initial installation and preserved across upgrades.
+> Retrieve it with:
+>
+> ```shell
+> kubectl get secret grafana -n idegym -o jsonpath='{.data.admin-password}' | base64 -d
+> ```
+>
+> To use your own credentials, override `grafana.admin.existingSecret` with the name of a Secret containing
+> `admin-user` and `admin-password` keys.
+
+> [!TIP]
+> To point the orchestrator at an existing `Secret`, override each connection field under `deployment.database`.
+
+#### `tracing` (required when tracing is enabled and behind auth)
+
+The orchestrator pulls tracing environment variables values from a secret named `tracing`.
+Both lookups are `optional`, so this is only needed for backends that require credentials,
+such as Grafana Cloud Tempo or any tenant-authenticated OTLP endpoint:
 
 ```shell
-kubectl apply -k orchestrator/kubernetes/
+kubectl create secret generic tracing -n idegym \
+  --from-literal=username='<tenant-id>' \
+  --from-literal=password='<api-token>'
 ```
 
-Or deploy components individually:
+### Install the chart
+
+Pull the subchart dependencies (only needed once, and again whenever `Chart.yaml` changes):
 
 ```shell
-# Database
-kubectl apply -f orchestrator/kubernetes/postgresql/ -n idegym
-
-# Observability
-kubectl apply -f orchestrator/kubernetes/tempo/ -n idegym
-kubectl apply -f orchestrator/kubernetes/prometheus/ -n idegym
-kubectl apply -f orchestrator/kubernetes/grafana/ -n idegym
-
-# Orchestrator
-kubectl apply -f orchestrator/kubernetes/orchestrator/ -n idegym
+helm dependency update charts/idegym
 ```
 
-### Expose the services
-
-Add the orchestrator hostname to your `/etc/hosts`:
+For a minimal installation, only the orchestrator and PostgreSQL instance are created:
 
 ```shell
-echo "127.0.0.1 idegym.test" | sudo tee -a /etc/hosts
+helm install idegym charts/idegym -n idegym
 ```
 
-> [!NOTE]
-> This only needs to be done once — the entry persists across cluster restarts.
+A full installation also adds Prometheus, Grafana, and Tempo:
+
+```shell
+helm install idegym charts/idegym -n idegym \
+  --set prometheus.enabled=true \
+  --set grafana.enabled=true \
+  --set tempo.enabled=true \
+  --set deployment.otel.tracing.endpoint=http://tempo:4318/v1/traces
+```
+
+Watch the rollout:
+
+```shell
+kubectl get pods -n idegym -w
+```
+
+`idegym-*` and `postgres-*` should reach `Running`/`Ready`.
+With monitoring enabled, `grafana-*`, `prometheus-*`, and `tempo-*` come up as well.
+
+### Expose the orchestrator
+
+The chart's Service is `ClusterIP` and the Ingress is disabled by default. Two options:
+
+1. **Port-forward** (simplest, no extra setup):
+
+    ```shell
+    kubectl port-forward svc/idegym 8000:80 -n idegym
+    curl http://localhost:8000/health
+    # → {"status":"healthy"}
+    ```
+
+2. **Ingress + Minikube tunnel** (closer to a production setup). Add the hostname to `/etc/hosts`:
+
+    ```shell
+    echo "127.0.0.1 idegym.test" | sudo tee -a /etc/hosts
+    ```
+
+Re-install (or `helm upgrade`) with the ingress enabled:
+
+```shell
+helm upgrade idegym charts/idegym -n idegym \
+  --reuse-values \
+  --set ingress.enabled=true \
+  --set ingress.className=nginx \
+  --set ingress.host=idegym.test
+```
 
 In a **separate terminal window**, start the Minikube tunnel:
 
@@ -169,10 +238,10 @@ sudo minikube tunnel
 > [!WARNING]
 > Keep this terminal open. The tunnel must stay active for services to be reachable.
 
-Verify the orchestrator is up:
+Verify:
 
 ```shell
-curl idegym.test/health
+curl -k https://idegym.test/health
 # → {"status":"healthy"}
 ```
 
@@ -272,14 +341,18 @@ curl http://idegym-local.test/health
 When you modify orchestrator code and want to test it in the cluster:
 
 ```shell
-# Delete the existing deployment
-kubectl delete -f orchestrator/kubernetes/orchestrator/deployment.yaml -n idegym
-
-# Rebuild and load the new image
+# Rebuild and load the new image into Minikube
 uv run python scripts/build_orchestrator_image.py
 
-# Re-deploy
-kubectl apply -f orchestrator/kubernetes/orchestrator/deployment.yaml -n idegym
+# Point the chart at the local image and force a re-pull from the in-cluster cache
+helm upgrade idegym charts/idegym -n idegym \
+  --reuse-values \
+  --set deployment.image.repository=ghcr.io/jetbrains-research/idegym/orchestrator \
+  --set deployment.image.tag=latest \
+  --set deployment.image.pullPolicy=IfNotPresent
+
+# Or, if image coordinates are unchanged, just bounce the rollout:
+kubectl rollout restart deployment/idegym -n idegym
 ```
 
 The build script also accepts flags:
@@ -295,24 +368,34 @@ The build script also accepts flags:
 
 ## Accessing Metrics and Traces
 
+Only available if you installed with `{grafana,prometheus,tempo}.enabled` set to `true`.
 Port-forward the Grafana service:
 
 ```shell
-kubectl port-forward svc/grafana 3000:3000 -n idegym
+kubectl port-forward svc/grafana 3000:80 -n idegym
 ```
 
-Then open [http://localhost:3000](http://localhost:3000) (default credentials: `admin` / `changeme`).
+Then open <http://localhost:3000>. Log in as `admin` with the password from the chart-managed secret:
 
-Grafana is pre-configured with:
-- **Prometheus** datasource — application and infrastructure metrics
-- **Tempo** datasource — distributed traces
+```shell
+kubectl get secret grafana -n idegym -o jsonpath='{.data.admin-password}' | base64 -d
+```
+
+Grafana is pre-configured via a chart-rendered `ConfigMap` (provisioned at runtime by the Grafana sidecar) with the
+following data sources:
+
+- **Prometheus**: application and infrastructure metrics.
+- **Tempo**: distributed traces (only useful if you also specified `--set deployment.otel.tracing.endpoint`).
 
 ---
 
 ## Cluster Cleanup
 
 ```shell
-# Remove all resources in the namespace
+# Uninstall the chart (leaves PVCs behind by default)
+helm uninstall idegym -n idegym
+
+# Drop the namespace, including PVCs and the secrets you created
 kubectl delete namespace idegym
 
 # Stop Minikube
@@ -321,6 +404,11 @@ minikube stop
 # Delete the cluster entirely (optional)
 minikube delete
 ```
+
+> [!NOTE]
+> `helm uninstall` does not delete `PersistentVolumeClaim` resources, but the namespace deletion does
+> If you want the bundled PostgreSQL data to survive a reinstall,
+> skip the namespace delete and the PVC will reattach when you `helm install` again with the same release name.
 
 ---
 
@@ -331,7 +419,7 @@ minikube delete
 The image is not available in Minikube. Check what's loaded:
 
 ```shell
-minikube image ls | grep idegym
+minikube image ls | grep ghcr.io/jetbrains-research/idegym/orchestrator
 ```
 
 Then rebuild and reload as described in [Build and load images](#build-and-load-images).
@@ -339,43 +427,57 @@ Then rebuild and reload as described in [Build and load images](#build-and-load-
 ### `curl idegym.test/health` times out
 
 1. Confirm the tunnel is running:
+
    ```shell
    ps aux | grep "minikube tunnel"
    ```
+
 2. Confirm the ingress controller has an external IP:
+
    ```shell
    kubectl get svc -n ingress-nginx ingress-nginx-controller
    # EXTERNAL-IP should show 127.0.0.1
    ```
+
 3. Confirm the orchestrator pod is running:
+
    ```shell
    kubectl get pods -n idegym
    ```
 
-### Port 5000 already in use when starting a local Docker registry
+### Port 5000 is already in use when starting a local Docker registry
 
 On macOS, **AirPlay Receiver** (part of Control Center) binds to port 5000 by default, so
 `docker run -p 5000:5000 registry:2` fails with *address already in use*.
 
 You have two options:
 
-**Option A — disable AirPlay Receiver** (frees port 5000 permanently):
-> System Settings → General → AirDrop & Handoff → AirPlay Receiver → off
+1. **Disable AirPlay Receiver** (frees port 5000 permanently):
 
-**Option B — use a different port** (no system change required):
-```shell
-docker run -d -p 5001:5000 --name registry registry:2
-```
-Then pass the alternate address when running integration tests:
-```shell
-IDEGYM_TEST_REGISTRY=localhost:5001 uv run pytest integration-tests/
-```
+    > System Settings → General → AirDrop & Handoff → AirPlay Receiver → off
+
+2. **Use a different port** (no system change required):
+
+    ```shell
+    docker run -d -p 5001:5000 --name registry registry:2
+    ```
+
+    Then pass the alternate address when running integration tests:
+
+    ```shell
+    IDEGYM_TEST_REGISTRY=localhost:5001 uv run pytest integration-tests/
+    ```
 
 ### Authentication errors when pulling from GHCR
 
-Verify the `regcred` secret exists and is referenced by the orchestrator service account:
+For environment and Kaniko pods that target a private registry, verify the `regcred` secret exists:
 
 ```shell
 kubectl get secret regcred -n idegym
-kubectl get serviceaccount -n idegym -o yaml | grep imagePullSecrets
+```
+
+For the orchestrator pod itself, confirm `deployment.imagePullSecrets` was set if its image is private:
+
+```shell
+kubectl get deployment idegym -n idegym -o yaml | grep -A2 imagePullSecrets
 ```

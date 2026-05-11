@@ -55,18 +55,12 @@ minikube start \
 # repo root — create namespace
 kubectl create namespace idegym
 
-# Create a GHCR pull secret (GitHub PAT with read:packages scope).
-# Skip this if you build and load all images locally with
-# `uv run python scripts/build_orchestrator_image.py` — see the full
-# Local Deployment Guide for the locally-built approach.
-kubectl create secret docker-registry regcred \
-  --docker-server=ghcr.io \
-  --docker-username=<your-github-username> \
-  --docker-password=<ghp_your_token> \
-  --namespace=idegym
-
-# repo root — deploy orchestrator and supporting services
-kubectl apply -k orchestrator/kubernetes/
+# repo root — deploy orchestrator and supporting services via the Helm chart.
+# The orchestrator and bundled server images are public on GHCR, and the PostgreSQL subchart
+# provisions its own credentials. See the Local Deployment Guide for the optional `regcred`
+# (private environment images) and `tracing` Secrets.
+helm dependency update charts/idegym
+helm install idegym charts/idegym -n idegym
 
 # repo root — map hostname (run once, persists across restarts)
 echo "127.0.0.1 idegym.test" | sudo tee -a /etc/hosts

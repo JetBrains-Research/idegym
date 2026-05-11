@@ -536,15 +536,16 @@ docker build -f orchestrator/Dockerfile -t ghcr.io/jetbrains-research/idegym/orc
 
 ### Deploying to Kubernetes
 
+The orchestrator and its supporting services (PostgreSQL, Prometheus, Grafana, Tempo) are
+packaged as a Helm chart at [`charts/idegym`](/charts/idegym):
+
 ```bash
-kubectl apply -k orchestrator/kubernetes/
+helm dependency update charts/idegym
+helm install idegym charts/idegym -n idegym
 ```
 
-This applies the base kustomization which includes:
-- PostgreSQL StatefulSet with persistent storage
-- Orchestrator Deployment with service account and RBAC
-
-See [Local Deployment](../documentation/local_deployment.md) for the full Minikube setup, and [Remote Deployment](../documentation/remote_deployment.md) for production cluster configuration.
+See [Local Deployment](/documentation/local_deployment.md) for the full Minikube setup,
+and [Remote Deployment](/documentation/remote_deployment.md) for production cluster configuration.
 
 ---
 
