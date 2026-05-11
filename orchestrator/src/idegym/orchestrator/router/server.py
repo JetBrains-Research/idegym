@@ -1,6 +1,7 @@
 import asyncio
 from asyncio import CancelledError
 from os import environ as env
+from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request, status
@@ -37,6 +38,7 @@ from idegym.orchestrator.database.helpers import (
     validate_server,
 )
 from idegym.orchestrator.router.forwarding import build_server_host
+from idegym.orchestrator.server_mcp_registry import ServerMcpRegistry
 from idegym.orchestrator.util.decorators import handle_async_task_exceptions, handle_server_exceptions
 from idegym.orchestrator.util.errors import format_error
 from idegym.utils.decorators import executes_operation_in_background
@@ -50,15 +52,30 @@ logger = get_logger(__name__)
 @router.post("/api/idegym-servers", status_code=status.HTTP_202_ACCEPTED)
 @handle_server_exceptions(server_operation_description="starting IdeGYM server")
 async def start_server(request: StartServerRequest, low_level_request: Request):
-    return await start_server_with_config(request=request, config=low_level_request.app.state.config)
+    return await start_server_with_config(
+        request=request,
+        config=low_level_request.app.state.config,
+        mcp_registry=getattr(low_level_request.app.state, "mcp_registry", None),
+    )
 
 
-async def start_server_with_config(request: StartServerRequest, config: Config) -> StartServerResponse:
+async def start_server_with_config(
+    request: StartServerRequest,
+    config: Config,
+    mcp_registry: Optional[ServerMcpRegistry] = None,
+) -> StartServerResponse:
     logger.info(f"Received start request for {request.image_tag} for client ID {request.client_id}")
     async_operation_id = await create_async_operation(
         async_operation_type=AsyncOperationType.START_SERVER, client_id=request.client_id, request=request
     )
-    asyncio.create_task(_task_start_server(config=config, request=request, async_operation_id=async_operation_id))
+    asyncio.create_task(
+        _task_start_server(
+            config=config,
+            request=request,
+            async_operation_id=async_operation_id,
+            mcp_registry=mcp_registry,
+        )
+    )
     return StartServerResponse(
         namespace=request.namespace,
         client_id=request.client_id,
@@ -69,8 +86,18 @@ async def start_server_with_config(request: StartServerRequest, config: Config) 
 @executes_operation_in_background
 @router.delete("/api/idegym-servers", status_code=status.HTTP_202_ACCEPTED)
 @handle_server_exceptions(server_operation_description="stopping IdeGYM server")
-async def stop_server(request: StopServerRequest):
-    logger.info(f"Received stop request for server ID {request.client_id} for client ID {request.client_id}")
+async def stop_server(request: StopServerRequest, low_level_request: Request):
+    return await stop_server_with_registry(
+        request=request,
+        mcp_registry=getattr(low_level_request.app.state, "mcp_registry", None),
+    )
+
+
+async def stop_server_with_registry(
+    request: StopServerRequest,
+    mcp_registry: Optional[ServerMcpRegistry] = None,
+) -> ServerActionResponse:
+    logger.info(f"Received stop request for server ID {request.server_id} for client ID {request.client_id}")
     server = await validate_server(client_id=request.client_id, server_id=request.server_id)
     async_operation_id = await create_async_operation(
         async_operation_type=AsyncOperationType.STOP_SERVER,
@@ -84,6 +111,7 @@ async def stop_server(request: StopServerRequest):
             server_generated_name=server.generated_name,
             namespace=server.namespace,
             async_operation_id=async_operation_id,
+            mcp_registry=mcp_registry,
         )
     )
     return ServerActionResponse(
@@ -147,12 +175,18 @@ async def restart_server(request: RestartServerRequest):
     )
 
 
-async def _task_start_server(config: Config, request: StartServerRequest, async_operation_id: int):
+async def _task_start_server(
+    config: Config,
+    request: StartServerRequest,
+    async_operation_id: int,
+    mcp_registry: Optional[ServerMcpRegistry] = None,
+):
     client_name = None
     server_id = None
     server_generated_name = None
     server_server_name = None
     server_image_tag = None
+    server_service_port = None
 
     try:
         cpu_request, ram_request = extract_resources_request(config, request)
@@ -192,6 +226,7 @@ async def _task_start_server(config: Config, request: StartServerRequest, async_
             server_generated_name = existing_server.generated_name
             server_server_name = existing_server.server_name
             server_image_tag = existing_server.image_tag
+            server_service_port = existing_server.service_port
 
             # RESTART transitions to ALIVE below; RESET leaves the server in FINISHED for the client to reset.
         else:
@@ -217,6 +252,7 @@ async def _task_start_server(config: Config, request: StartServerRequest, async_
             server_generated_name = server.generated_name
             server_server_name = server.server_name
             server_image_tag = server.image_tag
+            server_service_port = request.service_port
 
             node_pool: NodePoolConfig = config.orchestrator.node_pool
             pod_snapshot: PodSnapshotConfig = config.orchestrator.pod_snapshot
@@ -331,6 +367,11 @@ async def _task_start_server(config: Config, request: StartServerRequest, async_
 
         if not used_reset_reuse:
             await update_server_status(server_id=server_id, availability_status=AvailabilityStatus.ALIVE)
+            if mcp_registry is not None and server_generated_name and server_service_port is not None:
+                try:
+                    mcp_registry.mount(server_generated_name, request.namespace, server_service_port)
+                except Exception:
+                    logger.warning("Failed to mount MCP upstream for %s", server_generated_name, exc_info=True)
 
         await update_operation_status(
             async_operation_id=async_operation_id,
@@ -418,7 +459,13 @@ def extract_resources_request(config: Config, request: StartServerRequest) -> tu
     operation_description="stopping IdeGYM server in coroutine",
     error_availability_status=AvailabilityStatus.DELETION_FAILED,
 )
-async def _task_stop_server(server_id: int, server_generated_name: str, namespace: str, async_operation_id: int):
+async def _task_stop_server(
+    server_id: int,
+    server_generated_name: str,
+    namespace: str,
+    async_operation_id: int,
+    mcp_registry: Optional[ServerMcpRegistry] = None,
+):
     await update_operation_status(
         async_operation_id=async_operation_id,
         async_operation_status=AsyncOperationStatus.IN_PROGRESS,
@@ -428,6 +475,8 @@ async def _task_stop_server(server_id: int, server_generated_name: str, namespac
         server_id=server_id,
         availability_status=AvailabilityStatus.STOPPED,
     )
+    if mcp_registry is not None:
+        mcp_registry.unmount(server_generated_name)
     await clean_up_server(
         name=server_generated_name,
         namespace=namespace,

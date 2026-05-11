@@ -34,8 +34,8 @@ from idegym.orchestrator.router.client import stop_client as stop_client_endpoin
 from idegym.orchestrator.router.forwarding import forward_request_to_server
 from idegym.orchestrator.router.server import finish_server as finish_server_endpoint
 from idegym.orchestrator.router.server import restart_server as restart_server_endpoint
-from idegym.orchestrator.router.server import start_server_with_config
-from idegym.orchestrator.router.server import stop_server as stop_server_endpoint
+from idegym.orchestrator.router.server import start_server_with_config, stop_server_with_registry
+from idegym.orchestrator.server_mcp_registry import ServerMcpRegistry
 from pydantic import BaseModel, Field
 from starlette.datastructures import Headers
 
@@ -83,6 +83,7 @@ def _require_http_client(get_http_client: Optional[Callable[[], AsyncClient]]) -
 def create_mcp_server(
     config: Optional[Config] = None,
     get_http_client: Optional[Callable[[], AsyncClient]] = None,
+    get_mcp_registry: Optional[Callable[[], Optional[ServerMcpRegistry]]] = None,
 ) -> FastMCP:
     mcp = FastMCP("IdeGYM Orchestrator")
 
@@ -105,12 +106,14 @@ def create_mcp_server(
     @mcp.tool(name=MCPToolName.START_SERVER)
     async def start_server(request: StartServerRequest) -> StartServerResponse:
         """Start a server pod from an OCI image or reuse a matching finished server."""
-        return await start_server_with_config(request=request, config=_require_config(config))
+        registry = get_mcp_registry() if get_mcp_registry is not None else None
+        return await start_server_with_config(request=request, config=_require_config(config), mcp_registry=registry)
 
     @mcp.tool(name=MCPToolName.STOP_SERVER)
     async def stop_server(request: StopServerRequest) -> ServerActionResponse:
         """Stop a server and delete its Kubernetes resources."""
-        return await stop_server_endpoint(request)
+        registry = get_mcp_registry() if get_mcp_registry is not None else None
+        return await stop_server_with_registry(request=request, mcp_registry=registry)
 
     @mcp.tool(name=MCPToolName.FINISH_SERVER)
     async def finish_server(request: FinishServerRequest) -> ServerActionResponse:

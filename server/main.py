@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import FastAPI, status
 from fastapi.requests import Request
 from fastapi.responses import Response
+from fastmcp.utilities.lifespan import combine_lifespans
 from hydra import main as hydra
 from idegym.api.config import Config
 from idegym.api.paths import API_BASE_PATH
@@ -32,6 +33,7 @@ from uvicorn import Config as UvicornConfig
 from uvicorn import Server as UvicornServer
 
 from server.dependencies import Container
+from server.mcp_proxy import create_mcp_server
 from server.plugin_state import loaded_plugin_names
 from server.router import fs, project, root
 
@@ -75,7 +77,11 @@ async def lifespan(application: FastAPI):
     application.container.shutdown_resources()
 
 
-app = FastAPI(title="IdeGYM Server", lifespan=lifespan)
+_mcp = create_mcp_server()
+_mcp_app = _mcp.http_app(path="/")
+
+app = FastAPI(title="IdeGYM Server")
+app.router.lifespan_context = combine_lifespans(lifespan, _mcp_app.lifespan)
 app.container = Container()
 app.add_middleware(ShutdownMiddleware)
 app.add_middleware(TracingMiddleware)
@@ -97,6 +103,8 @@ for _plugin_cls in get_all_server_plugins():
     _plugin_router = _plugin_cls.get_server_router()
     if _plugin_router is not None:
         app.include_router(prefix=API_BASE_PATH, router=_plugin_router)
+
+app.mount("/mcp", _mcp_app)
 
 AsyncioInstrumentor().instrument()
 SystemMetricsInstrumentor(config=system_metrics_config).instrument()

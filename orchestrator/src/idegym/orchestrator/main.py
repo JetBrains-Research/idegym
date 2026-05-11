@@ -27,6 +27,7 @@ from idegym.orchestrator.router import (
     server,
     snapshot,
 )
+from idegym.orchestrator.server_mcp_registry import ServerMcpRegistry
 from idegym.orchestrator.watcher import cleanup_inactive_pods
 from idegym.utils import __version__
 from idegym.utils.logging import get_logger
@@ -121,7 +122,13 @@ def create_app() -> FastAPI:
     configure_process(config=config)
 
     app = FastAPI(title="IdeGYM Orchestrator")
-    mcp = create_mcp_server(config=config, get_http_client=lambda: app.state.http_client)
+    mcp = create_mcp_server(
+        config=config,
+        get_http_client=lambda: app.state.http_client,
+        get_mcp_registry=lambda: app.state.mcp_registry,
+    )
+    mcp_registry = ServerMcpRegistry(mcp)
+    app.state.mcp_registry = mcp_registry
     mcp_app = mcp.http_app(path="/")
     app.router.lifespan_context = combine_lifespans(lifespan, mcp_app.lifespan)
     app.add_middleware(TracingMiddleware)
