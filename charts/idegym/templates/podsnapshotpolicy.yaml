@@ -1,0 +1,32 @@
+{{- if and .Values.podSnapshot.enabled (.Capabilities.APIVersions.Has "podsnapshot.gke.io/v1") }}
+apiVersion: podsnapshot.gke.io/v1
+kind: PodSnapshotPolicy
+metadata:
+  name: {{ include "idegym.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "idegym.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: idegym
+      app.kubernetes.io/component: sandbox
+  storageConfigName: {{ include "idegym.name" . }}
+  {{- with .Values.podSnapshot.trigger }}
+  triggerConfig:
+    type: {{ .type }}
+    postCheckpoint: {{ .postCheckpoint }}
+  {{- end }}
+  {{- with .Values.podSnapshot.retention }}
+  retentionConfig:
+    lastAccessTimeout: {{ .lastAccessTimeout }}
+  {{- end }}
+  {{- with .Values.podSnapshot.snapshotGroupingRules }}
+  snapshotGroupingRules:
+    groupByLabelValue:
+      labels:
+        {{- toYaml .labels | nindent 8 }}
+      groupRetentionPolicy:
+        maxSnapshotCountPerGroup: {{ .maxSnapshotsPerGroup }}
+  {{- end }}
+{{- end }}

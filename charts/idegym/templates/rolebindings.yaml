@@ -6,7 +6,7 @@ metadata:
     {{- include "idegym.labels" . | nindent 4 }}
 subjects:
   - kind: ServiceAccount
-    name: {{ include "idegym.serviceAccountName" . }}
+    name: {{ include "idegym.deployment.serviceAccountName" . }}
 roleRef:
   kind: Role
   name: {{ include "idegym.fullname" . }}

@@ -16,6 +16,10 @@ deployment:
   sqlalchemy: { }
   resources: { }
   securityContext: { }
+  serviceAccount:
+    create: true
+    name: ""
+    annotations: { }
   affinity:
     nodeAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:
@@ -51,13 +55,28 @@ resourceQuota:
   enabled: false
   hard: { }
 
-serviceAccount:
-  create: true
-  name: ""
-  annotations: { }
-
 rbac:
   extraRules: [ ]
+
+podSnapshot:
+  enabled: false
+  serviceAccount:
+    create: true
+    name: ""
+    annotations: { }
+  retention:
+    lastAccessTimeout: 7d
+  snapshotGroupingRules:
+    labels:
+      - idegym.jetbrains.com/snapshot-id
+    maxSnapshotsPerGroup: 5
+  storage:
+    bucket: idegym
+    path: snapshots
+    tokenSource: podKSA
+  trigger:
+    type: manual
+    postCheckpoint: resume
 
 postgresql:
   enabled: true

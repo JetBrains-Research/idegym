@@ -17,6 +17,11 @@ rules:
   - apiGroups: ["policy"]
     resources: ["poddisruptionbudgets"]
     verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+  {{- if and .Values.podSnapshot.enabled (.Capabilities.APIVersions.Has "podsnapshot.gke.io/v1") }}
+  - apiGroups: ["podsnapshot.gke.io"]
+    resources: ["podsnapshotmanualtriggers", "podsnapshots"]
+    verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+  {{- end }}
   {{- with .Values.rbac.extraRules }}
   {{- toYaml . | nindent 2 }}
   {{- end }}

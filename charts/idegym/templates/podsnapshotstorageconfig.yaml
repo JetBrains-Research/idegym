@@ -1,0 +1,14 @@
+{{- if and .Values.podSnapshot.enabled (.Capabilities.APIVersions.Has "podsnapshot.gke.io/v1") }}
+apiVersion: podsnapshot.gke.io/v1
+kind: PodSnapshotStorageConfig
+metadata:
+  name: {{ include "idegym.name" . }}
+  labels:
+    {{- include "idegym.labels" . | nindent 4 }}
+spec:
+  {{- with .Values.podSnapshot.storage }}
+  snapshotStorageConfig:
+    gcs:
+      {{- toYaml . | nindent 6 }}
+  {{- end }}
+{{- end }}

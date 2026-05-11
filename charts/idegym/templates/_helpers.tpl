@@ -34,13 +34,24 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
 {{/*
-Name of the service account to use
+Name of the deployment service account
 */}}
-{{- define "idegym.serviceAccountName" -}}
-{{- if .Values.serviceAccount.create }}
-{{- default (include "idegym.fullname" .) .Values.serviceAccount.name }}
+{{- define "idegym.deployment.serviceAccountName" -}}
+{{- if .Values.deployment.serviceAccount.create }}
+{{- default (include "idegym.fullname" .) .Values.deployment.serviceAccount.name }}
 {{- else }}
-{{- default "default" .Values.serviceAccount.name }}
+{{- default "default" .Values.deployment.serviceAccount.name }}
+{{- end }}
+{{- end }}
+
+{{/*
+Name of the pod snapshot service account
+*/}}
+{{- define "idegym.podSnapshot.serviceAccountName" -}}
+{{- if .Values.podSnapshot.serviceAccount.create }}
+{{- default (printf "%s-snapshot" (include "idegym.fullname" .)) .Values.podSnapshot.serviceAccount.name }}
+{{- else }}
+{{- default "default" .Values.podSnapshot.serviceAccount.name }}
 {{- end }}
 {{- end }}
 
