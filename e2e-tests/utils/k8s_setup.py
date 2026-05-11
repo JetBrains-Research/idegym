@@ -11,9 +11,11 @@ from idegym.utils.logging import get_logger
 from utils import k8s_client
 from utils.constants import (
     BASE_URL,
+    CHART_PATH,
     DEFAULT_HEALTH_CHECK_TIMEOUT,
     DEFAULT_NAMESPACE,
     HEALTH_CHECK_INTERVAL,
+    HELM_RELEASE,
     INGRESS_CONTROLLER_SERVICE,
     INGRESS_NAMESPACE,
     POSTGRESQL_APP_LABEL,
@@ -22,6 +24,8 @@ from utils.constants import (
 )
 
 logger = get_logger(__name__)
+
+POSTGRES_SUPERUSER_PASSWORD = "postgres"
 
 
 @contextmanager
@@ -53,28 +57,37 @@ def ensure_ingress_loadbalancer() -> None:
 
 
 def apply_kubernetes_resources() -> None:
-    logger.info("Applying Kubernetes resources...")
+    logger.info("Installing Helm release...")
 
-    with get_config_dir() as kustomization_dir:
-        cmd = ["kubectl", "apply", "-k", str(kustomization_dir)]
+    with get_config_dir() as cfg:
+        cmd = [
+            "helm",
+            "upgrade",
+            "--install",
+            HELM_RELEASE,
+            str(CHART_PATH),
+            "-n",
+            DEFAULT_NAMESPACE,
+            "-f",
+            str(cfg / "values.yaml"),
+            "--wait",
+            "--timeout",
+            "5m",
+        ]
         subprocess.run(cmd, check=True, capture_output=True, text=True)
 
-    logger.info("✓ Kubernetes resources applied successfully")
+    logger.info("✓ Helm release installed successfully")
 
 
 def delete_kubernetes_resources() -> None:
-    logger.info("Deleting Kubernetes resources from kustomization...")
-
-    with get_config_dir() as kustomization_dir:
-        cmd = ["kubectl", "delete", "-k", str(kustomization_dir), "--ignore-not-found=true"]
-        result = subprocess.run(cmd, check=False, capture_output=True, text=True)
+    logger.info(f"Uninstalling Helm release {HELM_RELEASE}...")
+    cmd = ["helm", "uninstall", HELM_RELEASE, "-n", DEFAULT_NAMESPACE, "--ignore-not-found"]
+    result = subprocess.run(cmd, check=False, capture_output=True, text=True)
 
     if result.returncode == 0:
-        logger.info("✓ Kubernetes resources deleted successfully")
-    else:
-        # Only warn if there are actual errors (not just NotFound)
-        if result.stderr and "NotFound" not in result.stderr:
-            logger.warning(f"Could not delete all resources: {result.stderr}")
+        logger.info("✓ Helm release uninstalled successfully")
+    elif result.stderr and "not found" not in result.stderr.lower():
+        logger.warning(f"Could not uninstall release: {result.stderr}")
 
 
 def ensure_namespace_exists() -> None:
@@ -170,11 +183,9 @@ def reset_orchestrator_db() -> None:
         pod_name=pod_names[0],
         namespace=DEFAULT_NAMESPACE,
         command=[
+            "env",
+            f"PGPASSWORD={POSTGRES_SUPERUSER_PASSWORD}",
             "psql",
-            "-h",
-            "localhost",
-            "-p",
-            "5432",
             "-U",
             POSTGRESQL_USER,
             "-d",

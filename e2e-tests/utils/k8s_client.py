@@ -278,21 +278,6 @@ def delete_deployment(namespace: str, deployment_name: str) -> None:
     _run_async(_with_clients(_op))
 
 
-def delete_services(namespace: str, service_names: list[str]) -> None:
-    if not service_names:
-        return
-
-    async def _op(core: CoreV1Api, _apps: AppsV1Api, _policy: PolicyV1Api) -> None:
-        for service_name in service_names:
-            try:
-                await _await_api_result(core.delete_namespaced_service(name=service_name, namespace=namespace))
-            except ApiException as exc:
-                if exc.status != 404:
-                    raise
-
-    _run_async(_with_clients(_op))
-
-
 def exec_in_pod(pod_name: str, namespace: str, command: list[str]) -> str:
     async def _op() -> str:
         async with WsApiClient() as ws_client:

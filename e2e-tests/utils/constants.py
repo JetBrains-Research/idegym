@@ -1,10 +1,16 @@
 """Shared constants for e2e testing."""
 
+from from_root import from_root
+
 # Kubernetes configuration
 DEFAULT_NAMESPACE = "idegym-local"
 KUBE_SYSTEM_NAMESPACE = "kube-system"
 INGRESS_NAMESPACE = "ingress-nginx"
 INGRESS_CONTROLLER_SERVICE = "ingress-nginx-controller"
+
+# Helm
+HELM_RELEASE = "idegym"
+CHART_PATH = from_root("charts", "idegym")
 
 # Kaniko job names
 REGISTRY_PUSH_JOB_NAME = "registry-push-job"
