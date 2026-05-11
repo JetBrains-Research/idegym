@@ -227,7 +227,7 @@ def create_mcp_server(
         async with Client(url) as client:
             result = await client.call_tool(request.tool_name, request.arguments)
         return CallServerMcpToolResponse(
-            content=[c.model_dump() for c in result.content],
+            content=[c.model_dump(mode="json") for c in result.content],
             is_error=result.is_error,
         )
 

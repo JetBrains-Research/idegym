@@ -81,7 +81,7 @@ async def start_server_with_config(
 @executes_operation_in_background
 @router.delete("/api/idegym-servers", status_code=status.HTTP_202_ACCEPTED)
 @handle_server_exceptions(server_operation_description="stopping IdeGYM server")
-async def stop_server(request: StopServerRequest, low_level_request: Request):
+async def stop_server(request: StopServerRequest):
     return await stop_server_request(request)
 
 

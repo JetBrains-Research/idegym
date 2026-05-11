@@ -28,8 +28,12 @@ def create_mcp_server() -> FastMCP:
             logger.warning(f"Skipping MCP upstream {config_file.name}: {exc}")
             continue
 
-        proxy = create_proxy(url, name=name)
-        mcp.mount(proxy, namespace=name)
+        try:
+            proxy = create_proxy(url, name=name)
+            mcp.mount(proxy, namespace=name)
+        except Exception as exc:
+            logger.warning(f"Skipping MCP upstream {config_file.name} during mount: {exc}")
+            continue
         logger.info(f"MCP upstream {name!r} mounted from {url}")
 
     return mcp
