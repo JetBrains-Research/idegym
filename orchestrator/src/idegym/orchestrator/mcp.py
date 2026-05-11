@@ -1,8 +1,8 @@
 from collections.abc import Callable
-from typing import Optional
+from typing import Any, Optional
 from uuid import UUID
 
-from fastmcp import FastMCP
+from fastmcp import Client, FastMCP
 from httpx import AsyncClient
 from idegym.api.config import Config
 from idegym.api.orchestrator.build import BuildFromYamlRequest, BuildFromYamlResponse
@@ -25,17 +25,18 @@ from idegym.api.orchestrator.servers import (
     StopServerRequest,
 )
 from idegym.api.tools.bash import BashCommandRequest
+from idegym.orchestrator.database.helpers import validate_server
 from idegym.orchestrator.router.async_operation import get_operation_status as get_operation_status_endpoint
 from idegym.orchestrator.router.build_images import build_and_push_with_config
 from idegym.orchestrator.router.build_images import get_job_status_by_name as get_job_status_endpoint
 from idegym.orchestrator.router.client import finish_client as finish_client_endpoint
 from idegym.orchestrator.router.client import register_client_with_node_pool
 from idegym.orchestrator.router.client import stop_client as stop_client_endpoint
-from idegym.orchestrator.router.forwarding import forward_request_to_server
+from idegym.orchestrator.router.forwarding import build_server_host, forward_request_to_server
 from idegym.orchestrator.router.server import finish_server as finish_server_endpoint
 from idegym.orchestrator.router.server import restart_server as restart_server_endpoint
-from idegym.orchestrator.router.server import start_server_with_config, stop_server_with_registry
-from idegym.orchestrator.server_mcp_registry import ServerMcpRegistry
+from idegym.orchestrator.router.server import start_server_with_config
+from idegym.orchestrator.router.server import stop_server_request as stop_server_endpoint
 from pydantic import BaseModel, Field
 from starlette.datastructures import Headers
 
@@ -68,6 +69,36 @@ class RunBashCommandToolRequest(BaseModel):
     )
 
 
+class ListServerMcpToolsRequest(BaseModel):
+    client_id: UUID = Field(description="UUID of the client that owns the server")
+    server_id: int = Field(description="Numeric IdeGYM server ID")
+
+
+class McpToolInfo(BaseModel):
+    name: str = Field(description="Tool name")
+    description: Optional[str] = Field(default=None, description="Tool description")
+    input_schema: dict[str, Any] = Field(
+        default_factory=dict,
+        description="JSON Schema describing the tool's input arguments",
+    )
+
+
+class ListServerMcpToolsResponse(BaseModel):
+    tools: list[McpToolInfo] = Field(description="MCP tools available on the server")
+
+
+class CallServerMcpToolRequest(BaseModel):
+    client_id: UUID = Field(description="UUID of the client that owns the server")
+    server_id: int = Field(description="Numeric IdeGYM server ID")
+    tool_name: str = Field(description="Tool name as returned by list_server_mcp_tools")
+    arguments: dict[str, Any] = Field(default_factory=dict, description="Arguments to pass to the tool")
+
+
+class CallServerMcpToolResponse(BaseModel):
+    content: list[dict[str, Any]] = Field(description="MCP tool result content items (text, images, etc.)")
+    is_error: bool = Field(default=False, description="True if the tool call resulted in an error")
+
+
 def _require_config(config: Optional[Config]) -> Config:
     if config is None:
         raise RuntimeError("This MCP tool requires orchestrator configuration")
@@ -83,7 +114,6 @@ def _require_http_client(get_http_client: Optional[Callable[[], AsyncClient]]) -
 def create_mcp_server(
     config: Optional[Config] = None,
     get_http_client: Optional[Callable[[], AsyncClient]] = None,
-    get_mcp_registry: Optional[Callable[[], Optional[ServerMcpRegistry]]] = None,
 ) -> FastMCP:
     mcp = FastMCP("IdeGYM Orchestrator")
 
@@ -106,14 +136,12 @@ def create_mcp_server(
     @mcp.tool(name=MCPToolName.START_SERVER)
     async def start_server(request: StartServerRequest) -> StartServerResponse:
         """Start a server pod from an OCI image or reuse a matching finished server."""
-        registry = get_mcp_registry() if get_mcp_registry is not None else None
-        return await start_server_with_config(request=request, config=_require_config(config), mcp_registry=registry)
+        return await start_server_with_config(request=request, config=_require_config(config))
 
     @mcp.tool(name=MCPToolName.STOP_SERVER)
     async def stop_server(request: StopServerRequest) -> ServerActionResponse:
         """Stop a server and delete its Kubernetes resources."""
-        registry = get_mcp_registry() if get_mcp_registry is not None else None
-        return await stop_server_with_registry(request=request, mcp_registry=registry)
+        return await stop_server_endpoint(request)
 
     @mcp.tool(name=MCPToolName.FINISH_SERVER)
     async def finish_server(request: FinishServerRequest) -> ServerActionResponse:
@@ -169,6 +197,38 @@ def create_mcp_server(
             headers=Headers(headers={"Content-Type": "application/json"}),
             body=bash_request.model_dump_json(),
             http_client=_require_http_client(get_http_client),
+        )
+
+    @mcp.tool(name=MCPToolName.LIST_SERVER_MCP_TOOLS)
+    async def list_server_mcp_tools(request: ListServerMcpToolsRequest) -> ListServerMcpToolsResponse:
+        """List all MCP tools exposed by a running IdeGYM server."""
+        server = await validate_server(client_id=request.client_id, server_id=request.server_id)
+        host = build_server_host(server.generated_name, server.namespace)
+        url = f"http://{host}:{server.service_port}/mcp"
+        async with Client(url) as client:
+            tools = await client.list_tools()
+        return ListServerMcpToolsResponse(
+            tools=[
+                McpToolInfo(
+                    name=t.name,
+                    description=t.description,
+                    input_schema=t.inputSchema,
+                )
+                for t in tools
+            ]
+        )
+
+    @mcp.tool(name=MCPToolName.CALL_SERVER_MCP_TOOL)
+    async def call_server_mcp_tool(request: CallServerMcpToolRequest) -> CallServerMcpToolResponse:
+        """Call an MCP tool on a running IdeGYM server by name."""
+        server = await validate_server(client_id=request.client_id, server_id=request.server_id)
+        host = build_server_host(server.generated_name, server.namespace)
+        url = f"http://{host}:{server.service_port}/mcp"
+        async with Client(url) as client:
+            result = await client.call_tool(request.tool_name, request.arguments)
+        return CallServerMcpToolResponse(
+            content=[c.model_dump() for c in result.content],
+            is_error=result.is_error,
         )
 
     return mcp

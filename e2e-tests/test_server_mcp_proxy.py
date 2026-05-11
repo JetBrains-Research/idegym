@@ -1,38 +1,45 @@
-"""E2E test: orchestrator dynamically exposes echo MCP tool from a running IdeGYM server.
+"""E2E test: orchestrator forwards MCP tool calls to a running IdeGYM server on demand.
 
 Flow
 ----
 1. A minimal ``EchoMcpPlugin`` image plugin writes a FastMCP echo server script and
    a supervisor config into the container.  The plugin declares an MCP upstream so
-   ``server/mcp.py`` proxies the echo server through the IdeGYM server's own ``/mcp``
-   endpoint.
+   ``server/mcp_proxy.py`` proxies the echo server through the IdeGYM server's own
+   ``/mcp`` endpoint.
 
 2. The image is built locally with ``IdeGYMDockerAPI`` and loaded into minikube (no
    Kaniko).
 
 3. The orchestrator MCP client starts the server via ``START_SERVER``.
 
-4. Once the server is ALIVE, ``server_mcp_registry`` mounts the server's ``/mcp``
-   endpoint onto the orchestrator's FastMCP with ``namespace=generated_name``.
+4. Once the server is ALIVE, the test uses ``LIST_SERVER_MCP_TOOLS`` to discover
+   available tools on that specific server, and ``CALL_SERVER_MCP_TOOL`` to invoke
+   them.  Both tools proxy directly to the server's ``/mcp`` endpoint on demand —
+   no in-process mounting required, so the approach works across multiple orchestrator
+   replicas.
 
-5. The test verifies that the echo tool is accessible through the orchestrator's MCP
-   under the expected double-namespaced name and returns the correct response.
+5. The test verifies that the echo tool is accessible via ``CALL_SERVER_MCP_TOOL``
+   and returns the correct response.
 
-6. After ``STOP_SERVER`` the tool must disappear from the orchestrator's tool list.
+6. After ``STOP_SERVER`` the tool is unreachable: ``LIST_SERVER_MCP_TOOLS`` must
+   report an error.
 
 Tool-name chain
 ---------------
   echo server tool   "echo"
-  → IdeGYM server mounts with namespace "echo"    →  "echo_echo"
-  → orchestrator mounts with namespace <generated_name>  →  "<generated_name>_echo_echo"
+  → IdeGYM server mounts with namespace "echo"  →  "echo_echo"
+  (orchestrator forwards calls to "echo_echo" on the target server)
 """
 
+import asyncio
 import base64 as _base64
 import subprocess
 import time
 from typing import Optional
+from uuid import UUID
 
 import pytest
+from fastmcp.exceptions import ToolError
 from from_root import from_root
 from idegym.api.orchestrator.mcp import MCPToolName
 from idegym.api.plugin import BuildContext, PluginBase, image_plugin
@@ -146,26 +153,36 @@ def _build_and_load_echo_image(test_id: str) -> str:
     return image_tag
 
 
-async def _poll_for_tool(mcp, tool_name: str, timeout: float = 30.0) -> None:
-    """Retry listing orchestrator tools until *tool_name* appears.
+async def _poll_for_server_tool(
+    mcp,
+    client_id: UUID,
+    server_id: int,
+    tool_name: str,
+    timeout: float = 30.0,
+) -> None:
+    """Poll ``LIST_SERVER_MCP_TOOLS`` until *tool_name* appears on the server.
 
-    The echo-server supervisor process needs a moment to start; the proxy
-    connection from the orchestrator to the IdeGYM server is lazy, so the
-    first successful ``list_tools()`` call confirms end-to-end reachability.
+    The echo-server supervisor process needs a moment to start after the pod
+    becomes ready, so we retry until the tool is visible or the timeout expires.
     """
     deadline = time.monotonic() + timeout
     while True:
-        tools = await mcp.list_tools()
-        if tool_name in {t.name for t in tools}:
-            return
-        if time.monotonic() >= deadline:
-            names = {t.name for t in tools}
-            raise AssertionError(
-                f"Tool {tool_name!r} not found after {timeout}s. "
-                f"Tools containing 'echo': {sorted(t for t in names if 'echo' in t)}"
+        try:
+            result = await mcp.call_tool(
+                MCPToolName.LIST_SERVER_MCP_TOOLS,
+                {"request": {"client_id": str(client_id), "server_id": server_id}},
             )
-        import asyncio
+            tools = result.structured_content.get("tools", [])
+            if any(t["name"] == tool_name for t in tools):
+                return
+            tool_names = [t["name"] for t in tools]
+        except Exception:
+            tool_names = []
 
+        if time.monotonic() >= deadline:
+            raise AssertionError(
+                f"Tool {tool_name!r} not found on server {server_id} after {timeout}s. Last seen tools: {tool_names}"
+            )
         await asyncio.sleep(2.0)
 
 
@@ -175,13 +192,13 @@ async def _poll_for_tool(mcp, tool_name: str, timeout: float = 30.0) -> None:
 
 
 @pytest.mark.asyncio
-async def test_orchestrator_exposes_server_mcp_echo_tool(test_id):
+async def test_orchestrator_forwards_server_mcp_echo_tool(test_id):
     """
-    Full-stack verification of the dynamic MCP proxy chain.
+    Full-stack verification of the on-demand MCP forwarding chain.
 
-    After START_SERVER succeeds, the orchestrator must expose the echo tool
-    namespaced by the server's generated name.  After STOP_SERVER it must
-    be absent.
+    After START_SERVER succeeds, LIST_SERVER_MCP_TOOLS must expose the echo
+    tool on the target server and CALL_SERVER_MCP_TOOL must return the correct
+    response.  After STOP_SERVER, LIST_SERVER_MCP_TOOLS must fail.
     """
     image_tag = _build_and_load_echo_image(test_id)
 
@@ -202,14 +219,14 @@ async def test_orchestrator_exposes_server_mcp_echo_tool(test_id):
                     }
                 },
             )
-            client_id = reg.structured_content["id"]
+            client_id = UUID(reg.structured_content["id"])
 
             # 2. Start the echo-enabled server -------------------------------------
             start = await mcp.call_tool(
                 MCPToolName.START_SERVER,
                 {
                     "request": {
-                        "client_id": client_id,
+                        "client_id": str(client_id),
                         "namespace": DEFAULT_NAMESPACE,
                         "image_tag": image_tag,
                         "server_name": server_name,
@@ -227,30 +244,40 @@ async def test_orchestrator_exposes_server_mcp_echo_tool(test_id):
                 poll_interval=2.0,
             )
             start_resp = parse_operation_result(start_status)
-            server_id = start_resp["server_id"]
+            server_id: int = start_resp["server_id"]
             active_server_id = server_id
 
-            # generated_name mirrors the DB logic: "{server_name}-{server_id}"
-            generated_name = f"{server_name}-{server_id}"
-
-            # 3. Verify echo tool appears in orchestrator MCP ----------------------
-            # Double-namespaced:
-            #   "echo"  →  "echo_echo" (IdeGYM server)  →  "{generated_name}_echo_echo" (orchestrator)
-            expected_tool = f"{generated_name}_echo_echo"
-            await _poll_for_tool(mcp, expected_tool, timeout=30.0)
+            # 3. Wait for echo tool to appear on the server -------------------------
+            # The IdeGYM server mounts the echo upstream with namespace "echo",
+            # making the tool name "echo_echo".
+            expected_tool = "echo_echo"
+            await _poll_for_server_tool(mcp, client_id, server_id, expected_tool, timeout=30.0)
 
             # 4. Call the echo tool through the orchestrator -----------------------
-            echo_result = await mcp.call_tool(expected_tool, {"message": "hello e2e"})
-            assert echo_result.structured_content.get("result") == "hello e2e", (
-                f"Unexpected echo result: {echo_result.structured_content!r}"
+            echo_result = await mcp.call_tool(
+                MCPToolName.CALL_SERVER_MCP_TOOL,
+                {
+                    "request": {
+                        "client_id": str(client_id),
+                        "server_id": server_id,
+                        "tool_name": expected_tool,
+                        "arguments": {"message": "hello e2e"},
+                    }
+                },
             )
+            assert not echo_result.structured_content.get("is_error"), (
+                f"Tool call returned an error: {echo_result.structured_content!r}"
+            )
+            content = echo_result.structured_content.get("content", [])
+            text_items = [c["text"] for c in content if c.get("type") == "text"]
+            assert text_items == ["hello e2e"], f"Unexpected echo content: {content!r}"
 
             # 5. Stop the server ---------------------------------------------------
             stop = await mcp.call_tool(
                 MCPToolName.STOP_SERVER,
                 {
                     "request": {
-                        "client_id": client_id,
+                        "client_id": str(client_id),
                         "namespace": DEFAULT_NAMESPACE,
                         "server_id": server_id,
                     }
@@ -259,11 +286,12 @@ async def test_orchestrator_exposes_server_mcp_echo_tool(test_id):
             await wait_for_mcp_operation(mcp, stop.structured_content["operation_id"], timeout=120.0)
             active_server_id = None
 
-            # 6. Echo tool must be gone after stop ---------------------------------
-            tools_after = await mcp.list_tools()
-            assert expected_tool not in {t.name for t in tools_after}, (
-                f"Tool {expected_tool!r} still listed after server stop"
-            )
+            # 6. Tool must be unreachable after stop --------------------------------
+            with pytest.raises(ToolError):
+                await mcp.call_tool(
+                    MCPToolName.LIST_SERVER_MCP_TOOLS,
+                    {"request": {"client_id": str(client_id), "server_id": server_id}},
+                )
 
         finally:
             if active_server_id is not None and client_id is not None:
@@ -272,7 +300,7 @@ async def test_orchestrator_exposes_server_mcp_echo_tool(test_id):
                         MCPToolName.STOP_SERVER,
                         {
                             "request": {
-                                "client_id": client_id,
+                                "client_id": str(client_id),
                                 "namespace": DEFAULT_NAMESPACE,
                                 "server_id": active_server_id,
                             }
@@ -290,7 +318,7 @@ async def test_orchestrator_exposes_server_mcp_echo_tool(test_id):
                         MCPToolName.STOP_CLIENT,
                         {
                             "request": {
-                                "client_id": client_id,
+                                "client_id": str(client_id),
                                 "namespace": DEFAULT_NAMESPACE,
                             }
                         },

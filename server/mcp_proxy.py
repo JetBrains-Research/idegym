@@ -6,8 +6,6 @@ from fastmcp.server import create_proxy
 from idegym.api.plugin import MCP_UPSTREAMS_DIR
 from idegym.utils.logging import get_logger
 
-from server.plugin_state import loaded_plugin_names
-
 _MCP_UPSTREAMS_DIR = Path(MCP_UPSTREAMS_DIR)
 
 logger = get_logger("idegym.server.mcp")
@@ -23,9 +21,6 @@ def create_mcp_server() -> FastMCP:
 
     for config_file in sorted(_MCP_UPSTREAMS_DIR.glob("*.json")):
         name = config_file.stem
-        if loaded_plugin_names and name not in loaded_plugin_names:
-            logger.info(f"Skipping MCP upstream {name!r}: plugin not loaded")
-            continue
         try:
             config = json.loads(config_file.read_text())
             url = config["url"]
