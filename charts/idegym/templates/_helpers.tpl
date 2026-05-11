@@ -52,3 +52,45 @@ app: {{ include "idegym.name" . }}
 app.kubernetes.io/name: {{ include "idegym.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
+
+{{/*
+Render an env var source: primitives become `value: ...` while maps are emitted verbatim
+*/}}
+{{- define "idegym.envSource" -}}
+{{- if kindIs "map" . -}}
+{{- toYaml . -}}
+{{- else -}}
+value: {{ . | quote }}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Helpers from subcharts
+*/}}
+{{- define "idegym.subchart.grafana.fullname" -}}
+{{- include "grafana.fullname" .Subcharts.grafana -}}
+{{- end -}}
+{{- define "idegym.subchart.postgresql.v1.database" -}}
+{{- include "postgresql.v1.database" .Subcharts.postgresql -}}
+{{- end -}}
+{{- define "idegym.subchart.postgresql.v1.primary.fullname" -}}
+{{- include "postgresql.v1.primary.fullname" .Subcharts.postgresql -}}
+{{- end -}}
+{{- define "idegym.subchart.postgresql.v1.secretName" -}}
+{{- include "postgresql.v1.secretName" .Subcharts.postgresql -}}
+{{- end -}}
+{{- define "idegym.subchart.postgresql.v1.service.port" -}}
+{{- include "postgresql.v1.service.port" .Subcharts.postgresql -}}
+{{- end -}}
+{{- define "idegym.subchart.postgresql.v1.userPasswordKey" -}}
+{{- include "postgresql.v1.userPasswordKey" .Subcharts.postgresql -}}
+{{- end -}}
+{{- define "idegym.subchart.postgresql.v1.username" -}}
+{{- include "postgresql.v1.username" .Subcharts.postgresql -}}
+{{- end -}}
+{{- define "idegym.subchart.prometheus.server.fullname" -}}
+{{- include "prometheus.server.fullname" .Subcharts.prometheus -}}
+{{- end -}}
+{{- define "idegym.subchart.tempo.fullname" -}}
+{{- include "tempo.fullname" .Subcharts.tempo -}}
+{{- end -}}

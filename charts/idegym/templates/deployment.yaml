@@ -90,30 +90,38 @@ spec:
               value: {{ .maxOverflow | quote }}
             {{- end }}
             - name: POSTGRES_DB
-              valueFrom:
-                secretKeyRef:
-                  name: postgres
-                  key: database
+              {{- if .Values.deployment.database.name }}
+              {{- include "idegym.envSource" .Values.deployment.database.name | nindent 14 }}
+              {{- else }}
+              value: {{ include "idegym.subchart.postgresql.v1.database" . | quote }}
+              {{- end }}
             - name: POSTGRES_HOST
-              valueFrom:
-                secretKeyRef:
-                  name: postgres
-                  key: host
-            - name: POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: postgres
-                  key: password
+              {{- if .Values.deployment.database.host }}
+              {{- include "idegym.envSource" .Values.deployment.database.host | nindent 14 }}
+              {{- else }}
+              value: {{ include "idegym.subchart.postgresql.v1.primary.fullname" . | quote }}
+              {{- end }}
             - name: POSTGRES_PORT
-              valueFrom:
-                secretKeyRef:
-                  name: postgres
-                  key: port
+              {{- if .Values.deployment.database.port }}
+              {{- include "idegym.envSource" .Values.deployment.database.port | nindent 14 }}
+              {{- else }}
+              value: {{ include "idegym.subchart.postgresql.v1.service.port" . | quote }}
+              {{- end }}
             - name: POSTGRES_USER
+              {{- if .Values.deployment.database.username }}
+              {{- include "idegym.envSource" .Values.deployment.database.username | nindent 14 }}
+              {{- else }}
+              value: {{ include "idegym.subchart.postgresql.v1.username" . | quote }}
+              {{- end }}
+            - name: POSTGRES_PASSWORD
+              {{- if .Values.deployment.database.password }}
+              {{- include "idegym.envSource" .Values.deployment.database.password | nindent 14 }}
+              {{- else }}
               valueFrom:
                 secretKeyRef:
-                  name: postgres
-                  key: username
+                  name: {{ include "idegym.subchart.postgresql.v1.secretName" . | quote }}
+                  key: {{ include "idegym.subchart.postgresql.v1.userPasswordKey" . | quote }}
+              {{- end }}
             {{- with .Values.deployment.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
