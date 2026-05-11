@@ -1846,3 +1846,174 @@ def test_image_plugin_registry_maps_default_names_to_correct_classes():
     }
     for name, cls in expected.items():
         assert get_plugin_class(name) is cls, f"Expected '{name}' → {cls.__name__}"
+
+
+# ---------------------------------------------------------------------------
+# mcp-steroid integration (PyCharm)
+# ---------------------------------------------------------------------------
+
+
+def test_pycharm_mcp_steroid_default_version():
+    plugin = PyCharm(mcp_steroid=True)
+    assert plugin.mcp_steroid_version == "0.94.0-8682a5ce"
+
+
+@mark.parametrize(
+    "version",
+    [
+        param("0.94.0-8682a5ce", id="with-hash"),
+        param("0.94.0", id="without-hash"),
+        param("1.0.0", id="major-only-parts"),
+    ],
+)
+def test_pycharm_mcp_steroid_accepts_valid_version(version):
+    assert PyCharm(mcp_steroid=True, mcp_steroid_version=version).mcp_steroid_version == version
+
+
+@mark.parametrize(
+    "version",
+    [
+        param("0.94", id="missing-patch"),
+        param("latest", id="non-numeric"),
+        param("v0.94.0", id="v-prefix"),
+        param("0.94.0-SNAPSHOT", id="non-hex-suffix"),
+    ],
+)
+def test_pycharm_mcp_steroid_rejects_invalid_version(version):
+    with raises(ValueError, match="mcp-steroid"):
+        PyCharm(mcp_steroid=True, mcp_steroid_version=version)
+
+
+def test_pycharm_mcp_steroid_render_downloads_plugin():
+    plugin = PyCharm(mcp_steroid=True)
+    ctx = BuildContext(base="debian:bookworm-slim")
+    fragment = plugin.render(ctx)
+    assert "mcp-steroid" in fragment
+    assert "jonnyzzz/mcp-steroid" in fragment
+    assert "0.94.0-8682a5ce.zip" in fragment
+    assert "${PYCHARM_DIR}/plugins/" in fragment
+
+
+def test_pycharm_mcp_steroid_render_uses_version_base_in_release_url():
+    plugin = PyCharm(mcp_steroid=True, mcp_steroid_version="0.94.0-8682a5ce")
+    ctx = BuildContext(base="debian:bookworm-slim")
+    fragment = plugin.render(ctx)
+    # Tag in the release URL is the semver base, not the full version string
+    assert "download/v0.94.0/" in fragment
+
+
+def test_pycharm_mcp_steroid_false_by_default():
+    plugin = PyCharm()
+    assert plugin.mcp_steroid is False
+    ctx = BuildContext(base="debian:bookworm-slim")
+    fragment = plugin.render(ctx)
+    assert "mcp-steroid" not in fragment
+
+
+def test_pycharm_mcp_steroid_copies_start_script_when_no_project():
+    plugin = PyCharm(open_project=False, mcp_steroid=True)
+    ctx = BuildContext(base="debian:bookworm-slim")
+    fragment = plugin.render(ctx)
+    assert "ENV MCP_STEROID=true" in fragment
+    assert "COPY plugins/pycharm/scripts/supervisord-pycharm.conf" in fragment
+    # project-opener must not be present
+    assert "open-project.zip" not in fragment
+
+
+def test_pycharm_mcp_steroid_no_start_script_when_open_project_active():
+    plugin = PyCharm(open_project=True, mcp_steroid=True)
+    ctx = BuildContext(base="debian:bookworm-slim").with_extra("idegym.has_project", True)
+    fragment = plugin.render(ctx)
+    # Project opener is installed via open_project path
+    assert "open-project.zip" in fragment
+    # mcp-steroid mode env var is NOT set (project opener handles startup)
+    assert "ENV MCP_STEROID=true" not in fragment
+
+
+def test_pycharm_get_mcp_upstream_returns_steroid_port_when_enabled():
+    plugin = PyCharm(mcp_steroid=True)
+    ctx = BuildContext(base="debian:bookworm-slim")
+    upstream = plugin.get_mcp_upstream(ctx)
+    assert upstream == "http://localhost:6315/mcp"
+
+
+def test_pycharm_get_mcp_upstream_steroid_takes_priority_over_bundled():
+    plugin = PyCharm(open_project=True, mcp_steroid=True)
+    ctx = BuildContext(base="debian:bookworm-slim").with_extra("idegym.has_project", True)
+    upstream = plugin.get_mcp_upstream(ctx)
+    assert upstream == "http://localhost:6315/mcp"
+
+
+def test_pycharm_get_mcp_upstream_returns_bundled_when_steroid_disabled():
+    plugin = PyCharm(open_project=True, mcp_steroid=False)
+    ctx = BuildContext(base="debian:bookworm-slim").with_extra("idegym.has_project", True)
+    upstream = plugin.get_mcp_upstream(ctx)
+    assert upstream == "http://localhost:64342"
+
+
+def test_pycharm_get_mcp_upstream_returns_steroid_even_without_project():
+    plugin = PyCharm(open_project=False, mcp_steroid=True)
+    ctx = BuildContext(base="debian:bookworm-slim")
+    # mcp_steroid=True always advertises port 6315 regardless of project presence
+    upstream = plugin.get_mcp_upstream(ctx)
+    assert upstream == "http://localhost:6315/mcp"
+
+
+# ---------------------------------------------------------------------------
+# mcp-steroid integration (IDEA)
+# ---------------------------------------------------------------------------
+
+
+def test_idea_mcp_steroid_default_version():
+    plugin = Idea(mcp_steroid=True)
+    assert plugin.mcp_steroid_version == "0.94.0-8682a5ce"
+
+
+def test_idea_mcp_steroid_render_downloads_plugin():
+    plugin = Idea(mcp_steroid=True)
+    ctx = BuildContext(base="debian:bookworm-slim")
+    fragment = plugin.render(ctx)
+    assert "mcp-steroid" in fragment
+    assert "jonnyzzz/mcp-steroid" in fragment
+    assert "0.94.0-8682a5ce.zip" in fragment
+    assert "${IDE_DIR}/plugins/" in fragment
+
+
+def test_idea_mcp_steroid_false_by_default():
+    plugin = Idea()
+    assert plugin.mcp_steroid is False
+    ctx = BuildContext(base="debian:bookworm-slim")
+    fragment = plugin.render(ctx)
+    assert "mcp-steroid" not in fragment
+
+
+def test_idea_mcp_steroid_copies_start_script_when_no_project():
+    plugin = Idea(open_project=False, mcp_steroid=True)
+    ctx = BuildContext(base="debian:bookworm-slim")
+    fragment = plugin.render(ctx)
+    assert "ENV MCP_STEROID=true" in fragment
+    assert "COPY plugins/idea/scripts/supervisord-idea.conf" in fragment
+    assert "open-project.zip" not in fragment
+
+
+def test_idea_mcp_steroid_no_start_script_when_open_project_active():
+    plugin = Idea(open_project=True, mcp_steroid=True)
+    ctx = BuildContext(base="debian:bookworm-slim").with_extra("idegym.has_project", True)
+    fragment = plugin.render(ctx)
+    assert "open-project.zip" in fragment
+    # mcp-steroid mode env var is NOT set (project opener handles startup)
+    assert "ENV MCP_STEROID=true" not in fragment
+
+
+def test_idea_get_mcp_upstream_returns_steroid_port_when_enabled():
+    plugin = Idea(mcp_steroid=True)
+    ctx = BuildContext(base="debian:bookworm-slim")
+    upstream = plugin.get_mcp_upstream(ctx)
+    assert upstream == "http://localhost:6315/mcp"
+
+
+def test_idea_get_mcp_upstream_returns_bundled_when_steroid_disabled():
+    plugin = Idea(open_project=True, mcp_steroid=False)
+    ctx = BuildContext(base="debian:bookworm-slim").with_extra("idegym.has_project", True)
+    upstream = plugin.get_mcp_upstream(ctx)
+    assert upstream == "http://localhost:64342"

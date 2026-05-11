@@ -1,0 +1,17 @@
+# Install mcp-steroid {{ mcp_steroid_version }}
+# https://github.com/jonnyzzz/mcp-steroid
+#
+# mcp-steroid provides 9 MCP tools running inside the IDE JVM:
+#   open-project, list-projects, list-windows, execute-code (Kotlin),
+#   vision-screenshot, vision-input, action-discovery, capabilities-discovery,
+#   execute-feedback
+# plus 58 MCP resources covering LSP, refactoring, debugging, testing, and VCS.
+#
+# Compatible with IntelliJ-based IDEs build 253+ (2025.3+).
+# Binds to 127.0.0.1:6315 by default.
+{% set version_base = mcp_steroid_version.split('-')[0] %}
+RUN set -eux; \
+    curl -fsSL "https://github.com/jonnyzzz/mcp-steroid/releases/download/v{{ version_base }}/mcp-steroid-{{ mcp_steroid_version }}.zip" \
+        -o /tmp/mcp-steroid.zip; \
+    unzip -qo /tmp/mcp-steroid.zip -d {{ plugins_dir }}/; \
+    rm /tmp/mcp-steroid.zip
