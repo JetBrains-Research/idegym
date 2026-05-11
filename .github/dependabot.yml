@@ -24,13 +24,7 @@ updates:
     labels:
       - dependencies
   - package-ecosystem: docker
-    directories:
-      - /orchestrator
-      - /orchestrator/kubernetes/grafana
-      - /orchestrator/kubernetes/orchestrator
-      - /orchestrator/kubernetes/postgresql
-      - /orchestrator/kubernetes/prometheus
-      - /orchestrator/kubernetes/tempo
+    directory: /orchestrator
     schedule:
       interval: weekly
       day: monday
@@ -39,13 +33,6 @@ updates:
       default-days: 7
     target-branch: main
     groups:
-      database:
-        patterns:
-          - "postgres"
-      observability:
-        patterns:
-          - "grafana/*"
-          - "prom/*"
       python:
         patterns:
           - "python"
