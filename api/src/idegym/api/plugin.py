@@ -139,6 +139,10 @@ _PLUGIN_TYPE_NAMES: dict[type[PluginBase], str] = {}
 # Used both at registration time and when writing MCP upstream config filenames.
 SAFE_PLUGIN_NAME_RE = re.compile(r"^[a-z][a-z0-9-]{0,62}$")
 
+# Directory inside the container where MCP upstream config files are written at build time
+# and read by the server at startup.
+MCP_UPSTREAMS_DIR = "/etc/idegym/mcp-upstreams.d"
+
 
 def image_plugin(type_name: str):
     """Class decorator that registers a ``PluginBase`` subclass under ``type_name``.
