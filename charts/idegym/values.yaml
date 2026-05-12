@@ -5,7 +5,12 @@ deployment:
     tag: ""
   imagePullSecrets: [ ]
   extraEnv: [ ]
-  database: { }
+  database:
+    name: ""
+    host: ""
+    port: ""
+    username: ""
+    password: ""
   log:
     json: true
     level: info
