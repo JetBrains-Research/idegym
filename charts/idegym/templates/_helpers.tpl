@@ -1,0 +1,107 @@
+{{/*
+Expand the name of the chart.
+*/}}
+{{- define "idegym.name" -}}
+{{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+Create a default fully qualified app name.
+*/}}
+{{- define "idegym.fullname" -}}
+{{- if .Values.fullnameOverride }}
+{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- $name := default .Chart.Name .Values.nameOverride }}
+{{- if contains $name .Release.Name }}
+{{- .Release.Name | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
+Common labels
+*/}}
+{{- define "idegym.labels" -}}
+helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
+{{ include "idegym.selectorLabels" . }}
+{{- if .Chart.AppVersion }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- end }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end }}
+
+{{/*
+Name of the deployment service account
+*/}}
+{{- define "idegym.deployment.serviceAccountName" -}}
+{{- if .Values.deployment.serviceAccount.create }}
+{{- default (include "idegym.fullname" .) .Values.deployment.serviceAccount.name }}
+{{- else }}
+{{- default "default" .Values.deployment.serviceAccount.name }}
+{{- end }}
+{{- end }}
+
+{{/*
+Name of the pod snapshot service account
+*/}}
+{{- define "idegym.podSnapshot.serviceAccountName" -}}
+{{- if .Values.podSnapshot.serviceAccount.create }}
+{{- default (printf "%s-snapshot" (include "idegym.fullname" .)) .Values.podSnapshot.serviceAccount.name }}
+{{- else }}
+{{- default "default" .Values.podSnapshot.serviceAccount.name }}
+{{- end }}
+{{- end }}
+
+{{/*
+Selector labels
+*/}}
+{{- define "idegym.selectorLabels" -}}
+app: {{ include "idegym.name" . }}
+app.kubernetes.io/name: {{ include "idegym.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{/*
+Render an env var source: primitives become `value: ...` while maps are emitted verbatim
+*/}}
+{{- define "idegym.envSource" -}}
+{{- if kindIs "map" . -}}
+{{- toYaml . -}}
+{{- else -}}
+value: {{ . | quote }}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Helpers from subcharts
+*/}}
+{{- define "idegym.subchart.grafana.fullname" -}}
+{{- include "grafana.fullname" .Subcharts.grafana -}}
+{{- end -}}
+{{- define "idegym.subchart.postgresql.v1.database" -}}
+{{- include "postgresql.v1.database" .Subcharts.postgresql -}}
+{{- end -}}
+{{- define "idegym.subchart.postgresql.v1.primary.fullname" -}}
+{{- include "postgresql.v1.primary.fullname" .Subcharts.postgresql -}}
+{{- end -}}
+{{- define "idegym.subchart.postgresql.v1.secretName" -}}
+{{- include "postgresql.v1.secretName" .Subcharts.postgresql -}}
+{{- end -}}
+{{- define "idegym.subchart.postgresql.v1.service.port" -}}
+{{- include "postgresql.v1.service.port" .Subcharts.postgresql -}}
+{{- end -}}
+{{- define "idegym.subchart.postgresql.v1.userPasswordKey" -}}
+{{- include "postgresql.v1.userPasswordKey" .Subcharts.postgresql -}}
+{{- end -}}
+{{- define "idegym.subchart.postgresql.v1.username" -}}
+{{- include "postgresql.v1.username" .Subcharts.postgresql -}}
+{{- end -}}
+{{- define "idegym.subchart.prometheus.server.fullname" -}}
+{{- include "prometheus.server.fullname" .Subcharts.prometheus -}}
+{{- end -}}
+{{- define "idegym.subchart.tempo.fullname" -}}
+{{- include "tempo.fullname" .Subcharts.tempo -}}
+{{- end -}}

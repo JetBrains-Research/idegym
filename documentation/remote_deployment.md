@@ -6,11 +6,12 @@ This guide covers deploying IdeGYM to a production Kubernetes cluster.
 
 ### Tools
 
-| Tool | Version | Purpose |
-|------|---------|---------|
-| [kubectl](https://kubernetes.io/docs/tasks/tools/) | >= 1.28 | Kubernetes CLI |
-| [Docker](https://docs.docker.com/get-docker/) | >= 24 | Build container images |
-| [uv](https://github.com/astral-sh/uv) | >= 0.10.0 | Python package manager (for build scripts) |
+| Tool                                               | Version   | Purpose                                       |
+|----------------------------------------------------|-----------|-----------------------------------------------|
+| [kubectl](https://kubernetes.io/docs/tasks/tools/) | >= 1.28   | Kubernetes CLI                                |
+| [Helm](https://helm.sh/docs/intro/install/)        | >= 3.19   | Install the bundled chart at `charts/idegym/` |
+| [Docker](https://docs.docker.com/get-docker/)      | >= 24     | Build container images                        |
+| [uv](https://github.com/astral-sh/uv)              | >= 0.10.0 | Python package manager (for build scripts)    |
 
 ### Cluster requirements
 
@@ -18,7 +19,8 @@ This guide covers deploying IdeGYM to a production Kubernetes cluster.
 - [gVisor](https://gvisor.dev/docs/user_guide/install/) runtime class (`gvisor`) installed on worker nodes,
   if you want sandboxed environment containers
 - A container registry accessible from the cluster (e.g., GHCR, Docker Hub, or a self-hosted registry)
-- A `StorageClass` for PostgreSQL persistent storage
+- A default `StorageClass` for PostgreSQL persistent storage
+  (i.e., annotated with `storageclass.kubernetes.io/is-default-class: "true"`)
 - An ingress controller (e.g., [ingress-nginx](https://kubernetes.github.io/ingress-nginx/))
 - `kubectl` configured to point at your cluster (`kubectl get nodes` should succeed)
 
@@ -75,98 +77,147 @@ kubectl create namespace idegym
 
 ---
 
-## Step 3: Configure Image Pull Credentials
+## Step 3: Configure Image Pull Credentials (optional)
 
-If your images are in a private registry, create an image pull secret:
+The orchestrator and bundled server images are public on GHCR, so the installation itself needs no pull credentials.
+Two cases require credentials, and they are independent:
 
-```shell
-kubectl create secret docker-registry regcred \
-  --docker-server=ghcr.io \
-  --docker-username=<your-username> \
-  --docker-password=<your-token> \
-  --namespace=idegym
-```
+1. **Environment and Kaniko pods that target a private registry**. The orchestrator looks up a secret named `regcred`
+   by that exact name and mounts it into the pods it creates. Provision it in the release namespace:
 
-For GHCR, create a [Personal Access Token](https://github.com/settings/tokens) with the `read:packages` scope.
+   ```shell
+   kubectl create secret docker-registry regcred \
+     --docker-server=ghcr.io \
+     --docker-username=username \
+     --docker-password=ghp_... \
+     --namespace=idegym
+   ```
 
----
+   For GHCR, create a [Personal Access Token](https://github.com/settings/tokens) with the `read:packages` scope.
 
-## Step 4: Configure Authentication
-
-The orchestrator uses HTTP Basic Authentication. Create a Kubernetes secret with credentials:
-
-```shell
-kubectl create secret generic idegym-basic-auth \
-  --from-literal=username=<admin-username> \
-  --from-literal=password=<strong-password> \
-  --namespace=idegym
-```
-
-The orchestrator deployment mounts these as `IDEGYM_AUTH_USERNAME` and `IDEGYM_AUTH_PASSWORD` environment variables.
+2. **A custom orchestrator image in a private registry**. Set `deployment.imagePullSecrets` on the chart
+   to reference an image pull secret in the release namespace (see [Step 5](#step-5-configure-chart-values)).
 
 ---
 
-## Step 5: Review and Adjust Kubernetes Manifests
+## Step 4: Configure Application Secrets
 
-All manifests are under `orchestrator/kubernetes/`. Review the following before deploying:
+The bundled PostgreSQL and Grafana subcharts manage their own credentials by default.
+The orchestrator reads the database password from PostgreSQL's auto-generated secret.
+Override paths are provided when you want to source credentials from elsewhere.
 
-### `orchestrator/kubernetes/postgresql/`
+### PostgreSQL credentials
 
-- `statefulset.yaml` — adjust `storageClassName` to match your cluster's available storage class
-- Consider changing the default password in the `postgresql` secret
-
-### `orchestrator/kubernetes/orchestrator/`
-
-- `deployment.yaml` — verify the image tag and resource requests/limits
-- `ingress.yaml` — update the `host` field to your domain name
-
-Example: update the ingress host:
+By default, the Bitnami PostgreSQL subchart creates a `postgres` secret with `password` and `postgres-password` keys,
+and the orchestrator consumes them automatically. The database name and application user default to `idegym`
+and are configured via:
 
 ```yaml
-# orchestrator/kubernetes/orchestrator/ingress.yaml
-spec:
-  rules:
-    - host: idegym.yourdomain.com   # ← update this
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: orchestrator
-                port:
-                  number: 80
+postgresql:
+  auth:
+    database: idegym
+    username: idegym
 ```
 
-### `orchestrator/kubernetes/prometheus/` and `orchestrator/kubernetes/grafana/`
+To source the orchestrator's connection details from an existing secret (e.g., from External Secrets
+Operator, a cloud secrets manager, or a self-managed Postgres instance), override the relevant fields
+under `deployment.database`:
 
-Adjust retention, storage, and resource limits as needed for your workload.
+```yaml
+deployment:
+  database:
+    password:
+      valueFrom:
+        secretKeyRef:
+          name: # Name of your database credentials secret
+          key: # Data key corresponding to the password
+    # Repeat for host, port, name, username
+```
+
+Each field also accepts a primitive (e.g., `port: 5432`) if you want it set inline rather than sourced from a `Secret`.
+Unset fields fall back to the bundled subchart's values. When working with an external database,
+you should disable the bundled chart:
+
+```yaml
+postgresql:
+  enabled: false
+```
+
+### Grafana credentials (only when `grafana.enabled=true`)
+
+The Grafana subchart generates a random admin password on the first installation and preserves it across upgrades.
+Retrieve it with:
+
+```shell
+kubectl get secret grafana -n idegym -o jsonpath='{.data.admin-password}' | base64 -d
+```
+
+To use your own credentials, create a secret with `admin-user` and `admin-password` keys and reference it:
+
+```yaml
+grafana:
+  admin:
+    existingSecret: # Name of your Grafana secret
+```
+
+### `tracing` (only when `deployment.otel.tracing.endpoint` is set and the backend requires auth)
+
+The orchestrator pulls tracing environment variables values from a secret named `tracing`.
+Both lookups are `optional: true`, so this is only needed for backends that require credentials,
+such as Grafana Cloud Tempo or any tenant-authenticated OTLP endpoint:
+
+```shell
+kubectl create secret generic tracing -n idegym \
+  --from-literal=username='<tenant-id>' \
+  --from-literal=password='<api-token>'
+```
+
+---
+
+## Step 5: Configure Chart Values
+
+The chart ships sensible defaults.
+Override what your environment requires in a local `values.yaml` overlay
+(committed alongside your deployment automation, never with secrets in it).
+Here is an example that configures custom image pull secrets, an OLTP tracing endpoint
+and creates an `Ingress`:
+
+```yaml
+deployment:
+  imagePullSecrets:
+    - name: regcred
+  otel:
+    tracing:
+      endpoint: https://tempo.yourdomain.com/v1/traces
+
+ingress:
+  enabled: true
+  className: nginx
+  host: idegym.yourdomain.com
+  tls:
+    enabled: true
+```
+
+When `ingress.tls.enabled=true`, the `Ingress` template references a TLS secret in the release namespace.
+By default, the name is derived from the release, but can be overridden with `ingress.tls.secretName`.
+Provision the secret with [cert-manager](https://cert-manager.io) or pre-create it manually.
 
 ---
 
 ## Step 6: Deploy
 
-Apply everything with Kustomize:
+Pull subchart dependencies and install:
 
 ```shell
-kubectl apply -k orchestrator/kubernetes/
+helm dependency update charts/idegym
+helm install idegym charts/idegym -n idegym -f values.yaml
 ```
 
-Or apply components individually:
+Wait for the rollout:
 
 ```shell
-kubectl apply -f orchestrator/kubernetes/postgresql/ -n idegym
-kubectl apply -f orchestrator/kubernetes/tempo/ -n idegym
-kubectl apply -f orchestrator/kubernetes/prometheus/ -n idegym
-kubectl apply -f orchestrator/kubernetes/grafana/ -n idegym
-kubectl apply -f orchestrator/kubernetes/orchestrator/ -n idegym
-```
-
-Wait for all pods to become ready:
-
-```shell
-kubectl rollout status deployment/orchestrator -n idegym
-kubectl rollout status statefulset/postgresql -n idegym
+kubectl rollout status deployment/idegym -n idegym
+kubectl rollout status statefulset/postgres -n idegym
 ```
 
 ---
@@ -189,7 +240,7 @@ kubectl get pods -n idegym
 View orchestrator logs:
 
 ```shell
-kubectl logs -l app=orchestrator -n idegym --follow
+kubectl logs deployments/idegym -n idegym --follow
 ```
 
 ---
@@ -201,10 +252,10 @@ The orchestrator builds environment images inside the cluster using
 
 Set these environment variables in the orchestrator deployment:
 
-| Variable | Description | Example |
-|---|---|---|
-| `DOCKER_REGISTRY` | Registry where Kaniko pushes built images | `ghcr.io/jetbrains-research/idegym` |
-| `KANIKO_INSECURE_REGISTRY` | Set to `"true"` for HTTP registries | `"false"` |
+| Variable                   | Description                               | Example                             |
+|----------------------------|-------------------------------------------|-------------------------------------|
+| `DOCKER_REGISTRY`          | Registry where Kaniko pushes built images | `ghcr.io/jetbrains-research/idegym` |
+| `KANIKO_INSECURE_REGISTRY` | Set to `"true"` for HTTP registries       | `"false"`                           |
 
 For a production setup with GHCR, Kaniko also needs credentials. Mount a Docker config as a secret:
 
@@ -231,7 +282,7 @@ The Docker config should contain credentials for your registry:
 
 ## Step 9: Dedicated Node Pools (Optional)
 
-You can isolate IDEGym workloads onto dedicated nodes using a tainted node pool.
+You can isolate IdeGYM workloads onto dedicated nodes using a tainted node pool.
 When enabled, pods prefer dedicated nodes but fall back to regular ones if capacity is unavailable.
 
 ### Create the node pool
@@ -269,11 +320,18 @@ To deploy a new version of the orchestrator:
 # Build and push the new image
 uv run python scripts/build_orchestrator_image.py --push
 
-# Roll out the update
-kubectl rollout restart deployment/orchestrator -n idegym
+# Bump Chart.yaml appVersion (or override --set deployment.image.tag) and upgrade
+helm upgrade idegym charts/idegym -n idegym -f values.yaml
 
 # Watch the rollout
-kubectl rollout status deployment/orchestrator -n idegym
+kubectl rollout status deployment/idegym -n idegym
+```
+
+If the image tag itself didn't change, but you want to pull a freshly built image with the same tag,
+either `helm upgrade` (which restarts pods) or:
+
+```shell
+kubectl rollout restart deployment/idegym -n idegym
 ```
 
 ---
@@ -282,23 +340,29 @@ kubectl rollout status deployment/orchestrator -n idegym
 
 ### Grafana
 
-Port-forward from your local machine:
+Only deployed if you installed with `--set grafana.enabled=true`. Port-forward from your local machine:
 
 ```shell
-kubectl port-forward svc/grafana 3000:3000 -n idegym
+kubectl port-forward svc/grafana 3000:80 -n idegym
 ```
 
-Open [http://localhost:3000](http://localhost:3000) (default credentials: `admin` / `changeme`).
+Open <http://localhost:3000> and log in as `admin`. Retrieve the password from the chart-managed secret:
 
-For production, expose Grafana via ingress and change the default password.
+```shell
+kubectl get secret grafana -n idegym -o jsonpath='{.data.admin-password}' | base64 -d
+```
+
+For production, expose Grafana via its own Ingress rather than port-forwarding.
 
 ### Prometheus
+
+Only deployed if you installed with `--set prometheus.enabled=true`.
 
 ```shell
 kubectl port-forward svc/prometheus 9090:9090 -n idegym
 ```
 
-Open [http://localhost:9090](http://localhost:9090).
+Open <http://localhost:9090>.
 
 ---
 
@@ -309,16 +373,24 @@ Open [http://localhost:9090](http://localhost:9090).
 The orchestrator runs Alembic migrations automatically on startup. To run them manually:
 
 ```shell
-kubectl exec -it deployment/orchestrator -n idegym -- \
+kubectl exec -it deployment/idegym -n idegym -- \
   uv run alembic upgrade head
 ```
 
 ### Connecting to PostgreSQL
 
 ```shell
-kubectl exec -it statefulset/postgresql -n idegym -- \
-  psql -U postgres -d idegym
+kubectl exec -it postgres-0 -n idegym -- \
+  psql -U idegym -d idegym
 ```
+
+You'll be prompted for the application user's password. Either retrieve it from the chart-managed secret:
+
+```shell
+kubectl get secret postgres -n idegym -o jsonpath='{.data.password}' | base64 -d
+```
+
+Or from wherever it's stored.
 
 ---
 
@@ -361,12 +433,14 @@ response = httpx.get("https://idegym.yourdomain.com/health", headers=headers)
 ## Production Checklist
 
 - [ ] Images pushed to a registry accessible from the cluster
-- [ ] `regcred` image pull secret created in the `idegym` namespace
-- [ ] `idegym-basic-auth` secret created with strong credentials
-- [ ] PostgreSQL password rotated from the default
-- [ ] Ingress hostname configured and DNS record pointing to your cluster
-- [ ] TLS certificate configured for the ingress (recommended: [cert-manager](https://cert-manager.io))
-- [ ] Resource limits reviewed for your expected workload
-- [ ] Grafana default password changed
+- [ ] `regcred` image pull secret created if environment or Kaniko pods target a private registry
+- [ ] `deployment.imagePullSecrets` set if the orchestrator image is in a private registry
+- [ ] PostgreSQL credentials reviewed (either auto-generate with chart or override via `deployment.database` for external connections)
+- [ ] Grafana admin credentials reviewed if `grafana.enabled=true` (either auto-generate with chart or override via values)
+- [ ] `tracing` secret created if your OTLP backend requires authentication
+- [ ] TLS secret provisioned for the orchestrator `Ingress` if enabled
+      (preferrably through [cert-manager](https://cert-manager.io))
+- [ ] Ingress hostname (`ingress.host`) configured and DNS record pointing to your cluster
+- [ ] `deployment.resources` populated with appropriate requests/limits for your workload
 - [ ] Backup strategy for PostgreSQL persistent volume
-- [ ] gVisor runtime class available if using sandboxed containers
+- [ ] gVisor runtime class available on nodes if using sandboxed containers

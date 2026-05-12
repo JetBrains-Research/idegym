@@ -1,0 +1,35 @@
+{{- if and .Values.grafana.enabled (or .Values.prometheus.enabled .Values.tempo.enabled) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "idegym.subchart.grafana.fullname" . }}-datasources
+  labels:
+    grafana_datasource: "1"
+    {{- include "idegym.labels" . | nindent 4 }}
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      {{- if .Values.prometheus.enabled }}
+      - name: Prometheus
+        type: prometheus
+        uid: prometheus
+        access: proxy
+        url: http://{{ include "idegym.subchart.prometheus.server.fullname" . }}:{{ .Values.prometheus.server.service.servicePort }}
+        isDefault: true
+        editable: true
+      {{- end }}
+      {{- if .Values.tempo.enabled }}
+      - name: Tempo
+        type: tempo
+        uid: tempo
+        access: proxy
+        url: http://{{ include "idegym.subchart.tempo.fullname" . }}:{{ .Values.tempo.tempo.server.http_listen_port }}
+        editable: true
+        {{- if .Values.prometheus.enabled }}
+        jsonData:
+          serviceMap:
+            datasourceUid: prometheus
+        {{- end }}
+      {{- end }}
+{{- end }}
