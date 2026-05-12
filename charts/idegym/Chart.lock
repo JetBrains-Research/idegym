@@ -7,9 +7,9 @@ dependencies:
   version: 18.6.2
 - name: prometheus
   repository: oci://ghcr.io/prometheus-community/charts
-  version: 29.5.0
+  version: 29.6.0
 - name: tempo
   repository: oci://ghcr.io/grafana-community/helm-charts
   version: 2.1.0
-digest: sha256:5a3c8de3ddd7373cab99151438c3ffcd351698bf6d660732e782c62c63547ed1
-generated: "2026-05-11T23:05:28.482873+02:00"
+digest: sha256:5a016987b0a98202f7a126fa1d2c89e791c67d9edfac1ce4b3ff5897615044bf
+generated: "2026-05-12T20:06:02.984270619Z"
