@@ -103,6 +103,12 @@ spec:
             - name: IDEGYM_SQLALCHEMY_MAX_OVERFLOW
               value: {{ .Values.deployment.sqlalchemy.maxOverflow | quote }}
             {{- end }}
+            {{- if .Values.podSnapshot.enabled }}
+            - name: IDEGYM_POD_SNAPSHOT_ENABLED
+              value: "True"
+            - name: IDEGYM_POD_SNAPSHOT_SERVICE_ACCOUNT_NAME
+              value: {{ include "idegym.podSnapshot.serviceAccountName" . | quote }}
+            {{- end }}
             - name: POSTGRES_DB
               {{- if .Values.deployment.database.name }}
               {{- include "idegym.envSource" .Values.deployment.database.name | nindent 14 }}
