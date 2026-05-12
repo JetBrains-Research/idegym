@@ -18,7 +18,13 @@ deployment:
     tracing: { }
   replicas: 4
   uvicornWorkers: 4
-  sqlalchemy: { }
+  sqlalchemy:
+    pool:
+      size: ""
+      timeout: ""
+      recycle: ""
+      prePing: true
+    maxOverflow: ""
   resources: { }
   securityContext: { }
   serviceAccount:

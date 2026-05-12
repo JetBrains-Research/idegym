@@ -83,11 +83,25 @@ spec:
             {{- end }}
             - name: IDEGYM_UVICORN_WORKERS
               value: {{ .Values.deployment.uvicornWorkers | quote }}
-            {{- with .Values.deployment.sqlalchemy }}
+            {{- with .Values.deployment.sqlalchemy.pool }}
+            {{- if .size }}
             - name: IDEGYM_SQLALCHEMY_POOL_SIZE
-              value: {{ .poolSize | quote }}
+              value: {{ .size | quote }}
+            {{- end }}
+            {{- if .timeout }}
+            - name: IDEGYM_SQLALCHEMY_POOL_TIMEOUT
+              value: {{ .timeout | quote }}
+            {{- end }}
+            {{- if .recycle }}
+            - name: IDEGYM_SQLALCHEMY_POOL_RECYCLE
+              value: {{ .recycle | quote }}
+            {{- end }}
+            - name: IDEGYM_SQLALCHEMY_POOL_PRE_PING
+              value: {{ quote .prePing | title }}
+            {{- end }}
+            {{- if .Values.deployment.sqlalchemy.maxOverflow }}
             - name: IDEGYM_SQLALCHEMY_MAX_OVERFLOW
-              value: {{ .maxOverflow | quote }}
+              value: {{ .Values.deployment.sqlalchemy.maxOverflow | quote }}
             {{- end }}
             - name: POSTGRES_DB
               {{- if .Values.deployment.database.name }}
