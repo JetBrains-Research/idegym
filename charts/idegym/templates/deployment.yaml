@@ -109,6 +109,12 @@ spec:
             - name: IDEGYM_POD_SNAPSHOT_SERVICE_ACCOUNT_NAME
               value: {{ include "idegym.podSnapshot.serviceAccountName" . | quote }}
             {{- end }}
+            - name: IDEGYM_NODE_POOL_ENABLED
+              value: "True"
+            - name: IDEGYM_NODE_POOL_TAINT_KEY
+              value: "jetbrains.com/idegym"
+            - name: IDEGYM_NODE_POOL_PREFERENCE_WEIGHT
+              value: "100"
             - name: POSTGRES_DB
               {{- if .Values.deployment.database.name }}
               {{- include "idegym.envSource" .Values.deployment.database.name | nindent 14 }}
