@@ -5,7 +5,12 @@ deployment:
     tag: ""
   imagePullSecrets: [ ]
   extraEnv: [ ]
-  database: { }
+  database:
+    name:
+    host:
+    port:
+    username:
+    password:
   log:
     json: true
     level: info
@@ -13,7 +18,13 @@ deployment:
     tracing: { }
   replicas: 4
   uvicornWorkers: 4
-  sqlalchemy: { }
+  sqlalchemy:
+    pool:
+      size: ""
+      timeout: ""
+      recycle: ""
+      prePing: true
+    maxOverflow: ""
   resources: { }
   securityContext: { }
   serviceAccount:
