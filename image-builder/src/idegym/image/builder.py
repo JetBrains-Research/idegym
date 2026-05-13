@@ -18,7 +18,13 @@ for _ep in _entry_points(group="idegym.plugins.image"):
 
 from idegym.api.docker import BaseImage  # noqa: E402
 from idegym.api.image_build import ImageBuildSpec  # noqa: E402
-from idegym.api.plugin import SAFE_PLUGIN_NAME_RE, BuildContext, PluginBase, get_plugin_type_name  # noqa: E402
+from idegym.api.plugin import (  # noqa: E402
+    MCP_UPSTREAMS_DIR,
+    SAFE_PLUGIN_NAME_RE,
+    BuildContext,
+    PluginBase,
+    get_plugin_type_name,
+)
 from idegym.api.type import OCIImageName  # noqa: E402
 from idegym.image.docker_api import IdeGYMDockerAPI  # noqa: E402
 from idegym.image.serialization import deserialize_plugin, dump_images, load_images, serialize_plugin  # noqa: E402
@@ -60,8 +66,8 @@ def _mcp_upstream_fragment(plugin: PluginBase, ctx: BuildContext) -> str:
     config = json.dumps({"url": mcp_url})
     run = _run_block(
         (
-            "mkdir -p /etc/idegym/mcp-upstreams.d",
-            f"printf '%s\\n' {quote(config)} > /etc/idegym/mcp-upstreams.d/{plugin_name}.json",
+            f"mkdir -p {MCP_UPSTREAMS_DIR}",
+            f"printf '%s\\n' {quote(config)} > {MCP_UPSTREAMS_DIR}/{plugin_name}.json",
         )
     )
     comment = f"# Register MCP upstream: {plugin_name}"

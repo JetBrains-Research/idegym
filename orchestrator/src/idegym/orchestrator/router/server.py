@@ -50,15 +50,27 @@ logger = get_logger(__name__)
 @router.post("/api/idegym-servers", status_code=status.HTTP_202_ACCEPTED)
 @handle_server_exceptions(server_operation_description="starting IdeGYM server")
 async def start_server(request: StartServerRequest, low_level_request: Request):
-    return await start_server_with_config(request=request, config=low_level_request.app.state.config)
+    return await start_server_with_config(
+        request=request,
+        config=low_level_request.app.state.config,
+    )
 
 
-async def start_server_with_config(request: StartServerRequest, config: Config) -> StartServerResponse:
+async def start_server_with_config(
+    request: StartServerRequest,
+    config: Config,
+) -> StartServerResponse:
     logger.info(f"Received start request for {request.image_tag} for client ID {request.client_id}")
     async_operation_id = await create_async_operation(
         async_operation_type=AsyncOperationType.START_SERVER, client_id=request.client_id, request=request
     )
-    asyncio.create_task(_task_start_server(config=config, request=request, async_operation_id=async_operation_id))
+    asyncio.create_task(
+        _task_start_server(
+            config=config,
+            request=request,
+            async_operation_id=async_operation_id,
+        )
+    )
     return StartServerResponse(
         namespace=request.namespace,
         client_id=request.client_id,
@@ -70,7 +82,11 @@ async def start_server_with_config(request: StartServerRequest, config: Config) 
 @router.delete("/api/idegym-servers", status_code=status.HTTP_202_ACCEPTED)
 @handle_server_exceptions(server_operation_description="stopping IdeGYM server")
 async def stop_server(request: StopServerRequest):
-    logger.info(f"Received stop request for server ID {request.client_id} for client ID {request.client_id}")
+    return await stop_server_request(request)
+
+
+async def stop_server_request(request: StopServerRequest) -> ServerActionResponse:
+    logger.info(f"Received stop request for server ID {request.server_id} for client ID {request.client_id}")
     server = await validate_server(client_id=request.client_id, server_id=request.server_id)
     async_operation_id = await create_async_operation(
         async_operation_type=AsyncOperationType.STOP_SERVER,
@@ -147,7 +163,11 @@ async def restart_server(request: RestartServerRequest):
     )
 
 
-async def _task_start_server(config: Config, request: StartServerRequest, async_operation_id: int):
+async def _task_start_server(
+    config: Config,
+    request: StartServerRequest,
+    async_operation_id: int,
+):
     client_name = None
     server_id = None
     server_generated_name = None
@@ -418,7 +438,12 @@ def extract_resources_request(config: Config, request: StartServerRequest) -> tu
     operation_description="stopping IdeGYM server in coroutine",
     error_availability_status=AvailabilityStatus.DELETION_FAILED,
 )
-async def _task_stop_server(server_id: int, server_generated_name: str, namespace: str, async_operation_id: int):
+async def _task_stop_server(
+    server_id: int,
+    server_generated_name: str,
+    namespace: str,
+    async_operation_id: int,
+):
     await update_operation_status(
         async_operation_id=async_operation_id,
         async_operation_status=AsyncOperationStatus.IN_PROGRESS,

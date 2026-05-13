@@ -121,7 +121,10 @@ def create_app() -> FastAPI:
     configure_process(config=config)
 
     app = FastAPI(title="IdeGYM Orchestrator")
-    mcp = create_mcp_server(config=config, get_http_client=lambda: app.state.http_client)
+    mcp = create_mcp_server(
+        config=config,
+        get_http_client=lambda: app.state.http_client,
+    )
     mcp_app = mcp.http_app(path="/")
     app.router.lifespan_context = combine_lifespans(lifespan, mcp_app.lifespan)
     app.add_middleware(TracingMiddleware)

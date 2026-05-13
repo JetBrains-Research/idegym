@@ -14,3 +14,5 @@ class MCPToolName(StrEnum):
     GET_JOB_STATUS = "get_job_status"
     FORWARD_REQUEST = "forward_request"
     RUN_BASH_COMMAND = "run_bash_command"
+    LIST_SERVER_MCP_TOOLS = "list_server_mcp_tools"
+    CALL_SERVER_MCP_TOOL = "call_server_mcp_tool"

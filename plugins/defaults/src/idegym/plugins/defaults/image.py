@@ -7,7 +7,7 @@ from typing import ClassVar, Optional
 
 from idegym.api.download import Authorization, DownloadRequest
 from idegym.api.git import GitRepository, GitRepositoryResource, GitRepositorySnapshot
-from idegym.api.plugin import BuildContext, PluginBase, image_plugin
+from idegym.api.plugin import MCP_UPSTREAMS_DIR, BuildContext, PluginBase, image_plugin
 from idegym.api.type import AuthType
 from idegym.plugins.plugin_utils import check_linux_id
 from pydantic import Field, field_validator
@@ -310,8 +310,8 @@ class MCPUpstream(PluginBase):
         config = json.dumps({"url": self.url})
         return _render_run_block(
             [
-                "mkdir -p /etc/idegym/mcp-upstreams.d",
-                f"printf '%s\\n' {quote(config)} > /etc/idegym/mcp-upstreams.d/{self.name}.json",
+                f"mkdir -p {MCP_UPSTREAMS_DIR}",
+                f"printf '%s\\n' {quote(config)} > {MCP_UPSTREAMS_DIR}/{self.name}.json",
             ],
             comment=f"Register MCP upstream: {self.name}",
         )
