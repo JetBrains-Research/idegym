@@ -6,11 +6,11 @@ deployment:
   imagePullSecrets: [ ]
   extraEnv: [ ]
   database:
-    name: ""
-    host: ""
-    port: ""
-    username: ""
-    password: ""
+    name:
+    host:
+    port:
+    username:
+    password:
   log:
     json: true
     level: info
