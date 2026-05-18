@@ -71,6 +71,7 @@ _LIST_WINDOWS_SCRIPT = files(e2e_resources).joinpath("mcp_steroid_list_windows.s
 _OPEN_PROJECT_SCRIPT = f"PROJECT_PATH={_PROJECT_PATH}\n" + files(e2e_resources).joinpath(
     "mcp_steroid_open_project.sh"
 ).read_text(encoding="utf-8")
+_INPUT_SCRIPT = files(e2e_resources).joinpath("mcp_steroid_input.sh").read_text(encoding="utf-8")
 
 
 @pytest.mark.ide_integrations
@@ -158,15 +159,17 @@ async def test_mcp_steroid_pycharm(test_id):
                 )
 
             # --- Open project via steroid_open_project tool ----------------
-            open_result = await server.execute_bash(script=_OPEN_PROJECT_SCRIPT, command_timeout=120.0)
-            assert open_result.exit_code == 0, f"steroid_open_project call failed:\n{open_result.stderr}"
+            async def _call_open_project() -> None:
+                open_result = await server.execute_bash(script=_OPEN_PROJECT_SCRIPT, command_timeout=120.0)
+                assert open_result.exit_code == 0, f"steroid_open_project call failed:\n{open_result.stderr}"
+                open_lines = [ln for ln in open_result.stdout.strip().splitlines() if ln.strip()]
+                if open_lines:
+                    open_response = json.loads(open_lines[-1])
+                    print(f"\nsteroid_open_project response: {json.dumps(open_response, indent=2)}")
+                    if "error" in open_response:
+                        raise AssertionError(f"steroid_open_project failed: {open_response['error']}")
 
-            lines = [ln for ln in open_result.stdout.strip().splitlines() if ln.strip()]
-            if lines:
-                response = json.loads(lines[-1])
-                print(f"\nsteroid_open_project response: {json.dumps(response, indent=2)}")
-                if "error" in response:
-                    raise AssertionError(f"steroid_open_project failed: {response['error']}")
+            await _call_open_project()
 
             # --- Poll steroid_list_windows until project is ready -----------
             # Wait up to 4 minutes for the project to initialize (IDE may take time to index).
@@ -192,6 +195,25 @@ async def test_mcp_steroid_pycharm(test_id):
                                     pass
                                 else:
                                     windows = windows_data.get("windows", [])
+
+                                    # Dismiss modal dialogs on non-target windows (e.g. Welcome screen)
+                                    # and retry open_project — these block steroid_open_project from
+                                    # switching to a new project.
+                                    for w in windows:
+                                        if w.get("projectPath") != _PROJECT_PATH and w.get("modalDialogShowing", False):
+                                            print(
+                                                f"\nModal dialog on non-target window"
+                                                f" {w.get('projectName')!r} ({w.get('projectPath')!r})"
+                                                f" — dismissing via steroid_input and retrying open_project"
+                                            )
+                                            await server.execute_bash(
+                                                script=_INPUT_SCRIPT,
+                                                command_timeout=10.0,
+                                            )
+                                            await asyncio.sleep(1)
+                                            await _call_open_project()
+                                            break
+
                                     project_wins = [w for w in windows if w.get("projectPath") == _PROJECT_PATH]
                                     if project_wins:
                                         w = project_wins[0]
@@ -200,10 +222,11 @@ async def test_mcp_steroid_pycharm(test_id):
                                         initialized = w.get("projectInitialized", False)
 
                                         if modal:
-                                            # Dismiss any blocking dialog (e.g. Data Sharing consent).
+                                            # Dismiss any blocking dialog on the target project window.
+                                            print("\nModal dialog on project window — dismissing via steroid_input")
                                             await server.execute_bash(
-                                                script="xdotool key Return",
-                                                command_timeout=5.0,
+                                                script=_INPUT_SCRIPT,
+                                                command_timeout=10.0,
                                             )
                                         elif not indexing and initialized:
                                             print(f"\n✓ Project {_PROJECT_PATH} fully initialized and ready!")
