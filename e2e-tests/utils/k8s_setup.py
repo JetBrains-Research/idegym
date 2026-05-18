@@ -59,6 +59,11 @@ def ensure_ingress_loadbalancer() -> None:
 def apply_kubernetes_resources() -> None:
     logger.info("Installing Helm release...")
 
+    result = subprocess.run(
+        ["helm", "dependency", "build", str(CHART_PATH)], check=True, capture_output=True, text=True
+    )
+    logger.info("✓ Helm dependencies built\n%s", result.stdout + result.stderr)
+
     with get_config_dir() as cfg:
         cmd = [
             "helm",
@@ -74,9 +79,9 @@ def apply_kubernetes_resources() -> None:
             "--timeout",
             "5m",
         ]
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
 
-    logger.info("✓ Helm release installed successfully")
+    logger.info("✓ Helm release installed successfully\n%s", result.stdout + result.stderr)
 
 
 def delete_kubernetes_resources() -> None:
@@ -85,7 +90,7 @@ def delete_kubernetes_resources() -> None:
     result = subprocess.run(cmd, check=False, capture_output=True, text=True)
 
     if result.returncode == 0:
-        logger.info("✓ Helm release uninstalled successfully")
+        logger.info("✓ Helm release uninstalled successfully\n%s", result.stdout + result.stderr)
     elif result.stderr and "not found" not in result.stderr.lower():
         logger.warning(f"Could not uninstall release: {result.stderr}")
 
