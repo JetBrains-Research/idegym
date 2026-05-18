@@ -253,6 +253,21 @@ async def test_orchestrator_forwards_server_mcp_echo_tool(test_id):
             expected_tool = "echo_echo"
             await _poll_for_server_tool(mcp, client_id, server_id, expected_tool, timeout=30.0)
 
+            # Fetch the full tool list once the server is ready and verify both
+            # the proxied echo tool and the built-in file tools are present.
+            list_result = await mcp.call_tool(
+                MCPToolName.LIST_SERVER_MCP_TOOLS,
+                {"request": {"client_id": str(client_id), "server_id": server_id}},
+            )
+            all_tool_names = {t["name"] for t in list_result.structured_content.get("tools", [])}
+            assert expected_tool in all_tool_names, (
+                f"Expected proxied tool {expected_tool!r} in server tools: {all_tool_names}"
+            )
+            for file_tool in ("create_file", "edit_file", "patch_file"):
+                assert file_tool in all_tool_names, (
+                    f"Expected built-in file tool {file_tool!r} in server tools: {all_tool_names}"
+                )
+
             # 4. Call the echo tool through the orchestrator -----------------------
             echo_result = await mcp.call_tool(
                 MCPToolName.CALL_SERVER_MCP_TOOL,
