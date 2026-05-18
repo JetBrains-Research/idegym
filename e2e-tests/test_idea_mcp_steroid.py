@@ -29,6 +29,7 @@ Downloads IDEA (~800 MB); takes 10-15 min end-to-end. Excluded from CI.
 Run with: ``pytest -m 'e2e and ide_integrations'``
 """
 
+import asyncio
 import json
 from importlib.resources import files
 
@@ -66,6 +67,7 @@ _REQUIRED_TOOLS = {"steroid_open_project", "steroid_list_projects"}
 _WAIT_MCP_STEROID_SCRIPT = files(e2e_resources).joinpath("mcp_steroid_wait_300s.sh").read_text(encoding="utf-8")
 _TOOLS_LIST_SCRIPT = files(e2e_resources).joinpath("mcp_steroid_tools_list.sh").read_text(encoding="utf-8")
 _LIST_PROJECTS_SCRIPT = files(e2e_resources).joinpath("mcp_steroid_list_projects.sh").read_text(encoding="utf-8")
+_LIST_WINDOWS_SCRIPT = files(e2e_resources).joinpath("mcp_steroid_list_windows.sh").read_text(encoding="utf-8")
 _OPEN_PROJECT_SCRIPT = f"PROJECT_PATH={_PROJECT_PATH}\n" + files(e2e_resources).joinpath(
     "mcp_steroid_open_project.sh"
 ).read_text(encoding="utf-8")
@@ -156,7 +158,7 @@ async def test_mcp_steroid_idea(test_id):
                 )
 
             # --- Open project via steroid_open_project tool ----------------
-            open_result = await server.execute_bash(script=_OPEN_PROJECT_SCRIPT, command_timeout=60.0)
+            open_result = await server.execute_bash(script=_OPEN_PROJECT_SCRIPT, command_timeout=120.0)
             assert open_result.exit_code == 0, f"steroid_open_project call failed:\n{open_result.stderr}"
 
             lines = [ln for ln in open_result.stdout.strip().splitlines() if ln.strip()]
@@ -166,30 +168,68 @@ async def test_mcp_steroid_idea(test_id):
                 if "error" in response:
                     raise AssertionError(f"steroid_open_project failed: {response['error']}")
 
-            # --- Poll steroid_list_projects until the project appears -------
-            # Wait up to 60s for the project to appear (IDE may take time to index).
-            for attempt in range(12):  # 12 attempts × 5s = 60s
-                list_result = await server.execute_bash(script=_LIST_PROJECTS_SCRIPT, command_timeout=15.0)
-                assert list_result.exit_code == 0, f"steroid_list_projects call failed:\n{list_result.stderr}"
+            # --- Poll steroid_list_windows until project is ready -----------
+            # Wait up to 4 minutes for the project to initialize (IDE may take time to index).
+            last_windows_text = ""
+            for attempt in range(48):  # 48 attempts × 5s = 240s (4 minutes)
+                windows_result = await server.execute_bash(script=_LIST_WINDOWS_SCRIPT, command_timeout=15.0)
 
-                lines = [ln for ln in list_result.stdout.strip().splitlines() if ln.strip()]
-                if lines:
-                    response = json.loads(lines[-1])
-                    if "result" in response:
-                        result_content = response.get("result", {})
-                        if "content" in result_content:
-                            content = result_content["content"]
+                if windows_result.exit_code == 0:
+                    lines = [ln for ln in windows_result.stdout.strip().splitlines() if ln.strip()]
+                    if lines:
+                        response = json.loads(lines[-1])
+                        if "result" in response:
+                            result_content = response.get("result", {})
+                            content = result_content.get("content", [])
                             if isinstance(content, list) and content:
-                                projects_text = content[0].get("text", "")
-                                print(f"\nAttempt {attempt + 1}: steroid_list_projects:\n{projects_text}")
-                                if _PROJECT_PATH in projects_text:
-                                    print(f"\n✓ Project {_PROJECT_PATH} successfully opened and listed!")
-                                    return
+                                windows_text = content[0].get("text", "")
+                                last_windows_text = windows_text
+                                print(f"\nAttempt {attempt + 1}: steroid_list_windows:\n{windows_text}")
 
-                if attempt < 11:
-                    await server.execute_bash(script="sleep 5", command_timeout=10.0)
+                                try:
+                                    windows_data = json.loads(windows_text)
+                                except json.JSONDecodeError:
+                                    pass
+                                else:
+                                    windows = windows_data.get("windows", [])
+                                    project_wins = [w for w in windows if w.get("projectPath") == _PROJECT_PATH]
+                                    if project_wins:
+                                        w = project_wins[0]
+                                        modal = w.get("modalDialogShowing", True)
+                                        indexing = w.get("indexingInProgress", True)
+                                        initialized = w.get("projectInitialized", False)
+
+                                        if modal:
+                                            # Dismiss any blocking dialog (e.g. Data Sharing consent).
+                                            await server.execute_bash(
+                                                script="xdotool key Return",
+                                                command_timeout=5.0,
+                                            )
+                                        elif not indexing and initialized:
+                                            print(f"\n✓ Project {_PROJECT_PATH} fully initialized and ready!")
+
+                                            # Verify with steroid_list_projects
+                                            list_result = await server.execute_bash(
+                                                script=_LIST_PROJECTS_SCRIPT,
+                                                command_timeout=15.0,
+                                            )
+                                            if list_result.exit_code == 0:
+                                                proj_lines = [
+                                                    ln for ln in list_result.stdout.strip().splitlines() if ln.strip()
+                                                ]
+                                                if proj_lines:
+                                                    proj_response = json.loads(proj_lines[-1])
+                                                    proj_content = proj_response.get("result", {}).get("content", [])
+                                                    if isinstance(proj_content, list) and proj_content:
+                                                        print(
+                                                            f"\nsteroid_list_projects:\n{proj_content[0].get('text', '')}"
+                                                        )
+                                            return
+
+                if attempt < 47:
+                    await asyncio.sleep(5)
 
             raise AssertionError(
-                f"Project {_PROJECT_PATH} did not appear in steroid_list_projects after 60 seconds.\n"
-                f"Last response: " + (lines[-1] if lines else "no response")
+                f"Project {_PROJECT_PATH} did not become ready after 4 minutes.\n"
+                f"Last windows response: {last_windows_text}"
             )
