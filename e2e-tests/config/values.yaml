@@ -32,6 +32,7 @@ ingress:
 postgresql:
   auth:
     postgresPassword: postgres
+    password: idegym
 
 grafana:
   enabled: true
