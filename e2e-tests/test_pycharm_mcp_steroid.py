@@ -224,12 +224,12 @@ async def test_mcp_steroid_pycharm(test_id):
 
             # --- Both checks failed: collect debug info and fail -----------
             debug_result = await server.execute_bash(
-                script="grep mcpSteroid /tmp/ide-config/log/idea.log || true",
+                script="grep mcpSteroid /tmp/ide-system/log/idea.log || true",
                 command_timeout=10.0,
             )
             raise AssertionError(
                 f"Project {_PROJECT_PATH} not found after 2 minutes.\n"
                 f"in_windows={project_in_windows}, in_list={project_in_list}\n"
                 f"Last windows response: {last_windows_text}\n"
-                f"mcpSteroid log entries:\n{debug_result.stdout}"
+                f"mcpSteroid log entries:\n{debug_result.stdout}\n{debug_result.stderr}"
             )
