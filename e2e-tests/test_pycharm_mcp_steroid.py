@@ -224,7 +224,7 @@ async def test_mcp_steroid_pycharm(test_id):
 
             # --- Both checks failed: collect debug info and fail -----------
             idea_log_result = await server.execute_bash(
-                script="cat /tmp/ide-config/log/idea.log || true",
+                script="cat /tmp/ide-system/log/idea.log || true",
                 command_timeout=15.0,
             )
             pycharm_log_result = await server.execute_bash(
