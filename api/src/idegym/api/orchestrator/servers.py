@@ -11,7 +11,6 @@ class ServerReuseStrategy(StrEnum):
     NONE = "NONE"
     RESTART = "RESTART"
     RESET = "RESET"
-    CHECKPOINT = "CHECKPOINT"
 
 
 class ServerKind(StrEnum):
@@ -76,7 +75,7 @@ class StartServerRequest(BaseModel):
         default=ServerReuseStrategy.RESET,
         description=(
             "What to do if a server with this name already exists: NONE recreates from scratch, "
-            "RESTART restarts it, RESET resets project state, CHECKPOINT restores from checkpoint if supported"
+            "RESTART restarts it, RESET resets project state."
         ),
     )
     server_kind: ServerKind = Field(
