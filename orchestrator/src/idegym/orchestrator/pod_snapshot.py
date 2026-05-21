@@ -1,4 +1,9 @@
 from idegym.api.config import PodSnapshotConfig
+from idegym.api.orchestrator.snapshots import (
+    PodSnapshotManualTrigger,
+    PodSnapshotManualTriggerMetadata,
+    PodSnapshotManualTriggerSpec,
+)
 from idegym.backend.utils.kubernetes_client import async_kube_api
 from idegym.utils.logging import get_logger
 
@@ -42,20 +47,16 @@ class PodSnapshotService:
         """Create a PodSnapshotManualTrigger targeting the given pod."""
         trigger_name = f"snapshot-{pod_name}"
 
-        body = {
-            "apiVersion": f"{CRD_GROUP}/{CRD_VERSION}",
-            "kind": "PodSnapshotManualTrigger",
-            "metadata": {
-                "name": trigger_name,
-                "namespace": self._namespace,
-                "labels": {
-                    "app": server_name,
-                },
-            },
-            "spec": {
-                "targetPod": pod_name,
-            },
-        }
+        trigger = PodSnapshotManualTrigger(
+            api_version=f"{CRD_GROUP}/{CRD_VERSION}",
+            kind="PodSnapshotManualTrigger",
+            metadata=PodSnapshotManualTriggerMetadata(
+                name=trigger_name,
+                namespace=self._namespace,
+                labels={"app": server_name},
+            ),
+            spec=PodSnapshotManualTriggerSpec(target_pod=pod_name),
+        )
 
         async with async_kube_api() as (_, _, _, _, custom):
             await custom.create_namespaced_custom_object(
@@ -63,7 +64,7 @@ class PodSnapshotService:
                 version=CRD_VERSION,
                 namespace=self._namespace,
                 plural="podsnapshotmanualtriggers",
-                body=body,
+                body=trigger.model_dump(by_alias=True),
             )
         logger.info(f"Created PodSnapshotManualTrigger '{trigger_name}' in namespace '{self._namespace}'")
         return trigger_name
