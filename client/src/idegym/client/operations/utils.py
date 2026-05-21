@@ -103,6 +103,7 @@ class HTTPUtils:
         body: Optional[BaseModel] = None,
         headers: Optional[dict[str, str]] = None,
         request_timeout: Optional[int] = None,
+        params: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any] | list[dict[str, Any]]:
         try:
             response = await self._http_client.request(
@@ -110,6 +111,7 @@ class HTTPUtils:
                 url=url,
                 headers=headers,
                 json=body.model_dump(mode="json") if body is not None else None,
+                params=params,
                 timeout=request_timeout,
             )
             content = await response.aread()

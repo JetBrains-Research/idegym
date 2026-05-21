@@ -54,7 +54,9 @@ async def db(db_url: str):
     async with engine.begin() as conn:
         await conn.execute(
             text(
-                "TRUNCATE TABLE async_operations, job_statuses, servers, resource_limit_rules, clients"
+                # snapshot_jobs references snapshots and snapshot_prepare_requests, so listed first
+                "TRUNCATE TABLE snapshot_jobs, snapshots, snapshot_prepare_requests,"
+                " async_operations, job_statuses, servers, resource_limit_rules, clients"
                 " RESTART IDENTITY CASCADE"
             )
         )

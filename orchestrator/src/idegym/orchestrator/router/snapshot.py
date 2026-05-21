@@ -1,18 +1,40 @@
 import asyncio
 from os import environ as env
+from uuid import UUID, uuid4
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from idegym.api.config import Config
 from idegym.api.orchestrator.operations import AsyncOperationStatus, AsyncOperationType
-from idegym.api.orchestrator.snapshots import CreateSnapshotRequest, CreateSnapshotResponse
+from idegym.api.orchestrator.snapshots import (
+    CreateSnapshotRequest,
+    CreateSnapshotResponse,
+    PrepareSnapshotsRequest,
+    PrepareSnapshotsResponse,
+    PrepareSnapshotsStatusResponse,
+    SnapshotExistsRequest,
+    SnapshotExistsResponse,
+    SnapshotJobResult,
+    SnapshotJobStatusResponse,
+)
 from idegym.orchestrator.database.helpers import (
     create_async_operation,
+    create_snapshot_job,
+    create_snapshot_prepare_request,
+    find_snapshot_for_request,
+    find_snapshot_job_with_name,
+    find_snapshot_prepare_request_with_results,
     update_operation_status,
     update_operation_with_error,
     validate_server,
 )
 from idegym.orchestrator.pod_snapshot import PodSnapshotService
-from idegym.orchestrator.util.decorators import handle_server_exceptions
+from idegym.orchestrator.snapshot_pipeline import (
+    compute_hash_for_start_request,
+    compute_snapshot_request_hash,
+    run_snapshot_pipeline_job,
+    serialize_start_request,
+)
+from idegym.orchestrator.util.decorators import handle_general_exceptions, handle_server_exceptions
 from idegym.orchestrator.util.errors import format_error
 from idegym.utils.decorators import executes_operation_in_background
 from idegym.utils.logging import get_logger
@@ -132,3 +154,110 @@ async def _task_create_snapshot(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             body=format_error(message=message, exception=e),
         )
+
+
+@router.post("/api/snapshots/prepare", status_code=status.HTTP_202_ACCEPTED)
+@handle_general_exceptions(error_message="Failed to start snapshot pipeline jobs")
+async def prepare_snapshots(request: PrepareSnapshotsRequest, low_level_request: Request):
+    """Accept a batch of start-server requests, prepare a snapshot for each independently."""
+    config: Config = low_level_request.app.state.config
+
+    if not config.orchestrator.pod_snapshot.enabled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Pod snapshot feature is not enabled",
+        )
+
+    prepare_request_id = uuid4()
+    await create_snapshot_prepare_request(request_id=prepare_request_id, total_requested=len(request.requests))
+
+    for start_request in request.requests:
+        job_id = str(uuid4())
+        request_hash = compute_hash_for_start_request(start_request)
+        serialized = serialize_start_request(start_request)
+        await create_snapshot_job(
+            job_id=job_id, request_hash=request_hash, request=serialized, prepare_request_id=prepare_request_id
+        )
+        asyncio.create_task(
+            run_snapshot_pipeline_job(
+                job_id=job_id, request=start_request, config=config, prepare_request_id=prepare_request_id
+            )
+        )
+        logger.info(f"Started snapshot pipeline job {job_id} for image {start_request.image_tag}")
+
+    return PrepareSnapshotsResponse(request_id=str(prepare_request_id))
+
+
+@router.get("/api/snapshots/prepare/{request_id}")
+@handle_general_exceptions(error_message="Failed to get snapshot prepare request status")
+async def get_prepare_snapshots_status(request_id: str):
+    """Poll the status of a batch snapshot prepare request."""
+    try:
+        request_uuid = UUID(request_id)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid request_id: {request_id}")
+
+    result = await find_snapshot_prepare_request_with_results(request_id=request_uuid)
+    if not result:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Snapshot prepare request {request_id} not found"
+        )
+
+    prepare, job_results = result
+    done = prepare.succeeded + prepare.failed
+    is_ready = done >= prepare.total_requested
+
+    results = None
+    if is_ready:
+        results = [
+            SnapshotJobResult(
+                request_hash=request_hash,
+                status=job_status,
+                snapshot_name=snapshot_name,
+                details=details,
+            )
+            for request_hash, job_status, snapshot_name, details in job_results
+        ]
+
+    return PrepareSnapshotsStatusResponse(
+        request_id=request_id,
+        status="READY" if is_ready else "IN_PROGRESS",
+        total_requested=prepare.total_requested,
+        succeeded=prepare.succeeded,
+        failed=prepare.failed,
+        results=results,
+    )
+
+
+@router.get("/api/snapshots/jobs/{job_id}")
+@handle_general_exceptions(error_message="Failed to get snapshot job status")
+async def get_snapshot_job_status(job_id: str):
+    """Poll the status of a snapshot pipeline job by its job ID."""
+    result = await find_snapshot_job_with_name(job_id=job_id)
+    if not result:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Snapshot job {job_id} not found")
+    record, snapshot_name = result
+    return SnapshotJobStatusResponse(
+        job_id=record.job_id,
+        status=record.status,
+        snapshot_name=snapshot_name,
+        details=record.details,
+    )
+
+
+@router.get("/api/snapshots/exists")
+@handle_general_exceptions(error_message="Failed to check snapshot existence")
+async def check_snapshot_exists(request: SnapshotExistsRequest = Depends()):
+    """Check whether a snapshot exists for the given server configuration."""
+    request_hash = compute_snapshot_request_hash(
+        namespace=request.namespace,
+        image_tag=str(request.image_tag),
+        server_name=str(request.server_name),
+        runtime_class_name=request.runtime_class_name,
+        run_as_root=request.run_as_root,
+        server_kind=str(request.server_kind),
+    )
+    record = await find_snapshot_for_request(request_hash=request_hash)
+    if record:
+        return SnapshotExistsResponse(exists=True, snapshot_name=record.snapshot_name)
+    return SnapshotExistsResponse(exists=False)

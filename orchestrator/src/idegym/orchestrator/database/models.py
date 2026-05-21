@@ -86,6 +86,50 @@ class JobStatusRecord(Base):
     updated_at = Column(BigInteger, default=current_time_millis)
 
 
+class SnapshotPrepareRequestRecord(Base):
+    __tablename__ = "snapshot_prepare_requests"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    total_requested = Column(Integer, nullable=False)
+    succeeded = Column(Integer, nullable=False, default=0)
+    failed = Column(Integer, nullable=False, default=0)
+    created_at = Column(BigInteger, default=current_time_millis)
+    updated_at = Column(BigInteger, default=current_time_millis)
+
+
+class SnapshotRecord(Base):
+    __tablename__ = "snapshots"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    snapshot_name = Column(String, nullable=False)
+    request_hash = Column(String, index=True, nullable=False)
+    namespace = Column(String, nullable=False)
+    image_tag = Column(String, nullable=False)
+    server_name = Column(String, nullable=False)
+    runtime_class_name = Column(String, nullable=True)
+    run_as_root = Column(Boolean, nullable=False, default=False)
+    server_kind = Column(String, nullable=False)
+    created_at = Column(BigInteger, default=current_time_millis)
+    updated_at = Column(BigInteger, default=current_time_millis)
+
+
+class SnapshotJobRecord(Base):
+    __tablename__ = "snapshot_jobs"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    job_id = Column(String, index=True, unique=True, nullable=False)
+
+    status = Column(String, default=Status.IN_PROGRESS)
+    request_hash = Column(String, index=True, nullable=False)
+    request = Column(Text, nullable=False)
+    snapshot_id = Column(BigInteger, ForeignKey("snapshots.id"), nullable=True)
+    prepare_request_id = Column(UUID(as_uuid=True), ForeignKey("snapshot_prepare_requests.id"), nullable=True)
+    details = Column(Text, nullable=True)
+
+    created_at = Column(BigInteger, default=current_time_millis)
+    updated_at = Column(BigInteger, default=current_time_millis)
+
+
 class AsyncOperation(Base):
     __tablename__ = "async_operations"
 
