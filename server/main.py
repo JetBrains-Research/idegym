@@ -77,12 +77,13 @@ async def lifespan(application: FastAPI):
     application.container.shutdown_resources()
 
 
-_mcp = create_mcp_server()
+_app_container = Container()
+_mcp = create_mcp_server(get_tool_service=lambda: _app_container.tool_service())
 _mcp_app = _mcp.http_app(path="/")
 
 app = FastAPI(title="IdeGYM Server")
 app.router.lifespan_context = combine_lifespans(lifespan, _mcp_app.lifespan)
-app.container = Container()
+app.container = _app_container
 app.add_middleware(ShutdownMiddleware)
 app.add_middleware(TracingMiddleware)
 app.add_middleware(AsyncioTaskContextMiddleware)

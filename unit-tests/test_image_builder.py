@@ -1650,15 +1650,15 @@ def test_get_all_server_plugins_does_not_include_builtin_image_plugins():
 
 
 def test_pycharm_apply_adds_enabled_server_plugins_extra():
-    """apply() sets 'pycharm' in idegym.enabled_server_plugins list when has_project is True."""
-    ctx = BuildContext(base="debian:bookworm-slim").with_extra("idegym.has_project", True)
+    """apply() always sets 'pycharm' in idegym.enabled_server_plugins regardless of has_project."""
+    ctx = BuildContext(base="debian:bookworm-slim")
     result = PyCharm().apply(ctx)
     assert result.get_extra("idegym.enabled_server_plugins") == ["pycharm"]
 
 
 def test_pycharm_apply_is_idempotent():
     """Calling apply() twice does not duplicate 'pycharm' in the extras list."""
-    ctx = BuildContext(base="debian:bookworm-slim").with_extra("idegym.has_project", True)
+    ctx = BuildContext(base="debian:bookworm-slim")
     ctx1 = PyCharm().apply(ctx)
     ctx2 = PyCharm().apply(ctx1)
     assert ctx2.get_extra("idegym.enabled_server_plugins") == ["pycharm"]
