@@ -13,7 +13,8 @@ class CreateSnapshotRequest(BaseModel):
 class CreateSnapshotResponse(BaseModel):
     server_id: int = Field(description="ID of the server that was snapshotted")
     server_name: str = Field(description="Logical server name used as the Kubernetes resource name")
-    trigger_name: str = Field(
-        description="Name of the PodSnapshotManualTrigger resource created to initiate the snapshot"
+    snapshot_id: Optional[str] = Field(
+        default=None,
+        description="ID of the taken snapshot. By implementation, equals the snapshot_id / name of the snapshotted pod.",
     )
     operation_id: Optional[int] = Field(default=None, description="Async operation ID to poll for snapshot status")

@@ -138,6 +138,14 @@ class PodSnapshotConfig(BaseModel):
     service_account_name: str = Field(
         description="Kubernetes service account shared by all snapshot-enabled pods", default="idegym"
     )
+    completion_timeout: Duration = Field(
+        description="Maximum time to wait for a PodSnapshotManualTrigger to reach a terminal status",
+        default=Duration(minutes=2),
+    )
+    poll_interval: Duration = Field(
+        description="Interval between PodSnapshotManualTrigger status polls",
+        default=Duration(seconds=2),
+    )
 
 
 class WatcherConfig(BaseModel):
