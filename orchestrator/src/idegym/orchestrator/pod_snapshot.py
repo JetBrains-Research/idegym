@@ -1,3 +1,6 @@
+from typing import Optional
+
+from fastapi import HTTPException, status
 from idegym.api.config import PodSnapshotConfig
 from idegym.api.orchestrator.snapshots import (
     PodSnapshotManualTrigger,
@@ -12,6 +15,11 @@ logger = get_logger(__name__)
 CRD_GROUP = "podsnapshot.gke.io"
 CRD_VERSION = "v1"
 
+_NODE_INSTANCE_TYPE_LABELS = (
+    "node.kubernetes.io/instance-type",
+    "beta.kubernetes.io/instance-type",
+)
+
 
 class PodSnapshotService:
     """
@@ -22,8 +30,8 @@ class PodSnapshotService:
         self._config = config
         self._namespace = namespace
 
-    async def get_pod_name_for_server(self, server_name: str) -> str:
-        """Resolve the running pod name for a server via label selector."""
+    async def get_pod_name_for_server(self, server_name: str) -> tuple[str, Optional[str]]:
+        """Resolve the running pod name and node name for a server via label selector."""
         async with async_kube_api() as (_, _, core, _, _):
             pods = (
                 await core.list_namespaced_pod(
@@ -39,9 +47,32 @@ class PodSnapshotService:
         if not running_pods:
             raise RuntimeError(f"No running pod found for server '{server_name}' in namespace '{self._namespace}'")
 
-        pod_name = running_pods[0].metadata.name
-        logger.debug(f"Resolved pod name '{pod_name}' for server '{server_name}'")
-        return pod_name
+        pod = running_pods[0]
+        pod_name = pod.metadata.name
+        node_name = pod.spec.node_name
+        logger.debug(f"Resolved pod name '{pod_name}' on node '{node_name}' for server '{server_name}'")
+        return pod_name, node_name
+
+    async def validate_node_eligible_for_snapshot(self, node_name: Optional[str]) -> None:
+        """Raise if the node's GCP instance type does not support pod snapshots (e.g., E2 instances)."""
+        if not node_name:
+            logger.debug("No node name available; skipping E2 instance type check")
+            return
+
+        async with async_kube_api() as (_, _, core, _, _):
+            node = await core.read_node(name=node_name)
+
+        labels = node.metadata.labels or {}
+        instance_type = next((labels[label] for label in _NODE_INSTANCE_TYPE_LABELS if label in labels), None)
+
+        if instance_type and instance_type.startswith("e2-"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Server is not eligible for snapshot: node '{node_name}' uses GCP E2 instance type "
+                    f"'{instance_type}' which does not support pod snapshots"
+                ),
+            )
 
     async def create_trigger(self, server_name: str, pod_name: str) -> str:
         """Create a PodSnapshotManualTrigger targeting the given pod."""
@@ -70,8 +101,9 @@ class PodSnapshotService:
         return trigger_name
 
     async def snapshot_server(self, server_name: str) -> str:
-        """Resolve the running pod for a server and create a manual snapshot trigger."""
-        pod_name = await self.get_pod_name_for_server(server_name)
+        """Resolve the running pod for a server, validate eligibility, and create a snapshot trigger."""
+        pod_name, node_name = await self.get_pod_name_for_server(server_name)
+        await self.validate_node_eligible_for_snapshot(node_name)
         trigger_name = await self.create_trigger(server_name=server_name, pod_name=pod_name)
         logger.info(f"Snapshot initiated for server '{server_name}' via trigger '{trigger_name}'")
         return trigger_name
