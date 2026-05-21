@@ -62,7 +62,7 @@ async def test_start_server_mcp_tool_schema_reuses_start_server_request_for_agen
     assert request_schema["properties"]["resources"]["examples"] == [
         {"requests": {"cpu": "500m", "memory": "512Mi"}, "limits": {"cpu": "1", "memory": "1Gi"}}
     ]
-    assert request_schema["properties"]["reuse_strategy"]["enum"] == ["NONE", "RESTART", "RESET", "CHECKPOINT"]
+    assert request_schema["properties"]["reuse_strategy"]["enum"] == ["NONE", "RESTART", "RESET"]
 
 
 async def test_register_client_mcp_tool_calls_endpoint(mocker):
