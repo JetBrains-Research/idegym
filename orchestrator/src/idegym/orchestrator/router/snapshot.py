@@ -36,6 +36,16 @@ async def create_snapshot(request: CreateSnapshotRequest, low_level_request: Req
 
     server = await validate_server(client_id=request.client_id, server_id=request.server_id)
 
+    if server.container_runtime != "gvisor":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Server {request.server_id} is not eligible for snapshot: "
+                f"pod snapshotting requires gVisor runtime, "
+                f"but server uses '{server.container_runtime or 'default runtime'}'"
+            ),
+        )
+
     async_operation_id = await create_async_operation(
         async_operation_type=AsyncOperationType.SNAPSHOT_SERVER,
         client_id=request.client_id,
