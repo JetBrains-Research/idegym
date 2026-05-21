@@ -114,13 +114,10 @@ class Idea(PluginBase):
         return f"http://localhost:{_MCP_PORT}"
 
     def apply(self, ctx: BuildContext) -> BuildContext:
-        has_project = ctx.get_extra("idegym.has_project", False)
-        if has_project and self.open_project:
-            existing = list(ctx.get_extra("idegym.enabled_server_plugins", []))
-            if "idea" not in existing:
-                existing.append("idea")
-            ctx = ctx.with_extra("idegym.enabled_server_plugins", existing)
-        return ctx
+        existing = list(ctx.get_extra("idegym.enabled_server_plugins", []))
+        if "idea" not in existing:
+            existing.append("idea")
+        return ctx.with_extra("idegym.enabled_server_plugins", existing)
 
     def render(self, ctx: BuildContext) -> str:
         user = self.user or ctx.current_user

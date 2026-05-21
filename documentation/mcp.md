@@ -108,6 +108,8 @@ async def wait_for_operation(mcp, operation_id: int, poll_interval: float = 1.0)
 | `get_job_status` | Read the status and image tag for a Kaniko build job |
 | `forward_request` | Forward an HTTP request to a running IdeGYM server |
 | `run_bash_command` | Execute a bash script on a running IdeGYM server |
+| `list_server_mcp_tools` | List all MCP tools exposed by a running IdeGYM server |
+| `call_server_mcp_tool` | Call an MCP tool on a running IdeGYM server by name |
 
 `forward_request.path` is a server-internal path without a leading slash, for example `api/tools/bash`. The
 orchestrator forwards it to `http://{server-service}/{path}` inside the Kubernetes cluster.
@@ -186,25 +188,132 @@ To delete the Kubernetes resources instead, call `stop_server`.
 
 ---
 
-## Nested MCP Servers
+## Server-side MCP
 
-Nested MCP server support is planned. The current MCP server is hosted by the orchestrator and exposes orchestrator
-operations only. Future nested support can be documented here without changing the orchestrator API reference.
+Every running IdeGYM server exposes its own MCP endpoint at `/mcp`. The orchestrator's
+`list_server_mcp_tools` and `call_server_mcp_tool` tools bridge to this endpoint, so agents can
+discover and invoke server-side tools without an additional network hop.
+
+### How it works
+
+Each IdeGYM server runs a FastMCP proxy that reads upstream declarations from
+`/etc/idegym/mcp-upstreams.d/*.json`. Each file names an upstream:
+
+```json
+{"url": "http://localhost:6315/mcp"}
+```
+
+The file's stem (e.g. `pycharm`) becomes the namespace prefix in the proxy. All tools from that
+upstream are reachable through the server's `/mcp` endpoint with the namespace prefix applied
+(e.g. `pycharm_steroid_open_project`).
+
+Image-build plugins declare their MCP upstream via `get_mcp_upstream()`. `Image.to_spec()` writes
+the config file automatically. See [Plugins](plugins.md) for details.
+
+### Built-in server tools
+
+Every IdeGYM server exposes these tools at `/mcp` regardless of which plugins are installed:
+
+| Tool | Description |
+|------|-------------|
+| `create_file` | Create a new file with the given content |
+| `edit_file` | Replace a line range in an existing file (1-indexed, inclusive) |
+| `patch_file` | Apply a unified diff patch to an existing file |
+
+Additional tools appear when image-build plugins declare MCP upstreams (e.g. IDE plugins, mcp-steroid).
+See [Tools Reference](tools.md) for the full catalogue.
+
+### Listing tools on a running server
+
+```python
+tools_result = await mcp.call_tool(
+    "list_server_mcp_tools",
+    {
+        "request": {
+            "client_id": client_id,
+            "server_id": server_id,
+        },
+    },
+)
+tools = tools_result.structured_content["tools"]
+for tool in tools:
+    print(tool["name"], "-", tool.get("description", ""))
+```
+
+Each entry has `name`, `description` (may be absent), and `input_schema` (JSON Schema object).
+
+### Calling a tool on a running server
+
+```python
+result = await mcp.call_tool(
+    "call_server_mcp_tool",
+    {
+        "request": {
+            "client_id": client_id,
+            "server_id": server_id,
+            "tool_name": "pycharm_steroid_list_projects",
+            "arguments": {},
+        },
+    },
+)
+content = result.structured_content["content"]   # list of MCP content items
+is_error = result.structured_content["is_error"]
+```
+
+`content` is a list of MCP content items (text, images, etc.) as returned by the tool. Check
+`is_error` to distinguish tool-level errors from transport errors.
 
 ---
 
 ## JetBrains IDE MCP Endpoints
 
-When using the `Idea` or `PyCharm` plugins, the JetBrains MCP server becomes available at `localhost:64342` inside
-the container. The plugin startup scripts check both `/sse` (legacy) and `/stream` (newer versions) endpoints for
-compatibility across different IDE versions.
+The `Idea` and `PyCharm` image-build plugins install a JetBrains MCP server into the container.
+Two modes are available: the **bundled JetBrains plugin** and **mcp-steroid**.
 
-Externally, the socat bridge exposes port `64343` with the same MCP server. For standalone Docker deployments:
+### Bundled JetBrains MCP plugin
+
+When `open_project=True` and a `Project` plugin precedes the IDE plugin in the build pipeline,
+the bundled JetBrains MCP plugin is activated. It binds to `127.0.0.1:64342` (loopback only).
+
+At runtime, the startup script starts a socat bridge on `0.0.0.0:64343`, making the server
+reachable from outside the container. For standalone Docker deployments:
 
 ```bash
-docker run --rm -p 64343:64343 <image>
-# MCP endpoint: http://localhost:64343/sse or http://localhost:64343/stream
+docker run -p 64343:64343 <image>
+# connect to: http://localhost:64343/sse  or  http://localhost:64343/stream
 ```
 
-Both `/sse` and `/stream` endpoints support the same MCP protocol and tools. The startup scripts automatically detect
-which endpoint is available and report the working endpoint in the logs.
+Both `/sse` (legacy) and `/stream` (newer versions) endpoints support the same MCP protocol.
+The startup scripts automatically detect which endpoint is available.
+
+The plugin is declared as an MCP upstream on port 64342. When accessed through
+`list_server_mcp_tools` / `call_server_mcp_tool`, its tools are namespaced as `idea_*` or
+`pycharm_*` depending on the plugin type.
+
+### mcp-steroid
+
+[mcp-steroid](https://github.com/jonnyzzz/mcp-steroid) is an alternative JetBrains plugin that
+runs its MCP server inside the IDE JVM, providing direct access to the IntelliJ Platform API:
+project model, semantic index, PSI tree, test runner, debugger, and VCS layer.
+
+Enable it by passing `mcp_steroid=True` to the `Idea` or `PyCharm` plugin:
+
+```python
+from idegym.image.builder import Image
+from idegym.plugins.pycharm.image import PyCharm
+
+image = (
+    Image(base="...")
+    .plugin(PyCharm(version="2026.1.1", mcp_steroid=True))
+)
+```
+
+When `mcp_steroid=True`:
+
+- mcp-steroid binds to `127.0.0.1:6315`; a socat bridge re-listens on `0.0.0.0:6316`
+- `get_mcp_upstream()` advertises port 6315 instead of 64342
+- If `open_project=False` (or no `Project` plugin in the pipeline), the IDE starts without a
+  project — agents can open one at runtime via the `steroid_open_project` tool
+- The plugin version can be pinned with `mcp_steroid_version` (format: `X.Y.Z` or `X.Y.Z-HASH`)
+
+See [Tools Reference](tools.md#mcp-steroid-tools) for the full list of mcp-steroid tools and resources.

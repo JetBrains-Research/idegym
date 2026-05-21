@@ -47,7 +47,24 @@ RUN set -eux; \
         'com.intellij.marketplace' \
         'com.intellij.settingsSync' \
         'com.jetbrains.codeWithMe' \
+        'com.intellij.platform.daemon' \
         > "{{ config_dir }}/disabled_plugins.txt"; \
+    printf '%s\n' \
+        '<application>' \
+        '  <component name="UpdatesConfigurable">' \
+        '    <option name="SHOW_WHATS_NEW_EDITOR" value="false" />' \
+        '  </component>' \
+        '</application>' \
+        > "{{ config_dir }}/options/updates.xml"; \
+    printf '%s\n' \
+        '<application>' \
+        '  <component name="PropertyService"><![CDATA[{' \
+        '  "keyToString": {' \
+        '    "whats.new.last.shown.version": "9999-9.9-99999"' \
+        '  }' \
+        '}]]></component>' \
+        '</application>' \
+        > "{{ config_dir }}/options/other.xml"; \
     for f in "${PYCHARM_DIR}/bin/pycharm64.vmoptions" "${PYCHARM_DIR}/bin/pycharm.vmoptions"; do \
         [ -f "$f" ] && printf '\n-Didea.config.path={{ config_dir }}\n-Dide.trust.all.projects=true\n-Djb.privacy.policy.text=<!--999.999-->\n-Dide.firstStartup=false\n-Dide.no.platform.update=true\n-Djb.consents.confirmation.enabled=false\n-Dide.show.tips.on.startup.default.value=false\n-Dide.browser.jcef.enabled=false\n-Dsun.net.client.defaultConnectTimeout=5000\n-Dsun.net.client.defaultReadTimeout=10000\n-XX:-UsePerfData\n-XX:+PerfDisableSharedMem\n-XX:-UseLargePages\n-Xshare:off\n-XX:+UseContainerSupport\n-XX:ErrorFile=/tmp/jvm-crash.log\n' >> "$f" || true; \
     done

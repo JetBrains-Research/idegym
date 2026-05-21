@@ -18,6 +18,8 @@ REQUIRED_MCP_TOOLS = {
     MCPToolName.STOP_SERVER,
     MCPToolName.STOP_CLIENT,
     MCPToolName.FINISH_CLIENT,
+    MCPToolName.LIST_SERVER_MCP_TOOLS,
+    MCPToolName.CALL_SERVER_MCP_TOOL,
 }
 
 REQUIRED_CLIENT_TOOL_ARGS = {
@@ -29,6 +31,8 @@ REQUIRED_CLIENT_TOOL_ARGS = {
     MCPToolName.STOP_SERVER: ["client_id", "server_id"],
     MCPToolName.STOP_CLIENT: ["client_id"],
     MCPToolName.FINISH_CLIENT: ["client_id"],
+    MCPToolName.LIST_SERVER_MCP_TOOLS: ["client_id", "server_id"],
+    MCPToolName.CALL_SERVER_MCP_TOOL: ["client_id", "server_id", "tool_name"],
 }
 
 
@@ -144,6 +148,81 @@ async def test_mcp_start_server_and_run_bash_command(test_image, test_id):
                 "stderr": "",
                 "exit_code": 0,
             }
+
+            # --- Server-side MCP: file tools ---------------------------------
+            # Every IdeGYM server exposes create_file / edit_file / patch_file
+            # as MCP tools at /mcp.  Verify they are discoverable and callable
+            # via the orchestrator's list_server_mcp_tools / call_server_mcp_tool.
+
+            list_result = await mcp.call_tool(
+                MCPToolName.LIST_SERVER_MCP_TOOLS,
+                {"request": {"client_id": client_id, "server_id": server_id}},
+            )
+            server_tool_names = {t["name"] for t in list_result.structured_content["tools"]}
+            for expected in ("create_file", "edit_file", "patch_file"):
+                assert expected in server_tool_names, (
+                    f"Expected built-in MCP tool {expected!r} on server; found: {server_tool_names}"
+                )
+
+            # create_file — write a file into the container
+            create_result = await mcp.call_tool(
+                MCPToolName.CALL_SERVER_MCP_TOOL,
+                {
+                    "request": {
+                        "client_id": client_id,
+                        "server_id": server_id,
+                        "tool_name": "create_file",
+                        "arguments": {"request": {"file_path": "/tmp/mcp_e2e.txt", "content": "hello mcp\n"}},
+                    }
+                },
+            )
+            assert not create_result.structured_content.get("is_error"), (
+                f"create_file returned an error: {create_result.structured_content!r}"
+            )
+
+            # edit_file — replace line 1
+            edit_result = await mcp.call_tool(
+                MCPToolName.CALL_SERVER_MCP_TOOL,
+                {
+                    "request": {
+                        "client_id": client_id,
+                        "server_id": server_id,
+                        "tool_name": "edit_file",
+                        "arguments": {
+                            "request": {
+                                "file_path": "/tmp/mcp_e2e.txt",
+                                "start_line": 1,
+                                "end_line": 1,
+                                "new_content": "hello edited mcp",
+                            }
+                        },
+                    }
+                },
+            )
+            assert not edit_result.structured_content.get("is_error"), (
+                f"edit_file returned an error: {edit_result.structured_content!r}"
+            )
+
+            # Verify the file now contains the edited content
+            read_result = await mcp.call_tool(
+                MCPToolName.RUN_BASH_COMMAND,
+                {
+                    "request": {
+                        "client_id": client_id,
+                        "server_id": server_id,
+                        "command": "cat /tmp/mcp_e2e.txt",
+                        "command_timeout": 10.0,
+                    }
+                },
+            )
+            read_op = await wait_for_mcp_operation(
+                mcp, read_result.structured_content["async_operation_id"], timeout=30.0
+            )
+            read_body = parse_forwarded_body(read_op)
+            assert read_body["exit_code"] == 0
+            assert "hello edited mcp" in read_body["stdout"], (
+                f"Expected edited content in file, got: {read_body['stdout']!r}"
+            )
 
             finish_server_result = await mcp.call_tool(
                 MCPToolName.FINISH_SERVER,
