@@ -28,6 +28,17 @@ logger = get_logger(__name__)
 POSTGRES_SUPERUSER_PASSWORD = "postgres"
 
 
+def _run_streaming(cmd: list[str], check: bool = True) -> int:
+    with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as proc:
+        for line in proc.stdout:
+            if line.strip():
+                logger.info(line.rstrip())
+        proc.wait()
+    if check and proc.returncode != 0:
+        raise subprocess.CalledProcessError(proc.returncode, cmd)
+    return proc.returncode
+
+
 @contextmanager
 def get_config_dir() -> Iterator[Path]:
     """Yield a filesystem path to the config resource directory."""
@@ -59,10 +70,8 @@ def ensure_ingress_loadbalancer() -> None:
 def apply_kubernetes_resources() -> None:
     logger.info("Installing Helm release...")
 
-    result = subprocess.run(
-        ["helm", "dependency", "build", str(CHART_PATH)], check=True, capture_output=True, text=True
-    )
-    logger.info("✓ Helm dependencies built\n%s", result.stdout + result.stderr)
+    _run_streaming(["helm", "dependency", "build", str(CHART_PATH)])
+    logger.info("✓ Helm dependencies built")
 
     with get_config_dir() as cfg:
         cmd = [
@@ -79,20 +88,20 @@ def apply_kubernetes_resources() -> None:
             "--timeout",
             "5m",
         ]
-        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        _run_streaming(cmd)
 
-    logger.info("✓ Helm release installed successfully\n%s", result.stdout + result.stderr)
+    logger.info("✓ Helm release installed successfully")
 
 
 def delete_kubernetes_resources() -> None:
     logger.info(f"Uninstalling Helm release {HELM_RELEASE}...")
     cmd = ["helm", "uninstall", HELM_RELEASE, "-n", DEFAULT_NAMESPACE, "--ignore-not-found"]
-    result = subprocess.run(cmd, check=False, capture_output=True, text=True)
+    returncode = _run_streaming(cmd, check=False)
 
-    if result.returncode == 0:
-        logger.info("✓ Helm release uninstalled successfully\n%s", result.stdout + result.stderr)
-    elif result.stderr and "not found" not in result.stderr.lower():
-        logger.warning(f"Could not uninstall release: {result.stderr}")
+    if returncode == 0:
+        logger.info("✓ Helm release uninstalled successfully")
+    else:
+        logger.warning(f"Could not uninstall release: helm exited with code {returncode}")
 
 
 def ensure_namespace_exists() -> None:
