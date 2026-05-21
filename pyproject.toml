@@ -30,7 +30,7 @@ dev = [
     "ruff>=0.15.12",
     "supervisor>=4.3.0",
     "tqdm>=4.67.3",
-    "tomlkit>=0.14.0",
+    "tomlkit>=0.15.0",
 ]
 
 [tool.uv]
