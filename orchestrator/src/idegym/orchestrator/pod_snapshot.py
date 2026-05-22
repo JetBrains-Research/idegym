@@ -1,13 +1,12 @@
 import asyncio
 import time
 from http import HTTPStatus
-from typing import Any
-
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import HTTPException, status
 from idegym.api.config import PodSnapshotConfig
 from idegym.api.orchestrator.snapshots import (
+    OwnerReference,
     PodSnapshotManualTrigger,
     PodSnapshotManualTriggerMetadata,
     PodSnapshotManualTriggerSpec,
@@ -45,7 +44,6 @@ class PodSnapshotService:
         self._namespace = namespace
 
     async def get_pod_for_server(self, server_name: str) -> tuple[str, str, str]:
-        """Resolve (pod_name, pod_uid) for the running pod backing the given server."""
         async with async_kube_api() as (_, _, core, _, _):
             pods = (
                 await core.list_namespaced_pod(
@@ -65,11 +63,12 @@ class PodSnapshotService:
         pod_name = pod.metadata.name
         pod_uid = pod.metadata.uid
         node_name = pod.spec.node_name
-        logger.debug(f"Resolved pod name '{pod_name}' with uid '{pod_uid}' on node '{node_name}' for server '{server_name}'")
+        logger.debug(
+            f"Resolved pod name '{pod_name}' with uid '{pod_uid}' on node '{node_name}' for server '{server_name}'"
+        )
         return pod_name, pod_uid, node_name
 
     async def validate_node_eligible_for_snapshot(self, node_name: Optional[str]) -> None:
-        """Raise if the node's GCP instance type does not support pod snapshots (e.g., E2 instances)."""
         if not node_name:
             logger.debug("No node name available; skipping E2 instance type check")
             return
@@ -90,29 +89,8 @@ class PodSnapshotService:
             )
 
     async def create_trigger(self, server_name: str, pod_name: str, pod_uid: str) -> str:
-        """Create a PodSnapshotManualTrigger targeting the given pod, owned by it for GC safety."""
         trigger_name = f"snapshot-{pod_name}"
 
-        body = {
-            "apiVersion": f"{CRD_GROUP}/{CRD_VERSION}",
-            "kind": "PodSnapshotManualTrigger",
-            "metadata": {
-                "name": trigger_name,
-                "namespace": self._namespace,
-                "labels": {"app": server_name},
-                "ownerReferences": [
-                    {
-                        "apiVersion": "v1",
-                        "kind": "Pod",
-                        "name": pod_name,
-                        "uid": pod_uid,
-                        "controller": False,
-                        "blockOwnerDeletion": False,
-                    }
-                ],
-            },
-            "spec": {"targetPod": pod_name},
-        }
         trigger = PodSnapshotManualTrigger(
             api_version=f"{CRD_GROUP}/{CRD_VERSION}",
             kind="PodSnapshotManualTrigger",
@@ -120,6 +98,14 @@ class PodSnapshotService:
                 name=trigger_name,
                 namespace=self._namespace,
                 labels={"app": server_name},
+                owner_references=[
+                    OwnerReference(
+                        api_version="v1",
+                        kind="Pod",
+                        name=pod_name,
+                        uid=pod_uid,
+                    )
+                ],
             ),
             spec=PodSnapshotManualTriggerSpec(target_pod=pod_name),
         )
@@ -135,21 +121,7 @@ class PodSnapshotService:
         logger.info(f"Created PodSnapshotManualTrigger '{trigger_name}' in namespace '{self._namespace}'")
         return trigger_name
 
-    async def snapshot_server(self, server_name: str) -> str:
-        """Resolve the running pod for a server, validate eligibility, and create a snapshot trigger."""
-        pod_name, node_name = await self.get_pod_name_for_server(server_name)
-        await self.validate_node_eligible_for_snapshot(node_name)
-        trigger_name = await self.create_trigger(server_name=server_name, pod_name=pod_name)
-        logger.info(f"Snapshot initiated for server '{server_name}' via trigger '{trigger_name}'")
-        return trigger_name
-
     async def wait_for_completion(self, trigger_name: str) -> None:
-        """
-        Poll the trigger until its `Triggered` condition becomes True (success) or False (failure).
-
-        Raises SnapshotFailedError on terminal failure, or SnapshotTimeoutError if the configured
-        timeout elapses first.
-        """
         timeout = self._config.completion_timeout.total_seconds()
         poll_interval = self._config.poll_interval.total_seconds()
         deadline = time.monotonic() + timeout
@@ -166,14 +138,14 @@ class PodSnapshotService:
 
             condition = self._triggered_condition(obj)
             if condition:
-                status = condition.get("status")
-                if status == "True":
+                triggered = condition.get("status") == "True"
+                if triggered:
                     internal_name = ((obj.get("status") or {}).get("snapshotCreated") or {}).get("name") or ""
                     logger.info(
                         f"PodSnapshotManualTrigger '{trigger_name}' completed, snapshot name: '{internal_name}'"
                     )
                     return
-                if status == "False":
+                else:
                     message = condition.get("message") or condition.get("reason") or "unknown reason"
                     raise SnapshotFailedError(f"PodSnapshotManualTrigger '{trigger_name}' failed: {message}")
 
@@ -202,10 +174,8 @@ class PodSnapshotService:
             raise
 
     async def snapshot_server(self, server_name: str) -> None:
-        """
-        End-to-end snapshot flow: resolve pod, create trigger, wait for completion, delete trigger.
-        """
-        pod_name, pod_uid = await self.get_pod_for_server(server_name)
+        pod_name, pod_uid, node_name = await self.get_pod_for_server(server_name)
+        await self.validate_node_eligible_for_snapshot(node_name)
         trigger_name = await self.create_trigger(server_name=server_name, pod_name=pod_name, pod_uid=pod_uid)
         try:
             await self.wait_for_completion(trigger_name)
@@ -217,7 +187,6 @@ class PodSnapshotService:
 
     @staticmethod
     def _triggered_condition(obj: dict[str, Any]) -> dict[str, Any] | None:
-        """Return the `Triggered` condition from the trigger's status, or None if not yet emitted."""
         for cond in (obj.get("status") or {}).get("conditions") or []:
             if cond.get("type") == "Triggered":
                 return cond

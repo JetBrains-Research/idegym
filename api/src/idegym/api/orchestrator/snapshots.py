@@ -5,10 +5,24 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
 
+class OwnerReference(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    api_version: str
+    kind: str
+    name: str
+    uid: str
+    controller: bool = False
+    block_owner_deletion: bool = False
+
+
 class PodSnapshotManualTriggerMetadata(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
     name: str
     namespace: str
     labels: dict[str, str]
+    owner_references: list[OwnerReference] = Field(default_factory=list)
 
 
 class PodSnapshotManualTriggerSpec(BaseModel):
