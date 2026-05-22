@@ -6,7 +6,6 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Request, status
 from idegym.api.capabilities import CapabilitiesResponse
 from idegym.api.config import Config, NodePoolConfig, OTELConfig, PodSnapshotConfig
-from idegym.api.memory import MemoryUnit
 from idegym.api.orchestrator.clients import AvailabilityStatus
 from idegym.api.orchestrator.operations import AsyncOperationStatus, AsyncOperationType
 from idegym.api.orchestrator.servers import (
@@ -39,6 +38,7 @@ from idegym.orchestrator.database.helpers import (
 from idegym.orchestrator.router.forwarding import build_server_host
 from idegym.orchestrator.util.decorators import handle_async_task_exceptions, handle_server_exceptions
 from idegym.orchestrator.util.errors import format_error
+from idegym.orchestrator.util.resources import extract_resources_request
 from idegym.utils.decorators import executes_operation_in_background
 from idegym.utils.logging import get_logger
 
@@ -416,22 +416,6 @@ async def clean_kubernetes(request, server_generated_name):
         logger.warning(
             f"Failed to delete k8s resources for {server_generated_name} during cleanup after startup failure: {k8s_e}"
         )
-
-
-def extract_resources_request(config: Config, request: StartServerRequest) -> tuple[float, float]:
-    cpu_request = config.orchestrator.resources.default_cpu_request
-    ram_request = config.orchestrator.resources.default_ram_request
-    if resources := request.resources:
-        cpu_value = (resources.limits and resources.limits.cpu) or (resources.requests and resources.requests.cpu)
-        if cpu_value is not None:
-            cpu_request = cpu_value.cores
-        memory_value = (resources.limits and resources.limits.memory) or (
-            resources.requests and resources.requests.memory
-        )
-        if memory_value is not None:
-            ram_request = memory_value.bytes / MemoryUnit.Gi
-
-    return cpu_request, ram_request
 
 
 @handle_async_task_exceptions(

@@ -2,6 +2,7 @@ from typing import Optional
 from uuid import UUID
 
 from idegym.api.orchestrator.servers import ServerKind, StartServerRequest
+from idegym.api.status import Status
 from idegym.api.type import KubernetesObjectName, OCIImageName
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
@@ -47,16 +48,23 @@ class PrepareSnapshotsRequest(BaseModel):
     requests: list[StartServerRequest] = Field(description="List of start server requests to prepare snapshots for")
 
 
+class SnapshotPipelineJob(BaseModel):
+    job_id: str = Field(description="Unique identifier for this pipeline job")
+    request_hash: str = Field(description="SHA-256 hash of the start request, used for deduplication")
+    serialized_request: str = Field(description="JSON-serialized start request stored in the database")
+    start_request: StartServerRequest = Field(description="Original start request this job was created for")
+
+
 class PrepareSnapshotsResponse(BaseModel):
     request_id: str = Field(description="ID to poll for the overall prepare batch status")
 
 
 class SnapshotJobResult(BaseModel):
     request_hash: str = Field(description="SHA-256 hash identifying the server configuration that was snapshotted")
-    status: str = Field(description="Job status: SUCCESS or FAILURE")
+    status: Status = Field(description="Job status: success or failure")
     snapshot_name: Optional[str] = Field(
         default=None,
-        description="Server ID to pass as snapshot_id when starting from this snapshot; set on SUCCESS",
+        description="Server ID to pass as snapshot_id when starting from this snapshot; set on success",
     )
     details: Optional[str] = Field(default=None, description="Error details if the job failed")
 
@@ -75,7 +83,7 @@ class PrepareSnapshotsStatusResponse(BaseModel):
 
 class SnapshotJobStatusResponse(BaseModel):
     job_id: str = Field(description="Unique snapshot job identifier")
-    status: str = Field(description="Job status: IN_PROGRESS, SUCCESS, or FAILURE")
+    status: Status = Field(description="Job status: in_progress, success, or failure")
     snapshot_name: Optional[str] = Field(
         default=None,
         description="Server ID to use as snapshot_id when starting a server from this snapshot",

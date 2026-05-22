@@ -20,7 +20,7 @@ from idegym.orchestrator.database.helpers import (
     validate_client,
 )
 from idegym.orchestrator.pod_snapshot import PodSnapshotService
-from idegym.orchestrator.router.server import extract_resources_request
+from idegym.orchestrator.util.resources import extract_resources_request
 from idegym.utils.logging import get_logger
 from idegym.utils.serializer import serialize_as_json_string
 
@@ -36,14 +36,7 @@ def compute_snapshot_request_hash(**fields) -> str:
 
 
 def compute_hash_for_start_request(request: StartServerRequest) -> str:
-    return compute_snapshot_request_hash(
-        namespace=request.namespace,
-        image_tag=str(request.image_tag),
-        server_name=str(request.server_name),
-        runtime_class_name=request.runtime_class_name,
-        run_as_root=request.run_as_root,
-        server_kind=str(request.server_kind),
-    )
+    return compute_snapshot_request_hash(**{f: getattr(request, f) for f in _HASH_FIELDS})
 
 
 async def run_snapshot_pipeline_job(
@@ -148,7 +141,17 @@ async def run_snapshot_pipeline_job(
         )
 
     except Exception as e:
-        detail = e.detail if isinstance(e, HTTPException) else str(e)
+        if isinstance(e, HTTPException):
+            http_detail = e.detail
+            if isinstance(http_detail, str):
+                detail = http_detail
+            else:
+                try:
+                    detail = json.dumps(http_detail, default=str)
+                except (TypeError, ValueError):
+                    detail = str(http_detail)
+        else:
+            detail = str(e)
         logger.exception(f"Snapshot pipeline job {job_id} failed")
 
         if server_id and server_generated_name:

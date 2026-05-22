@@ -5,7 +5,7 @@ from uuid import UUID
 from fastapi import HTTPException, status
 from idegym.api.orchestrator.clients import AvailabilityStatus
 from idegym.api.orchestrator.operations import AsyncOperationStatus, AsyncOperationType
-from idegym.api.orchestrator.servers import ErrorResponse, StartServerRequest
+from idegym.api.orchestrator.servers import AliveServerInfo, ErrorResponse, StartServerRequest
 from idegym.orchestrator.database.database import (
     check_resources_and_save_server,
     create_client,
@@ -28,6 +28,7 @@ from idegym.orchestrator.database.database import (
     save_async_operation,
     save_snapshot,
     save_snapshot_job,
+    save_snapshot_prepare_batch,
     save_snapshot_prepare_request,
     update_async_operation,
     update_client_heartbeat,
@@ -184,12 +185,12 @@ async def find_matching_finished_server_in_db(
 
 
 @with_db_session
-async def find_alive_servers(db: AsyncSession, client_id: UUID):
+async def find_alive_servers(db: AsyncSession, client_id: UUID) -> list[AliveServerInfo]:
     servers_info = []
     servers = await get_idegym_servers_by_client_id(db, client_id)
     for server in servers:
         if server.availability in {AvailabilityStatus.ALIVE, AvailabilityStatus.REUSED}:
-            servers_info.append({"id": server.id, "generated_name": server.generated_name})
+            servers_info.append(AliveServerInfo(id=server.id, generated_name=server.generated_name))
     return servers_info
 
 
@@ -329,6 +330,11 @@ async def find_snapshot_for_request(db: AsyncSession, request_hash: str):
 @with_db_session
 async def create_snapshot_prepare_request(db: AsyncSession, request_id: UUID, total_requested: int):
     return await save_snapshot_prepare_request(db, request_id=request_id, total_requested=total_requested)
+
+
+@with_db_session
+async def create_snapshot_prepare_batch(db: AsyncSession, request_id: UUID, jobs: list[dict]):
+    return await save_snapshot_prepare_batch(db, request_id=request_id, jobs=jobs)
 
 
 @with_db_session

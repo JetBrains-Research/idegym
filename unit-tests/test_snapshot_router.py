@@ -76,8 +76,7 @@ def _start_request(client_id: UUID = None) -> StartServerRequest:
 
 
 async def test_prepare_snapshots_returns_request_id(mocker):
-    mocker.patch("idegym.orchestrator.router.snapshot.create_snapshot_prepare_request", return_value=None)
-    mocker.patch("idegym.orchestrator.router.snapshot.create_snapshot_job", return_value=None)
+    mocker.patch("idegym.orchestrator.router.snapshot.create_snapshot_prepare_batch", return_value=None)
     mocker.patch("idegym.orchestrator.router.snapshot.run_snapshot_pipeline_job")
     mocker.patch("asyncio.create_task")
 
@@ -90,8 +89,7 @@ async def test_prepare_snapshots_returns_request_id(mocker):
 
 
 async def test_prepare_snapshots_creates_one_job_per_request(mocker):
-    mocker.patch("idegym.orchestrator.router.snapshot.create_snapshot_prepare_request", return_value=None)
-    create_job = mocker.patch("idegym.orchestrator.router.snapshot.create_snapshot_job", return_value=None)
+    create_batch = mocker.patch("idegym.orchestrator.router.snapshot.create_snapshot_prepare_batch", return_value=None)
     mocker.patch("idegym.orchestrator.router.snapshot.run_snapshot_pipeline_job")
     mocker.patch("asyncio.create_task")
 
@@ -100,14 +98,12 @@ async def test_prepare_snapshots_creates_one_job_per_request(mocker):
         low_level_request=_low_level_request(_config()),
     )
 
-    assert create_job.await_count == 3
+    jobs = create_batch.call_args.kwargs["jobs"]
+    assert len(jobs) == 3
 
 
 async def test_prepare_snapshots_passes_total_requested_to_prepare_record(mocker):
-    create_prepare = mocker.patch(
-        "idegym.orchestrator.router.snapshot.create_snapshot_prepare_request", return_value=None
-    )
-    mocker.patch("idegym.orchestrator.router.snapshot.create_snapshot_job", return_value=None)
+    create_batch = mocker.patch("idegym.orchestrator.router.snapshot.create_snapshot_prepare_batch", return_value=None)
     mocker.patch("idegym.orchestrator.router.snapshot.run_snapshot_pipeline_job")
     mocker.patch("asyncio.create_task")
 
@@ -117,12 +113,12 @@ async def test_prepare_snapshots_passes_total_requested_to_prepare_record(mocker
         low_level_request=_low_level_request(_config()),
     )
 
-    assert create_prepare.call_args.kwargs["total_requested"] == 2
+    jobs = create_batch.call_args.kwargs["jobs"]
+    assert len(jobs) == 2
 
 
 async def test_prepare_snapshots_passes_prepare_request_id_to_each_job(mocker):
-    mocker.patch("idegym.orchestrator.router.snapshot.create_snapshot_prepare_request", return_value=None)
-    create_job = mocker.patch("idegym.orchestrator.router.snapshot.create_snapshot_job", return_value=None)
+    create_batch = mocker.patch("idegym.orchestrator.router.snapshot.create_snapshot_prepare_batch", return_value=None)
     mocker.patch("idegym.orchestrator.router.snapshot.run_snapshot_pipeline_job")
     mocker.patch("asyncio.create_task")
 
@@ -131,10 +127,9 @@ async def test_prepare_snapshots_passes_prepare_request_id_to_each_job(mocker):
         low_level_request=_low_level_request(_config()),
     )
 
-    # Both jobs must receive the same prepare_request_id (a UUID)
-    ids = {call.kwargs["prepare_request_id"] for call in create_job.await_args_list}
-    assert len(ids) == 1
-    assert isinstance(next(iter(ids)), UUID)
+    # The batch call must receive a single UUID as prepare_request_id
+    request_id = create_batch.call_args.kwargs["request_id"]
+    assert isinstance(request_id, UUID)
 
 
 async def test_prepare_snapshots_raises_400_when_feature_disabled(mocker):

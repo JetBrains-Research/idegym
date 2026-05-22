@@ -6,6 +6,7 @@ from uuid import UUID
 
 from idegym.api.config import SQLAlchemyConfig
 from idegym.api.orchestrator.operations import AsyncOperationStatus, AsyncOperationType
+from idegym.api.orchestrator.snapshots import SnapshotPipelineJob
 from idegym.api.status import Status
 from idegym.api.type import Duration
 from idegym.orchestrator.database.models import (
@@ -930,6 +931,31 @@ async def save_snapshot_prepare_request(
     db.add(record)
     await db.commit()
     return record
+
+
+async def save_snapshot_prepare_batch(
+    db: AsyncSession,
+    request_id: UUID,
+    jobs: list[SnapshotPipelineJob],
+) -> SnapshotPrepareRequestRecord:
+    """Create a prepare request and all its jobs atomically in a single transaction."""
+    prepare_record = SnapshotPrepareRequestRecord(
+        id=request_id,
+        total_requested=len(jobs),
+    )
+    db.add(prepare_record)
+    for job in jobs:
+        db.add(
+            SnapshotJobRecord(
+                job_id=job.job_id,
+                status=Status.IN_PROGRESS,
+                request_hash=job.request_hash,
+                request=job.serialized_request,
+                prepare_request_id=request_id,
+            )
+        )
+    await db.commit()
+    return prepare_record
 
 
 async def increment_snapshot_prepare_succeeded(db: AsyncSession, request_id: UUID) -> None:

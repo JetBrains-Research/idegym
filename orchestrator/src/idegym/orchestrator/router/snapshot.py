@@ -15,11 +15,11 @@ from idegym.api.orchestrator.snapshots import (
     SnapshotExistsResponse,
     SnapshotJobResult,
     SnapshotJobStatusResponse,
+    SnapshotPipelineJob,
 )
 from idegym.orchestrator.database.helpers import (
     create_async_operation,
-    create_snapshot_job,
-    create_snapshot_prepare_request,
+    create_snapshot_prepare_batch,
     find_snapshot_for_request,
     find_snapshot_job_with_name,
     find_snapshot_prepare_request_with_results,
@@ -168,22 +168,39 @@ async def prepare_snapshots(request: PrepareSnapshotsRequest, low_level_request:
             detail="Pod snapshot feature is not enabled",
         )
 
-    prepare_request_id = uuid4()
-    await create_snapshot_prepare_request(request_id=prepare_request_id, total_requested=len(request.requests))
-
     for start_request in request.requests:
-        job_id = str(uuid4())
-        request_hash = compute_hash_for_start_request(start_request)
-        serialized = serialize_start_request(start_request)
-        await create_snapshot_job(
-            job_id=job_id, request_hash=request_hash, request=serialized, prepare_request_id=prepare_request_id
+        if start_request.runtime_class_name != "gvisor":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Request for image '{start_request.image_tag}' is not eligible for snapshot: "
+                    f"pod snapshotting requires gVisor runtime, "
+                    f"but runtime_class_name is '{start_request.runtime_class_name or 'default runtime'}'"
+                ),
+            )
+
+    prepare_request_id = uuid4()
+    jobs_to_start = [
+        SnapshotPipelineJob(
+            job_id=str(uuid4()),
+            request_hash=compute_hash_for_start_request(start_request),
+            serialized_request=serialize_start_request(start_request),
+            start_request=start_request,
         )
+        for start_request in request.requests
+    ]
+    await create_snapshot_prepare_batch(request_id=prepare_request_id, jobs=jobs_to_start)
+
+    for job in jobs_to_start:
         asyncio.create_task(
             run_snapshot_pipeline_job(
-                job_id=job_id, request=start_request, config=config, prepare_request_id=prepare_request_id
+                job_id=job.job_id,
+                request=job.start_request,
+                config=config,
+                prepare_request_id=prepare_request_id,
             )
         )
-        logger.info(f"Started snapshot pipeline job {job_id} for image {start_request.image_tag}")
+        logger.info(f"Started snapshot pipeline job {job.job_id} for image {job.start_request.image_tag}")
 
     return PrepareSnapshotsResponse(request_id=str(prepare_request_id))
 
