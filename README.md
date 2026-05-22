@@ -99,7 +99,6 @@ idegym/
 ├── unit-tests/           # Unit test suite
 ├── integration-tests/    # Docker-based integration tests
 ├── e2e-tests/            # Kubernetes end-to-end tests
-├── test-project/         # Minimal project fixture used by tests
 ├── plugins/              # IDE plugins (IntelliJ IDEA, PyCharm, shared utilities)
 ├── charts/               # Helm charts for Kubernetes deployment
 ├── scripts/              # Build and deployment scripts
