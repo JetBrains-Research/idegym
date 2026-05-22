@@ -314,7 +314,7 @@ async def _task_start_server(
             )
 
             service_account_name = pod_snapshot.service_account_name if pod_snapshot.enabled else None
-            snapshot_id = request.snapshot_id or str(server_id)
+            snapshot_id = request.snapshot_id or server_generated_name
 
             resources = (
                 request.resources.model_dump(

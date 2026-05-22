@@ -286,7 +286,7 @@ The `reuse_strategy` field on `StartServerRequest` controls whether the orchestr
 | `NONE` | Always create a new server |
 | `RESET` | Claim the first matching `FINISHED` server; pods are left running, caller resets project state. Response has `need_to_reset: true` |
 | `RESTART` | Claim a `FINISHED` server and restart its pods (fresh process state) |
-| `CHECKPOINT` | Reserved for checkpoint-based resumption |
+
 
 Servers are matched by `server_name` and `image_tag`. Use `POST /api/idegym-servers/finish` (not `DELETE`) to return a server to the reuse pool after an RL episode.
 

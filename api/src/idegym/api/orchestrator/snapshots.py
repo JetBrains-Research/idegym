@@ -1,7 +1,29 @@
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+from pydantic.alias_generators import to_camel
+
+
+class PodSnapshotManualTriggerMetadata(BaseModel):
+    name: str
+    namespace: str
+    labels: dict[str, str]
+
+
+class PodSnapshotManualTriggerSpec(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    target_pod: str
+
+
+class PodSnapshotManualTrigger(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    api_version: str
+    kind: str
+    metadata: PodSnapshotManualTriggerMetadata
+    spec: PodSnapshotManualTriggerSpec
 
 
 class CreateSnapshotRequest(BaseModel):
