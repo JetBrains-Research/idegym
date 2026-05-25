@@ -1,15 +1,15 @@
 dependencies:
 - name: grafana
   repository: oci://ghcr.io/grafana-community/helm-charts
-  version: 12.3.0
+  version: 12.3.3
 - name: postgresql
   repository: oci://registry-1.docker.io/bitnamicharts
   version: 18.6.7
 - name: prometheus
   repository: oci://ghcr.io/prometheus-community/charts
-  version: 29.6.0
+  version: 29.7.0
 - name: tempo
   repository: oci://ghcr.io/grafana-community/helm-charts
-  version: 2.1.0
-digest: sha256:14850e427bf02f8c5dc4e231c780b35b44237d642d20fee3c1f59f524285e9f8
-generated: "2026-05-21T12:06:34.604275932Z"
+  version: 2.1.2
+digest: sha256:3c84e27fb2e3cc6f4a92495f6b1ba45c9287e43e0dd972d016025cf741aa72ed
+generated: "2026-05-25T14:22:45.525812051Z"
