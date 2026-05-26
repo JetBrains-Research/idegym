@@ -88,7 +88,6 @@ async def create_snapshot(request: CreateSnapshotRequest, low_level_request: Req
     return CreateSnapshotResponse(
         server_id=server.id,
         server_name=server.generated_name,
-        trigger_name="",
         operation_id=async_operation_id,
     )
 
@@ -111,7 +110,7 @@ async def _task_create_snapshot(
             config=config.orchestrator.pod_snapshot,
             namespace=namespace,
         )
-        trigger_name = await service.snapshot_server(server_name=server_generated_name)
+        await service.snapshot_server(server_name=server_generated_name)
 
         await update_operation_status(
             async_operation_id=async_operation_id,
@@ -119,15 +118,12 @@ async def _task_create_snapshot(
             result=CreateSnapshotResponse(
                 server_id=server_id,
                 server_name=server_generated_name,
-                trigger_name=trigger_name,
+                snapshot_id=server_generated_name,
                 operation_id=async_operation_id,
             ),
         )
 
-        logger.info(
-            f"Snapshot operation {async_operation_id} succeeded for server {server_generated_name} "
-            f"(trigger: {trigger_name})"
-        )
+        logger.info(f"Snapshot operation {async_operation_id} succeeded for server {server_generated_name}")
 
     except asyncio.CancelledError:
         logger.warning(f"Snapshot task cancelled for server {server_generated_name}, operation ID {async_operation_id}")
