@@ -80,6 +80,7 @@ async def create_snapshot(request: CreateSnapshotRequest, low_level_request: Req
             config=config,
             server_id=server.id,
             server_generated_name=server.generated_name,
+            snapshot_name=server.snapshot_name,
             namespace=request.namespace,
             async_operation_id=async_operation_id,
         )
@@ -96,6 +97,7 @@ async def _task_create_snapshot(
     config: Config,
     server_id: int,
     server_generated_name: str,
+    snapshot_name: str,
     namespace: str,
     async_operation_id: int,
 ):
@@ -118,7 +120,7 @@ async def _task_create_snapshot(
             result=CreateSnapshotResponse(
                 server_id=server_id,
                 server_name=server_generated_name,
-                snapshot_id=server_generated_name,
+                snapshot_id=snapshot_name,
                 operation_id=async_operation_id,
             ),
         )

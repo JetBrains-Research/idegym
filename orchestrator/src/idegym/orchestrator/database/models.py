@@ -55,6 +55,10 @@ class IdeGYMServer(Base):
     server_kind = Column(String, default="idegym", nullable=False)
     service_port = Column(Integer, default=80, nullable=False)
 
+    @property
+    def snapshot_name(self) -> str:
+        return self.generated_name
+
 
 class ResourceLimitRule(Base):
     __tablename__ = "resource_limit_rules"

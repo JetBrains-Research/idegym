@@ -96,7 +96,6 @@ async def run_snapshot_pipeline_job(
             resources=resources,
             environment_variables=(),
             server_kind=request.server_kind,
-            snapshot_id=str(server_id),
         )
 
         await wait_for_pods_ready(
@@ -116,7 +115,7 @@ async def run_snapshot_pipeline_job(
 
         request_hash = compute_hash_for_start_request(request)
         snapshot = await create_snapshot(
-            snapshot_name=server_generated_name,
+            snapshot_name=server.snapshot_name,
             request_hash=request_hash,
             namespace=request.namespace,
             image_tag=str(request.image_tag),
@@ -136,7 +135,7 @@ async def run_snapshot_pipeline_job(
             await update_prepare_request_succeeded(request_id=prepare_request_id)
 
         logger.info(
-            f"Snapshot pipeline job {job_id} completed for server {server_generated_name} (snapshot_name={server_id})"
+            f"Snapshot pipeline job {job_id} completed for server {server_id} (snapshot_name={server.snapshot_name})"
         )
 
     except (SnapshotFailedError, SnapshotTimeoutError) as e:
