@@ -9,12 +9,14 @@ Think of it as **GitHub Codespaces for RL training** — but designed for thousa
 ## Key Features
 
 - **Scalable orchestration** — spin up and tear down Kubernetes-based environments on demand
-- **Plugin-based image builder** — compose Docker images from reusable plugins via a Python API or YAML
-- **Flexible project loading** — clone from Git, download and extract a project archive, or mount a volume with a project directly into the image
+- **Plugin-based image builder** — compose Docker images from reusable plugins via a Python API or YAML; see [Plugin Architecture](documentation/plugins.md)
+- **Flexible project loading** — clone from Git, download and extract a project archive, or mount a volume with a project directly into the image; see [Image Builder](documentation/image_builder.md)
 - **HTTP and WebSocket forwarding** — the orchestrator proxies requests directly to running server pods; WebSocket support enables integration with [OpenEnv](https://github.com/meta-pytorch/OpenEnv)-compatible environments
 - **Persistent request history** — every forwarded request and its response is stored in the database and retrievable later, enabling offline reward computation and reproducible evaluation
 - **Automatic resource cleanup** — a background watcher periodically reconciles the database against live Kubernetes state, evicting stale servers and reclaiming resources without manual intervention
 - **Full observability** — built-in Prometheus metrics, Grafana dashboards, and distributed tracing via Tempo
+- **MCP interface** — the orchestrator exposes an MCP server at `/mcp`; agents can discover and call all IdeGYM operations as MCP tools without touching the REST API directly; see [MCP Server](documentation/mcp.md)
+- **IDE integration** — optional IntelliJ IDEA and PyCharm plugins add live code inspection endpoints and typed client methods for IDE-aware environments; see [Tools Reference](documentation/tools.md#ide-inspection-inspectsh)
 - **Fast iteration** — local development with Minikube mirrors the production Kubernetes setup
 
 ## Documentation
@@ -31,6 +33,7 @@ Think of it as **GitHub Codespaces for RL training** — but designed for thousa
 | [Full Flow Example](documentation/full_flow_example.md) | End-to-end walkthrough: build an image, start a server, run a command |
 | [E2E Tests](e2e-tests/README.md) | Running the end-to-end test suite on Minikube |
 | [Orchestrator API](orchestrator/README.md) | REST API reference for the orchestrator service |
+| [Plugin Architecture](documentation/plugins.md) | Extending IdeGYM with image, server, and client plugins |
 | [HTTP Error Codes](documentation/http_error_codes.md) | HTTP status codes for orchestrator and server endpoints |
 
 ## Quick Start
@@ -96,6 +99,8 @@ idegym/
 ├── unit-tests/           # Unit test suite
 ├── integration-tests/    # Docker-based integration tests
 ├── e2e-tests/            # Kubernetes end-to-end tests
+├── plugins/              # IDE plugins (IntelliJ IDEA, PyCharm, shared utilities)
+├── charts/               # Helm charts for Kubernetes deployment
 ├── scripts/              # Build and deployment scripts
 └── documentation/        # Extended documentation
 ```
