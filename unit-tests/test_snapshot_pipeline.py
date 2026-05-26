@@ -54,7 +54,7 @@ def _request(**overrides) -> StartServerRequest:
 def _patch_all(mocker, *, deploy_error=None):
     """Patch all external dependencies; optionally make deploy_server raise."""
     client = SimpleNamespace(name="test-client")
-    server = SimpleNamespace(id=42, generated_name="snap-server-42")
+    server = SimpleNamespace(id=42, generated_name="snap-server-42", snapshot_name="snap-server-42")
     snapshot = SimpleNamespace(id=99)
 
     mocker.patch("idegym.orchestrator.snapshot_pipeline.validate_client", return_value=client)
@@ -72,8 +72,6 @@ def _patch_all(mocker, *, deploy_error=None):
     mocker.patch("idegym.orchestrator.snapshot_pipeline.wait_for_pods_ready", return_value=None)
     mocker.patch("idegym.orchestrator.snapshot_pipeline.update_server_status", return_value=None)
     mocker.patch("idegym.orchestrator.snapshot_pipeline.clean_up_server", return_value=None)
-    mocker.patch("idegym.orchestrator.snapshot_pipeline.sleep", return_value=None)
-
     snapshot_svc = mocker.MagicMock()
     snapshot_svc.snapshot_server = mocker.AsyncMock(return_value="trigger-name")
     mocker.patch("idegym.orchestrator.snapshot_pipeline.PodSnapshotService", return_value=snapshot_svc)
