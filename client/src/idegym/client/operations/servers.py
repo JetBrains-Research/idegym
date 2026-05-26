@@ -16,7 +16,15 @@ from idegym.api.orchestrator.servers import (
     StartServerResponse,
     StopServerRequest,
 )
-from idegym.api.orchestrator.snapshots import CreateSnapshotRequest, CreateSnapshotResponse
+from idegym.api.orchestrator.snapshots import (
+    CreateSnapshotRequest,
+    CreateSnapshotResponse,
+    PrepareSnapshotsRequest,
+    PrepareSnapshotsResponse,
+    PrepareSnapshotsStatusResponse,
+    SnapshotExistsRequest,
+    SnapshotExistsResponse,
+)
 from idegym.api.resources import KubernetesResources
 from idegym.api.status import Status
 from idegym.api.type import KubernetesNodeSelector, KubernetesObjectName, OCIImageName
@@ -221,3 +229,63 @@ class ServerOperations:
             error_response_model=ErrorResponse,
             polling_config=polling_config,
         )
+
+    async def prepare_snapshots(
+        self,
+        requests: list[StartServerRequest],
+        poll_interval: int = 10,
+        wait_timeout: Optional[int] = None,
+    ) -> PrepareSnapshotsStatusResponse:
+        """Submit a batch of start-server requests for snapshot preparation and poll until all complete."""
+        import asyncio
+
+        request = PrepareSnapshotsRequest(requests=requests)
+        response_raw = await self._utils.make_request("POST", "/api/snapshots/prepare", request)
+        response = PrepareSnapshotsResponse.model_validate(response_raw)
+        request_id = response.request_id
+
+        logger.info(f"Started prepare snapshots batch request {request_id} for {len(requests)} snapshot(s)")
+
+        async def _poll() -> PrepareSnapshotsStatusResponse:
+            while True:
+                status_raw = await self._utils.make_request("GET", f"/api/snapshots/prepare/{request_id}")
+                result = PrepareSnapshotsStatusResponse.model_validate(status_raw)
+                if result.status == "READY":
+                    logger.info(
+                        f"Prepare request {request_id} ready: {result.succeeded} succeeded, {result.failed} failed"
+                    )
+                    return result
+                logger.info(
+                    f"Prepare request {request_id} in progress: "
+                    f"{result.succeeded + result.failed}/{result.total_requested} done"
+                )
+                await sleep(poll_interval)
+
+        if wait_timeout:
+            async with asyncio.timeout(wait_timeout):
+                return await _poll()
+        return await _poll()
+
+    async def snapshot_exists(
+        self,
+        image_tag: OCIImageName,
+        server_name: KubernetesObjectName = "default-idegym-server",
+        namespace: Optional[str] = None,
+        runtime_class_name: Optional[str] = None,
+        run_as_root: bool = False,
+        server_kind: ServerKind = ServerKind.IDEGYM,
+    ) -> SnapshotExistsResponse:
+        """Check whether a snapshot exists for the given server configuration."""
+        namespace = self._utils.validate_namespace(namespace)
+        request = SnapshotExistsRequest(
+            namespace=namespace,
+            image_tag=image_tag,
+            server_name=server_name,
+            runtime_class_name=runtime_class_name,
+            run_as_root=run_as_root,
+            server_kind=server_kind,
+        )
+        response_raw = await self._utils.make_request(
+            "GET", "/api/snapshots/exists", params=request.model_dump(mode="json", exclude_none=True)
+        )
+        return SnapshotExistsResponse.model_validate(response_raw)

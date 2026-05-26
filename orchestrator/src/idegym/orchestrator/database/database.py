@@ -6,6 +6,7 @@ from uuid import UUID
 
 from idegym.api.config import SQLAlchemyConfig
 from idegym.api.orchestrator.operations import AsyncOperationStatus, AsyncOperationType
+from idegym.api.orchestrator.snapshots import SnapshotPipelineJob
 from idegym.api.status import Status
 from idegym.api.type import Duration
 from idegym.orchestrator.database.models import (
@@ -15,6 +16,9 @@ from idegym.orchestrator.database.models import (
     IdeGYMServer,
     JobStatusRecord,
     ResourceLimitRule,
+    SnapshotJobRecord,
+    SnapshotPrepareRequestRecord,
+    SnapshotRecord,
     current_time_millis,
 )
 from idegym.orchestrator.migration_manager import MigrationManager
@@ -809,6 +813,202 @@ async def delete_old_async_operations(db: AsyncSession, current_time: int, max_a
         logger.exception("Error deleting old async operations")
         await db.rollback()
         return 0
+
+
+async def save_snapshot(
+    db: AsyncSession,
+    snapshot_name: str,
+    request_hash: str,
+    namespace: str,
+    image_tag: str,
+    server_name: str,
+    runtime_class_name: Optional[str],
+    run_as_root: bool,
+    server_kind: str,
+) -> SnapshotRecord:
+    record = SnapshotRecord(
+        snapshot_name=snapshot_name,
+        request_hash=request_hash,
+        namespace=namespace,
+        image_tag=image_tag,
+        server_name=server_name,
+        runtime_class_name=runtime_class_name,
+        run_as_root=run_as_root,
+        server_kind=server_kind,
+    )
+    db.add(record)
+    await db.commit()
+    return record
+
+
+async def find_snapshot_by_request_hash(db: AsyncSession, request_hash: str) -> Optional[SnapshotRecord]:
+    """Return the most recent snapshot for the given request hash."""
+    query = (
+        select(SnapshotRecord)
+        .filter(SnapshotRecord.request_hash == request_hash)
+        .order_by(SnapshotRecord.created_at.desc())
+        .limit(1)
+    )
+    result = await db.execute(query)
+    return result.scalar_one_or_none()
+
+
+async def save_snapshot_job(
+    db: AsyncSession,
+    job_id: str,
+    request_hash: str,
+    request: str,
+    prepare_request_id: Optional[UUID] = None,
+) -> SnapshotJobRecord:
+    record = SnapshotJobRecord(
+        job_id=job_id,
+        status=Status.IN_PROGRESS,
+        request_hash=request_hash,
+        request=request,
+        prepare_request_id=prepare_request_id,
+    )
+    db.add(record)
+    await db.commit()
+    return record
+
+
+async def update_snapshot_job(
+    db: AsyncSession,
+    job_id: str,
+    status: str,
+    snapshot_id: Optional[int] = None,
+    details: Optional[str] = None,
+) -> Optional[SnapshotJobRecord]:
+    record = await get_snapshot_job(db, job_id)
+    if not record:
+        return None
+
+    record.status = status
+    record.updated_at = current_time_millis()
+
+    if snapshot_id is not None:
+        record.snapshot_id = snapshot_id
+
+    if details is not None:
+        record.details = details
+
+    await db.commit()
+    return record
+
+
+async def get_snapshot_job(db: AsyncSession, job_id: str) -> Optional[SnapshotJobRecord]:
+    query = select(SnapshotJobRecord).filter(SnapshotJobRecord.job_id == job_id)
+    result = await db.execute(query)
+    return result.scalar_one_or_none()
+
+
+async def get_snapshot_job_with_name(
+    db: AsyncSession, job_id: str
+) -> Optional[tuple[SnapshotJobRecord, Optional[str]]]:
+    """Return a job record along with the snapshot_name from the linked snapshots row (if any)."""
+    query = (
+        select(SnapshotJobRecord, SnapshotRecord.snapshot_name)
+        .outerjoin(SnapshotRecord, SnapshotJobRecord.snapshot_id == SnapshotRecord.id)
+        .filter(SnapshotJobRecord.job_id == job_id)
+    )
+    result = await db.execute(query)
+    row = result.one_or_none()
+    if row is None:
+        return None
+    job, snapshot_name = row
+    return job, snapshot_name
+
+
+async def save_snapshot_prepare_request(
+    db: AsyncSession,
+    request_id: UUID,
+    total_requested: int,
+) -> SnapshotPrepareRequestRecord:
+    record = SnapshotPrepareRequestRecord(
+        id=request_id,
+        total_requested=total_requested,
+    )
+    db.add(record)
+    await db.commit()
+    return record
+
+
+async def save_snapshot_prepare_batch(
+    db: AsyncSession,
+    request_id: UUID,
+    jobs: list[SnapshotPipelineJob],
+) -> SnapshotPrepareRequestRecord:
+    """Create a prepare request and all its jobs atomically in a single transaction."""
+    prepare_record = SnapshotPrepareRequestRecord(
+        id=request_id,
+        total_requested=len(jobs),
+    )
+    db.add(prepare_record)
+    for job in jobs:
+        db.add(
+            SnapshotJobRecord(
+                job_id=job.job_id,
+                status=Status.IN_PROGRESS,
+                request_hash=job.request_hash,
+                request=job.serialized_request,
+                prepare_request_id=request_id,
+            )
+        )
+    await db.commit()
+    return prepare_record
+
+
+async def increment_snapshot_prepare_succeeded(db: AsyncSession, request_id: UUID) -> None:
+    await db.execute(
+        update(SnapshotPrepareRequestRecord)
+        .where(SnapshotPrepareRequestRecord.id == request_id)
+        .values(succeeded=SnapshotPrepareRequestRecord.succeeded + 1, updated_at=current_time_millis())
+    )
+    await db.commit()
+
+
+async def increment_snapshot_prepare_failed(db: AsyncSession, request_id: UUID) -> None:
+    await db.execute(
+        update(SnapshotPrepareRequestRecord)
+        .where(SnapshotPrepareRequestRecord.id == request_id)
+        .values(failed=SnapshotPrepareRequestRecord.failed + 1, updated_at=current_time_millis())
+    )
+    await db.commit()
+
+
+async def get_snapshot_prepare_request(db: AsyncSession, request_id: UUID) -> Optional[SnapshotPrepareRequestRecord]:
+    result = await db.execute(
+        select(SnapshotPrepareRequestRecord).filter(SnapshotPrepareRequestRecord.id == request_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_snapshot_prepare_request_with_results(
+    db: AsyncSession, request_id: UUID
+) -> Optional[tuple[SnapshotPrepareRequestRecord, list[tuple[str, str, Optional[str], Optional[str]]]]]:
+    """
+    Return the prepare request record along with per-job results for all jobs in the batch.
+
+    Each job result is a tuple of (request_hash, status, snapshot_name_or_none, details_or_none).
+    snapshot_name is populated only for successful jobs.
+    """
+    prepare = await get_snapshot_prepare_request(db, request_id)
+    if prepare is None:
+        return None
+
+    query = (
+        select(
+            SnapshotJobRecord.request_hash,
+            SnapshotJobRecord.status,
+            SnapshotRecord.snapshot_name,
+            SnapshotJobRecord.details,
+        )
+        .outerjoin(SnapshotRecord, SnapshotJobRecord.snapshot_id == SnapshotRecord.id)
+        .filter(SnapshotJobRecord.prepare_request_id == request_id)
+    )
+    result = await db.execute(query)
+    job_results = [(row[0], row[1], row[2], row[3]) for row in result.all()]
+    return prepare, job_results
 
 
 async def mark_stale_async_operations_as_finished(

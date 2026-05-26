@@ -5,11 +5,12 @@ from uuid import UUID
 from fastapi import HTTPException, status
 from idegym.api.orchestrator.clients import AvailabilityStatus
 from idegym.api.orchestrator.operations import AsyncOperationStatus, AsyncOperationType
-from idegym.api.orchestrator.servers import ErrorResponse, StartServerRequest
+from idegym.api.orchestrator.servers import AliveServerInfo, ErrorResponse, StartServerRequest
 from idegym.orchestrator.database.database import (
     check_resources_and_save_server,
     create_client,
     find_matching_finished_server,
+    find_snapshot_by_request_hash,
     get_async_operation,
     get_client,
     get_client_name,
@@ -17,13 +18,23 @@ from idegym.orchestrator.database.database import (
     get_idegym_server,
     get_idegym_servers_by_client_id,
     get_job_status,
+    get_snapshot_job,
+    get_snapshot_job_with_name,
+    get_snapshot_prepare_request_with_results,
+    increment_snapshot_prepare_failed,
+    increment_snapshot_prepare_succeeded,
     need_to_release_nodes,
     need_to_spin_up_nodes,
     save_async_operation,
+    save_snapshot,
+    save_snapshot_job,
+    save_snapshot_prepare_batch,
+    save_snapshot_prepare_request,
     update_async_operation,
     update_client_heartbeat,
     update_idegym_server_heartbeat,
     update_idegym_server_owner,
+    update_snapshot_job,
 )
 from idegym.utils.logging import get_logger
 from sqlalchemy import text
@@ -174,12 +185,12 @@ async def find_matching_finished_server_in_db(
 
 
 @with_db_session
-async def find_alive_servers(db: AsyncSession, client_id: UUID):
+async def find_alive_servers(db: AsyncSession, client_id: UUID) -> list[AliveServerInfo]:
     servers_info = []
     servers = await get_idegym_servers_by_client_id(db, client_id)
     for server in servers:
         if server.availability in {AvailabilityStatus.ALIVE, AvailabilityStatus.REUSED}:
-            servers_info.append({"id": server.id, "generated_name": server.generated_name})
+            servers_info.append(AliveServerInfo(id=server.id, generated_name=server.generated_name))
     return servers_info
 
 
@@ -250,3 +261,92 @@ async def update_operation_with_error(
 @with_db_session
 async def find_async_operation(db: AsyncSession, operation_id: int):
     return await get_async_operation(db, operation_id)
+
+
+@with_db_session
+async def create_snapshot(
+    db: AsyncSession,
+    snapshot_name: str,
+    request_hash: str,
+    namespace: str,
+    image_tag: str,
+    server_name: str,
+    runtime_class_name: Optional[str],
+    run_as_root: bool,
+    server_kind: str,
+):
+    return await save_snapshot(
+        db,
+        snapshot_name=snapshot_name,
+        request_hash=request_hash,
+        namespace=namespace,
+        image_tag=image_tag,
+        server_name=server_name,
+        runtime_class_name=runtime_class_name,
+        run_as_root=run_as_root,
+        server_kind=server_kind,
+    )
+
+
+@with_db_session
+async def create_snapshot_job(
+    db: AsyncSession,
+    job_id: str,
+    request_hash: str,
+    request: str,
+    prepare_request_id: Optional[UUID] = None,
+):
+    return await save_snapshot_job(
+        db, job_id=job_id, request_hash=request_hash, request=request, prepare_request_id=prepare_request_id
+    )
+
+
+@with_db_session
+async def update_snapshot_job_status(
+    db: AsyncSession,
+    job_id: str,
+    status: str,
+    snapshot_id: Optional[int] = None,
+    details: Optional[str] = None,
+):
+    return await update_snapshot_job(db, job_id=job_id, status=status, snapshot_id=snapshot_id, details=details)
+
+
+@with_db_session
+async def find_snapshot_job(db: AsyncSession, job_id: str):
+    return await get_snapshot_job(db, job_id)
+
+
+@with_db_session
+async def find_snapshot_job_with_name(db: AsyncSession, job_id: str):
+    return await get_snapshot_job_with_name(db, job_id)
+
+
+@with_db_session
+async def find_snapshot_for_request(db: AsyncSession, request_hash: str):
+    return await find_snapshot_by_request_hash(db, request_hash)
+
+
+@with_db_session
+async def create_snapshot_prepare_request(db: AsyncSession, request_id: UUID, total_requested: int):
+    return await save_snapshot_prepare_request(db, request_id=request_id, total_requested=total_requested)
+
+
+@with_db_session
+async def create_snapshot_prepare_batch(db: AsyncSession, request_id: UUID, jobs: list[dict]):
+    return await save_snapshot_prepare_batch(db, request_id=request_id, jobs=jobs)
+
+
+@with_db_session
+async def update_prepare_request_succeeded(db: AsyncSession, request_id: UUID):
+    await increment_snapshot_prepare_succeeded(db, request_id=request_id)
+
+
+@with_db_session
+async def update_prepare_request_failed(db: AsyncSession, request_id: UUID):
+    await increment_snapshot_prepare_failed(db, request_id=request_id)
+
+
+@with_db_session
+async def find_snapshot_prepare_request_with_results(db: AsyncSession, request_id: UUID):
+    return await get_snapshot_prepare_request_with_results(db, request_id=request_id)

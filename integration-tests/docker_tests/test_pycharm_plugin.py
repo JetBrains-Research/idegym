@@ -32,7 +32,7 @@ def _build_and_cleanup():
 
     spec = (
         Image.from_base("debian:bookworm-slim")
-        .with_plugin(Project.from_local("test-project", target="/test-project"))
+        .with_plugin(Project.from_local("integration-tests/docker_tests/test-project", target="/test-project"))
         .with_plugin(PyCharm(version=_PYCHARM_VERSION))
         .to_spec()
     )

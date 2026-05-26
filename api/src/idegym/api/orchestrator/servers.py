@@ -146,3 +146,8 @@ class ServerRequestResponse(BaseModel):
     result: Optional[str] = Field(default=None)
     finished_at: Optional[int] = Field(default=None, description="Epoch milliseconds", ge=0)
     status: str
+
+
+class AliveServerInfo(BaseModel):
+    id: int = Field(description="Numeric IdeGYM server ID")
+    generated_name: str = Field(description="Kubernetes resource name for the server")

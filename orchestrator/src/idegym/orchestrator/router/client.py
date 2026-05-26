@@ -14,6 +14,7 @@ from idegym.api.orchestrator.clients import (
     StopClientResponse,
 )
 from idegym.api.orchestrator.operations import AsyncOperationStatus, AsyncOperationType
+from idegym.api.orchestrator.servers import AliveServerInfo
 from idegym.backend.utils.kubernetes_client import clean_up_server
 from idegym.orchestrator.database.helpers import (
     create_async_operation,
@@ -113,10 +114,10 @@ async def finish_client(request: FinishClientRequest):
     servers_info = await find_alive_servers(client_id=request.client_id)
     for server_info in servers_info:
         try:
-            await update_server_status(server_id=server_info["id"], availability_status=AvailabilityStatus.FINISHED)
+            await update_server_status(server_id=server_info.id, availability_status=AvailabilityStatus.FINISHED)
         except Exception:
             logger.exception(
-                f"Error finishing IdeGYM server {server_info['generated_name']} with ID {server_info['id']} for client ID {request.client_id}"
+                f"Error finishing IdeGYM server {server_info.generated_name} with ID {server_info.id} for client ID {request.client_id}"
             )
 
     updated_client = await update_client_status(
@@ -157,7 +158,9 @@ async def _task_spin_up_client_nodes(
     operation_description="stopping client",
     error_availability_status=AvailabilityStatus.DELETION_FAILED,
 )
-async def _task_stop_client(servers_info, client_id: UUID, namespace: str, async_operation_id: int):
+async def _task_stop_client(
+    servers_info: list[AliveServerInfo], client_id: UUID, namespace: str, async_operation_id: int
+):
     logger.info(f"Stopping client with ID {client_id} in namespace {namespace} in background")
 
     await update_operation_status(
@@ -169,21 +172,19 @@ async def _task_stop_client(servers_info, client_id: UUID, namespace: str, async
     has_deletion_errors = False
     for server_info in servers_info:
         try:
-            await update_server_status(server_id=server_info["id"], availability_status=AvailabilityStatus.STOPPED)
+            await update_server_status(server_id=server_info.id, availability_status=AvailabilityStatus.STOPPED)
             await clean_up_server(
-                name=server_info["generated_name"],
+                name=server_info.generated_name,
                 namespace=namespace,
             )
-            logger.info(f"Successfully stopped IdeGYM server {server_info['generated_name']}")
+            logger.info(f"Successfully stopped IdeGYM server {server_info.generated_name}")
 
         except Exception:
             logger.exception(
-                f"Error stopping IdeGYM server {server_info['generated_name']} "
-                f"with ID {server_info['id']} for client ID {client_id}"
+                f"Error stopping IdeGYM server {server_info.generated_name} "
+                f"with ID {server_info.id} for client ID {client_id}"
             )
-            await update_server_status(
-                server_id=server_info["id"], availability_status=AvailabilityStatus.DELETION_FAILED
-            )
+            await update_server_status(server_id=server_info.id, availability_status=AvailabilityStatus.DELETION_FAILED)
             has_deletion_errors = True
 
     failed_to_release_nodes = await change_number_of_spun_nodes(client_id=client_id, namespace=namespace)
