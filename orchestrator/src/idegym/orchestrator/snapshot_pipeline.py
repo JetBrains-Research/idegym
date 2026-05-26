@@ -1,6 +1,5 @@
 import hashlib
 import json
-from asyncio import sleep
 from typing import Optional
 from uuid import UUID
 
@@ -19,7 +18,7 @@ from idegym.orchestrator.database.helpers import (
     update_snapshot_job_status,
     validate_client,
 )
-from idegym.orchestrator.pod_snapshot import PodSnapshotService
+from idegym.orchestrator.pod_snapshot import PodSnapshotService, SnapshotFailedError, SnapshotTimeoutError
 from idegym.orchestrator.util.resources import extract_resources_request
 from idegym.utils.logging import get_logger
 from idegym.utils.serializer import serialize_as_json_string
@@ -77,6 +76,9 @@ async def run_snapshot_pipeline_job(
         node_pool = config.orchestrator.node_pool
         pod_snapshot = config.orchestrator.pod_snapshot
 
+        if not pod_snapshot.enabled:
+            raise RuntimeError("Pod snapshots are not enabled in the current configuration")
+
         resources = request.resources.model_dump(by_alias=True, exclude_none=True) if request.resources else None
 
         await deploy_server(
@@ -108,16 +110,13 @@ async def run_snapshot_pipeline_job(
         snapshot_service = PodSnapshotService(config=pod_snapshot, namespace=request.namespace)
         await snapshot_service.snapshot_server(server_name=server_generated_name)
 
-        # Brief pause to let the snapshot trigger propagate before stopping the pod.
-        await sleep(2)
-
         await _cleanup_server(
             server_id=server_id, server_generated_name=server_generated_name, namespace=request.namespace
         )
 
         request_hash = compute_hash_for_start_request(request)
         snapshot = await create_snapshot(
-            snapshot_name=str(server_id),
+            snapshot_name=server_generated_name,
             request_hash=request_hash,
             namespace=request.namespace,
             image_tag=str(request.image_tag),
@@ -140,6 +139,26 @@ async def run_snapshot_pipeline_job(
             f"Snapshot pipeline job {job_id} completed for server {server_generated_name} (snapshot_name={server_id})"
         )
 
+    except (SnapshotFailedError, SnapshotTimeoutError) as e:
+        detail = str(e)
+        logger.exception(f"Snapshot pipeline job {job_id} failed: {detail}")
+
+        if server_id and server_generated_name:
+            await _cleanup_server(
+                server_id=server_id,
+                server_generated_name=server_generated_name,
+                namespace=request.namespace,
+                failed=True,
+            )
+
+        await update_snapshot_job_status(
+            job_id=job_id,
+            status=Status.FAILURE,
+            details=detail,
+        )
+
+        if prepare_request_id:
+            await update_prepare_request_failed(request_id=prepare_request_id)
     except Exception as e:
         if isinstance(e, HTTPException):
             http_detail = e.detail
@@ -175,10 +194,13 @@ async def run_snapshot_pipeline_job(
 async def _cleanup_server(server_id: int, server_generated_name: str, namespace: str, failed: bool = False) -> None:
     availability = AvailabilityStatus.FAILED_TO_START if failed else AvailabilityStatus.STOPPED
     try:
-        await update_server_status(server_id=server_id, availability_status=availability)
         await clean_up_server(name=server_generated_name, namespace=namespace)
     except Exception:
         logger.exception(f"Failed to clean up server {server_generated_name} after snapshot pipeline job")
+    try:
+        await update_server_status(server_id=server_id, availability_status=availability)
+    except Exception:
+        logger.exception(f"Failed to update status for server {server_generated_name} after snapshot pipeline job")
 
 
 def serialize_start_request(request: StartServerRequest) -> str:
