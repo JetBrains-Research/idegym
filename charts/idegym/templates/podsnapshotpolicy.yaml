@@ -12,21 +12,15 @@ spec:
       app.kubernetes.io/part-of: idegym
       app.kubernetes.io/component: sandbox
   storageConfigName: {{ include "idegym.name" . }}
-  {{- with .Values.podSnapshot.trigger }}
   triggerConfig:
-    type: {{ .type }}
-    postCheckpoint: {{ .postCheckpoint }}
-  {{- end }}
-  {{- with .Values.podSnapshot.retention }}
+    type: manual
+    postCheckpoint: resume
+  {{- with .Values.podSnapshot.retentionConfig }}
   retentionConfig:
-    lastAccessTimeout: {{ .lastAccessTimeout }}
+    {{- toYaml . | nindent 4 }}
   {{- end }}
   {{- with .Values.podSnapshot.snapshotGroupingRules }}
   snapshotGroupingRules:
-    groupByLabelValue:
-      labels:
-        {{- toYaml .labels | nindent 8 }}
-      groupRetentionPolicy:
-        maxSnapshotCountPerGroup: {{ .maxSnapshotsPerGroup }}
+    {{- toYaml . | nindent 4 }}
   {{- end }}
 {{- end }}
