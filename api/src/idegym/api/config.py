@@ -148,6 +148,18 @@ class PodSnapshotConfig(BaseModel):
     )
 
 
+class MCPConfig(BaseModel):
+    json_response: bool = Field(
+        description=(
+            "Force the FastMCP HTTP app to reply with application/json instead of "
+            "text/event-stream. Some clients (e.g. older Codex builds) do not handle "
+            "the SSE-style streamable HTTP transport correctly; enabling this returns "
+            "a single JSON body per response, which every MCP client accepts."
+        ),
+        default=True,
+    )
+
+
 class WatcherConfig(BaseModel):
     cleanup_interval: Duration = Field(default=Duration(seconds=60))
     inactive_timeout: Duration = Field(
@@ -182,6 +194,7 @@ class OrchestratorConfig(BaseModel):
     resources: ResourcesConfig = Field(default_factory=ResourcesConfig)
     node_pool: NodePoolConfig = Field(default_factory=NodePoolConfig)
     watcher: WatcherConfig = Field(default_factory=WatcherConfig)
+    mcp: MCPConfig = Field(default_factory=MCPConfig)
     client_request_timeout: float = Field(
         description="Client request read timeout in seconds",
         default=60.0 * 60,  # 1 hour

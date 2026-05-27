@@ -83,6 +83,8 @@ spec:
             {{- end }}
             - name: IDEGYM_UVICORN_WORKERS
               value: {{ .Values.deployment.uvicornWorkers | quote }}
+            - name: IDEGYM_MCP_JSON_RESPONSE
+              value: {{ .Values.deployment.mcp.jsonResponse | quote | title }}
             {{- with .Values.deployment.sqlalchemy.pool }}
             {{- if .size }}
             - name: IDEGYM_SQLALCHEMY_POOL_SIZE

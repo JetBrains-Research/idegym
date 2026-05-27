@@ -52,3 +52,6 @@ pod_snapshot:
   service_account_name: ${oc.env:IDEGYM_POD_SNAPSHOT_SERVICE_ACCOUNT_NAME, "idegym"}
 
 enable_fifo_server_reuse: ${oc.env:IDEGYM_ENABLE_FIFO_SERVER_REUSE, "False"}
+
+mcp:
+  json_response: ${oc.env:IDEGYM_MCP_JSON_RESPONSE, "True"}
