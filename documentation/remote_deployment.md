@@ -523,3 +523,5 @@ response = httpx.get("https://idegym.yourdomain.com/health", headers=headers)
     - [ ] WIF configured for KSA
     - [ ] Bucket IAM configured
     - [ ] Enable feature gate with `podSnapshot.enabled=true`
+    - [ ] Mirror the bucket and KSA names from the GCP setup in podSnapshot values
+
