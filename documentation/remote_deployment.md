@@ -325,16 +325,16 @@ and is therefore **GKE-only**. The snapshot-related resources rendered by the ch
 
 ### Prerequisites
 
-Follow the [GKE pod snapshots guide](https://docs.cloud.google.com/kubernetes-engine/docs/concepts/pod-snapshots)
+Follow the [GKE pod snapshots guide](https://docs.cloud.google.com/kubernetes-engine/docs/how-to/pod-snapshots)
 end-to-end — it covers the cluster-side prerequisites. Before continuing, confirm
 you have:
 
-- Pod snapshots enabled on the cluster.
-- A GCS bucket created for the checkpoints.
-- The GKE pod-snapshot controller (`service-<project-number>@container-engine-robot.iam.gserviceaccount.com`)
-  granted the role required by the GKE guide on that bucket.
-- The Kubernetes ServiceAccount the chart will create for snapshot-enabled pods
-  granted the IAM permissions the GKE guide requires on the bucket.
+- [Pod snapshots enabled on the cluster](https://docs.cloud.google.com/kubernetes-engine/docs/how-to/pod-snapshots#enable).
+- [A GCS bucket created for the checkpoints](https://docs.cloud.google.com/kubernetes-engine/docs/how-to/pod-snapshots#create-bucket).
+- [The GKE pod-snapshot controller (`service-<project-number>@container-engine-robot.iam.gserviceaccount.com`)
+  granted the role required by the GKE guide on that bucket](https://docs.cloud.google.com/kubernetes-engine/docs/how-to/pod-snapshots#grant-controller-permissions).
+- [The Kubernetes ServiceAccount the chart will create for snapshot-enabled pods
+  granted the IAM permissions the GKE guide requires on the bucket](https://docs.cloud.google.com/kubernetes-engine/docs/how-to/pod-snapshots#grant-permissions).
 
 ### Enable the feature
 
