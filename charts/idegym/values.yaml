@@ -86,8 +86,6 @@ podSnapshot:
     lastAccessTimeout: 7d
   snapshotGroupingRules:
     groupByLabelValue:
-      labels:
-        - idegym.jetbrains.com/snapshot-id
       groupRetentionPolicy:
         maxSnapshotCountPerGroup: 5
 
