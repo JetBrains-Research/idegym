@@ -292,6 +292,155 @@ Servers are matched by `server_name` and `image_tag`. Use `POST /api/idegym-serv
 
 ---
 
+### Pod Snapshots (Checkpoint/Restore)
+
+
+
+Pod snapshotting captures the full memory and filesystem state of a running server pod and persists it to object
+storage. A new pod started with the same snapshot identifier resumes from that checkpoint instead of doing a cold
+start.
+
+The feature is implemented on top of [Google Kubernetes Engine pod
+snapshots](https://docs.cloud.google.com/kubernetes-engine/docs/concepts/pod-snapshots) and only works on a GKE
+cluster where the feature is enabled. See [Remote Deployment → Pod Snapshots](../documentation/remote_deployment.md)
+for how to turn the feature on.
+
+#### Constraints
+
+- **GKE only.** The chart provisions GKE-specific CRDs and a GCS bucket holds the checkpoints.
+- **gVisor runtime required.** Snapshots only work for pods running with `runtimeClassName: gvisor`.
+- **Not eligible on E2 instance types.** GCP E2 nodes do not support pod snapshots.
+
+#### How it works
+
+Every server pod carries a `snapshot_id` that identifies its snapshot group in GCS — by default equal to the pod's
+own generated name, so any future snapshot taken of that pod is associated with this label. Snapshot endpoints ask
+GKE to checkpoint the running pod under that identifier; `start_server(snapshot_id=...)` deploys a new pod with the
+same identifier, and GKE restores it from the checkpoint instead of doing a cold start.
+
+For a restore to succeed, the new server's configuration must be identical to the snapshotted one — same image,
+runtime class, resources, and so on. Snapshotting a server that was itself started from a snapshot overwrites the existing snapshot under the same
+`snapshot_id` rather than creating a new one.
+
+#### Snapshot an existing server
+
+```
+POST /api/idegym-servers/snapshot
+```
+
+Snapshots a server that is already running. Returns immediately with an `operation_id`; poll
+`GET /api/operations/status/{operation_id}` for the final `CreateSnapshotResponse`.
+
+**Request body:**
+
+| Field        | Type   | Default    | Description                                                       |
+|--------------|--------|------------|-------------------------------------------------------------------|
+| `client_id`  | UUID   | required   | Owning client                                                     |
+| `server_id`  | int    | required   | Server to snapshot — must be `ALIVE` and use `gvisor` runtime     |
+| `namespace`  | string | `"idegym"` | Kubernetes namespace the server runs in                           |
+
+**Final result** (in `result` of the async operation, once `SUCCEEDED`):
+
+```json
+{
+  "server_id": 7,
+  "server_name": "my-client-my-server-7",
+  "snapshot_id": "my-client-my-server-7",
+  "operation_id": 42
+}
+```
+
+`snapshot_id` is the value to pass back as `StartServerRequest.snapshot_id` to restore from this snapshot.
+
+#### Prepare a batch of snapshots from scratch
+
+```
+POST /api/snapshots/prepare
+```
+
+Accepts a list of `StartServerRequest`s, deploys each server, snapshots it, then tears it down — designed for
+warming up a pool of snapshots ahead of an RL training run without leaving the servers running.
+
+**Request body:**
+
+| Field      | Type                    | Description                                                       |
+|------------|-------------------------|-------------------------------------------------------------------|
+| `requests` | list of `StartServerRequest` | One entry per snapshot to produce. Each must use `runtime_class_name: "gvisor"` |
+
+**Immediate response:**
+
+```json
+{ "request_id": "uuid" }
+```
+
+Each request is processed by an independent pipeline job that updates a `snapshot_jobs` row throughout
+(`IN_PROGRESS` → `SUCCESS` / `FAILURE`). On success, a row is also written to the `snapshots` table keyed by a
+stable hash of `(namespace, image_tag, server_name, runtime_class_name, run_as_root, server_kind)`, so subsequent
+`/api/snapshots/exists` lookups can deduplicate.
+
+#### Poll a prepare batch
+
+```
+GET /api/snapshots/prepare/{request_id}
+```
+
+**Response:**
+
+```json
+{
+  "request_id": "uuid",
+  "status": "READY",
+  "total_requested": 4,
+  "succeeded": 3,
+  "failed": 1,
+  "results": [
+    {
+      "request_hash": "sha256...",
+      "status": "success",
+      "snapshot_name": "my-client-my-server-7",
+      "details": null
+    }
+  ]
+}
+```
+
+`status` is `IN_PROGRESS` until every job finishes. `results` is `null` until then; once `READY`, each entry maps
+back to the original request by `request_hash` (same hash function used by `/api/snapshots/exists`).
+`snapshot_name` on a successful job is the value to pass as `snapshot_id` when starting a server from it.
+
+#### Poll a single snapshot job
+
+```
+GET /api/snapshots/jobs/{job_id}
+```
+
+Returns `{job_id, status, snapshot_name, details}` for one pipeline job. Useful when you want per-job progress
+without re-fetching the whole batch.
+
+#### Check whether a snapshot exists
+
+```
+GET /api/snapshots/exists?image_tag=...&server_name=...&runtime_class_name=gvisor&...
+```
+
+Looks up the `snapshots` table by the same configuration hash used by `/api/snapshots/prepare`. Use this before
+calling `prepare` to skip work that has already been done.
+
+**Response:**
+
+```json
+{ "exists": true, "snapshot_name": "my-client-my-server-7" }
+```
+
+#### Restoring from a snapshot
+
+Pass `snapshot_id` on `POST /api/idegym-servers` (or the `snapshot_id` argument on `IdeGYMClient.start_server`).
+The value is whatever a previous snapshot call returned as `snapshot_name` / `snapshot_id`. The new pod is created
+with `idegym.jetbrains.com/snapshot-id=<that value>`, GKE matches it against its stored snapshots, and the pod
+boots from the checkpoint.
+
+---
+
 ### Request Forwarding
 
 #### HTTP forwarding

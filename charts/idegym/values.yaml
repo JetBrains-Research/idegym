@@ -75,19 +75,19 @@ podSnapshot:
     create: true
     name: ""
     annotations: { }
-  retention:
+  # The keys below mirror the GKE PodSnapshotPolicy / PodSnapshotStorageConfig CRD spec verbatim;
+  # see https://docs.cloud.google.com/kubernetes-engine/docs/concepts/pod-snapshots for the full field reference.
+  snapshotStorageConfig:
+    gcs:
+      bucket: ""
+      path: ""
+      tokenSource: ""
+  retentionConfig:
     lastAccessTimeout: 7d
   snapshotGroupingRules:
-    labels:
-      - idegym.jetbrains.com/snapshot-id
-    maxSnapshotsPerGroup: 5
-  storage:
-    bucket: idegym
-    path: snapshots
-    tokenSource: podKSA
-  trigger:
-    type: manual
-    postCheckpoint: resume
+    groupByLabelValue:
+      groupRetentionPolicy:
+        maxSnapshotCountPerGroup: 5
 
 postgresql:
   enabled: true
