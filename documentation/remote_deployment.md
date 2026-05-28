@@ -349,9 +349,13 @@ Minimal example — overlay only what differs from the chart defaults in
 ```yaml
 podSnapshot:
   enabled: true
+  serviceAccount:
+    name: idegym
   snapshotStorageConfig:
     gcs:
       bucket: my-idegym-snapshots
+      path: snapshots
+      tokenSource: podKSA
 ```
 
 The chart then renders the `PodSnapshotPolicy`, the `PodSnapshotStorageConfig`, and a Kubernetes `ServiceAccount`
@@ -361,9 +365,10 @@ It also wires `IDEGYM_POD_SNAPSHOT_ENABLED=True` and `IDEGYM_POD_SNAPSHOT_SERVIC
 orchestrator deployment — the first gates the snapshot endpoints, the second is the KSA the orchestrator attaches
 to every sandbox pod it creates.
 
-> **Notes.** For a snapshot to actually happen and be restorable: the target pod must not run on a GCP E2 node,
-> must use the `gvisor` runtime, and on restore the server configuration must match the snapshotted one. For best
-> latency, keep the GCS bucket in the same region as the cluster.
+> [!NOTE]
+> See [GKE pod snapshots — Limitations](https://docs.cloud.google.com/kubernetes-engine/docs/concepts/pod-snapshots#limitations)
+> for the full list of GKE-side constraints (node types, runtime class, etc.).
+> For best restore latency, keep the GCS bucket in the same region as the cluster.
 
 ### Verify
 
@@ -512,4 +517,9 @@ response = httpx.get("https://idegym.yourdomain.com/health", headers=headers)
 - [ ] `deployment.resources` populated with appropriate requests/limits for your workload
 - [ ] Backup strategy for PostgreSQL persistent volume
 - [ ] gVisor runtime class available on nodes if using sandboxed containers
-- [ ] If using pod snapshots: GKE pod-snapshot feature enabled on the cluster, GCS bucket provisioned, snapshot KSA granted the required IAM on the bucket, `podSnapshot.enabled=true` and `snapshotStorageConfig.gcs.bucket` set
+- If using pod snapshots:
+    - [ ] GKE pod-snapshot feature enabled on the cluster
+    - [ ] GCS bucket provisioned
+    - [ ] WIF configured for KSA
+    - [ ] Bucket IAM configured
+    - [ ] Enable feature gate with `podSnapshot.enabled=true`
