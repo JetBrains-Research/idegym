@@ -512,4 +512,4 @@ response = httpx.get("https://idegym.yourdomain.com/health", headers=headers)
 - [ ] `deployment.resources` populated with appropriate requests/limits for your workload
 - [ ] Backup strategy for PostgreSQL persistent volume
 - [ ] gVisor runtime class available on nodes if using sandboxed containers
-- [ ] If using pod snapshots: GKE pod-snapshot feature enabled on the cluster, GCS bucket and Workload Identity binding provisioned, `podSnapshot.enabled=true` with `snapshotStorageConfig.gcs.bucket` and `serviceAccount.annotations` configured
+- [ ] If using pod snapshots: GKE pod-snapshot feature enabled on the cluster, GCS bucket provisioned, snapshot KSA granted the required IAM on the bucket, `podSnapshot.enabled=true` and `snapshotStorageConfig.gcs.bucket` set
