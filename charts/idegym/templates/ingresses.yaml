@@ -6,24 +6,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "idegym.labels" . | nindent 4 }}
-  {{- $annotations := .Values.ingress.annotations | default dict }}
-  {{- if .Values.deployment.mcp.stickySessions }}
-  {{- $stickyAnnotations := dict
-    "nginx.ingress.kubernetes.io/upstream-hash-by" "$http_mcp_session_id"
-    "nginx.ingress.kubernetes.io/affinity" "cookie"
-    "nginx.ingress.kubernetes.io/affinity-mode" "persistent"
-    "nginx.ingress.kubernetes.io/session-cookie-name" "IDEGYM_AFFINITY"
-    "nginx.ingress.kubernetes.io/session-cookie-path" "/mcp"
-    "nginx.ingress.kubernetes.io/session-cookie-samesite" "Lax"
-    "nginx.ingress.kubernetes.io/session-cookie-expires" "86400"
-    "nginx.ingress.kubernetes.io/session-cookie-max-age" "86400"
-    "nginx.ingress.kubernetes.io/proxy-buffering" "off"
-    "nginx.ingress.kubernetes.io/proxy-read-timeout" "3600"
-    "nginx.ingress.kubernetes.io/proxy-send-timeout" "3600"
-  }}
-  {{- $annotations = merge $annotations $stickyAnnotations }}
-  {{- end }}
-  {{- with $annotations }}
+  {{- with .Values.ingress.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
