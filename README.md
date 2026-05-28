@@ -17,6 +17,7 @@ Think of it as **GitHub Codespaces for RL training** — but designed for thousa
 - **Full observability** — built-in Prometheus metrics, Grafana dashboards, and distributed tracing via Tempo
 - **MCP interface** — the orchestrator exposes an MCP server at `/mcp`; agents can discover and call all IdeGYM operations as MCP tools without touching the REST API directly; see [MCP Server](documentation/mcp.md)
 - **IDE integration** — optional IntelliJ IDEA and PyCharm plugins add live code inspection endpoints and typed client methods for IDE-aware environments; see [Tools Reference](documentation/tools.md#ide-inspection-inspectsh)
+- **Pod checkpoint/restore** — snapshot a warmed-up server pod and restore future pods from it, skipping cold-start work like project indexing; see [Pod Snapshots](orchestrator/README.md#pod-snapshots-checkpointrestore)
 - **Fast iteration** — local development with Minikube mirrors the production Kubernetes setup
 
 ## Documentation
