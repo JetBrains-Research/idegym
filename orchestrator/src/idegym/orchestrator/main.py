@@ -125,7 +125,11 @@ def create_app() -> FastAPI:
         config=config,
         get_http_client=lambda: app.state.http_client,
     )
-    mcp_app = mcp.http_app(path="/", json_response=config.orchestrator.mcp.json_response)
+    mcp_app = mcp.http_app(
+        path="/",
+        json_response=config.orchestrator.mcp.json_response,
+        stateless_http=config.orchestrator.mcp.stateless_http,
+    )
     app.router.lifespan_context = combine_lifespans(lifespan, mcp_app.lifespan)
     app.add_middleware(TracingMiddleware)
     app.add_middleware(AsyncioTaskContextMiddleware)

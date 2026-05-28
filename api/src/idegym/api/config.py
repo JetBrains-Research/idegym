@@ -158,6 +158,17 @@ class MCPConfig(BaseModel):
         ),
         default=True,
     )
+    stateless_http: bool = Field(
+        description=(
+            "Run the FastMCP HTTP app in stateless mode: every request gets a fresh "
+            "transport with no server-side session state, so the Mcp-Session-Id "
+            "header is not used for routing. This removes the need for sticky "
+            "sessions across orchestrator replicas/workers. Disable only if you "
+            "need session-mode features (SSE event resumability) and have an "
+            "ingress that pins by Mcp-Session-Id."
+        ),
+        default=True,
+    )
 
 
 class WatcherConfig(BaseModel):

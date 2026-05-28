@@ -17,6 +17,10 @@ deployment:
   otel:
     tracing: { }
   replicas: 4
+  # MCP session state is stored in-memory per uvicorn worker process. As long as
+  # `mcp.statelessHttp` is true every request is independent, so this can be
+  # raised freely. If `mcp.statelessHttp` is set to false, this must stay at 1
+  # or all session-mode requests need to be pinned to one worker.
   uvicornWorkers: 1
   mcp:
     # Force the FastMCP HTTP app to reply with application/json instead of
@@ -25,6 +29,17 @@ deployment:
     # are accepted by every compliant MCP client. Set to false to re-enable
     # streaming responses once all target clients are known to support them.
     jsonResponse: true
+    # Run the FastMCP HTTP app in stateless mode: every request gets a fresh
+    # transport, no server-side session state, no Mcp-Session-Id routing. With
+    # this on, sticky sessions and single-worker pods are unnecessary. Disable
+    # only if you need session-mode features (SSE event resumability) — then
+    # also set `mcp.stickySessions: true` and keep `uvicornWorkers: 1`.
+    statelessHttp: true
+    # Add nginx ingress annotations that pin MCP sessions to a pod via
+    # consistent hashing on the Mcp-Session-Id header (with a cookie-affinity
+    # fallback). Only needed when `mcp.statelessHttp` is false. Has no effect
+    # unless `ingress.enabled` is also true.
+    stickySessions: false
   sqlalchemy:
     pool:
       size: ""
@@ -58,33 +73,9 @@ service:
 
 ingress:
   enabled: false
-  annotations:
-    # MCP Streamable HTTP stores session state in-memory per uvicorn worker.
-    # With replicas > 1 we pin a session to a pod via consistent hashing on the
-    # Mcp-Session-Id header — the protocol-level session identifier that every
-    # compliant MCP client echoes back after `initialize`. This works regardless
-    # of whether the client preserves cookies.
-    #
-    # This pins a session to a POD, not to a worker process inside the pod, so
-    # `deployment.uvicornWorkers` must stay at 1 until MCP session state moves
-    # to a shared store (e.g. a Redis-backed event store).
-    nginx.ingress.kubernetes.io/upstream-hash-by: "$http_mcp_session_id"
-    # Cookie affinity as a belt-and-suspenders fallback for clients that do
-    # preserve cookies. Scoped to /mcp because the orchestrator REST endpoints
-    # are stateless. `affinity-mode: persistent` prevents rebalancing when the
-    # endpoint set changes (scale, rolling restart).
-    nginx.ingress.kubernetes.io/affinity: "cookie"
-    nginx.ingress.kubernetes.io/affinity-mode: "persistent"
-    nginx.ingress.kubernetes.io/session-cookie-name: "IDEGYM_AFFINITY"
-    nginx.ingress.kubernetes.io/session-cookie-path: "/mcp"
-    nginx.ingress.kubernetes.io/session-cookie-samesite: "Lax"
-    nginx.ingress.kubernetes.io/session-cookie-expires: "86400"
-    nginx.ingress.kubernetes.io/session-cookie-max-age: "86400"
-    # Streamable HTTP holds long-lived responses; disable response buffering
-    # and extend proxy timeouts so streams aren't cut short by the ingress.
-    nginx.ingress.kubernetes.io/proxy-buffering: "off"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+  # Extra ingress annotations. MCP sticky-session annotations are injected
+  # automatically by the template when `deployment.mcp.stickySessions` is true.
+  annotations: { }
   className: ""
   host: ""
   tls:
