@@ -73,15 +73,15 @@ podSnapshot:
   enabled: false
   serviceAccount:
     create: true
-    name: "idegym"
+    name: ""
     annotations: { }
   # The keys below mirror the GKE PodSnapshotPolicy / PodSnapshotStorageConfig CRD spec verbatim;
   # see https://docs.cloud.google.com/kubernetes-engine/docs/concepts/pod-snapshots for the full field reference.
   snapshotStorageConfig:
     gcs:
-      bucket: my-idegym-snapshots
-      path: snapshots
-      tokenSource: podKSA
+      bucket: ""
+      path: ""
+      tokenSource: ""
   retentionConfig:
     lastAccessTimeout: 7d
   snapshotGroupingRules:
