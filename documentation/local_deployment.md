@@ -301,20 +301,6 @@ Use a privileged job to push it from Minikube's containerd to the registry:
 > The e2e tests handle all of this automatically. If you just want to run the test suite,
 > follow [E2E Tests](../e2e-tests/README.md) instead.
 
-### Deploy the local kustomize overlay
-
-The e2e tests provide a kustomize overlay that configures the cluster for local builds:
-
-```shell
-kubectl apply -k e2e-tests/config/
-```
-
-This overlay:
-- Sets the namespace to `idegym-local`
-- Configures `ImagePullPolicy: IfNotPresent` (uses locally loaded images)
-- Sets the ingress host to `idegym-local.test`
-- Configures Kaniko to use the cluster-internal registry
-
 ### Configure host access
 
 ```shell
