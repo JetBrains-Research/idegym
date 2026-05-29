@@ -944,6 +944,7 @@ async def save_snapshot_prepare_batch(
         total_requested=len(jobs),
     )
     db.add(prepare_record)
+    await db.flush()
     for job in jobs:
         db.add(
             SnapshotJobRecord(
