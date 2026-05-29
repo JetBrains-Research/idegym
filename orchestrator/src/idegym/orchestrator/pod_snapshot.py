@@ -126,10 +126,8 @@ class PodSnapshotService:
             if condition:
                 triggered = condition.get("status") == "True"
                 if triggered:
-                    internal_name = ((obj.get("status") or {}).get("snapshotCreated") or {}).get("name") or ""
-                    logger.info(
-                        f"PodSnapshotManualTrigger '{trigger_name}' completed, snapshot name: '{internal_name}'"
-                    )
+                    logger.info(f"PodSnapshotManualTrigger '{trigger_name}' completed")
+                    time.sleep(3)   # Delay to ensure image got uploaded to the GCS
                     return
                 else:
                     message = condition.get("message") or condition.get("reason") or "unknown reason"
