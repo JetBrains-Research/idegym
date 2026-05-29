@@ -54,5 +54,4 @@ pod_snapshot:
 enable_fifo_server_reuse: ${oc.env:IDEGYM_ENABLE_FIFO_SERVER_REUSE, "False"}
 
 mcp:
-  json_response: ${oc.env:IDEGYM_MCP_JSON_RESPONSE, "True"}
   stateless_http: ${oc.env:IDEGYM_MCP_STATELESS_HTTP, "True"}

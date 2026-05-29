@@ -83,8 +83,6 @@ spec:
             {{- end }}
             - name: IDEGYM_UVICORN_WORKERS
               value: {{ .Values.deployment.uvicornWorkers | quote }}
-            - name: IDEGYM_MCP_JSON_RESPONSE
-              value: {{ .Values.deployment.mcp.jsonResponse | quote | title }}
             - name: IDEGYM_MCP_STATELESS_HTTP
               value: {{ .Values.deployment.mcp.statelessHttp | quote | title }}
             {{- with .Values.deployment.sqlalchemy.pool }}

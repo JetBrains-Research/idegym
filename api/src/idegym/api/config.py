@@ -149,15 +149,6 @@ class PodSnapshotConfig(BaseModel):
 
 
 class MCPConfig(BaseModel):
-    json_response: bool = Field(
-        description=(
-            "Force the FastMCP HTTP app to reply with application/json instead of "
-            "text/event-stream. Some clients (e.g. older Codex builds) do not handle "
-            "the SSE-style streamable HTTP transport correctly; enabling this returns "
-            "a single JSON body per response, which every MCP client accepts."
-        ),
-        default=True,
-    )
     stateless_http: bool = Field(
         description=(
             "Run the FastMCP HTTP app in stateless mode: every request gets a fresh "

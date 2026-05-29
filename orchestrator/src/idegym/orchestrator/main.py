@@ -127,7 +127,6 @@ def create_app() -> FastAPI:
     )
     mcp_app = mcp.http_app(
         path="/",
-        json_response=config.orchestrator.mcp.json_response,
         stateless_http=config.orchestrator.mcp.stateless_http,
     )
     app.router.lifespan_context = combine_lifespans(lifespan, mcp_app.lifespan)

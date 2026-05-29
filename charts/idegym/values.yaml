@@ -23,12 +23,6 @@ deployment:
   # or all session-mode requests need to be pinned to one worker.
   uvicornWorkers: 1
   mcp:
-    # Force the FastMCP HTTP app to reply with application/json instead of
-    # text/event-stream (streamable HTTP / SSE). Some clients (e.g. older Codex
-    # builds) do not handle the SSE-style transport correctly; JSON responses
-    # are accepted by every compliant MCP client. Set to false to re-enable
-    # streaming responses once all target clients are known to support them.
-    jsonResponse: true
     # Run the FastMCP HTTP app in stateless mode: every request gets a fresh
     # transport, no server-side session state, no Mcp-Session-Id routing. With
     # this on, sticky sessions and single-worker pods are unnecessary. Disable
