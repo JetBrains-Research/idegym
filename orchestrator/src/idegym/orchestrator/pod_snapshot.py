@@ -62,15 +62,25 @@ class PodSnapshotService:
         )
         return pod_name, pod_uid, node_name
 
-    def validate_node_eligible_for_snapshot(self, node_name: Optional[str]) -> None:
-        # Heuristic: GKE auto-provisioned node names embed the instance family (e.g.
-        # "gke-...-nap-e2-standard-8-..."). Manually-named pools won't match and will pass through.
-        if node_name and "-e2-" in node_name:
+    async def validate_node_eligible_for_snapshot(self, node_name: Optional[str]) -> None:
+        if not node_name:
+            logger.debug("No node name available; skipping E2 instance type check")
+            return
+
+        async with async_kube_api() as (_, _, core, _, _):
+            node = await core.read_node(name=node_name)
+
+        labels = node.metadata.labels or {}
+        instance_type = labels.get("node.kubernetes.io/instance-type") or labels.get(
+            "beta.kubernetes.io/instance-type"
+        )
+
+        if instance_type and instance_type.startswith("e2-"):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(
-                    f"Server is not eligible for snapshot: node '{node_name}' appears to use a GCP E2 "
-                    f"instance type which does not support pod snapshots"
+                    f"Server is not eligible for snapshot: node '{node_name}' uses GCP E2 instance type "
+                    f"'{instance_type}' which does not support pod snapshots"
                 ),
             )
 
@@ -159,7 +169,7 @@ class PodSnapshotService:
 
     async def snapshot_server(self, server_name: str) -> None:
         pod_name, pod_uid, node_name = await self.get_pod_for_server(server_name)
-        self.validate_node_eligible_for_snapshot(node_name)
+        await self.validate_node_eligible_for_snapshot(node_name)
         trigger_name = await self.create_trigger(server_name=server_name, pod_name=pod_name, pod_uid=pod_uid)
         try:
             await self.wait_for_completion(trigger_name)
