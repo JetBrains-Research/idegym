@@ -137,7 +137,7 @@ class PodSnapshotService:
                 triggered = condition.get("status") == "True"
                 if triggered:
                     logger.info(f"PodSnapshotManualTrigger '{trigger_name}' completed")
-                    time.sleep(3)   # Delay to ensure image got uploaded to the GCS
+                    await asyncio.sleep(3)  # Delay to ensure image got uploaded to the GCS
                     return
                 else:
                     message = condition.get("message") or condition.get("reason") or "unknown reason"
