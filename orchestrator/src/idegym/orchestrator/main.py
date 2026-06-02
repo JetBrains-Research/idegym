@@ -27,7 +27,6 @@ from idegym.orchestrator.router import (
     server,
     snapshot,
 )
-from idegym.orchestrator.watcher import cleanup_inactive_pods
 from idegym.utils import __version__
 from idegym.utils.logging import get_logger
 from omegaconf import OmegaConf
@@ -76,12 +75,6 @@ async def lifespan(app: FastAPI):
         clean_database=config.orchestrator.database.clean_database,
     )
 
-    cleanup_task = create_task(
-        name="idegym-inactive-pods-cleanup",
-        coro=cleanup_inactive_pods(config.orchestrator.watcher),
-    )
-    logger.info("Started background task to cleanup inactive pods!")
-
     get_event_loop().set_debug(config.orchestrator.asyncio.debug)
     coroutine_dump_task = create_task(
         name="idegym-coroutine-dump",
@@ -111,9 +104,8 @@ async def lifespan(app: FastAPI):
         logger.info("Closing HTTP client...")
     logger.info("HTTP client closed!")
 
-    cleanup_task.cancel()
     coroutine_dump_task.cancel()
-    await gather(cleanup_task, coroutine_dump_task)
+    await gather(coroutine_dump_task)
 
 
 def create_app() -> FastAPI:

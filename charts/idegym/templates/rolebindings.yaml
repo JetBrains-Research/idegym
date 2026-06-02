@@ -11,3 +11,19 @@ roleRef:
   kind: Role
   name: {{ include "idegym.fullname" . }}
   apiGroup: rbac.authorization.k8s.io
+{{- if .Values.watcher.enabled }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "idegym.watcher.fullname" . }}
+  labels:
+    {{- include "idegym.watcher.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "idegym.watcher.serviceAccountName" . }}
+roleRef:
+  kind: Role
+  name: {{ include "idegym.fullname" . }}
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}

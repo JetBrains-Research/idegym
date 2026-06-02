@@ -23,6 +23,7 @@ members = [
     "idegym-rewards",
     "idegym-server",
     "idegym-tools",
+    "idegym-watcher",
 ]
 
 [[package]]
@@ -1287,7 +1288,7 @@ requires-dist = [
     { name = "idegym-api", editable = "api" },
     { name = "jinja2", specifier = ">=3.1.6" },
     { name = "kubernetes-asyncio", specifier = ">=32.3.2" },
-    { name = "opentelemetry-api", specifier = ">=1.42.1" },
+    { name = "opentelemetry-api", specifier = ">=1.36.0" },
     { name = "opentelemetry-exporter-otlp", specifier = ">=1.36.0" },
     { name = "opentelemetry-exporter-prometheus", specifier = ">=0.57b0" },
     { name = "opentelemetry-sdk", specifier = ">=1.36.0" },
@@ -1408,7 +1409,7 @@ requires-dist = [
     { name = "asyncpg", specifier = ">=0.30.0" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.135.2" },
     { name = "fastmcp", specifier = ">=3.3.1" },
-    { name = "greenlet", specifier = ">=3.5.1" },
+    { name = "greenlet", specifier = ">=3.2.1" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "idegym-api", editable = "api" },
     { name = "idegym-backend-utils", editable = "backend-utils" },
@@ -1606,6 +1607,31 @@ requires-dist = [
     { name = "idegym-backend-utils", editable = "backend-utils" },
 ]
 provides-extras = ["server"]
+
+[[package]]
+name = "idegym-watcher"
+version = "0.0.0.dev0"
+source = { editable = "watcher" }
+dependencies = [
+    { name = "fastapi", extra = ["standard"] },
+    { name = "idegym-api" },
+    { name = "idegym-backend-utils" },
+    { name = "idegym-common-utils" },
+    { name = "idegym-orchestrator" },
+    { name = "pydantic" },
+    { name = "uvicorn" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", extras = ["standard"], specifier = ">=0.135.2" },
+    { name = "idegym-api", editable = "api" },
+    { name = "idegym-backend-utils", editable = "backend-utils" },
+    { name = "idegym-common-utils", editable = "common-utils" },
+    { name = "idegym-orchestrator", editable = "orchestrator" },
+    { name = "pydantic", specifier = ">=2.10.6" },
+    { name = "uvicorn", specifier = ">=0.35.0" },
+]
 
 [[package]]
 name = "identify"
