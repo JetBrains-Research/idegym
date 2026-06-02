@@ -312,7 +312,79 @@ receive a preferred node affinity and toleration matching the configured key.
 
 ---
 
-## MCP Sessions and Ingress Affinity
+## Step 10: Pod Snapshots (GKE only, Optional)
+
+IdeGYM can checkpoint a running server pod and restore future pods from that snapshot, skipping cold-start work.
+See [Orchestrator → Pod Snapshots](../orchestrator/README.md#pod-snapshots-checkpointrestore) for the API surface
+and how the snapshot/restore flow is modelled. This section covers what you need on the cluster side.
+
+The feature is built on [GKE pod snapshots](https://docs.cloud.google.com/kubernetes-engine/docs/concepts/pod-snapshots)
+and is therefore **GKE-only**. The snapshot-related resources rendered by the chart live under
+[`charts/idegym/templates/podsnapshot*.yaml`](../charts/idegym/templates) and are all gated on the
+`podsnapshot.gke.io/v1` API being available.
+
+### Prerequisites
+
+Follow the [GKE pod snapshots guide](https://docs.cloud.google.com/kubernetes-engine/docs/how-to/pod-snapshots)
+end-to-end — it covers the cluster-side prerequisites. Before continuing, confirm
+you have:
+
+- [Pod snapshots enabled on the cluster](https://docs.cloud.google.com/kubernetes-engine/docs/how-to/pod-snapshots#enable).
+- [A GCS bucket created for the checkpoints](https://docs.cloud.google.com/kubernetes-engine/docs/how-to/pod-snapshots#create-bucket).
+- [The GKE pod-snapshot controller (`service-<project-number>@container-engine-robot.iam.gserviceaccount.com`)
+  granted the role required by the GKE guide on that bucket](https://docs.cloud.google.com/kubernetes-engine/docs/how-to/pod-snapshots#grant-controller-permissions).
+- [The Kubernetes ServiceAccount the chart will create for snapshot-enabled pods
+  granted the IAM permissions the GKE guide requires on the bucket](https://docs.cloud.google.com/kubernetes-engine/docs/how-to/pod-snapshots#grant-permissions).
+
+### Enable the feature
+
+Set `podSnapshot.enabled=true` and point the chart at your bucket. The shape under `podSnapshot.snapshotStorageConfig`,
+`podSnapshot.retentionConfig`, and `podSnapshot.snapshotGroupingRules` mirrors the GKE
+[`PodSnapshotPolicy`](https://docs.cloud.google.com/kubernetes-engine/docs/concepts/pod-snapshots) /
+`PodSnapshotStorageConfig` CRD spec verbatim, so all GKE-documented fields work without translation.
+
+Minimal example — overlay only what differs from the chart defaults in
+[`charts/idegym/values.yaml`](../charts/idegym/values.yaml):
+
+```yaml
+podSnapshot:
+  enabled: true
+  serviceAccount:
+    name: idegym
+  snapshotStorageConfig:
+    gcs:
+      bucket: my-idegym-snapshots
+      path: snapshots
+      tokenSource: podKSA
+```
+
+The chart then renders the `PodSnapshotPolicy`, the `PodSnapshotStorageConfig`, and a Kubernetes `ServiceAccount`
+for snapshot-enabled pods.
+
+It also wires `IDEGYM_POD_SNAPSHOT_ENABLED=True` and `IDEGYM_POD_SNAPSHOT_SERVICE_ACCOUNT_NAME=<KSA>` on the
+orchestrator deployment — the first gates the snapshot endpoints, the second is the KSA the orchestrator attaches
+to every sandbox pod it creates.
+
+> [!NOTE]
+> See [GKE pod snapshots — Limitations](https://docs.cloud.google.com/kubernetes-engine/docs/concepts/pod-snapshots#limitations)
+> for the full list of GKE-side constraints (node types, runtime class, etc.).
+> For best restore latency, keep the GCS bucket in the same region as the cluster.
+
+### Verify
+
+```shell
+kubectl get podsnapshotpolicy,podsnapshotstorageconfig -n idegym
+```
+
+Snapshot a running server via the client and confirm it shows up in the bucket:
+
+```python
+response = await client.snapshot_server(server_id=...)
+print(response.snapshot_id)
+```
+
+---
+## Step 11: MCP Sessions and Ingress Affinity
 
 By default the orchestrator runs FastMCP's HTTP app in **stateless mode**
 (`deployment.mcp.statelessHttp: true`): every request gets a fresh transport, with no server-side
@@ -502,3 +574,10 @@ response = httpx.get("https://idegym.yourdomain.com/health", headers=headers)
 - [ ] `deployment.resources` populated with appropriate requests/limits for your workload
 - [ ] Backup strategy for PostgreSQL persistent volume
 - [ ] gVisor runtime class available on nodes if using sandboxed containers
+- If using pod snapshots:
+    - [ ] GKE pod-snapshot feature enabled on the cluster
+    - [ ] GCS bucket provisioned
+    - [ ] WIF configured for KSA
+    - [ ] Bucket IAM configured
+    - [ ] Enable feature gate with `podSnapshot.enabled=true`
+    - [ ] Mirror the bucket and KSA names from the GCP setup in podSnapshot values

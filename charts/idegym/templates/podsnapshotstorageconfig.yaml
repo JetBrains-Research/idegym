@@ -6,9 +6,8 @@ metadata:
   labels:
     {{- include "idegym.labels" . | nindent 4 }}
 spec:
-  {{- with .Values.podSnapshot.storage }}
+  {{- with .Values.podSnapshot.snapshotStorageConfig }}
   snapshotStorageConfig:
-    gcs:
-      {{- toYaml . | nindent 6 }}
+    {{- toYaml . | nindent 4 }}
   {{- end }}
 {{- end }}

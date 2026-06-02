@@ -3,9 +3,11 @@ from uuid import UUID
 
 from idegym.api.capabilities import CapabilitiesResponse
 from idegym.api.orchestrator.servers import (
+    ErrorResponse,
     ServerActionResponse,
     ServerKind,
 )
+from idegym.api.orchestrator.snapshots import CreateSnapshotResponse
 from idegym.api.project.reset import ResetResult
 from idegym.api.rewards.compilation import CompilationResult
 from idegym.api.rewards.setup import SetupResult
@@ -150,6 +152,18 @@ class IdeGYMServer:
     async def _finish_server(self) -> ServerActionResponse:
         return await self.server.finish_server(
             server_id=self.server_id, client_id=self.client_id, namespace=self.namespace
+        )
+
+    async def snapshot(
+        self,
+        polling_config: Optional[PollingConfig] = None,
+    ) -> CreateSnapshotResponse | ErrorResponse:
+        """Snapshot the running server pod."""
+        return await self.server.snapshot_server(
+            server_id=self.server_id,
+            client_id=self.client_id,
+            namespace=self.namespace,
+            polling_config=polling_config or self.polling_config,
         )
 
     async def reset_project(
