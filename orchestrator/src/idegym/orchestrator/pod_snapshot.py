@@ -28,12 +28,6 @@ class SnapshotFailedError(RuntimeError):
 class SnapshotTimeoutError(RuntimeError):
     """Raised when the PodSnapshotManualTrigger does not reach a terminal status within the configured timeout."""
 
-_NODE_INSTANCE_TYPE_LABELS = (
-    "node.kubernetes.io/instance-type",
-    "beta.kubernetes.io/instance-type",
-)
-
-
 class PodSnapshotService:
     """
     Drives the full lifecycle of a manual pod snapshot: create the trigger, wait for completion, delete the trigger.
@@ -77,7 +71,9 @@ class PodSnapshotService:
             node = await core.read_node(name=node_name)
 
         labels = node.metadata.labels or {}
-        instance_type = next((labels[label] for label in _NODE_INSTANCE_TYPE_LABELS if label in labels), None)
+        instance_type = labels.get("node.kubernetes.io/instance-type") or labels.get(
+            "beta.kubernetes.io/instance-type"
+        )
 
         if instance_type and instance_type.startswith("e2-"):
             raise HTTPException(
@@ -140,10 +136,8 @@ class PodSnapshotService:
             if condition:
                 triggered = condition.get("status") == "True"
                 if triggered:
-                    internal_name = ((obj.get("status") or {}).get("snapshotCreated") or {}).get("name") or ""
-                    logger.info(
-                        f"PodSnapshotManualTrigger '{trigger_name}' completed, snapshot name: '{internal_name}'"
-                    )
+                    logger.info(f"PodSnapshotManualTrigger '{trigger_name}' completed")
+                    await asyncio.sleep(3)  # Delay to ensure image got uploaded to the GCS
                     return
                 else:
                     message = condition.get("message") or condition.get("reason") or "unknown reason"
