@@ -1,7 +1,7 @@
 host: ${oc.env:IDEGYM_MANAGER_HOST, "0.0.0.0"}
 port: ${oc.env:IDEGYM_MANAGER_PORT, 8000}
 
-workers: ${oc.env:IDEGYM_UVICORN_WORKERS, 3}
+workers: ${oc.env:IDEGYM_UVICORN_WORKERS, 1}
 prometheus_multiproc_dir: ${oc.env:PROMETHEUS_MULTIPROC_DIR, ""}
 
 resources:
@@ -52,3 +52,6 @@ pod_snapshot:
   service_account_name: ${oc.env:IDEGYM_POD_SNAPSHOT_SERVICE_ACCOUNT_NAME, "idegym"}
 
 enable_fifo_server_reuse: ${oc.env:IDEGYM_ENABLE_FIFO_SERVER_REUSE, "False"}
+
+mcp:
+  stateless_http: ${oc.env:IDEGYM_MCP_STATELESS_HTTP, "True"}

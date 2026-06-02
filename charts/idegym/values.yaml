@@ -17,7 +17,15 @@ deployment:
   otel:
     tracing: { }
   replicas: 4
-  uvicornWorkers: 4
+  # Safe to raise when mcp.statelessHttp is true. With session mode
+  # (statelessHttp: false) this must stay at 1.
+  uvicornWorkers: 1
+  mcp:
+    # Stateless mode: each request gets a fresh transport, no server-side session
+    # state. Set false only for session-mode features (SSE resumability); you then
+    # must keep uvicornWorkers at 1 and pin ingress affinity. See "MCP Sessions and
+    # Ingress Affinity" in documentation/remote_deployment.md.
+    statelessHttp: true
   sqlalchemy:
     pool:
       size: ""
@@ -51,6 +59,10 @@ service:
 
 ingress:
   enabled: false
+  # Controller-specific annotations passed through verbatim. For session-mode MCP
+  # (deployment.mcp.statelessHttp: false) you must pin ingress affinity on the
+  # Mcp-Session-Id header; see "MCP Sessions and Ingress Affinity" in
+  # documentation/remote_deployment.md for a full ingress-nginx example.
   annotations: { }
   className: ""
   host: ""

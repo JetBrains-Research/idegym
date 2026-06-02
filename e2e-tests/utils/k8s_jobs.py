@@ -91,6 +91,87 @@ async def _get_job_logs(core: CoreV1Api, job_name: str, namespace: str) -> Optio
         return None
 
 
+async def _collect_pod_diagnostics(core: CoreV1Api, pod, namespace: str) -> str:
+    """Build a human-readable diagnostics string for a single pod.
+
+    Collects phase, conditions, container statuses (with restart counts and
+    waiting/terminated reasons), recent pod events, and container logs. When a
+    container has restarted (crash loop), the previous container's logs are also
+    fetched since the current logs are often empty right after a restart.
+    """
+    pod_name = pod.metadata.name
+    phase = pod.status.phase if pod.status else "Unknown"
+
+    # Collect pod conditions for scheduling/readiness diagnosis
+    conditions_info = ""
+    if pod.status and pod.status.conditions:
+        condition_lines = [f"  {c.type}={c.status} reason={c.reason} msg={c.message}" for c in pod.status.conditions]
+        conditions_info = "\n".join(condition_lines)
+
+    # Collect per-container statuses (restart counts, waiting/terminated reasons)
+    container_info = ""
+    restarted_containers: list[str] = []
+    if pod.status and pod.status.container_statuses:
+        container_lines = []
+        for cs in pod.status.container_statuses:
+            state_desc = "running"
+            state = cs.state
+            if state and state.waiting:
+                state_desc = f"waiting reason={state.waiting.reason} msg={state.waiting.message}"
+            elif state and state.terminated:
+                state_desc = (
+                    f"terminated reason={state.terminated.reason} "
+                    f"exit_code={state.terminated.exit_code} msg={state.terminated.message}"
+                )
+            container_lines.append(f"  {cs.name} ready={cs.ready} restarts={cs.restart_count} state={state_desc}")
+            if cs.restart_count:
+                restarted_containers.append(cs.name)
+        container_info = "\n".join(container_lines)
+
+    # Collect recent pod events
+    events_info = ""
+    try:
+        events = await core.list_namespaced_event(
+            namespace=namespace,
+            field_selector=f"involvedObject.name={pod_name}",
+        )
+        if events.items:
+            event_lines = [
+                f"  [{e.reason}] {e.message}"
+                for e in sorted(events.items, key=lambda x: x.last_timestamp or x.event_time or datetime.min)[-10:]
+            ]
+            events_info = "\n".join(event_lines)
+    except ApiException as e:
+        events_info = f"  (failed to collect events: {e})"
+
+    try:
+        logs = await core.read_namespaced_pod_log(name=pod_name, namespace=namespace)
+    except ApiException as e:
+        logs = f"(failed to get logs: {e})"
+
+    # For crash-looping containers, the current logs are usually empty, so also
+    # pull the previous container instance's logs which contain the crash reason.
+    previous_logs = ""
+    for container_name in restarted_containers:
+        try:
+            prev = await core.read_namespaced_pod_log(
+                name=pod_name, namespace=namespace, container=container_name, previous=True
+            )
+            if prev:
+                previous_logs += f"\nprevious logs ({container_name}):\n{prev}"
+        except ApiException as e:
+            previous_logs += f"\nprevious logs ({container_name}): (failed to get: {e})"
+
+    return (
+        f"phase={phase}\n"
+        f"conditions:\n{conditions_info or '  (none)'}\n"
+        f"containers:\n{container_info or '  (none)'}\n"
+        f"events:\n{events_info or '  (none)'}\n"
+        f"logs:\n{logs or '  (empty)'}"
+        f"{previous_logs}"
+    )
+
+
 async def _get_all_server_pod_logs(core: CoreV1Api, namespace: str) -> dict[str, str]:
     logs_dict: dict[str, str] = {}
     try:
@@ -102,46 +183,44 @@ async def _get_all_server_pod_logs(core: CoreV1Api, namespace: str) -> dict[str,
             logger.warning(f"No sandbox pods found in namespace {namespace}")
             return logs_dict
         for pod in pods.items:
-            pod_name = pod.metadata.name
-            phase = pod.status.phase if pod.status else "Unknown"
-
-            # Collect pod conditions for scheduling/readiness diagnosis
-            conditions_info = ""
-            if pod.status and pod.status.conditions:
-                condition_lines = [
-                    f"  {c.type}={c.status} reason={c.reason} msg={c.message}" for c in pod.status.conditions
-                ]
-                conditions_info = "\n".join(condition_lines)
-
-            # Collect recent pod events
-            events_info = ""
-            try:
-                events = await core.list_namespaced_event(
-                    namespace=namespace,
-                    field_selector=f"involvedObject.name={pod_name}",
-                )
-                if events.items:
-                    event_lines = [
-                        f"  [{e.reason}] {e.message}"
-                        for e in sorted(events.items, key=lambda x: x.last_timestamp or x.event_time or datetime.min)[
-                            -10:
-                        ]
-                    ]
-                    events_info = "\n".join(event_lines)
-            except ApiException as e:
-                events_info = f"  (failed to collect events: {e})"
-
-            try:
-                logs = await core.read_namespaced_pod_log(name=pod_name, namespace=namespace)
-            except ApiException as e:
-                logs = f"(failed to get logs: {e})"
-
-            entry = f"phase={phase}\nconditions:\n{conditions_info or '  (none)'}\nevents:\n{events_info or '  (none)'}\nlogs:\n{logs or '  (empty)'}"
-            logs_dict[pod_name] = entry
+            logs_dict[pod.metadata.name] = await _collect_pod_diagnostics(core, pod, namespace)
         return logs_dict
     except ApiException as e:
         logger.warning(f"Failed to list sandbox pods: {e}")
         return logs_dict
+
+
+async def _get_namespace_pod_diagnostics(
+    core: CoreV1Api, namespace: str, label_selector: Optional[str] = None
+) -> dict[str, str]:
+    """Collect diagnostics for every pod in a namespace (optionally filtered by label)."""
+    diagnostics: dict[str, str] = {}
+    try:
+        pods = await core.list_namespaced_pod(namespace=namespace, label_selector=label_selector)
+        if not pods.items:
+            logger.warning(f"No pods found in namespace {namespace} (selector={label_selector or 'none'})")
+            return diagnostics
+        for pod in pods.items:
+            diagnostics[pod.metadata.name] = await _collect_pod_diagnostics(core, pod, namespace)
+        return diagnostics
+    except ApiException as e:
+        logger.warning(f"Failed to list pods in namespace {namespace}: {e}")
+        return diagnostics
+
+
+async def _get_namespace_events(core: CoreV1Api, namespace: str, limit: int = 30) -> list[str]:
+    """Return the most recent namespace-wide events as formatted strings."""
+    try:
+        events = await core.list_namespaced_event(namespace=namespace)
+        if not events.items:
+            return []
+        ordered = sorted(events.items, key=lambda x: x.last_timestamp or x.event_time or datetime.min)[-limit:]
+        return [
+            f"[{e.type}] {e.reason} ({e.involved_object.kind}/{e.involved_object.name}): {e.message}" for e in ordered
+        ]
+    except ApiException as e:
+        logger.warning(f"Failed to list events in namespace {namespace}: {e}")
+        return []
 
 
 async def create_job_from_yaml(yaml_content: str, namespace: str = KUBE_SYSTEM_NAMESPACE) -> V1Job:
@@ -177,6 +256,22 @@ async def get_job_logs(job_name: str, namespace: str = KUBE_SYSTEM_NAMESPACE) ->
 async def get_all_server_pod_logs(namespace: str = DEFAULT_NAMESPACE) -> dict[str, str]:
     async def _op(_batch: BatchV1Api, core: CoreV1Api) -> dict[str, str]:
         return await _get_all_server_pod_logs(core, namespace)
+
+    return await _with_clients(_op)
+
+
+async def get_namespace_pod_diagnostics(
+    namespace: str = DEFAULT_NAMESPACE, label_selector: Optional[str] = None
+) -> dict[str, str]:
+    async def _op(_batch: BatchV1Api, core: CoreV1Api) -> dict[str, str]:
+        return await _get_namespace_pod_diagnostics(core, namespace, label_selector)
+
+    return await _with_clients(_op)
+
+
+async def get_namespace_events(namespace: str = DEFAULT_NAMESPACE, limit: int = 30) -> list[str]:
+    async def _op(_batch: BatchV1Api, core: CoreV1Api) -> list[str]:
+        return await _get_namespace_events(core, namespace, limit)
 
     return await _with_clients(_op)
 

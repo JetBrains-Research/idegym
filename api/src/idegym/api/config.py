@@ -148,6 +148,20 @@ class PodSnapshotConfig(BaseModel):
     )
 
 
+class MCPConfig(BaseModel):
+    stateless_http: bool = Field(
+        description=(
+            "Run the FastMCP HTTP app in stateless mode: every request gets a fresh "
+            "transport with no server-side session state, so the Mcp-Session-Id "
+            "header is not used for routing. This removes the need for sticky "
+            "sessions across orchestrator replicas/workers. Disable only if you "
+            "need session-mode features (SSE event resumability) and have an "
+            "ingress that pins by Mcp-Session-Id."
+        ),
+        default=True,
+    )
+
+
 class WatcherConfig(BaseModel):
     cleanup_interval: Duration = Field(default=Duration(seconds=60))
     inactive_timeout: Duration = Field(
@@ -182,6 +196,7 @@ class OrchestratorConfig(BaseModel):
     resources: ResourcesConfig = Field(default_factory=ResourcesConfig)
     node_pool: NodePoolConfig = Field(default_factory=NodePoolConfig)
     watcher: WatcherConfig = Field(default_factory=WatcherConfig)
+    mcp: MCPConfig = Field(default_factory=MCPConfig)
     client_request_timeout: float = Field(
         description="Client request read timeout in seconds",
         default=60.0 * 60,  # 1 hour
