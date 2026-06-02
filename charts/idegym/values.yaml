@@ -17,18 +17,14 @@ deployment:
   otel:
     tracing: { }
   replicas: 4
-  # MCP session state is stored in-memory per uvicorn worker process. As long as
-  # `mcp.statelessHttp` is true every request is independent, so this can be
-  # raised freely. If `mcp.statelessHttp` is set to false, this must stay at 1
-  # or all session-mode requests need to be pinned to one worker.
+  # Safe to raise when mcp.statelessHttp is true. With session mode
+  # (statelessHttp: false) this must stay at 1.
   uvicornWorkers: 1
   mcp:
-    # Run the FastMCP HTTP app in stateless mode: every request gets a fresh
-    # transport, no server-side session state, no Mcp-Session-Id routing. With
-    # this on, sticky sessions and single-worker pods are unnecessary. Disable
-    # only if you need session-mode features (SSE event resumability) — in
-    # which case you must also configure ingress affinity by Mcp-Session-Id
-    # (see `ingress.annotations` for an example) and keep `uvicornWorkers: 1`.
+    # Stateless mode: each request gets a fresh transport, no server-side session
+    # state. Set false only for session-mode features (SSE resumability); you then
+    # must keep uvicornWorkers at 1 and pin ingress affinity. See "MCP Sessions and
+    # Ingress Affinity" in documentation/remote_deployment.md.
     statelessHttp: true
   sqlalchemy:
     pool:
@@ -63,47 +59,10 @@ service:
 
 ingress:
   enabled: false
-  # Controller-specific annotations passed through verbatim.
-  #
-  # If you run the orchestrator with `deployment.mcp.statelessHttp: false` and
-  # more than one replica/worker, every request within an MCP session MUST land
-  # on the same pod — session state lives in-memory per worker process. Without
-  # affinity, a request that hops to a different pod gets a "session not found"
-  # error and the client has to re-`initialize`.
-  #
-  # The protocol-level identifier to pin on is the `Mcp-Session-Id` header,
-  # which every compliant MCP client echoes back after `initialize`. Below is
-  # a full ingress-nginx example; other controllers (Traefik, HAProxy, Gateway
-  # API, etc.) expose equivalent primitives — header-based consistent hashing
-  # plus long-lived response handling. Consult your controller's docs.
-  #
-  # annotations:
-  #   # Pin a session to a backend pod via consistent hashing on the
-  #   # Mcp-Session-Id header. nginx exposes request headers as `$http_<name>`
-  #   # with dashes lowercased to underscores. This is header-driven (no cookie
-  #   # needed) and works for every MCP client.
-  #   nginx.ingress.kubernetes.io/upstream-hash-by: "$http_mcp_session_id"
-  #
-  #   # Cookie affinity as a belt-and-suspenders fallback for clients that
-  #   # preserve cookies (browsers, some SDKs). `affinity-mode: persistent`
-  #   # prevents rebalancing when the endpoint set changes (scale events,
-  #   # rolling restarts), so existing sessions stay on their pod. The cookie
-  #   # is scoped to /mcp because the orchestrator's REST endpoints are
-  #   # stateless and don't need affinity.
-  #   nginx.ingress.kubernetes.io/affinity: "cookie"
-  #   nginx.ingress.kubernetes.io/affinity-mode: "persistent"
-  #   nginx.ingress.kubernetes.io/session-cookie-name: "IDEGYM_AFFINITY"
-  #   nginx.ingress.kubernetes.io/session-cookie-path: "/mcp"
-  #   nginx.ingress.kubernetes.io/session-cookie-samesite: "Lax"
-  #   nginx.ingress.kubernetes.io/session-cookie-expires: "86400"
-  #   nginx.ingress.kubernetes.io/session-cookie-max-age: "86400"
-  #
-  #   # Streamable HTTP can hold long-lived responses (SSE-style). Disable
-  #   # response buffering so chunks reach the client immediately, and extend
-  #   # proxy timeouts so the ingress doesn't cut a stream short.
-  #   nginx.ingress.kubernetes.io/proxy-buffering: "off"
-  #   nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
-  #   nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+  # Controller-specific annotations passed through verbatim. For session-mode MCP
+  # (deployment.mcp.statelessHttp: false) you must pin ingress affinity on the
+  # Mcp-Session-Id header; see "MCP Sessions and Ingress Affinity" in
+  # documentation/remote_deployment.md for a full ingress-nginx example.
   annotations: { }
   className: ""
   host: ""

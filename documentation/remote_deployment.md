@@ -312,6 +312,64 @@ receive a preferred node affinity and toleration matching the configured key.
 
 ---
 
+## MCP Sessions and Ingress Affinity
+
+By default the orchestrator runs FastMCP's HTTP app in **stateless mode**
+(`deployment.mcp.statelessHttp: true`): every request gets a fresh transport, with no server-side
+session state and no `Mcp-Session-Id` routing. In this mode requests are independent, so you can
+raise `deployment.uvicornWorkers` and run multiple replicas freely — sticky sessions and
+single-worker pods are unnecessary.
+
+Disable stateless mode (`deployment.mcp.statelessHttp: false`) only if you need session-mode
+features such as SSE event resumability. MCP session state then lives in-memory per uvicorn worker
+process, so with more than one worker or replica every request within a session MUST land on the
+same worker and pod. Without affinity, a request that hops to a different pod gets a "session not
+found" error and the client has to re-`initialize`. Session mode therefore requires two things:
+
+1. `deployment.uvicornWorkers: 1`, so each pod runs a single worker process.
+2. Ingress affinity pinned on the `Mcp-Session-Id` header, which every compliant MCP client echoes
+   back after `initialize`.
+
+### ingress-nginx example
+
+The example below configures consistent hashing on the `Mcp-Session-Id` header (nginx exposes
+request headers as `$http_<name>` with dashes lowercased to underscores). Other controllers
+(Traefik, HAProxy, Gateway API, etc.) expose equivalent primitives — header-based consistent
+hashing plus long-lived response handling. Consult your controller's docs.
+
+```yaml
+ingress:
+  enabled: true
+  className: nginx
+  host: idegym.yourdomain.com
+  annotations:
+    # Pin a session to a backend pod via consistent hashing on the Mcp-Session-Id
+    # header. This is header-driven (no cookie needed) and works for every MCP client.
+    nginx.ingress.kubernetes.io/upstream-hash-by: "$http_mcp_session_id"
+
+    # Cookie affinity as a belt-and-suspenders fallback for clients that preserve
+    # cookies (browsers, some SDKs). `affinity-mode: persistent` prevents rebalancing
+    # when the endpoint set changes (scale events, rolling restarts), so existing
+    # sessions stay on their pod. The cookie is scoped to /mcp because the
+    # orchestrator's REST endpoints are stateless and don't need affinity.
+    nginx.ingress.kubernetes.io/affinity: "cookie"
+    nginx.ingress.kubernetes.io/affinity-mode: "persistent"
+    nginx.ingress.kubernetes.io/session-cookie-name: "IDEGYM_AFFINITY"
+    nginx.ingress.kubernetes.io/session-cookie-path: "/mcp"
+    nginx.ingress.kubernetes.io/session-cookie-samesite: "Lax"
+    nginx.ingress.kubernetes.io/session-cookie-expires: "86400"
+    nginx.ingress.kubernetes.io/session-cookie-max-age: "86400"
+
+    # Streamable HTTP can hold long-lived responses (SSE-style). Disable response
+    # buffering so chunks reach the client immediately, and extend proxy timeouts
+    # so the ingress doesn't cut a stream short.
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+```
+
+---
+
 ## Updating the Orchestrator
 
 To deploy a new version of the orchestrator:
