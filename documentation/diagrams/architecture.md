@@ -4,12 +4,6 @@ IdeGYM is a Python framework for creating disposable, scalable development
 environments for AI agents. The diagram below shows the high-level component
 topology and the main data/control flows.
 
-> **Note on IDE integrations:** PyCharm / IntelliJ are **not** orchestrator
-> clients. They run *inside* the disposable server pod as an in-container IDE
-> process that exposes an MCP upstream (`:6789`) and an inspection router; the
-> in-pod FastAPI server proxies them. The only external clients are the Python
-> client library and MCP-speaking AI agents.
-
 ```mermaid
 flowchart TB
     subgraph clients["Clients"]
