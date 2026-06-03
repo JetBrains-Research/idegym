@@ -1,3 +1,4 @@
+import asyncio
 import subprocess
 import time
 from collections.abc import Iterator
@@ -22,6 +23,7 @@ from utils.constants import (
     POSTGRESQL_DB,
     POSTGRESQL_USER,
 )
+from utils.k8s_jobs import get_namespace_events, get_namespace_pod_diagnostics
 
 logger = get_logger(__name__)
 
@@ -179,6 +181,80 @@ def wait_for_service(timeout: int = DEFAULT_HEALTH_CHECK_TIMEOUT, check_interval
     return False
 
 
+def _probe_connectivity() -> None:
+    """Probe the network path to the orchestrator to localise where it breaks.
+
+    The request path in CI is:
+        BASE_URL (idegym-local.test:80) -> /etc/hosts 127.0.0.1 -> kubectl port-forward
+        -> ingress-nginx-controller -> orchestrator service
+
+    Hitting localhost:80 without the ingress Host header exercises only the
+    port-forward + ingress controller (it should answer, typically with a 404
+    default backend). A connection error there points at a dead port-forward or
+    ingress controller rather than at the orchestrator itself.
+    """
+    logger.error("--- Connectivity probe ---")
+
+    # Port-forward + ingress controller reachability (no orchestrator involved).
+    try:
+        resp = requests.get("http://localhost:80/", timeout=5)
+        logger.error(
+            f"port-forward+ingress (http://localhost:80/) reachable: HTTP {resp.status_code} "
+            f"(a 404 default-backend response is expected here and means the path is up)"
+        )
+    except requests.exceptions.RequestException as exc:
+        logger.error(
+            f"port-forward+ingress (http://localhost:80/) UNREACHABLE: {exc}. "
+            f"The 'kubectl port-forward ... svc/ingress-nginx-controller 80:80' process is likely "
+            f"not running or the ingress controller is down."
+        )
+
+    # Full path including the ingress Host route to the orchestrator.
+    try:
+        resp = requests.get(f"{BASE_URL}/health", timeout=5)
+        logger.error(f"orchestrator ({BASE_URL}/health) responded: HTTP {resp.status_code} body={resp.text[:500]!r}")
+    except requests.exceptions.RequestException as exc:
+        logger.error(f"orchestrator ({BASE_URL}/health) UNREACHABLE: {exc}")
+
+
+def log_environment_diagnostics() -> None:
+    """Dump pod, container, event, and connectivity diagnostics for a failed setup.
+
+    Called when the orchestrator never becomes responsive so the CI logs explain
+    *why* (crash-looping orchestrator, image pull errors, pending postgres,
+    broken port-forward, ...) instead of just reporting a timeout.
+    """
+    logger.error("=" * 80)
+    logger.error("ENVIRONMENT DIAGNOSTICS (service did not become responsive)")
+    logger.error("=" * 80)
+
+    _probe_connectivity()
+
+    try:
+        pod_diagnostics = asyncio.run(get_namespace_pod_diagnostics(namespace=DEFAULT_NAMESPACE))
+        if pod_diagnostics:
+            logger.error(f"--- Pods in namespace {DEFAULT_NAMESPACE} ---")
+            for pod_name, diagnostics in pod_diagnostics.items():
+                logger.error(f"Pod {pod_name}:\n{diagnostics}")
+        else:
+            logger.error(f"No pods found in namespace {DEFAULT_NAMESPACE}")
+    except Exception as exc:
+        logger.error(f"Failed to collect pod diagnostics: {exc}", exc_info=True)
+
+    try:
+        events = asyncio.run(get_namespace_events(namespace=DEFAULT_NAMESPACE))
+        if events:
+            logger.error(f"--- Recent events in namespace {DEFAULT_NAMESPACE} ---")
+            for event in events:
+                logger.error(event)
+        else:
+            logger.error(f"No events found in namespace {DEFAULT_NAMESPACE}")
+    except Exception as exc:
+        logger.error(f"Failed to collect namespace events: {exc}", exc_info=True)
+
+    logger.error("=" * 80)
+
+
 _DB_RESET_SQL = (
     "TRUNCATE async_operations, job_statuses, servers, clients RESTART IDENTITY CASCADE; "
     "DELETE FROM resource_limit_rules WHERE client_name_regex != '.*'; "
@@ -220,11 +296,22 @@ def setup_kubernetes_environment(reuse_resources: bool = False, clean_namespace:
     if not reuse_resources:
         logger.info("Setting up Kubernetes environment...")
         ensure_ingress_loadbalancer()
-        apply_kubernetes_resources()
+        try:
+            apply_kubernetes_resources()
+        except subprocess.CalledProcessError:
+            # `helm upgrade --install --wait` timed out or failed (e.g. a pod never
+            # became ready). Dump diagnostics before propagating so CI logs explain why.
+            logger.error("Helm install failed; collecting environment diagnostics...")
+            log_environment_diagnostics()
+            raise
     else:
         logger.info("Reusing existing Kubernetes resources")
 
-    return wait_for_service()
+    if wait_for_service():
+        return True
+
+    log_environment_diagnostics()
+    return False
 
 
 def wait_for_pod_deleted(

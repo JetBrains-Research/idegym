@@ -1,6 +1,19 @@
 """PostgreSQL container fixtures, scoped to the database integration tests."""
 
-import pytest
+import os
+
+# testcontainers ships a Ryuk sidecar that reaps tracked containers if its
+# heartbeat socket goes quiet for RYUK_RECONNECTION_TIMEOUT (default 10s).
+# With pytest-asyncio rebuilding event loops per test and pytest-randomly
+# reordering files, that 10s window is regularly exceeded between modules,
+# causing the postgres container to vanish mid-session and every subsequent
+# test to fail with a connection-refused on the cached mapped port. The
+# `pg_container` fixture below already stops the container in its finally
+# block, so Ryuk has nothing to clean up. Must be set before any
+# `testcontainers` import.
+os.environ.setdefault("TESTCONTAINERS_RYUK_DISABLED", "true")
+
+import pytest  # noqa: E402
 
 _PG_IMAGE = "postgres:16"
 
