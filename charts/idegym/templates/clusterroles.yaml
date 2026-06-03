@@ -1,0 +1,12 @@
+{{- if .Values.podSnapshot.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "idegym.fullname" . }}-node-reader
+  labels:
+    {{- include "idegym.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get"]
+{{- end }}
