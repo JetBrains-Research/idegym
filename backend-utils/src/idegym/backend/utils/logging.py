@@ -60,6 +60,14 @@ def configure_logging(config: LoggingConfig = LoggingConfig()):
     root_logger = create_or_get_logger()
     root_logger.setLevel(config.level)
 
+    # configure_logging can run more than once in a single process: main() configures logging
+    # before uvicorn starts, then the uvicorn app factory calls it again via configure_process
+    # (with workers=1 the app runs in-process). Drop handlers from any previous run so each log
+    # line is emitted once instead of once per accumulated handler.
+    for handler in list(root_logger.handlers):
+        root_logger.removeHandler(handler)
+        handler.close()
+
     console_handler = StreamHandler(stdout)
     console_handler.setFormatter(_create_formatter(renderer=renderer, processors=processors))
     root_logger.addHandler(console_handler)
