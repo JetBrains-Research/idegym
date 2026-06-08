@@ -13,10 +13,10 @@ dependencies:
     repository: oci://registry-1.docker.io/bitnamicharts
     condition: postgresql.enabled
   - name: prometheus
-    version: 29.8.0
+    version: 29.9.0
     repository: oci://ghcr.io/prometheus-community/charts
     condition: prometheus.enabled
   - name: tempo
-    version: 2.1.2
+    version: 2.2.0
     repository: oci://ghcr.io/grafana-community/helm-charts
     condition: tempo.enabled
