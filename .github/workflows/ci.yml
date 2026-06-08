@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Install Docker
-        uses: docker/setup-docker-action@v5.1.0
+        uses: docker/setup-docker-action@v5.2.0
 
       - name: Install Docker Buildx
         uses: docker/setup-buildx-action@v4
