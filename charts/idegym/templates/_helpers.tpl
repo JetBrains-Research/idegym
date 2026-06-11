@@ -121,47 +121,47 @@ Written at base indentation; include with `nindent 12` into a container env list
 */}}
 {{- define "idegym.databaseEnv" -}}
 - name: POSTGRES_DB
-  {{- if .Values.deployment.database.name }}
-  {{- include "idegym.envSource" .Values.deployment.database.name | nindent 2 }}
+  {{- if .Values.database.name }}
+  {{- include "idegym.envSource" .Values.database.name | nindent 2 }}
   {{- else if .Values.postgresql.enabled }}
   value: {{ include "idegym.subchart.postgresql.v1.database" . | quote }}
   {{- else }}
-  {{- required "Database name must be specified!" .Values.deployment.database.name }}
+  {{- required "Database name must be specified!" .Values.database.name }}
   {{- end }}
 - name: POSTGRES_HOST
-  {{- if .Values.deployment.database.host }}
-  {{- include "idegym.envSource" .Values.deployment.database.host | nindent 2 }}
+  {{- if .Values.database.host }}
+  {{- include "idegym.envSource" .Values.database.host | nindent 2 }}
   {{- else if .Values.postgresql.enabled }}
   value: {{ include "idegym.subchart.postgresql.v1.primary.fullname" . | quote }}
   {{- else }}
-  {{- required "Database host must be specified!" .Values.deployment.database.host }}
+  {{- required "Database host must be specified!" .Values.database.host }}
   {{- end }}
 - name: POSTGRES_PORT
-  {{- if .Values.deployment.database.port }}
-  {{- include "idegym.envSource" .Values.deployment.database.port | nindent 2 }}
+  {{- if .Values.database.port }}
+  {{- include "idegym.envSource" .Values.database.port | nindent 2 }}
   {{- else if .Values.postgresql.enabled }}
   value: {{ include "idegym.subchart.postgresql.v1.service.port" . | quote }}
   {{- else }}
-  {{- required "Database port must be specified!" .Values.deployment.database.port }}
+  {{- required "Database port must be specified!" .Values.database.port }}
   {{- end }}
 - name: POSTGRES_USER
-  {{- if .Values.deployment.database.username }}
-  {{- include "idegym.envSource" .Values.deployment.database.username | nindent 2 }}
+  {{- if .Values.database.username }}
+  {{- include "idegym.envSource" .Values.database.username | nindent 2 }}
   {{- else if .Values.postgresql.enabled }}
   value: {{ include "idegym.subchart.postgresql.v1.username" . | quote }}
   {{- else }}
-  {{- required "Database username must be specified!" .Values.deployment.database.username }}
+  {{- required "Database username must be specified!" .Values.database.username }}
   {{- end }}
 - name: POSTGRES_PASSWORD
-  {{- if .Values.deployment.database.password }}
-  {{- include "idegym.envSource" .Values.deployment.database.password | nindent 2 }}
+  {{- if .Values.database.password }}
+  {{- include "idegym.envSource" .Values.database.password | nindent 2 }}
   {{- else if .Values.postgresql.enabled }}
   valueFrom:
     secretKeyRef:
       name: {{ include "idegym.subchart.postgresql.v1.secretName" . | quote }}
       key: {{ include "idegym.subchart.postgresql.v1.userPasswordKey" . | quote }}
   {{- else }}
-  {{- required "Database password must be specified!" .Values.deployment.database.password }}
+  {{- required "Database password must be specified!" .Values.database.password }}
   {{- end }}
 {{- end -}}
 

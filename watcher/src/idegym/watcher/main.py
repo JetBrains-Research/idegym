@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI
+from fastapi.responses import Response
 from idegym.api.config import Config
 from idegym.api.health import HealthCheckResponse
 from idegym.backend.utils.kubernetes_client import load_kubernetes_config
@@ -11,6 +12,8 @@ from idegym.orchestrator.database.database import connect_db_engine
 from idegym.orchestrator.main import configure_process, load_config
 from idegym.utils.logging import get_logger
 from idegym.watcher.cleanup import cleanup_inactive_pods
+from prometheus_client import REGISTRY
+from prometheus_client.openmetrics.exposition import CONTENT_TYPE_LATEST, generate_latest
 
 logger = get_logger("idegym.watcher")
 
@@ -52,6 +55,13 @@ def create_app() -> FastAPI:
     @app.get("/health")
     async def health_check() -> HealthCheckResponse:
         return HealthCheckResponse(status="healthy")
+
+    @app.get("/metrics")
+    async def metrics():
+        return Response(
+            content=generate_latest(REGISTRY),
+            media_type=CONTENT_TYPE_LATEST,
+        )
 
     return app
 
