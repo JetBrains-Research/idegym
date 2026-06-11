@@ -16,10 +16,7 @@ members = [
     "idegym-common-utils",
     "idegym-image-builder",
     "idegym-orchestrator",
-    "idegym-plugin-defaults",
-    "idegym-plugin-idea",
-    "idegym-plugin-pycharm",
-    "idegym-plugin-utils",
+    "idegym-plugins",
     "idegym-rewards",
     "idegym-server",
     "idegym-tools",
@@ -1267,7 +1264,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "idegym-common-utils", editable = "common-utils" },
-    { name = "kubernetes", specifier = ">=36.0.1" },
+    { name = "kubernetes", specifier = ">=35.0.0" },
     { name = "pydantic", specifier = ">=2.10.6" },
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "structlog", specifier = ">=25.4.0" },
@@ -1368,7 +1365,7 @@ source = { editable = "image-builder" }
 dependencies = [
     { name = "idegym-api" },
     { name = "idegym-common-utils" },
-    { name = "idegym-plugin-defaults" },
+    { name = "idegym-plugins" },
     { name = "jinja2" },
     { name = "pydantic" },
     { name = "python-on-whales" },
@@ -1379,7 +1376,7 @@ dependencies = [
 requires-dist = [
     { name = "idegym-api", editable = "api" },
     { name = "idegym-common-utils", editable = "common-utils" },
-    { name = "idegym-plugin-defaults", editable = "plugins/defaults" },
+    { name = "idegym-plugins", editable = "plugins" },
     { name = "jinja2", specifier = ">=3.1.5" },
     { name = "pydantic", specifier = ">=2.10.6" },
     { name = "python-on-whales", specifier = ">=0.78.0" },
@@ -1448,87 +1445,38 @@ requires-dist = [
 ]
 
 [[package]]
-name = "idegym-plugin-defaults"
+name = "idegym-plugins"
 version = "0.0.0.dev0"
-source = { editable = "plugins/defaults" }
+source = { editable = "plugins" }
 dependencies = [
     { name = "idegym-api" },
-    { name = "idegym-plugin-utils" },
     { name = "pydantic" },
 ]
 
 [package.optional-dependencies]
+idea = [
+    { name = "jinja2" },
+]
+pycharm = [
+    { name = "jinja2" },
+]
 server = [
+    { name = "fastapi", extra = ["standard"] },
     { name = "idegym-rewards", extra = ["server"] },
     { name = "idegym-tools", extra = ["server"] },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "fastapi", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.135.2" },
     { name = "idegym-api", editable = "api" },
-    { name = "idegym-plugin-utils", editable = "plugins/plugin-utils" },
     { name = "idegym-rewards", extras = ["server"], marker = "extra == 'server'", editable = "rewards" },
     { name = "idegym-tools", extras = ["server"], marker = "extra == 'server'", editable = "tools" },
+    { name = "jinja2", marker = "extra == 'idea'", specifier = ">=3.1.5" },
+    { name = "jinja2", marker = "extra == 'pycharm'", specifier = ">=3.1.5" },
     { name = "pydantic", specifier = ">=2.10.6" },
 ]
-provides-extras = ["server"]
-
-[[package]]
-name = "idegym-plugin-idea"
-version = "0.0.0.dev0"
-source = { editable = "plugins/idea" }
-dependencies = [
-    { name = "idegym-api" },
-    { name = "idegym-plugin-utils" },
-    { name = "jinja2" },
-    { name = "pydantic" },
-]
-
-[package.optional-dependencies]
-server = [
-    { name = "fastapi", extra = ["standard"] },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "fastapi", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.135.2" },
-    { name = "idegym-api", editable = "api" },
-    { name = "idegym-plugin-utils", editable = "plugins/plugin-utils" },
-    { name = "jinja2", specifier = ">=3.1.5" },
-    { name = "pydantic", specifier = ">=2.10.6" },
-]
-provides-extras = ["server"]
-
-[[package]]
-name = "idegym-plugin-pycharm"
-version = "0.0.0.dev0"
-source = { editable = "plugins/pycharm" }
-dependencies = [
-    { name = "idegym-api" },
-    { name = "idegym-plugin-utils" },
-    { name = "jinja2" },
-    { name = "pydantic" },
-]
-
-[package.optional-dependencies]
-server = [
-    { name = "fastapi", extra = ["standard"] },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "fastapi", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.135.2" },
-    { name = "idegym-api", editable = "api" },
-    { name = "idegym-plugin-utils", editable = "plugins/plugin-utils" },
-    { name = "jinja2", specifier = ">=3.1.5" },
-    { name = "pydantic", specifier = ">=2.10.6" },
-]
-provides-extras = ["server"]
-
-[[package]]
-name = "idegym-plugin-utils"
-version = "0.0.0.dev0"
-source = { editable = "plugins/plugin-utils" }
+provides-extras = ["idea", "pycharm", "server"]
 
 [[package]]
 name = "idegym-rewards"
@@ -1568,9 +1516,7 @@ dependencies = [
     { name = "idegym-api" },
     { name = "idegym-backend-utils" },
     { name = "idegym-common-utils" },
-    { name = "idegym-plugin-defaults", extra = ["server"] },
-    { name = "idegym-plugin-idea", extra = ["server"] },
-    { name = "idegym-plugin-pycharm", extra = ["server"] },
+    { name = "idegym-plugins", extra = ["server"] },
     { name = "idegym-rewards" },
     { name = "idegym-tools" },
     { name = "opentelemetry-instrumentation-asyncio" },
@@ -1589,9 +1535,7 @@ requires-dist = [
     { name = "idegym-api", editable = "api" },
     { name = "idegym-backend-utils", editable = "backend-utils" },
     { name = "idegym-common-utils", editable = "common-utils" },
-    { name = "idegym-plugin-defaults", extras = ["server"], editable = "plugins/defaults" },
-    { name = "idegym-plugin-idea", extras = ["server"], editable = "plugins/idea" },
-    { name = "idegym-plugin-pycharm", extras = ["server"], editable = "plugins/pycharm" },
+    { name = "idegym-plugins", extras = ["server"], editable = "plugins" },
     { name = "idegym-rewards", editable = "rewards" },
     { name = "idegym-tools", editable = "tools" },
     { name = "opentelemetry-instrumentation-asyncio", specifier = ">=0.57b0" },

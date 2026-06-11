@@ -294,7 +294,7 @@ attribute under the entry point name.
 
 ### PyCharm operations (`server.pycharm`)
 
-`server.pycharm` is attached automatically when the `idegym-plugin-pycharm` package is installed
+`server.pycharm` is attached automatically when `idegym-plugins[pycharm]` is installed
 in the **local** Python environment and its `idegym.plugins.client` entry point loads successfully.
 This is a purely local check — it is independent of whether the running server image was built with
 the PyCharm plugin.
@@ -332,7 +332,7 @@ inspection. Xvfb is only needed when PyCharm opens projects interactively (`open
 
 ### IDEA operations (`server.idea`)
 
-`server.idea` is attached automatically when the `idegym-plugin-idea` package is installed in the
+`server.idea` is attached automatically when `idegym-plugins[idea]` is installed in the
 **local** Python environment. It provides the same `inspect()` interface as `server.pycharm`:
 
 ```python

@@ -43,10 +43,7 @@ idegym-client = { workspace = true }
 idegym-common-utils = { workspace = true }
 idegym-image-builder = { workspace = true }
 idegym-orchestrator = { workspace = true }
-idegym-plugin-defaults = { workspace = true }
-idegym-plugin-idea = { workspace = true }
-idegym-plugin-pycharm = { workspace = true }
-idegym-plugin-utils = { workspace = true }
+idegym-plugins = { workspace = true }
 idegym-rewards = { workspace = true }
 idegym-server = { workspace = true }
 idegym-tools = { workspace = true }
@@ -60,10 +57,7 @@ members = [
     "common-utils",
     "image-builder",
     "orchestrator",
-    "plugins/defaults",
-    "plugins/idea",
-    "plugins/pycharm",
-    "plugins/plugin-utils",
+    "plugins",
     "rewards",
     "server",
     "tools",

@@ -1,0 +1,76 @@
+[project]
+name = "idegym-plugins"
+version = "0.0.0.dev0"
+description = "IdeGYM Plugins (defaults, IntelliJ IDEA, PyCharm, shared utilities)"
+authors = [
+    { name = "Ozren Dabić", email = "ozren.dabic@jetbrains.com" },
+    { name = "Vladimir Poliakov", email = "vladimir.poliakov@jetbrains.com" },
+    { name = "Vseslav Kasatskii", email = "vseslav.kasatskii@jetbrains.com" },
+    { name = "Daniil Mironov", email = "daniil.mironov@jetbrains.com" },
+]
+requires-python = ">=3.12"
+dependencies = [
+    "idegym-api",
+    "pydantic>=2.10.6",
+]
+
+[project.optional-dependencies]
+idea = [
+    "jinja2>=3.1.5",
+]
+pycharm = [
+    "jinja2>=3.1.5",
+]
+# Server-side extra used only inside the server container image (built from the
+# workspace). It pulls workspace-only packages, so it is not resolvable from PyPI.
+server = [
+    "fastapi[standard]>=0.135.2",
+    "idegym-tools[server]",
+    "idegym-rewards[server]",
+]
+
+[project.entry-points."idegym.plugins.image"]
+base-system = "idegym.plugins.defaults.image:BaseSystem"
+user = "idegym.plugins.defaults.image:User"
+permissions = "idegym.plugins.defaults.image:Permissions"
+mcp-upstream = "idegym.plugins.defaults.image:MCPUpstream"
+project = "idegym.plugins.defaults.image:Project"
+idegym-server = "idegym.plugins.defaults.image:IdeGYMServer"
+idea = "idegym.plugins.idea.image:Idea"
+pycharm = "idegym.plugins.pycharm.image:PyCharm"
+
+[project.entry-points."idegym.plugins.server"]
+tools = "idegym.plugins.defaults.server:ToolsPlugin"
+rewards = "idegym.plugins.defaults.server:RewardsPlugin"
+idea = "idegym.plugins.idea.server:IdeaPlugin"
+pycharm = "idegym.plugins.pycharm.server:PyCharmPlugin"
+
+[project.entry-points."idegym.plugins.client"]
+idea = "idegym.plugins.idea.client:IdeaClientOperations"
+pycharm = "idegym.plugins.pycharm.client:PycharmClientOperations"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# Single distribution assembled from the per-plugin source trees. The trees stay in
+# place (zero-move) so the build-context paths embedded in generated Dockerfiles
+# (e.g. `COPY plugins/idea/scripts/...`) remain valid. All four roots contribute to
+# the shared `idegym.plugins.*` PEP 420 namespace.
+[tool.hatch.build.targets.wheel]
+packages = [
+    "defaults/src/idegym",
+    "idea/src/idegym",
+    "pycharm/src/idegym",
+    "plugin-utils/src/idegym",
+]
+# Editable installs: expose every per-plugin `src` root on sys.path so the shared
+# `idegym.plugins.*` namespace resolves across all four roots. Without this, hatchling's
+# default dev-mode setup keeps only one root (they all target `idegym`) and the other
+# subpackages become unimportable.
+dev-mode-dirs = [
+    "defaults/src",
+    "idea/src",
+    "pycharm/src",
+    "plugin-utils/src",
+]
