@@ -4,7 +4,7 @@ from uuid import UUID
 
 from idegym.api.resources import KubernetesResources
 from idegym.api.type import KubernetesNodeSelector, KubernetesObjectName, OCIImageName
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ServerReuseStrategy(StrEnum):
@@ -91,6 +91,22 @@ class StartServerRequest(BaseModel):
             "Leave it empty to start a new server."
         ),
     )
+    snapshot_tag: Optional[str] = Field(
+        default=None,
+        description=(
+            "GKE ONLY: Restore a specific snapshot instead of the latest one. "
+            "The value is the GKE PodSnapshot resource name (see the snapshot_tag returned "
+            "when the snapshot was created), passed through as the 'podsnapshot.gke.io/ps-name' "
+            "pod annotation. Must be specified together with snapshot_id; leave empty to restore "
+            "the latest snapshot in the group."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _validate_snapshot_tag_requires_id(self) -> "StartServerRequest":
+        if self.snapshot_tag and not self.snapshot_id:
+            raise ValueError("snapshot_tag can only be set together with snapshot_id")
+        return self
 
 
 class ServerScopedRequest(BaseModel):

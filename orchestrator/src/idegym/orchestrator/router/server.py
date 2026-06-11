@@ -340,6 +340,7 @@ async def _task_start_server(
                 environment_variables=environment_variables,
                 server_kind=request.server_kind,
                 snapshot_id=request.snapshot_id,
+                snapshot_tag=request.snapshot_tag,
             )
 
             await wait_for_pods_ready(

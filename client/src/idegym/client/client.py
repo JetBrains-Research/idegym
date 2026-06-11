@@ -253,6 +253,7 @@ class IdeGYMClient:
         close_action: ServerCloseAction = ServerCloseAction.FINISH,
         server_kind: ServerKind = ServerKind.IDEGYM,
         snapshot_id: Optional[str] = None,
+        snapshot_tag: Optional[str] = None,
     ):
         """
         Async context manager that starts a server and yields an :class:`IdeGYMServer` handle.
@@ -277,6 +278,7 @@ class IdeGYMClient:
             reuse_strategy=reuse_strategy,
             server_kind=server_kind,
             snapshot_id=snapshot_id,
+            snapshot_tag=snapshot_tag,
         )
 
         try:
@@ -333,6 +335,7 @@ class IdeGYMClient:
         reuse_strategy: ServerReuseStrategy = ServerReuseStrategy.RESET,
         server_kind: ServerKind = ServerKind.IDEGYM,
         snapshot_id: Optional[str] = None,
+        snapshot_tag: Optional[str] = None,
     ) -> IdeGYMServer:
         """
         Start an IdeGYM server and return an :class:`IdeGYMServer` handle.
@@ -358,6 +361,7 @@ class IdeGYMClient:
             reuse_strategy=reuse_strategy,
             server_kind=server_kind,
             snapshot_id=snapshot_id,
+            snapshot_tag=snapshot_tag,
         )
 
         if isinstance(server_response, ErrorResponse):

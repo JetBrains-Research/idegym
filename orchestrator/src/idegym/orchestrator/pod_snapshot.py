@@ -28,6 +28,7 @@ class SnapshotFailedError(RuntimeError):
 class SnapshotTimeoutError(RuntimeError):
     """Raised when the PodSnapshotManualTrigger does not reach a terminal status within the configured timeout."""
 
+
 class PodSnapshotService:
     """
     Drives the full lifecycle of a manual pod snapshot: create the trigger, wait for completion, delete the trigger.
@@ -71,9 +72,7 @@ class PodSnapshotService:
             node = await core.read_node(name=node_name)
 
         labels = node.metadata.labels or {}
-        instance_type = labels.get("node.kubernetes.io/instance-type") or labels.get(
-            "beta.kubernetes.io/instance-type"
-        )
+        instance_type = labels.get("node.kubernetes.io/instance-type") or labels.get("beta.kubernetes.io/instance-type")
 
         if instance_type and instance_type.startswith("e2-"):
             raise HTTPException(
@@ -117,7 +116,8 @@ class PodSnapshotService:
         logger.info(f"Created PodSnapshotManualTrigger '{trigger_name}' in namespace '{self._namespace}'")
         return trigger_name
 
-    async def wait_for_completion(self, trigger_name: str) -> None:
+    async def wait_for_completion(self, trigger_name: str) -> Optional[str]:
+        """Wait for the trigger to finish; return the created PodSnapshot resource name, if reported."""
         timeout = self._config.completion_timeout.total_seconds()
         poll_interval = self._config.poll_interval.total_seconds()
         deadline = time.monotonic() + timeout
@@ -136,9 +136,12 @@ class PodSnapshotService:
             if condition:
                 triggered = condition.get("status") == "True"
                 if triggered:
-                    logger.info(f"PodSnapshotManualTrigger '{trigger_name}' completed")
+                    snapshot_name = self._created_snapshot_name(obj)
+                    logger.info(
+                        f"PodSnapshotManualTrigger '{trigger_name}' completed (snapshot '{snapshot_name or 'unknown'}')"
+                    )
                     await asyncio.sleep(3)  # Delay to ensure image got uploaded to the GCS
-                    return
+                    return snapshot_name
                 else:
                     message = condition.get("message") or condition.get("reason") or "unknown reason"
                     raise SnapshotFailedError(f"PodSnapshotManualTrigger '{trigger_name}' failed: {message}")
@@ -167,12 +170,13 @@ class PodSnapshotService:
                 return
             raise
 
-    async def snapshot_server(self, server_name: str) -> None:
+    async def snapshot_server(self, server_name: str) -> Optional[str]:
+        """Snapshot the server's pod and return the created PodSnapshot resource name, if reported."""
         pod_name, pod_uid, node_name = await self.get_pod_for_server(server_name)
         await self.validate_node_eligible_for_snapshot(node_name)
         trigger_name = await self.create_trigger(server_name=server_name, pod_name=pod_name, pod_uid=pod_uid)
         try:
-            await self.wait_for_completion(trigger_name)
+            return await self.wait_for_completion(trigger_name)
         finally:
             try:
                 await self.delete_trigger(trigger_name)
@@ -185,3 +189,21 @@ class PodSnapshotService:
             if cond.get("type") == "Triggered":
                 return cond
         return None
+
+    @staticmethod
+    def _created_snapshot_name(obj: dict[str, Any]) -> Optional[str]:
+        """Extract the auto-generated PodSnapshot resource name from a completed trigger status.
+
+        GKE's docs disagree on the shape, so handle all observed forms: status.snapshotCreated
+        as a plain string (CRD reference), as a nested object with a `name` field (how-to guides),
+        or a flat status.snapshotCreatedName. Returns None when the field is absent.
+        """
+        status = obj.get("status") or {}
+        snapshot_created = status.get("snapshotCreated")
+        if isinstance(snapshot_created, str) and snapshot_created:
+            return snapshot_created
+        if isinstance(snapshot_created, dict):
+            name = snapshot_created.get("name")
+            if name:
+                return name
+        return status.get("snapshotCreatedName")

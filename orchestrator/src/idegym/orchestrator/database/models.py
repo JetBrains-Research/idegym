@@ -106,6 +106,7 @@ class SnapshotRecord(Base):
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     snapshot_name = Column(String, nullable=False)
+    pod_snapshot_name = Column(String, nullable=True)
     request_hash = Column(String, index=True, nullable=False)
     namespace = Column(String, nullable=False)
     image_tag = Column(String, nullable=False)

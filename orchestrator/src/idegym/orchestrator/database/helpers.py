@@ -274,6 +274,7 @@ async def create_snapshot(
     runtime_class_name: Optional[str],
     run_as_root: bool,
     server_kind: str,
+    pod_snapshot_name: Optional[str] = None,
 ):
     return await save_snapshot(
         db,
@@ -285,6 +286,7 @@ async def create_snapshot(
         runtime_class_name=runtime_class_name,
         run_as_root=run_as_root,
         server_kind=server_kind,
+        pod_snapshot_name=pod_snapshot_name,
     )
 
 

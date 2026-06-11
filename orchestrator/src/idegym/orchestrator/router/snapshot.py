@@ -112,7 +112,7 @@ async def _task_create_snapshot(
             config=config.orchestrator.pod_snapshot,
             namespace=namespace,
         )
-        await service.snapshot_server(server_name=server_generated_name)
+        pod_snapshot_name = await service.snapshot_server(server_name=server_generated_name)
 
         await update_operation_status(
             async_operation_id=async_operation_id,
@@ -121,6 +121,7 @@ async def _task_create_snapshot(
                 server_id=server_id,
                 server_name=server_generated_name,
                 snapshot_id=snapshot_name,
+                snapshot_tag=pod_snapshot_name,
                 operation_id=async_operation_id,
             ),
         )
@@ -229,9 +230,10 @@ async def get_prepare_snapshots_status(request_id: str):
                 request_hash=request_hash,
                 status=job_status,
                 snapshot_name=snapshot_name,
+                snapshot_tag=pod_snapshot_name,
                 details=details,
             )
-            for request_hash, job_status, snapshot_name, details in job_results
+            for request_hash, job_status, snapshot_name, pod_snapshot_name, details in job_results
         ]
 
     return PrepareSnapshotsStatusResponse(
@@ -251,11 +253,12 @@ async def get_snapshot_job_status(job_id: str):
     result = await find_snapshot_job_with_name(job_id=job_id)
     if not result:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Snapshot job {job_id} not found")
-    record, snapshot_name = result
+    record, snapshot_name, pod_snapshot_name = result
     return SnapshotJobStatusResponse(
         job_id=record.job_id,
         status=record.status,
         snapshot_name=snapshot_name,
+        snapshot_tag=pod_snapshot_name,
         details=record.details,
     )
 
@@ -274,5 +277,9 @@ async def check_snapshot_exists(request: SnapshotExistsRequest = Depends()):
     )
     record = await find_snapshot_for_request(request_hash=request_hash)
     if record:
-        return SnapshotExistsResponse(exists=True, snapshot_name=record.snapshot_name)
+        return SnapshotExistsResponse(
+            exists=True,
+            snapshot_name=record.snapshot_name,
+            snapshot_tag=record.pod_snapshot_name,
+        )
     return SnapshotExistsResponse(exists=False)

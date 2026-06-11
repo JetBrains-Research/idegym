@@ -56,6 +56,14 @@ class CreateSnapshotResponse(BaseModel):
         default=None,
         description="ID of the taken snapshot. By implementation, equals the snapshot_id / name of the snapshotted pod.",
     )
+    snapshot_tag: Optional[str] = Field(
+        default=None,
+        description=(
+            "GKE PodSnapshot resource name of the snapshot just taken. Pass it back as "
+            "start_server's snapshot_tag (together with snapshot_id) to restore this exact "
+            "snapshot. None if GKE did not report a name."
+        ),
+    )
     operation_id: Optional[int] = Field(default=None, description="Async operation ID to poll for snapshot status")
 
 
@@ -81,6 +89,10 @@ class SnapshotJobResult(BaseModel):
         default=None,
         description="Server ID to pass as snapshot_id when starting from this snapshot; set on success",
     )
+    snapshot_tag: Optional[str] = Field(
+        default=None,
+        description="GKE PodSnapshot resource name to pass as snapshot_tag to restore this exact snapshot; set on success",
+    )
     details: Optional[str] = Field(default=None, description="Error details if the job failed")
 
 
@@ -103,6 +115,10 @@ class SnapshotJobStatusResponse(BaseModel):
         default=None,
         description="Server ID to use as snapshot_id when starting a server from this snapshot",
     )
+    snapshot_tag: Optional[str] = Field(
+        default=None,
+        description="GKE PodSnapshot resource name to use as snapshot_tag to restore this exact snapshot",
+    )
     details: Optional[str] = Field(default=None, description="Error details if the job failed")
 
 
@@ -120,4 +136,8 @@ class SnapshotExistsResponse(BaseModel):
     snapshot_name: Optional[str] = Field(
         default=None,
         description="Server ID to pass as snapshot_id when starting a server, present only if exists=True",
+    )
+    snapshot_tag: Optional[str] = Field(
+        default=None,
+        description="GKE PodSnapshot resource name to pass as snapshot_tag to restore this exact snapshot",
     )

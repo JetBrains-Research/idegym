@@ -237,6 +237,7 @@ async def deploy_server(
     environment_variables: Iterable[Union[V1EnvVar, dict[str, Any]]] = (),
     server_kind: ServerKind = ServerKind.IDEGYM,
     snapshot_id: Optional[str] = None,
+    snapshot_tag: Optional[str] = None,
 ):
     """
     Create a Kubernetes Deployment, Service, and PodDisruptionBudget for a server.
@@ -292,6 +293,9 @@ async def deploy_server(
         "cluster-autoscaler.kubernetes.io/safe-to-evict": "false",
         **prometheus_annotations,
     }
+    if snapshot_tag:
+        # Restore a specific GKE PodSnapshot instead of the latest one in the group.
+        annotations["podsnapshot.gke.io/ps-name"] = snapshot_tag
     match_labels = {
         "app": server_name,
         "app.kubernetes.io/component": "sandbox",
