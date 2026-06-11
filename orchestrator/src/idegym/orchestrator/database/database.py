@@ -41,7 +41,14 @@ class ClientNodes(NamedTuple):
     nodes: int
 
 
-async def init_db(db_url: str, config: SQLAlchemyConfig, clean_database: bool = False):
+def connect_db_engine(db_url: str, config: SQLAlchemyConfig) -> AsyncEngine:
+    """
+    Create the async engine, instrument it, and initialise the module-global ``SessionFactory``.
+
+    Unlike :func:`init_db`, this does not run migrations or seed the default resource limit rule;
+    it only establishes a connection. Services that do not own the schema (e.g. the watcher) use
+    this to connect to a database the orchestrator has already migrated.
+    """
     global SessionFactory
     db_engine: AsyncEngine = create_async_engine(
         url=db_url,
@@ -52,6 +59,19 @@ async def init_db(db_url: str, config: SQLAlchemyConfig, clean_database: bool = 
     AsyncPGInstrumentor().instrument()
     Psycopg2Instrumentor().instrument()
     SQLAlchemyInstrumentor().instrument(engine=db_engine.sync_engine)
+
+    SessionFactory = AsyncSessionMaker(
+        bind=db_engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        autoflush=False,
+    )
+
+    return db_engine
+
+
+async def init_db(db_url: str, config: SQLAlchemyConfig, clean_database: bool = False):
+    db_engine = connect_db_engine(db_url, config)
 
     migration_manager = MigrationManager(engine=db_engine, db_url=db_url)
     if clean_database:
@@ -95,13 +115,6 @@ async def init_db(db_url: str, config: SQLAlchemyConfig, clean_database: bool = 
                     continue
 
     logger.info("Database migrations completed")
-
-    SessionFactory = AsyncSessionMaker(
-        bind=db_engine,
-        class_=AsyncSession,
-        expire_on_commit=False,
-        autoflush=False,
-    )
 
     async with get_db_session() as db:
         default_rule_query = select(ResourceLimitRule).filter(ResourceLimitRule.client_name_regex == ".*")

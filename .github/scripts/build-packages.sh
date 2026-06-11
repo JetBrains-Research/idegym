@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-exclude="idegym idegym-orchestrator idegym-server"
+exclude="idegym idegym-orchestrator idegym-server idegym-watcher"
 
 for workspace in $(uv workspace list); do
   echo "$exclude" | grep -qw "$workspace" && continue

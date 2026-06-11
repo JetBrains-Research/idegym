@@ -5,12 +5,6 @@ deployment:
     tag: ""
   imagePullSecrets: [ ]
   extraEnv: [ ]
-  database:
-    name:
-    host:
-    port:
-    username:
-    password:
   log:
     json: true
     level: info
@@ -51,6 +45,60 @@ deployment:
     - key: jetbrains.com/idegym
       operator: Exists
       effect: NoSchedule
+
+# The watcher is a dedicated single-replica service that runs the periodic cleanup loop
+# (inactive servers/clients, stale requests, orphaned Kaniko jobs). Extracting it from the
+# orchestrator lets the orchestrator scale freely. It reuses the shared database
+# (database / postgresql) and RBAC Role.
+watcher:
+  enabled: true
+  image:
+    pullPolicy: IfNotPresent
+    repository: ghcr.io/jetbrains-research/idegym/watcher
+    tag: ""
+  # The cleanup loop guards itself with a Postgres advisory lock, so a single replica is enough.
+  replicas: 1
+  extraEnv: [ ]
+  log:
+    json: true
+    level: info
+  otel:
+    tracing: { }
+  sqlalchemy:
+    pool:
+      size: ""
+      timeout: ""
+      recycle: ""
+      prePing: true
+    maxOverflow: ""
+  resources: { }
+  securityContext: { }
+  serviceAccount:
+    create: true
+    name: ""
+    annotations: { }
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          preference:
+            matchExpressions:
+              - key: jetbrains.com/idegym
+                operator: Exists
+  tolerations:
+    - key: jetbrains.com/idegym
+      operator: Exists
+      effect: NoSchedule
+
+# Connection settings for the database shared by the orchestrator and watcher.
+# Unset fields fall back to the bundled postgresql subchart; override them to point
+# at an external database (each field accepts a literal value or a secret reference).
+database:
+  name:
+  host:
+  port:
+  username:
+  password:
 
 service:
   type: ClusterIP

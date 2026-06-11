@@ -128,6 +128,27 @@ def build_orchestrator_image() -> None:
     logger.info("✓ Orchestrator image built successfully")
 
 
+def build_watcher_image() -> None:
+    """
+    Build the watcher image and load it into minikube.
+    Uses the build_watcher_image.py script from the main repo.
+    """
+    logger.info("Building watcher image...")
+
+    script_path = from_root("scripts", "build_watcher_image.py")
+
+    if not script_path.exists():
+        raise FileNotFoundError(f"Build script not found: {script_path}")
+
+    # The script is executable and has a shebang
+    cmd = [str(script_path), "--versions", "latest"]
+
+    logger.info(f"Running: {' '.join(cmd)}")
+    subprocess.run(cmd, cwd=from_root(), check=True)
+
+    logger.info("✓ Watcher image built successfully")
+
+
 def switch_to_default_docker_builder() -> None:
     """
     Switch to the default docker builder to enable access to local images.
@@ -218,6 +239,7 @@ def build_all_images() -> None:
 
     switch_to_default_docker_builder()
     build_orchestrator_image()
+    build_watcher_image()
     build_base_server_image()
 
     logger.info("✓ All images built successfully")

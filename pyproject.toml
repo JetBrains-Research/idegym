@@ -50,6 +50,7 @@ idegym-plugin-utils = { workspace = true }
 idegym-rewards = { workspace = true }
 idegym-server = { workspace = true }
 idegym-tools = { workspace = true }
+idegym-watcher = { workspace = true }
 
 [tool.uv.workspace]
 members = [
@@ -66,6 +67,7 @@ members = [
     "rewards",
     "server",
     "tools",
+    "watcher",
 ]
 
 [tool.pytest.ini_options]

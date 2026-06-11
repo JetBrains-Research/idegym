@@ -76,6 +76,96 @@ value: {{ . | quote }}
 {{- end -}}
 
 {{/*
+Fully qualified name of the watcher service
+*/}}
+{{- define "idegym.watcher.fullname" -}}
+{{- printf "%s-watcher" (include "idegym.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+Watcher selector labels — distinct from the orchestrator's so its Service never matches watcher pods
+*/}}
+{{- define "idegym.watcher.selectorLabels" -}}
+app: {{ include "idegym.name" . }}-watcher
+app.kubernetes.io/name: {{ include "idegym.name" . }}-watcher
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{/*
+Watcher common labels
+*/}}
+{{- define "idegym.watcher.labels" -}}
+helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
+{{ include "idegym.watcher.selectorLabels" . }}
+{{- if .Chart.AppVersion }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- end }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end }}
+
+{{/*
+Name of the watcher service account
+*/}}
+{{- define "idegym.watcher.serviceAccountName" -}}
+{{- if .Values.watcher.serviceAccount.create }}
+{{- default (include "idegym.watcher.fullname" .) .Values.watcher.serviceAccount.name }}
+{{- else }}
+{{- default "default" .Values.watcher.serviceAccount.name }}
+{{- end }}
+{{- end }}
+
+{{/*
+Database environment variables shared by the orchestrator and watcher deployments.
+Written at base indentation; include with `nindent 12` into a container env list, e.g.
+`{{- include "idegym.databaseEnv" . | nindent 12 }}`.
+*/}}
+{{- define "idegym.databaseEnv" -}}
+- name: POSTGRES_DB
+  {{- if .Values.database.name }}
+  {{- include "idegym.envSource" .Values.database.name | nindent 2 }}
+  {{- else if .Values.postgresql.enabled }}
+  value: {{ include "idegym.subchart.postgresql.v1.database" . | quote }}
+  {{- else }}
+  {{- required "Database name must be specified!" .Values.database.name }}
+  {{- end }}
+- name: POSTGRES_HOST
+  {{- if .Values.database.host }}
+  {{- include "idegym.envSource" .Values.database.host | nindent 2 }}
+  {{- else if .Values.postgresql.enabled }}
+  value: {{ include "idegym.subchart.postgresql.v1.primary.fullname" . | quote }}
+  {{- else }}
+  {{- required "Database host must be specified!" .Values.database.host }}
+  {{- end }}
+- name: POSTGRES_PORT
+  {{- if .Values.database.port }}
+  {{- include "idegym.envSource" .Values.database.port | nindent 2 }}
+  {{- else if .Values.postgresql.enabled }}
+  value: {{ include "idegym.subchart.postgresql.v1.service.port" . | quote }}
+  {{- else }}
+  {{- required "Database port must be specified!" .Values.database.port }}
+  {{- end }}
+- name: POSTGRES_USER
+  {{- if .Values.database.username }}
+  {{- include "idegym.envSource" .Values.database.username | nindent 2 }}
+  {{- else if .Values.postgresql.enabled }}
+  value: {{ include "idegym.subchart.postgresql.v1.username" . | quote }}
+  {{- else }}
+  {{- required "Database username must be specified!" .Values.database.username }}
+  {{- end }}
+- name: POSTGRES_PASSWORD
+  {{- if .Values.database.password }}
+  {{- include "idegym.envSource" .Values.database.password | nindent 2 }}
+  {{- else if .Values.postgresql.enabled }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "idegym.subchart.postgresql.v1.secretName" . | quote }}
+      key: {{ include "idegym.subchart.postgresql.v1.userPasswordKey" . | quote }}
+  {{- else }}
+  {{- required "Database password must be specified!" .Values.database.password }}
+  {{- end }}
+{{- end -}}
+
+{{/*
 Helpers from subcharts
 */}}
 {{- define "idegym.subchart.grafana.fullname" -}}

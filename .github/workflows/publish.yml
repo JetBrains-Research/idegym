@@ -48,6 +48,30 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  watcher-image:
+    name: Build and publish watcher image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.ref_name }}
+      - name: Prepare Docker Build
+        uses: ./.github/actions/prepare-docker-build
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish watcher image
+        uses: docker/build-push-action@v7.2.0
+        with:
+          context: .
+          file: ./watcher/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/jetbrains-research/idegym/watcher:${{ env.VERSION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
   example-image:
     name: Build and publish example image
     needs: [server-images]
@@ -83,7 +107,7 @@ jobs:
 
   chart:
     name: Build and publish Helm chart
-    needs: [orchestrator-image]
+    needs: [orchestrator-image, watcher-image]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

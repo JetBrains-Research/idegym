@@ -119,19 +119,18 @@ postgresql:
     username: idegym
 ```
 
-To source the orchestrator's connection details from an existing secret (e.g., from External Secrets
+To source the connection details from an existing secret (e.g., from External Secrets
 Operator, a cloud secrets manager, or a self-managed Postgres instance), override the relevant fields
-under `deployment.database`:
+under `database` (shared by the orchestrator and watcher):
 
 ```yaml
-deployment:
-  database:
-    password:
-      valueFrom:
-        secretKeyRef:
-          name: # Name of your database credentials secret
-          key: # Data key corresponding to the password
-    # Repeat for host, port, name, username
+database:
+  password:
+    valueFrom:
+      secretKeyRef:
+        name: # Name of your database credentials secret
+        key: # Data key corresponding to the password
+  # Repeat for host, port, name, username
 ```
 
 Each field also accepts a primitive (e.g., `port: 5432`) if you want it set inline rather than sourced from a `Secret`.
@@ -565,7 +564,7 @@ response = httpx.get("https://idegym.yourdomain.com/health", headers=headers)
 - [ ] Images pushed to a registry accessible from the cluster
 - [ ] `regcred` image pull secret created if environment or Kaniko pods target a private registry
 - [ ] `deployment.imagePullSecrets` set if the orchestrator image is in a private registry
-- [ ] PostgreSQL credentials reviewed (either auto-generate with chart or override via `deployment.database` for external connections)
+- [ ] PostgreSQL credentials reviewed (either auto-generate with chart or override via `database` for external connections)
 - [ ] Grafana admin credentials reviewed if `grafana.enabled=true` (either auto-generate with chart or override via values)
 - [ ] `tracing` secret created if your OTLP backend requires authentication
 - [ ] TLS secret provisioned for the orchestrator `Ingress` if enabled

@@ -154,7 +154,7 @@ when you opt into a tracing backend that requires credentials.
 > `admin-user` and `admin-password` keys.
 
 > [!TIP]
-> To point the orchestrator at an existing `Secret`, override each connection field under `deployment.database`.
+> To point the services at an existing `Secret`, override each connection field under `database`.
 
 #### `tracing` (required when tracing is enabled and behind auth)
 

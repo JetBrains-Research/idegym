@@ -23,6 +23,7 @@ members = [
     "idegym-rewards",
     "idegym-server",
     "idegym-tools",
+    "idegym-watcher",
 ]
 
 [[package]]
@@ -1621,6 +1622,31 @@ requires-dist = [
     { name = "idegym-backend-utils", editable = "backend-utils" },
 ]
 provides-extras = ["server"]
+
+[[package]]
+name = "idegym-watcher"
+version = "0.0.0.dev0"
+source = { editable = "watcher" }
+dependencies = [
+    { name = "fastapi", extra = ["standard"] },
+    { name = "idegym-api" },
+    { name = "idegym-backend-utils" },
+    { name = "idegym-common-utils" },
+    { name = "idegym-orchestrator" },
+    { name = "pydantic" },
+    { name = "uvicorn" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", extras = ["standard"], specifier = ">=0.135.2" },
+    { name = "idegym-api", editable = "api" },
+    { name = "idegym-backend-utils", editable = "backend-utils" },
+    { name = "idegym-common-utils", editable = "common-utils" },
+    { name = "idegym-orchestrator", editable = "orchestrator" },
+    { name = "pydantic", specifier = ">=2.10.6" },
+    { name = "uvicorn", specifier = ">=0.35.0" },
+]
 
 [[package]]
 name = "identify"
