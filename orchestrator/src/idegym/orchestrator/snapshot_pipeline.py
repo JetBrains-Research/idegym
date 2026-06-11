@@ -81,6 +81,8 @@ async def run_snapshot_pipeline_job(
 
         resources = request.resources.model_dump(by_alias=True, exclude_none=True) if request.resources else None
 
+        # Snapshot preparation always runs under the snapshot ServiceAccount (which carries the
+        # snapshot permissions); a caller-supplied service_account_name is intentionally ignored here.
         await deploy_server(
             image_tag=request.image_tag,
             server_name=server_generated_name,
@@ -95,6 +97,10 @@ async def run_snapshot_pipeline_job(
             node_pool_preference_weight=node_pool.preference_weight,
             resources=resources,
             environment_variables=(),
+            volumes=request.volumes,
+            volume_mounts=request.volume_mounts,
+            env_from=request.env_from,
+            pod_overrides=request.pod_overrides,
             server_kind=request.server_kind,
         )
 

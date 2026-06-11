@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from enum import StrEnum
 from os import environ as env
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 from uuid import UUID, uuid4
 
 from httpx import AsyncClient
@@ -246,6 +246,11 @@ class IdeGYMClient:
         container_port: int = 8000,
         resources: Optional[KubernetesResources] = None,
         node_selector: Optional[KubernetesNodeSelector] = None,
+        volumes: Optional[list[dict[str, Any]]] = None,
+        volume_mounts: Optional[list[dict[str, Any]]] = None,
+        env_from: Optional[list[dict[str, Any]]] = None,
+        service_account_name: Optional[str] = None,
+        pod_overrides: Optional[dict[str, Any]] = None,
         server_start_wait_timeout_in_seconds: int = 60,
         retry_delay_in_seconds: int = 15,
         polling_config: PollingConfig = PollingConfig(),
@@ -271,6 +276,11 @@ class IdeGYMClient:
             container_port=container_port,
             resources=resources,
             node_selector=node_selector,
+            volumes=volumes,
+            volume_mounts=volume_mounts,
+            env_from=env_from,
+            service_account_name=service_account_name,
+            pod_overrides=pod_overrides,
             server_start_wait_timeout_in_seconds=server_start_wait_timeout_in_seconds,
             retry_delay_in_seconds=retry_delay_in_seconds,
             polling_config=polling_config,
@@ -327,6 +337,11 @@ class IdeGYMClient:
         container_port: int = 8000,
         resources: Optional[KubernetesResources] = None,
         node_selector: Optional[KubernetesNodeSelector] = None,
+        volumes: Optional[list[dict[str, Any]]] = None,
+        volume_mounts: Optional[list[dict[str, Any]]] = None,
+        env_from: Optional[list[dict[str, Any]]] = None,
+        service_account_name: Optional[str] = None,
+        pod_overrides: Optional[dict[str, Any]] = None,
         server_start_wait_timeout_in_seconds: int = 60,
         retry_delay_in_seconds: int = 15,
         polling_config: PollingConfig = PollingConfig(),
@@ -352,6 +367,11 @@ class IdeGYMClient:
             container_port=container_port,
             resources=resources,
             node_selector=node_selector,
+            volumes=volumes,
+            volume_mounts=volume_mounts,
+            env_from=env_from,
+            service_account_name=service_account_name,
+            pod_overrides=pod_overrides,
             server_start_wait_timeout_in_seconds=server_start_wait_timeout_in_seconds,
             retry_delay_in_seconds=retry_delay_in_seconds,
             polling_config=polling_config,

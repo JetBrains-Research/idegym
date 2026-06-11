@@ -1,5 +1,5 @@
 from enum import StrEnum
-from typing import Optional
+from typing import Any, Optional
 from uuid import UUID
 
 from idegym.api.resources import KubernetesResources
@@ -64,6 +64,41 @@ class StartServerRequest(BaseModel):
         default=None,
         description="Kubernetes node selector labels for scheduling the server pod",
         examples=[{"kubernetes.io/os": "linux"}],
+    )
+    volumes: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Pod-level volumes in native Kubernetes (camelCase) shape, mounted via 'volume_mounts'",
+        examples=[[{"name": "agent-creds", "secret": {"secretName": "agent-creds"}}]],
+    )
+    volume_mounts: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Volume mounts added to the server container, in native Kubernetes (camelCase) shape",
+        examples=[[{"name": "agent-creds", "mountPath": "/etc/creds", "readOnly": True}]],
+    )
+    env_from: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="envFrom sources (secretRef/configMapRef) imported into the server container as env vars",
+        examples=[[{"secretRef": {"name": "agent-creds"}}]],
+    )
+    service_account_name: Optional[str] = Field(
+        default=None,
+        description=(
+            "ServiceAccount for the server pod. Ignored during snapshot preparation, where the "
+            "configured snapshot ServiceAccount takes precedence."
+        ),
+        examples=["agent-runner"],
+    )
+    pod_overrides: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "Partial V1PodSpec (native camelCase shape) deep-merged into the generated pod spec. "
+            "Escape hatch for pod-level fields without a dedicated option, e.g. tolerations, "
+            "hostAliases, dnsConfig, or pod-level securityContext. Applied last, so for any "
+            "overlapping key it takes precedence over the dedicated fields above (scalars are "
+            "overridden, list fields are concatenated); the managed server container cannot be "
+            "replaced through this field."
+        ),
+        examples=[{"tolerations": [{"key": "dedicated", "operator": "Exists", "effect": "NoSchedule"}]}],
     )
     server_start_wait_timeout_in_seconds: int = Field(
         default=60,

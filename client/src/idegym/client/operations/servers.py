@@ -1,7 +1,7 @@
 import time
 from asyncio import sleep
 from http import HTTPStatus
-from typing import Optional
+from typing import Any, Optional
 from uuid import UUID
 
 from idegym.api.capabilities import CapabilitiesResponse
@@ -52,6 +52,11 @@ class ServerOperations:
         container_port: int = 8000,
         resources: Optional[KubernetesResources] = None,
         node_selector: Optional[KubernetesNodeSelector] = None,
+        volumes: Optional[list[dict[str, Any]]] = None,
+        volume_mounts: Optional[list[dict[str, Any]]] = None,
+        env_from: Optional[list[dict[str, Any]]] = None,
+        service_account_name: Optional[str] = None,
+        pod_overrides: Optional[dict[str, Any]] = None,
         server_start_wait_timeout_in_seconds: int = 60,
         retry_delay_in_seconds: int = 15,
         polling_config: PollingConfig = PollingConfig(),
@@ -83,6 +88,11 @@ class ServerOperations:
                 container_port=container_port,
                 resources=resources,
                 node_selector=node_selector,
+                volumes=volumes or [],
+                volume_mounts=volume_mounts or [],
+                env_from=env_from or [],
+                service_account_name=service_account_name,
+                pod_overrides=pod_overrides or {},
                 server_start_wait_timeout_in_seconds=server_start_wait_timeout_in_seconds,
                 reuse_strategy=reuse_strategy,
                 server_kind=server_kind,

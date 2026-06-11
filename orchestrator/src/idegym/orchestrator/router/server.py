@@ -313,7 +313,10 @@ async def _task_start_server(
                 },
             )
 
-            service_account_name = pod_snapshot.service_account_name if pod_snapshot.enabled else None
+            # A caller-supplied ServiceAccount takes precedence over the snapshot one here.
+            service_account_name = request.service_account_name or (
+                pod_snapshot.service_account_name if pod_snapshot.enabled else None
+            )
 
             resources = (
                 request.resources.model_dump(
@@ -338,6 +341,10 @@ async def _task_start_server(
                 node_pool_preference_weight=node_pool.preference_weight,
                 resources=resources,
                 environment_variables=environment_variables,
+                volumes=request.volumes,
+                volume_mounts=request.volume_mounts,
+                env_from=request.env_from,
+                pod_overrides=request.pod_overrides,
                 server_kind=request.server_kind,
                 snapshot_id=request.snapshot_id,
             )
