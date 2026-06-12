@@ -5,6 +5,7 @@ The Kubernetes custom-objects client is mocked so no cluster is required.
 
 import pytest
 from idegym.api.config import PodSnapshotConfig
+from idegym.api.orchestrator.snapshots import PodSnapshotManualTriggerStatus
 from idegym.orchestrator.pod_snapshot import PodSnapshotService
 
 pytestmark = pytest.mark.unit
@@ -19,24 +20,31 @@ def _triggered(name_payload: dict) -> dict:
     }
 
 
+def _status(payload: dict) -> PodSnapshotManualTriggerStatus:
+    return PodSnapshotManualTriggerStatus.model_validate(payload)
+
+
 def test_created_snapshot_name_string():
-    obj = _triggered({"snapshotCreated": "ps-uuid-0"})
-    assert PodSnapshotService._created_snapshot_name(obj) == "ps-uuid-0"
+    assert _status({"snapshotCreated": "ps-uuid-0"}).created_snapshot_name == "ps-uuid-0"
 
 
 def test_created_snapshot_name_nested():
-    obj = _triggered({"snapshotCreated": {"name": "ps-uuid-1"}})
-    assert PodSnapshotService._created_snapshot_name(obj) == "ps-uuid-1"
+    assert _status({"snapshotCreated": {"name": "ps-uuid-1"}}).created_snapshot_name == "ps-uuid-1"
 
 
 def test_created_snapshot_name_flat_fallback():
-    obj = _triggered({"snapshotCreatedName": "ps-uuid-2"})
-    assert PodSnapshotService._created_snapshot_name(obj) == "ps-uuid-2"
+    assert _status({"snapshotCreatedName": "ps-uuid-2"}).created_snapshot_name == "ps-uuid-2"
 
 
 def test_created_snapshot_name_absent_returns_none():
-    obj = _triggered({})
-    assert PodSnapshotService._created_snapshot_name(obj) is None
+    assert _status({}).created_snapshot_name is None
+
+
+def test_triggered_condition_parsed():
+    status = _status({"conditions": [{"type": "Triggered", "status": "True", "reason": "Complete"}]})
+    assert status.triggered_condition is not None
+    assert status.triggered_condition.status == "True"
+    assert _status({"conditions": []}).triggered_condition is None
 
 
 def _patch_custom_get(mocker, obj):

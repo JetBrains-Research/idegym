@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Union
 from uuid import UUID
 
 from idegym.api.orchestrator.servers import ServerKind, StartServerRequest
@@ -41,6 +41,46 @@ class PodSnapshotManualTrigger(BaseModel):
     kind: str
     metadata: PodSnapshotManualTriggerMetadata
     spec: PodSnapshotManualTriggerSpec
+
+
+class PodSnapshotTriggerCondition(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="ignore")
+
+    type: Optional[str] = None
+    status: Optional[str] = None
+    reason: Optional[str] = None
+    message: Optional[str] = None
+
+
+class PodSnapshotCreated(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="ignore")
+
+    name: Optional[str] = None
+
+
+class PodSnapshotManualTriggerStatus(BaseModel):
+    """Typed view over the otherwise-untyped PodSnapshotManualTrigger.status dict the k8s API returns."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="ignore")
+
+    conditions: list[PodSnapshotTriggerCondition] = Field(default_factory=list)
+    # GKE's docs disagree on the shape: a nested object carrying `name`, or the plain name string.
+    snapshot_created: Optional[Union[PodSnapshotCreated, str]] = None
+    snapshot_created_name: Optional[str] = None
+
+    @property
+    def triggered_condition(self) -> Optional[PodSnapshotTriggerCondition]:
+        """The 'Triggered' status condition, if the controller has reported one."""
+        return next((cond for cond in self.conditions if cond.type == "Triggered"), None)
+
+    @property
+    def created_snapshot_name(self) -> Optional[str]:
+        """The auto-generated PodSnapshot resource name, across all documented status shapes."""
+        if isinstance(self.snapshot_created, str):
+            return self.snapshot_created or None
+        if isinstance(self.snapshot_created, PodSnapshotCreated) and self.snapshot_created.name:
+            return self.snapshot_created.name
+        return self.snapshot_created_name
 
 
 class CreateSnapshotRequest(BaseModel):

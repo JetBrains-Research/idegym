@@ -1,7 +1,7 @@
 import asyncio
 import time
 from http import HTTPStatus
-from typing import Any, Optional
+from typing import Optional
 
 from fastapi import HTTPException, status
 from idegym.api.config import PodSnapshotConfig
@@ -10,6 +10,7 @@ from idegym.api.orchestrator.snapshots import (
     PodSnapshotManualTrigger,
     PodSnapshotManualTriggerMetadata,
     PodSnapshotManualTriggerSpec,
+    PodSnapshotManualTriggerStatus,
 )
 from idegym.backend.utils.kubernetes_client import ApiException, async_kube_api
 from idegym.utils.logging import get_logger
@@ -132,18 +133,19 @@ class PodSnapshotService:
                     name=trigger_name,
                 )
 
-            condition = self._triggered_condition(obj)
+            trigger_status = PodSnapshotManualTriggerStatus.model_validate(obj.get("status") or {})
+            condition = trigger_status.triggered_condition
             if condition:
-                triggered = condition.get("status") == "True"
+                triggered = condition.status == "True"
                 if triggered:
-                    snapshot_name = self._created_snapshot_name(obj)
+                    snapshot_name = trigger_status.created_snapshot_name
                     logger.info(
                         f"PodSnapshotManualTrigger '{trigger_name}' completed (snapshot '{snapshot_name or 'unknown'}')"
                     )
                     await asyncio.sleep(3)  # Delay to ensure image got uploaded to the GCS
                     return snapshot_name
                 else:
-                    message = condition.get("message") or condition.get("reason") or "unknown reason"
+                    message = condition.message or condition.reason or "unknown reason"
                     raise SnapshotFailedError(f"PodSnapshotManualTrigger '{trigger_name}' failed: {message}")
 
             if time.monotonic() >= deadline:
@@ -182,28 +184,3 @@ class PodSnapshotService:
                 await self.delete_trigger(trigger_name)
             except Exception:
                 logger.exception(f"Failed to delete PodSnapshotManualTrigger '{trigger_name}'")
-
-    @staticmethod
-    def _triggered_condition(obj: dict[str, Any]) -> dict[str, Any] | None:
-        for cond in (obj.get("status") or {}).get("conditions") or []:
-            if cond.get("type") == "Triggered":
-                return cond
-        return None
-
-    @staticmethod
-    def _created_snapshot_name(obj: dict[str, Any]) -> Optional[str]:
-        """Extract the auto-generated PodSnapshot resource name from a completed trigger status.
-
-        GKE's docs disagree on the shape, so handle all observed forms: status.snapshotCreated
-        as a plain string (CRD reference), as a nested object with a `name` field (how-to guides),
-        or a flat status.snapshotCreatedName. Returns None when the field is absent.
-        """
-        status = obj.get("status") or {}
-        snapshot_created = status.get("snapshotCreated")
-        if isinstance(snapshot_created, str) and snapshot_created:
-            return snapshot_created
-        if isinstance(snapshot_created, dict):
-            name = snapshot_created.get("name")
-            if name:
-                return name
-        return status.get("snapshotCreatedName")
