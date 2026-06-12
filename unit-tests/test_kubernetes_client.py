@@ -117,7 +117,7 @@ def test_start_server_request_pod_fields_default_empty():
     assert request.volume_mounts == []
     assert request.env_from == []
     assert request.service_account_name is None
-    assert request.pod_overrides == {}
+    assert request.pod_overrides.model_dump(by_alias=True, exclude_none=True) == {}
 
 
 def test_start_server_request_accepts_camelcase_pod_specs():
@@ -130,6 +130,14 @@ def test_start_server_request_accepts_camelcase_pod_specs():
         service_account_name="agent-runner",
         pod_overrides={"tolerations": [{"key": "dedicated", "operator": "Exists"}]},
     )
-    assert request.volumes[0]["secret"]["secretName"] == "agent-creds"
+    # camelCase input is parsed into typed models exposing snake_case attributes
+    assert request.volumes[0].secret.secret_name == "agent-creds"
+    assert request.volume_mounts[0].mount_path == "/etc/creds"
+    assert request.env_from[0].secret_ref.name == "agent-creds"
     assert request.service_account_name == "agent-runner"
-    assert request.pod_overrides["tolerations"][0]["key"] == "dedicated"
+    assert request.pod_overrides.tolerations[0].key == "dedicated"
+    # ...and dumps back to the native camelCase shape for the Kubernetes client
+    assert request.volumes[0].model_dump(by_alias=True, exclude_none=True) == {
+        "name": "creds",
+        "secret": {"secretName": "agent-creds"},
+    }

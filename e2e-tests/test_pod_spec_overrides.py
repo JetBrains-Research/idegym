@@ -7,6 +7,15 @@ e2e suite, which is deselected by default. Run explicitly with `uv run pytest -m
 """
 
 import pytest
+from idegym.api.pod_spec import (
+    KubernetesEnvFromSource,
+    KubernetesHostAlias,
+    KubernetesPodOverrides,
+    KubernetesVolume,
+    KubernetesVolumeMount,
+    SecretEnvSource,
+    SecretVolumeSource,
+)
 from utils import k8s_client
 from utils.constants import DEFAULT_NAMESPACE, DEFAULT_SERVER_START_TIMEOUT
 from utils.idegym_utils import create_http_client
@@ -25,9 +34,11 @@ async def test_secret_volume_mount_and_env_from(test_image, test_id):
                 server_name=f"secret-{test_id}",
                 runtime_class_name="gvisor",
                 server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
-                volumes=[{"name": "agent-secret", "secret": {"secretName": secret_name}}],
-                volume_mounts=[{"name": "agent-secret", "mountPath": "/etc/agent-secret", "readOnly": True}],
-                env_from=[{"secretRef": {"name": secret_name}}],
+                volumes=[KubernetesVolume(name="agent-secret", secret=SecretVolumeSource(secret_name=secret_name))],
+                volume_mounts=[
+                    KubernetesVolumeMount(name="agent-secret", mount_path="/etc/agent-secret", read_only=True)
+                ],
+                env_from=[KubernetesEnvFromSource(secret_ref=SecretEnvSource(name=secret_name))],
             ) as server:
                 # Mounted as files, one per secret key.
                 mounted = await server.execute_bash(script="cat /etc/agent-secret/SECRET_TOKEN")
@@ -80,7 +91,9 @@ async def test_pod_overrides_host_aliases(test_image, test_id):
             server_name=f"override-{test_id}",
             runtime_class_name="gvisor",
             server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
-            pod_overrides={"hostAliases": [{"ip": "10.123.45.67", "hostnames": ["agent.internal.test"]}]},
+            pod_overrides=KubernetesPodOverrides(
+                host_aliases=[KubernetesHostAlias(ip="10.123.45.67", hostnames=["agent.internal.test"])]
+            ),
         ) as server:
             result = await server.execute_bash(script="cat /etc/hosts")
             assert result.exit_code == 0, result.stderr
