@@ -26,6 +26,7 @@ from idegym.api.orchestrator.servers import (
     ServerActionResponse,
     ServerKind,
     ServerReuseStrategy,
+    SnapshotRef,
     StartServerResponse,
 )
 from idegym.api.resources import KubernetesResources
@@ -252,8 +253,7 @@ class IdeGYMClient:
         reuse_strategy=ServerReuseStrategy.RESET,
         close_action: ServerCloseAction = ServerCloseAction.FINISH,
         server_kind: ServerKind = ServerKind.IDEGYM,
-        snapshot_id: Optional[str] = None,
-        snapshot_tag: Optional[str] = None,
+        snapshot: Optional[SnapshotRef] = None,
     ):
         """
         Async context manager that starts a server and yields an :class:`IdeGYMServer` handle.
@@ -277,8 +277,7 @@ class IdeGYMClient:
             polling_config=polling_config,
             reuse_strategy=reuse_strategy,
             server_kind=server_kind,
-            snapshot_id=snapshot_id,
-            snapshot_tag=snapshot_tag,
+            snapshot=snapshot,
         )
 
         try:
@@ -334,8 +333,7 @@ class IdeGYMClient:
         polling_config: PollingConfig = PollingConfig(),
         reuse_strategy: ServerReuseStrategy = ServerReuseStrategy.RESET,
         server_kind: ServerKind = ServerKind.IDEGYM,
-        snapshot_id: Optional[str] = None,
-        snapshot_tag: Optional[str] = None,
+        snapshot: Optional[SnapshotRef] = None,
     ) -> IdeGYMServer:
         """
         Start an IdeGYM server and return an :class:`IdeGYMServer` handle.
@@ -360,8 +358,7 @@ class IdeGYMClient:
             polling_config=polling_config,
             reuse_strategy=reuse_strategy,
             server_kind=server_kind,
-            snapshot_id=snapshot_id,
-            snapshot_tag=snapshot_tag,
+            snapshot=snapshot,
         )
 
         if isinstance(server_response, ErrorResponse):
