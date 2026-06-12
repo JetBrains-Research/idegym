@@ -40,6 +40,19 @@ def test_created_snapshot_name_absent_returns_none():
     assert _status({}).created_snapshot_name is None
 
 
+def test_created_snapshot_name_explicit_null_returns_none():
+    assert _status({"snapshotCreated": None}).created_snapshot_name is None
+
+
+def test_created_snapshot_name_empty_string_falls_back_to_flat():
+    assert _status({"snapshotCreated": "", "snapshotCreatedName": "ps-flat"}).created_snapshot_name == "ps-flat"
+
+
+def test_created_snapshot_name_nested_null_name_falls_back_to_flat():
+    status = _status({"snapshotCreated": {"name": None}, "snapshotCreatedName": "ps-flat"})
+    assert status.created_snapshot_name == "ps-flat"
+
+
 def test_triggered_condition_parsed():
     status = _status({"conditions": [{"type": "Triggered", "status": "True", "reason": "Complete"}]})
     assert status.triggered_condition is not None

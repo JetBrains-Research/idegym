@@ -75,11 +75,16 @@ class PodSnapshotManualTriggerStatus(BaseModel):
 
     @property
     def created_snapshot_name(self) -> Optional[str]:
-        """The auto-generated PodSnapshot resource name, across all documented status shapes."""
-        if isinstance(self.snapshot_created, str):
-            return self.snapshot_created or None
-        if isinstance(self.snapshot_created, PodSnapshotCreated) and self.snapshot_created.name:
-            return self.snapshot_created.name
+        """The auto-generated PodSnapshot resource name, across all documented status shapes.
+
+        Falls back to the flat snapshotCreatedName whenever snapshotCreated is absent, null,
+        empty, or a nested object without a name. Returns None when nothing is reported.
+        """
+        created = self.snapshot_created
+        if isinstance(created, PodSnapshotCreated):
+            return created.name or self.snapshot_created_name
+        if isinstance(created, str) and created:
+            return created
         return self.snapshot_created_name
 
 
