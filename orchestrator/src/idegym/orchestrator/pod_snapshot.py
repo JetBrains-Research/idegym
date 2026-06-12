@@ -12,6 +12,7 @@ from idegym.api.orchestrator.snapshots import (
     PodSnapshotManualTriggerSpec,
     PodSnapshotManualTriggerStatus,
 )
+from idegym.api.type import ConditionStatus
 from idegym.backend.utils.kubernetes_client import ApiException, async_kube_api
 from idegym.utils.logging import get_logger
 
@@ -136,7 +137,7 @@ class PodSnapshotService:
             trigger_status = PodSnapshotManualTriggerStatus.model_validate(obj.get("status") or {})
             condition = trigger_status.triggered_condition
             if condition:
-                triggered = condition.status == "True"
+                triggered = condition.status == ConditionStatus.TRUE
                 if triggered:
                     snapshot_name = trigger_status.created_snapshot_name
                     logger.info(

@@ -9,6 +9,7 @@ from idegym.api.exceptions import ResourceDeletionFailedException
 from idegym.api.orchestrator.servers import ServerKind
 from idegym.api.paths import API_BASE_PATH, ActuatorPath, OpenenvPath
 from idegym.api.status import Status
+from idegym.api.type import ConditionStatus
 from idegym.utils.functools import cached_async_result
 from idegym.utils.logging import get_logger
 from kubernetes_asyncio.client import (
@@ -493,7 +494,7 @@ async def pods_are_ready(label_selector: str, namespace: str) -> tuple[bool, boo
                 for condition in pod.status.conditions:
                     if (
                         condition.type == "PodScheduled"
-                        and condition.status == "False"
+                        and condition.status == ConditionStatus.FALSE
                         and condition.reason == "Unschedulable"
                     ):
                         has_unschedulable_pods = True
