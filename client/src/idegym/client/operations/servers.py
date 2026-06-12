@@ -58,6 +58,7 @@ class ServerOperations:
         reuse_strategy: ServerReuseStrategy = ServerReuseStrategy.RESET,
         server_kind: ServerKind = ServerKind.IDEGYM,
         snapshot_id: Optional[str] = None,
+        max_restarts: int = 0,
     ) -> StartServerResponse | ErrorResponse:
         client_id = self._utils.validate_client_id(client_id)
         namespace = self._utils.validate_namespace(namespace)
@@ -87,6 +88,7 @@ class ServerOperations:
                 reuse_strategy=reuse_strategy,
                 server_kind=server_kind,
                 snapshot_id=snapshot_id,
+                max_restarts=max_restarts,
             )
             response_raw = await self._utils.make_request(
                 "POST", "/api/idegym-servers", request, request_timeout=remaining_time
