@@ -715,6 +715,7 @@ async def check_resources_and_save_server(
     run_as_root: bool = False,
     server_kind: str = "idegym",
     service_port: int = 80,
+    snapshot_id: Optional[str] = None,
 ) -> Optional[IdeGYMServer]:
     """
     Atomically check resource limits and create a new server record.
@@ -772,6 +773,8 @@ async def check_resources_and_save_server(
         await db.flush()  # assigns ID without committing
 
         server.generated_name = f"{server_name}-{server.id}"
+        # Mirror the pod's idegym.jetbrains.com/snapshot-id label: the restored-from id, or own name when fresh.
+        server.snapshot_id = snapshot_id or server.generated_name
 
         # Transaction commits on context exit; rolls back on exception.
     logger.info(

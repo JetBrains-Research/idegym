@@ -231,6 +231,7 @@ async def _task_start_server(
                 server_kind=request.server_kind,
                 service_port=request.service_port,
                 run_as_root=request.run_as_root,
+                snapshot_id=request.snapshot.id if request.snapshot else None,
             )
 
             server_id = server.id

@@ -129,6 +129,7 @@ async def check_resources_and_save_server_in_db(
     server_kind: str = "idegym",
     service_port: int = 80,
     run_as_root: bool = False,
+    snapshot_id: Optional[str] = None,
 ):
     server = await check_resources_and_save_server(
         db=db,
@@ -143,6 +144,7 @@ async def check_resources_and_save_server_in_db(
         server_kind=server_kind,
         service_port=service_port,
         run_as_root=run_as_root,
+        snapshot_id=snapshot_id,
     )
     if not server:
         raise HTTPException(

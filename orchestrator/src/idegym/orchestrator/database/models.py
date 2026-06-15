@@ -55,9 +55,13 @@ class IdeGYMServer(Base):
     server_kind = Column(String, default="idegym", nullable=False)
     service_port = Column(Integer, default=80, nullable=False)
 
+    # GKE snapshot group id (the idegym.jetbrains.com/snapshot-id pod label): the restored-from id
+    # for servers started from a snapshot, otherwise the server's own generated_name.
+    snapshot_id = Column(String, index=True, nullable=True)
+
     @property
     def snapshot_name(self) -> str:
-        return self.generated_name
+        return self.snapshot_id or self.generated_name
 
 
 class ResourceLimitRule(Base):

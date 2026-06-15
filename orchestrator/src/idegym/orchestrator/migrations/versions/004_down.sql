@@ -1,0 +1,1 @@
+ALTER TABLE servers DROP COLUMN IF EXISTS snapshot_id;
