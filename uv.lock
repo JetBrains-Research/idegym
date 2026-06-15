@@ -1267,7 +1267,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "idegym-common-utils", editable = "common-utils" },
-    { name = "kubernetes", specifier = ">=36.0.1" },
+    { name = "kubernetes", specifier = ">=35.0.0" },
     { name = "pydantic", specifier = ">=2.10.6" },
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "structlog", specifier = ">=25.4.0" },
@@ -1422,7 +1422,7 @@ dependencies = [
 requires-dist = [
     { name = "alembic", specifier = ">=1.16.4" },
     { name = "asyncpg", specifier = ">=0.30.0" },
-    { name = "fastapi", extras = ["standard"], specifier = ">=0.135.2" },
+    { name = "fastapi", extras = ["standard"], specifier = ">=0.136.3" },
     { name = "fastmcp", specifier = ">=3.3.1" },
     { name = "greenlet", specifier = ">=3.2.1" },
     { name = "httpx", specifier = ">=0.28.1" },
@@ -1491,7 +1491,7 @@ server = [
 
 [package.metadata]
 requires-dist = [
-    { name = "fastapi", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.135.2" },
+    { name = "fastapi", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.136.3" },
     { name = "idegym-api", editable = "api" },
     { name = "idegym-plugin-utils", editable = "plugins/plugin-utils" },
     { name = "jinja2", specifier = ">=3.1.5" },
@@ -1517,7 +1517,7 @@ server = [
 
 [package.metadata]
 requires-dist = [
-    { name = "fastapi", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.135.2" },
+    { name = "fastapi", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.136.3" },
     { name = "idegym-api", editable = "api" },
     { name = "idegym-plugin-utils", editable = "plugins/plugin-utils" },
     { name = "jinja2", specifier = ">=3.1.5" },
@@ -1548,7 +1548,7 @@ server = [
 
 [package.metadata]
 requires-dist = [
-    { name = "fastapi", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.135.2" },
+    { name = "fastapi", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.136.3" },
     { name = "idegym-api", editable = "api" },
     { name = "idegym-backend-utils", editable = "backend-utils" },
     { name = "idegym-common-utils", editable = "common-utils" },
@@ -1584,7 +1584,7 @@ dependencies = [
 requires-dist = [
     { name = "anyio", specifier = ">=4.8.0" },
     { name = "dependency-injector", specifier = ">=4.46.0" },
-    { name = "fastapi", extras = ["standard"], specifier = ">=0.135.2" },
+    { name = "fastapi", extras = ["standard"], specifier = ">=0.136.3" },
     { name = "fastmcp", specifier = ">=3.3.1" },
     { name = "idegym-api", editable = "api" },
     { name = "idegym-backend-utils", editable = "backend-utils" },
@@ -1617,7 +1617,7 @@ server = [
 
 [package.metadata]
 requires-dist = [
-    { name = "fastapi", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.135.2" },
+    { name = "fastapi", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.136.3" },
     { name = "idegym-api", editable = "api" },
     { name = "idegym-backend-utils", editable = "backend-utils" },
 ]
@@ -1639,7 +1639,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "fastapi", extras = ["standard"], specifier = ">=0.135.2" },
+    { name = "fastapi", extras = ["standard"], specifier = ">=0.136.3" },
     { name = "idegym-api", editable = "api" },
     { name = "idegym-backend-utils", editable = "backend-utils" },
     { name = "idegym-common-utils", editable = "common-utils" },
