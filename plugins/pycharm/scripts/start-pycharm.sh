@@ -123,7 +123,13 @@ trap cleanup EXIT INT TERM
 
 # ── Wait for MCP endpoint ─────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/check-mcp.sh"
+# Installed as a bare command (/usr/local/bin/check-mcp) inside IdeGYM images;
+# fall back to the .sh name when running from the source tree.
+if [ -f "${SCRIPT_DIR}/check-mcp" ]; then
+    source "${SCRIPT_DIR}/check-mcp"
+else
+    source "${SCRIPT_DIR}/check-mcp.sh"
+fi
 
 echo "Waiting for MCP endpoint (timeout: ${WAIT_SECONDS}s)..."
 for i in $(seq 1 "${WAIT_SECONDS}"); do
