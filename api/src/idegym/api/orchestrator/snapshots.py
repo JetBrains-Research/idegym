@@ -1,3 +1,4 @@
+from enum import StrEnum
 from typing import Optional, Union
 from uuid import UUID
 
@@ -41,6 +42,12 @@ class PodSnapshotManualTrigger(BaseModel):
     kind: str
     metadata: PodSnapshotManualTriggerMetadata
     spec: PodSnapshotManualTriggerSpec
+
+
+class PodSnapshotTriggerReason(StrEnum):
+
+    PROCESSING = "Processing"
+    COMPLETE = "Complete"
 
 
 class PodSnapshotTriggerCondition(BaseModel):

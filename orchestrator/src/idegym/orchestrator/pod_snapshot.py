@@ -11,6 +11,7 @@ from idegym.api.orchestrator.snapshots import (
     PodSnapshotManualTriggerMetadata,
     PodSnapshotManualTriggerSpec,
     PodSnapshotManualTriggerStatus,
+    PodSnapshotTriggerReason,
 )
 from idegym.api.type import ConditionStatus
 from idegym.backend.utils.kubernetes_client import ApiException, async_kube_api
@@ -137,17 +138,18 @@ class PodSnapshotService:
             trigger_status = PodSnapshotManualTriggerStatus.model_validate(obj.get("status") or {})
             condition = trigger_status.triggered_condition
             if condition:
-                triggered = condition.status == ConditionStatus.TRUE
-                if triggered:
+                if condition.status == ConditionStatus.FALSE:
+                    message = condition.message or condition.reason or "unknown reason"
+                    raise SnapshotFailedError(f"PodSnapshotManualTrigger '{trigger_name}' failed: {message}")
+                # The Triggered condition stays status=True while processing (reason=Processing);
+                # only reason=Complete signals the snapshot has actually been created.
+                if condition.reason == PodSnapshotTriggerReason.COMPLETE:
                     snapshot_name = trigger_status.created_snapshot_name
                     logger.info(
                         f"PodSnapshotManualTrigger '{trigger_name}' completed (snapshot '{snapshot_name or 'unknown'}')"
                     )
                     await asyncio.sleep(3)  # Delay to ensure image got uploaded to the GCS
                     return snapshot_name
-                else:
-                    message = condition.message or condition.reason or "unknown reason"
-                    raise SnapshotFailedError(f"PodSnapshotManualTrigger '{trigger_name}' failed: {message}")
 
             if time.monotonic() >= deadline:
                 raise SnapshotTimeoutError(
