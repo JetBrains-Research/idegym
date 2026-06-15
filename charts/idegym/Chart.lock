@@ -4,12 +4,12 @@ dependencies:
   version: 12.4.2
 - name: postgresql
   repository: oci://registry-1.docker.io/bitnamicharts
-  version: 18.7.2
+  version: 18.7.3
 - name: prometheus
   repository: oci://ghcr.io/prometheus-community/charts
   version: 29.10.0
 - name: tempo
   repository: oci://ghcr.io/grafana-community/helm-charts
   version: 2.2.0
-digest: sha256:9d75866048509f184b467340f6c42ca197f4ec1710071cf2b7c76fb21a4b2f4b
-generated: "2026-06-08T16:24:16.033635515Z"
+digest: sha256:e7312a46502809fc4546824cf3d80cca149285db82ce7ac84354255b72cf97fa
+generated: "2026-06-15T09:29:28.720920699Z"
