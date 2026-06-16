@@ -21,13 +21,11 @@ idea = [
 pycharm = [
     "jinja2>=3.1.5",
 ]
-# Server-side extra used only inside the server container image (built from the
-# workspace). It pulls workspace-only packages, so it is not resolvable from PyPI.
-server = [
-    "fastapi[standard]>=0.135.2",
-    "idegym-tools[server]",
-    "idegym-rewards[server]",
-]
+# NOTE: no `server` extra. The server-side plugins (ToolsPlugin/RewardsPlugin and the
+# IDE server routers) only ever run inside the `idegym-server` container, which is built
+# from the workspace and is not published to PyPI. Their runtime deps (fastapi, plus the
+# workspace-only idegym-tools / idegym-rewards) are declared by `idegym-server` directly,
+# so the published `idegym-plugins` keeps only PyPI-resolvable extras (idea, pycharm).
 
 [project.entry-points."idegym.plugins.image"]
 base-system = "idegym.plugins.defaults.image:BaseSystem"

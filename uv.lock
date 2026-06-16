@@ -1460,23 +1460,15 @@ idea = [
 pycharm = [
     { name = "jinja2" },
 ]
-server = [
-    { name = "fastapi", extra = ["standard"] },
-    { name = "idegym-rewards", extra = ["server"] },
-    { name = "idegym-tools", extra = ["server"] },
-]
 
 [package.metadata]
 requires-dist = [
-    { name = "fastapi", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.135.2" },
     { name = "idegym-api", editable = "api" },
-    { name = "idegym-rewards", extras = ["server"], marker = "extra == 'server'", editable = "rewards" },
-    { name = "idegym-tools", extras = ["server"], marker = "extra == 'server'", editable = "tools" },
     { name = "jinja2", marker = "extra == 'idea'", specifier = ">=3.1.5" },
     { name = "jinja2", marker = "extra == 'pycharm'", specifier = ">=3.1.5" },
     { name = "pydantic", specifier = ">=2.10.6" },
 ]
-provides-extras = ["idea", "pycharm", "server"]
+provides-extras = ["idea", "pycharm"]
 
 [[package]]
 name = "idegym-rewards"
@@ -1516,9 +1508,9 @@ dependencies = [
     { name = "idegym-api" },
     { name = "idegym-backend-utils" },
     { name = "idegym-common-utils" },
-    { name = "idegym-plugins", extra = ["server"] },
-    { name = "idegym-rewards" },
-    { name = "idegym-tools" },
+    { name = "idegym-plugins" },
+    { name = "idegym-rewards", extra = ["server"] },
+    { name = "idegym-tools", extra = ["server"] },
     { name = "opentelemetry-instrumentation-asyncio" },
     { name = "opentelemetry-instrumentation-fastapi" },
     { name = "opentelemetry-instrumentation-httpx" },
@@ -1535,9 +1527,9 @@ requires-dist = [
     { name = "idegym-api", editable = "api" },
     { name = "idegym-backend-utils", editable = "backend-utils" },
     { name = "idegym-common-utils", editable = "common-utils" },
-    { name = "idegym-plugins", extras = ["server"], editable = "plugins" },
-    { name = "idegym-rewards", editable = "rewards" },
-    { name = "idegym-tools", editable = "tools" },
+    { name = "idegym-plugins", editable = "plugins" },
+    { name = "idegym-rewards", extras = ["server"], editable = "rewards" },
+    { name = "idegym-tools", extras = ["server"], editable = "tools" },
     { name = "opentelemetry-instrumentation-asyncio", specifier = ">=0.57b0" },
     { name = "opentelemetry-instrumentation-fastapi", specifier = ">=0.57b0" },
     { name = "opentelemetry-instrumentation-httpx", specifier = ">=0.57b0" },
