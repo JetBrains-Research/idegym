@@ -18,7 +18,7 @@ from pathlib import Path
 
 from idegym.image.builder import Image
 from idegym.image.docker_api import IdeGYMDockerAPI
-from idegym.image.plugins import BaseSystem, IdeGYMServer, Project, User
+from idegym.plugins.defaults.image import BaseSystem, IdeGYMServer, Project, User
 
 IMAGE_NAME = "django-for-verl"
 IMAGE_TAG = "ghcr.io/jetbrains-research/idegym/django-for-verl:rebuilt"

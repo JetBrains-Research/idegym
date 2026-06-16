@@ -473,7 +473,7 @@ import asyncio
 from pathlib import Path
 from idegym.client.client import IdeGYMClient
 from idegym.image.builder import Image
-from idegym.image.plugins import User, Project
+from idegym.plugins.defaults.image import User, Project
 
 async def train_step(client: IdeGYMClient, image_tag: str, patch: str) -> float:
     """Apply a patch and return a test-pass reward."""

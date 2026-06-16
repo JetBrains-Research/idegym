@@ -412,10 +412,10 @@ def test_image_load_all_with_project_plugin():
 
 def test_builtin_plugins_auto_registered_on_builder_import():
     # Verify that importing only `idegym.image.builder` (without importing
-    # `idegym.image.plugins` explicitly) is sufficient for YAML deserialization
+    # `idegym.plugins.defaults.image` explicitly) is sufficient for YAML deserialization
     # of built-in plugin types to succeed.
     script = dedent("""\
-        # Intentionally do NOT import idegym.image.plugins
+        # Intentionally do NOT import idegym.plugins.defaults.image
         from idegym.image.builder import Image
 
         yaml_text = '''
