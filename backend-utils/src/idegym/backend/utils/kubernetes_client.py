@@ -364,10 +364,26 @@ async def deploy_server(
     )
 
     if pod_overrides:
-        # Layer arbitrary pod-level fields on top of the managed spec. Serializing to a camelCase
-        # dict and deserializing back keeps the managed container/labels intact while concatenating
-        # list fields (e.g. tolerations, volumes) instead of replacing them.
-        merged_spec = deep_merge(api_client.sanitize_for_serialization(pod_spec), pod_overrides, concat_lists=True)
+        # Layer arbitrary pod-level fields on top of the managed spec: serialize to a camelCase
+        # dict, deep-merge, and deserialize back, concatenating list fields (tolerations, volumes,
+        # ...) instead of replacing them. Before merging, enforce the invariants the API promises:
+        #   - drop null values so callers cannot delete a managed field by setting it to null;
+        #   - the ServiceAccount is owned by `service_account_name` (so the snapshot ServiceAccount
+        #     stays authoritative during snapshot preparation), never by pod_overrides;
+        #   - the managed "server" container may be augmented with sidecars but never replaced.
+        overrides = {key: value for key, value in pod_overrides.items() if value is not None}
+
+        if overrides.keys() & {"serviceAccountName", "service_account_name"}:
+            raise ValueError("pod_overrides must not set serviceAccountName; use service_account_name instead")
+
+        sidecars = overrides.get("containers")
+        if sidecars is not None:
+            if not isinstance(sidecars, list):
+                raise ValueError("pod_overrides.containers must be a list of sidecar containers")
+            if any(isinstance(container, dict) and container.get("name") == "server" for container in sidecars):
+                raise ValueError("pod_overrides.containers must not redefine the managed 'server' container")
+
+        merged_spec = deep_merge(api_client.sanitize_for_serialization(pod_spec), overrides, concat_lists=True)
         pod_spec = deserialize_k8s(api_client, merged_spec, "V1PodSpec")
 
     deployment = V1Deployment(

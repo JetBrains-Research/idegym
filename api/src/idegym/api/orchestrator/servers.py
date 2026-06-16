@@ -100,8 +100,9 @@ class StartServerRequest(BaseModel):
             "Partial V1PodSpec deep-merged into the generated pod spec. Escape hatch for pod-level "
             "fields without a dedicated option, e.g. tolerations, hostAliases, dnsConfig, or pod-level "
             "securityContext. Applied last, so for any overlapping key it takes precedence over the "
-            "dedicated fields above (scalars overridden, list fields concatenated); the managed server "
-            "container cannot be replaced through this field."
+            "dedicated fields above (scalars overridden, list fields concatenated). Two invariants are "
+            "enforced: it may not set serviceAccountName (use service_account_name), and it may add "
+            "sidecar containers but not replace the managed 'server' container."
         ),
         examples=[{"tolerations": [{"key": "dedicated", "operator": "Exists", "effect": "NoSchedule"}]}],
     )

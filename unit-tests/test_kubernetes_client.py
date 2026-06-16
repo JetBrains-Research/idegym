@@ -111,6 +111,56 @@ async def test_pod_overrides_can_add_sidecar_without_dropping_server(mocker, api
     assert [c.name for c in pod.containers] == ["server", "sidecar"]
 
 
+async def test_pod_overrides_rejects_service_account_name(mocker, api_client):
+    with pytest.raises(ValueError, match="serviceAccountName"):
+        await _deploy_and_get_pod_spec(
+            mocker,
+            api_client,
+            service_account_name="managed-sa",
+            pod_overrides={"serviceAccountName": "attacker-sa"},
+        )
+
+
+async def test_pod_overrides_rejects_replacing_managed_server_container(mocker, api_client):
+    with pytest.raises(ValueError, match="server"):
+        await _deploy_and_get_pod_spec(
+            mocker,
+            api_client,
+            pod_overrides={"containers": [{"name": "server", "image": "evil:latest"}]},
+        )
+
+
+async def test_pod_overrides_rejects_non_list_containers(mocker, api_client):
+    with pytest.raises(ValueError, match="must be a list"):
+        await _deploy_and_get_pod_spec(
+            mocker,
+            api_client,
+            pod_overrides={"containers": {"name": "server"}},
+        )
+
+
+async def test_pod_overrides_null_containers_keeps_managed_server(mocker, api_client):
+    # {"containers": null} is dropped (not treated as a replacement), so the server survives.
+    pod = await _deploy_and_get_pod_spec(
+        mocker,
+        api_client,
+        pod_overrides={"containers": None},
+    )
+    assert [c.name for c in pod.containers] == ["server"]
+
+
+async def test_pod_overrides_null_values_do_not_drop_managed_fields(mocker, api_client):
+    # A null override must not delete a managed field (here: runtimeClassName stays "gvisor").
+    pod = await _deploy_and_get_pod_spec(
+        mocker,
+        api_client,
+        runtime_class_name="gvisor",
+        pod_overrides={"runtimeClassName": None},
+    )
+    assert pod.runtime_class_name == "gvisor"
+    assert [c.name for c in pod.containers] == ["server"]
+
+
 def test_start_server_request_pod_fields_default_empty():
     request = StartServerRequest(client_id="00000000-0000-0000-0000-000000000000", image_tag="img:latest")
     assert request.volumes == []
