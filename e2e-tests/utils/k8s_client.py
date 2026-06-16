@@ -328,6 +328,9 @@ def create_secret(namespace: str, name: str, string_data: dict[str, str]) -> Non
         except ApiException as exc:
             if exc.status != 409:  # already exists -> overwrite so reruns are idempotent
                 raise
+            # A replace is an update, which requires the current resourceVersion for optimistic locking.
+            existing = await _await_api_result(core.read_namespaced_secret(name=name, namespace=namespace))
+            body.metadata.resource_version = existing.metadata.resource_version
             await _await_api_result(core.replace_namespaced_secret(name=name, namespace=namespace, body=body))
 
     _run_async(_with_clients(_op))
