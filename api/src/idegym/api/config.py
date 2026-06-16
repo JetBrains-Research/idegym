@@ -3,9 +3,10 @@ from tempfile import gettempdir
 from typing import Optional
 
 from idegym.api.auth import BasicAuth
+from idegym.api.image_build import BuildBackend
 from idegym.api.memory import MemoryQuantity
 from idegym.api.type import Duration, HttpUrl, IPvAddress, LogLevelName
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class ServerConfig(BaseModel):
@@ -87,6 +88,48 @@ class NodePoolConfig(BaseModel):
     preference_weight: int = Field(
         description="Weight (1-100) for preferring dedicated pool nodes", ge=1, le=100, default=100
     )
+
+
+class CloudBuildGKEConfig(BaseModel):
+    """GKE Cloud Build backend settings. Only consulted when the build backend is
+    `cloudbuild_gke`; `project_id`/`region`/`staging_bucket` are then required."""
+
+    project_id: Optional[str] = Field(description="GCP project id that runs the build", default=None)
+    region: Optional[str] = Field(description="Cloud Build region (e.g. europe-west1)", default=None)
+    staging_bucket: Optional[str] = Field(
+        description="GCS bucket (name only, no gs://) that receives the uploaded build context",
+        default=None,
+    )
+    machine_type: Optional[str] = Field(
+        description="Cloud Build worker machine type (e.g. E2_HIGHCPU_8); None uses the project default",
+        default=None,
+    )
+    disk_size_gb: Optional[int] = Field(description="Worker disk size in GB; None uses the default", ge=1, default=None)
+    timeout_seconds: int = Field(description="Per-build timeout in seconds", ge=1, default=2400)
+    skip_existing: bool = Field(
+        description="Skip the build when the destination image already exists in Artifact Registry",
+        default=False,
+    )
+
+
+class BuildConfig(BaseModel):
+    """Image build backend selection and per-backend settings. Defaults to Kaniko so
+    existing deployments are unaffected."""
+
+    backend: BuildBackend = Field(description="Active image build backend", default=BuildBackend.KANIKO)
+    cloudbuild_gke: CloudBuildGKEConfig = Field(default_factory=CloudBuildGKEConfig)
+
+    @model_validator(mode="after")
+    def validate_backend_settings(self):
+        if self.backend == BuildBackend.CLOUDBUILD_GKE:
+            missing = [
+                name for name in ("project_id", "region", "staging_bucket") if not getattr(self.cloudbuild_gke, name)
+            ]
+            if missing:
+                raise ValueError(
+                    f"cloudbuild_gke backend requires {', '.join(missing)} to be set under build.cloudbuild_gke"
+                )
+        return self
 
 
 class ResourcesConfig(BaseModel):
@@ -195,6 +238,7 @@ class OrchestratorConfig(BaseModel):
     asyncio: AsyncioConfig = Field(default_factory=AsyncioConfig)
     resources: ResourcesConfig = Field(default_factory=ResourcesConfig)
     node_pool: NodePoolConfig = Field(default_factory=NodePoolConfig)
+    build: BuildConfig = Field(default_factory=BuildConfig)
     watcher: WatcherConfig = Field(default_factory=WatcherConfig)
     mcp: MCPConfig = Field(default_factory=MCPConfig)
     client_request_timeout: float = Field(
