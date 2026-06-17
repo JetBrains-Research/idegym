@@ -1,4 +1,4 @@
-"""Add pod_snapshot_name column to snapshots
+"""Add pod_snapshot_name to snapshots and snapshot_id to servers
 
 Revision ID: 003
 Revises: 002
