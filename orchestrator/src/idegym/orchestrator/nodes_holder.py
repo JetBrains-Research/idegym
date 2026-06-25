@@ -6,6 +6,7 @@ from idegym.api import __version__
 from idegym.backend.utils.kubernetes_client import (
     async_kube_api,
     build_node_affinity,
+    build_node_pool_tolerations,
     delete_with_retries,
     wait_for_pods_ready,
 )
@@ -29,7 +30,6 @@ from kubernetes_asyncio.client import (
     V1PodSpec,
     V1PodTemplateSpec,
     V1ResourceRequirements,
-    V1Toleration,
 )
 
 T = TypeVar("T", V1Deployment, V1PodDisruptionBudget)
@@ -153,15 +153,7 @@ async def spin_up_or_update_nodes_for_client(
         else None
     )
 
-    toleration = (
-        V1Toleration(
-            key=node_pool_taint_key,
-            operator="Exists",
-            effect="NoSchedule",
-        )
-        if node_pool_taint_key
-        else None
-    )
+    tolerations = build_node_pool_tolerations(node_pool_taint_key)
 
     deployment = V1Deployment(
         api_version="apps/v1",
@@ -183,7 +175,7 @@ async def spin_up_or_update_nodes_for_client(
                 spec=V1PodSpec(
                     containers=[container],
                     runtime_class_name=runtime_class_name,
-                    tolerations=[toleration] if toleration else None,
+                    tolerations=tolerations,
                     affinity=V1Affinity(
                         node_affinity=node_affinity,
                         pod_anti_affinity=pod_anti_affinity,

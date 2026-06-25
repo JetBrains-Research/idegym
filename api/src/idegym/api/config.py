@@ -83,7 +83,13 @@ class AsyncioConfig(BaseModel):
 
 class NodePoolConfig(BaseModel):
     enabled: bool = Field(description="Enable dedicated node pool scheduling", default=False)
-    taint_key: str = Field(description="Taint key applied to dedicated pool nodes", default="jetbrains.com/idegym")
+    taint_key: str = Field(
+        description=(
+            "Taint key(s) applied to dedicated pool nodes. Accepts a single key or a comma-separated "
+            "list (e.g. 'grazie,nvidia.com/gpu') so pods tolerate every NoSchedule taint on the pool."
+        ),
+        default="jetbrains.com/idegym",
+    )
     preference_weight: int = Field(
         description="Weight (1-100) for preferring dedicated pool nodes", ge=1, le=100, default=100
     )

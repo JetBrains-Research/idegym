@@ -79,9 +79,21 @@ V1ResourceList = Union[V1ConfigMapList, V1DeploymentList, V1PodDisruptionBudgetL
 logger = get_logger(__name__)
 
 
+def split_taint_keys(taint_key: Optional[str]) -> list[str]:
+    """
+    Split a node-pool ``taint_key`` into individual keys.
+
+    A single key (``"jetbrains.com/idegym"``) or a comma-separated list
+    (``"grazie,nvidia.com/gpu"``) is accepted, so pods can be scheduled onto a pool
+    whose nodes carry several NoSchedule taints.
+    """
+    return [key.strip() for key in (taint_key or "").split(",") if key.strip()]
+
+
 def build_node_affinity(taint_key: str, preference_weight: int) -> V1NodeAffinity:
+    # The soft preference targets a single pool label; use the first of the taint keys.
     requirement = V1NodeSelectorRequirement(
-        key=taint_key,
+        key=split_taint_keys(taint_key)[0],
         operator="Exists",
     )
     term = V1PreferredSchedulingTerm(
@@ -103,6 +115,14 @@ def build_node_pool_affinity(taint_key: str, preference_weight: int) -> V1Affini
     return V1Affinity(
         node_affinity=affinity,
     )
+
+
+def build_node_pool_tolerations(taint_key: Optional[str]) -> Optional[list[V1Toleration]]:
+    """Build a NoSchedule toleration for each key in ``taint_key`` (see :func:`split_taint_keys`)."""
+    tolerations = [
+        V1Toleration(key=key, operator="Exists", effect="NoSchedule") for key in split_taint_keys(taint_key)
+    ]
+    return tolerations or None
 
 
 def get_server_probe_config(server_kind: ServerKind, container_port: int) -> tuple[str, dict[str, str]]:
@@ -304,15 +324,7 @@ async def deploy_server(
         "idegym.jetbrains.com/snapshot-id": snapshot_id or server_name,
     }
 
-    toleration = (
-        V1Toleration(
-            key=node_pool_taint_key,
-            operator="Exists",
-            effect="NoSchedule",
-        )
-        if node_pool_taint_key
-        else None
-    )
+    tolerations = build_node_pool_tolerations(node_pool_taint_key)
 
     affinity = (
         build_node_pool_affinity(
@@ -346,7 +358,7 @@ async def deploy_server(
                     service_account_name=service_account_name,
                     runtime_class_name=runtime_class_name,
                     node_selector=node_selector,
-                    tolerations=[toleration] if toleration else None,
+                    tolerations=tolerations,
                     affinity=affinity,
                 ),
             ),
@@ -807,15 +819,7 @@ async def build_and_push_image_with_kaniko(
         resources=resources,
     )
 
-    toleration = (
-        V1Toleration(
-            key=node_pool_taint_key,
-            operator="Exists",
-            effect="NoSchedule",
-        )
-        if node_pool_taint_key
-        else None
-    )
+    tolerations = build_node_pool_tolerations(node_pool_taint_key)
 
     affinity = (
         build_node_pool_affinity(
@@ -869,7 +873,7 @@ async def build_and_push_image_with_kaniko(
                         else []
                     ),
                     runtime_class_name=runtime_class_name,
-                    tolerations=[toleration] if toleration else None,
+                    tolerations=tolerations,
                     affinity=affinity,
                 ),
             ),
