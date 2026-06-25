@@ -283,35 +283,42 @@ async def _task_start_server(
                     'k8s.node.name: "$(__NODE_NAME)" '
                     "}",
                 },
-                {
-                    "name": "IDEGYM_OTEL_TRACING_ENDPOINT",
-                    "value": otel_config.tracing.endpoint,
-                },
-                {
-                    "name": "IDEGYM_OTEL_TRACING_AUTH_USERNAME",
-                    "valueFrom": {
-                        "secretKeyRef": {
-                            "name": "tracing",
-                            "key": "username",
-                            "optional": True,
-                        }
-                    },
-                },
-                {
-                    "name": "IDEGYM_OTEL_TRACING_AUTH_PASSWORD",
-                    "valueFrom": {
-                        "secretKeyRef": {
-                            "name": "tracing",
-                            "key": "password",
-                            "optional": True,
-                        }
-                    },
-                },
-                {
-                    "name": "IDEGYM_OTEL_TRACING_TIMEOUT",
-                    "value": str(otel_config.tracing.timeout),
-                },
             )
+
+            # Tracing is optional: only forward the OTEL tracing settings to the environment pod
+            # when an endpoint is configured. An empty IDEGYM_OTEL_TRACING_ENDPOINT is not a valid
+            # URL and would fail the server's config validation.
+            if otel_config.tracing.enabled:
+                environment_variables += (
+                    {
+                        "name": "IDEGYM_OTEL_TRACING_ENDPOINT",
+                        "value": otel_config.tracing.endpoint,
+                    },
+                    {
+                        "name": "IDEGYM_OTEL_TRACING_AUTH_USERNAME",
+                        "valueFrom": {
+                            "secretKeyRef": {
+                                "name": "tracing",
+                                "key": "username",
+                                "optional": True,
+                            }
+                        },
+                    },
+                    {
+                        "name": "IDEGYM_OTEL_TRACING_AUTH_PASSWORD",
+                        "valueFrom": {
+                            "secretKeyRef": {
+                                "name": "tracing",
+                                "key": "password",
+                                "optional": True,
+                            }
+                        },
+                    },
+                    {
+                        "name": "IDEGYM_OTEL_TRACING_TIMEOUT",
+                        "value": str(otel_config.tracing.timeout),
+                    },
+                )
 
             service_account_name = pod_snapshot.service_account_name if pod_snapshot.enabled else None
 
