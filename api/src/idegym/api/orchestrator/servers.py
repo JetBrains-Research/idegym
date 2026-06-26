@@ -2,6 +2,12 @@ from enum import StrEnum
 from typing import Optional
 from uuid import UUID
 
+from idegym.api.pod_spec import (
+    KubernetesEnvFromSource,
+    KubernetesPodOverrides,
+    KubernetesVolume,
+    KubernetesVolumeMount,
+)
 from idegym.api.resources import KubernetesResources
 from idegym.api.type import KubernetesNodeSelector, KubernetesObjectName, OCIImageName
 from pydantic import BaseModel, Field
@@ -64,6 +70,41 @@ class StartServerRequest(BaseModel):
         default=None,
         description="Kubernetes node selector labels for scheduling the server pod",
         examples=[{"kubernetes.io/os": "linux"}],
+    )
+    volumes: list[KubernetesVolume] = Field(
+        default_factory=list,
+        description="Pod-level volumes (native Kubernetes shape), mounted into the server container via 'volume_mounts'",
+        examples=[[{"name": "agent-creds", "secret": {"secretName": "agent-creds"}}]],
+    )
+    volume_mounts: list[KubernetesVolumeMount] = Field(
+        default_factory=list,
+        description="Volume mounts added to the server container (native Kubernetes shape)",
+        examples=[[{"name": "agent-creds", "mountPath": "/etc/creds", "readOnly": True}]],
+    )
+    env_from: list[KubernetesEnvFromSource] = Field(
+        default_factory=list,
+        description="envFrom sources (secretRef/configMapRef) imported into the server container as env vars",
+        examples=[[{"secretRef": {"name": "agent-creds"}}]],
+    )
+    service_account_name: Optional[str] = Field(
+        default=None,
+        description=(
+            "ServiceAccount for the server pod. Ignored during snapshot preparation, where the "
+            "configured snapshot ServiceAccount takes precedence."
+        ),
+        examples=["agent-runner"],
+    )
+    pod_overrides: KubernetesPodOverrides = Field(
+        default_factory=KubernetesPodOverrides,
+        description=(
+            "Partial V1PodSpec deep-merged into the generated pod spec. Escape hatch for pod-level "
+            "fields without a dedicated option, e.g. tolerations, hostAliases, dnsConfig, or pod-level "
+            "securityContext. Applied last, so for any overlapping key it takes precedence over the "
+            "dedicated fields above (scalars overridden, list fields concatenated). Two invariants are "
+            "enforced: it may not set serviceAccountName (use service_account_name), and it may add "
+            "sidecar containers but not replace the managed 'server' container."
+        ),
+        examples=[{"tolerations": [{"key": "dedicated", "operator": "Exists", "effect": "NoSchedule"}]}],
     )
     server_start_wait_timeout_in_seconds: int = Field(
         default=60,
