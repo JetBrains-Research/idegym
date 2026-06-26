@@ -27,6 +27,7 @@ from idegym.orchestrator.database.database import (
 from idegym.orchestrator.database.models import AvailabilityStatus, JobStatusRecord
 from idegym.orchestrator.nodes_holder import change_number_of_spun_nodes
 from idegym.utils.logging import get_logger
+from idegym.watcher.crash_detector import detect_crashed_servers
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -180,8 +181,11 @@ async def perform_cleanup_operations(
     requests_max_age: Duration,
     requests_stale: Duration,
     namespace: str,
+    crash_detection_enabled: bool = True,
 ):
     # TODO: Parallelize these operations, but be aware of database sessions
+    if crash_detection_enabled:
+        await detect_crashed_servers(db)
     await cleanup_clients(db, current_time=current_time, inactive_timeout=inactive_timeout)
     await cleanup_servers(
         db, current_time=current_time, inactive_timeout=inactive_timeout, finished_timeout=finished_timeout
@@ -237,6 +241,7 @@ async def cleanup_inactive_pods(watcher_config: WatcherConfig):
                     watcher_config.request_max_age,
                     watcher_config.request_stale,
                     namespace,
+                    crash_detection_enabled=watcher_config.crash_detection_enabled,
                 )
                 logger.info("Completed cleanup operations")
             except Exception:

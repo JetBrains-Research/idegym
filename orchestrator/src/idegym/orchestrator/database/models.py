@@ -55,6 +55,11 @@ class IdeGYMServer(Base):
     server_kind = Column(String, default="idegym", nullable=False)
     service_port = Column(Integer, default=80, nullable=False)
 
+    # Restarts tolerated before the watcher marks the server CRASHED and tears it down (0 = fail on first crash).
+    max_restarts = Column(Integer, default=0, nullable=False)
+    # Human-readable reason populated on terminal failures (e.g. the crash/OOM/eviction cause).
+    details = Column(Text, nullable=True)
+
     @property
     def snapshot_name(self) -> str:
         return self.generated_name

@@ -47,6 +47,7 @@ from kubernetes_asyncio.client import (
     V1ObjectFieldSelector,
     V1ObjectMeta,
     V1OwnerReference,
+    V1Pod,
     V1PodDisruptionBudget,
     V1PodDisruptionBudgetList,
     V1PodDisruptionBudgetSpec,
@@ -569,6 +570,13 @@ async def pods_are_ready(label_selector: str, namespace: str) -> tuple[bool, boo
     )
 
     return pods_ready, has_image_pull_error, has_terminating_pods, has_unschedulable_pods
+
+
+async def list_pods(label_selector: str, namespace: str) -> list[V1Pod]:
+    """Return all pods in a namespace matching the label selector."""
+
+    async with async_kube_api() as (_, _, core, _, _):
+        return (await core.list_namespaced_pod(namespace=namespace, label_selector=label_selector)).items
 
 
 async def are_any_pods_alive(label_selector: str, namespace: str) -> bool:

@@ -1,0 +1,2 @@
+ALTER TABLE servers DROP COLUMN IF EXISTS details;
+ALTER TABLE servers DROP COLUMN IF EXISTS max_restarts;

@@ -231,6 +231,7 @@ async def _task_start_server(
                 server_kind=request.server_kind,
                 service_port=request.service_port,
                 run_as_root=request.run_as_root,
+                max_restarts=request.max_restarts,
             )
 
             server_id = server.id

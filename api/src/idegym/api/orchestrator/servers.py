@@ -132,6 +132,16 @@ class StartServerRequest(BaseModel):
             "Leave it empty to start a new server."
         ),
     )
+    max_restarts: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Pod restarts tolerated before the server is marked CRASHED and torn down by the watcher. "
+            "0 (default) gives up on the first crash, which surfaces the failure reason to the client "
+            "instead of looping restarts. Increase to allow transient crashes to self-heal."
+        ),
+        examples=[0, 3],
+    )
 
 
 class ServerScopedRequest(BaseModel):
