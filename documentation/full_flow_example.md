@@ -33,7 +33,7 @@ installation is already baked into the base.
 
 ```python
 from idegym.image.builder import Image
-from idegym.image.plugins import Permissions, Project, User
+from idegym.plugins.defaults.image import Permissions, Project, User
 
 BASE_IMAGE = "ghcr.io/jetbrains-research/idegym/server-debian-bookworm-20250520-slim:latest"
 # When deploying to Minikube via e2e tests, use the cluster-local registry:
@@ -148,7 +148,7 @@ Requires `git` in the base image. `BaseSystem()` (the default package set) alrea
 
 ```python
 from idegym.image.builder import Image
-from idegym.image.plugins import BaseSystem, IdeGYMServer, Project, User
+from idegym.plugins.defaults.image import BaseSystem, IdeGYMServer, Project, User
 
 IDEGYM_REPO = "https://github.com/jetbrains-research/idegym-oss.git"
 IDEGYM_REF  = "main"   # pin to a tag or commit SHA for reproducibility

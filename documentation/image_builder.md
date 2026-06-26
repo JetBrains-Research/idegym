@@ -144,7 +144,7 @@ image = image.with_runtime(
 
 ```python
 from idegym.image.builder import Image
-from idegym.image.plugins import BaseSystem, User, Project, Permissions
+from idegym.plugins.defaults.image import BaseSystem, User, Project, Permissions
 
 image = (
     Image.from_base("ghcr.io/jetbrains-research/idegym/server-debian-bookworm-20250520-slim:latest")
@@ -249,7 +249,7 @@ Installs system packages via `apt-get`. Use this as the first plugin when starti
 
 **Python:**
 ```python
-from idegym.image.plugins import BaseSystem
+from idegym.plugins.defaults.image import BaseSystem
 
 # Default packages (bash, ca-certificates, curl, dumb-init, findutils, git, netcat-openbsd, sudo)
 BaseSystem()
@@ -285,7 +285,7 @@ are updated to the new user, so subsequent plugins and commands run in the corre
 
 **Python:**
 ```python
-from idegym.image.plugins import User
+from idegym.plugins.defaults.image import User
 
 User(
     username="appuser",
@@ -325,7 +325,7 @@ creating directories.
 
 **Python:**
 ```python
-from idegym.image.plugins import Permissions
+from idegym.plugins.defaults.image import Permissions
 
 Permissions(
     paths={
@@ -373,7 +373,7 @@ optional auth token are injected as Docker ARGs so they are evaluated at build t
 via `--build-arg`). Use this for pinned commits and private repos with token auth.
 
 ```python
-from idegym.image.plugins import Project
+from idegym.plugins.defaults.image import Project
 
 Project.from_git(
     url="https://github.com/your-org/your-repo.git",
@@ -512,7 +512,7 @@ Use during development or in CI, when the IdeGYM repository is available on the 
 The Docker build context is set to the repository root, and all workspace packages are `COPY`ed in.
 
 ```python
-from idegym.image.plugins import IdeGYMServer
+from idegym.plugins.defaults.image import IdeGYMServer
 from from_root import from_root
 
 IdeGYMServer.from_local(root=from_root())   # from_root() returns the repository root
@@ -559,7 +559,7 @@ IdeGYMServer.from_git(
 
 ```python
 from idegym.image.builder import Image
-from idegym.image.plugins import BaseSystem, IdeGYMServer, User, Project
+from idegym.plugins.defaults.image import BaseSystem, IdeGYMServer, User, Project
 from from_root import from_root
 
 # Local build (development / CI)
@@ -633,7 +633,7 @@ Build an image using your local Docker daemon:
 
 ```python
 from idegym.image.builder import Image
-from idegym.image.plugins import BaseSystem, User
+from idegym.plugins.defaults.image import BaseSystem, User
 
 image = (
     Image.from_base("ghcr.io/jetbrains-research/idegym/server-debian-bookworm-20250520-slim:latest")
