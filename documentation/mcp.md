@@ -314,6 +314,6 @@ When `mcp_steroid=True`:
 - `get_mcp_upstream()` advertises port 6315 instead of 64342
 - If `open_project=False` (or no `Project` plugin in the pipeline), the IDE starts without a
   project — agents can open one at runtime via the `steroid_open_project` tool
-- The plugin version can be pinned with `mcp_steroid_version` (format: `X.Y.Z` or `X.Y.Z-HASH`)
+- The plugin version can be pinned with `mcp_steroid_version` (format: `X.Y` or `X.Y.Z`, optionally with a `-HASH` suffix — e.g. `0.94.0-8682a5ce` or `0.100-409f23a2`)
 
 See [Tools Reference](tools.md#mcp-steroid-tools) for the full list of mcp-steroid tools and resources.

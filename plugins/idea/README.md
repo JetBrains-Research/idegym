@@ -21,7 +21,8 @@ When added to an IdeGYM image pipeline, the `Idea` plugin:
 5. Optionally installs the **open-project** plugin and registers a supervisord
    service that opens the project directory on container start.
 
-At runtime supervisord calls `start-idea.sh`, which:
+At runtime supervisord calls the `start-idea.sh` script (installed as
+`/usr/local/bin/start-idea`), which:
 
 1. Exports `JAVA_TOOL_OPTIONS="-Djava.awt.headless=true"` so the JVM reads the flag
    before any application code runs — IDEA supports true headless mode and

@@ -34,10 +34,13 @@ RUN set -eux; \
         '  </component>' \
         '</application>' > "{{ config_dir }}/options/privacyPolicy.xml"
 
-# start-idea.sh: launches IDEA headless, waits for MCP on {{ mcp_port }},
+# start-idea: launches IDEA headless, waits for MCP on {{ mcp_port }},
 # then bridges 0.0.0.0:{{ bridge_port }} → 127.0.0.1:{{ mcp_port }} via socat.
-# check-mcp.sh: script for checking MCP endpoint availability.
-COPY plugins/idea/scripts/check-mcp.sh /usr/local/bin/check-mcp.sh
-COPY plugins/idea/scripts/start-idea.sh /usr/local/bin/start-idea.sh
-RUN chmod +x /usr/local/bin/check-mcp.sh /usr/local/bin/start-idea.sh
+# check-mcp: script for checking MCP endpoint availability.
+# Installed without the .sh suffix so the names survive IdeGYMServer's
+# /usr/local/bin/*.{py,sh} → bare-command rename pass (which would otherwise
+# strip the suffix and break the supervisord command / internal source below).
+COPY plugins/idea/scripts/check-mcp.sh /usr/local/bin/check-mcp
+COPY plugins/idea/scripts/start-idea.sh /usr/local/bin/start-idea
+RUN chmod +x /usr/local/bin/check-mcp /usr/local/bin/start-idea
 COPY plugins/idea/scripts/supervisord-idea.conf /etc/supervisor/conf.d/idea.conf

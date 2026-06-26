@@ -1,11 +1,13 @@
 # Configure PyCharm to start without a project and wait for mcp-steroid.
 # Agents can open any project at runtime via the mcp-steroid MCP tools.
 #
-# MCP_STEROID=true switches start-pycharm.sh to mcp-steroid mode: no project arg,
+# MCP_STEROID=true switches start-pycharm to mcp-steroid mode: no project arg,
 # waits for mcp-steroid on {{ mcp_steroid_port }}, then bridges
 # 0.0.0.0:{{ mcp_steroid_bridge_port }} -> 127.0.0.1:{{ mcp_steroid_port }} via socat.
+# Scripts are installed without the .sh suffix so their names survive
+# IdeGYMServer's /usr/local/bin/*.{py,sh} → bare-command rename pass.
 ENV MCP_STEROID=true
-COPY plugins/pycharm/scripts/check-mcp.sh /usr/local/bin/check-mcp.sh
-COPY plugins/pycharm/scripts/start-pycharm.sh /usr/local/bin/start-pycharm.sh
-RUN chmod +x /usr/local/bin/check-mcp.sh /usr/local/bin/start-pycharm.sh
+COPY plugins/pycharm/scripts/check-mcp.sh /usr/local/bin/check-mcp
+COPY plugins/pycharm/scripts/start-pycharm.sh /usr/local/bin/start-pycharm
+RUN chmod +x /usr/local/bin/check-mcp /usr/local/bin/start-pycharm
 COPY plugins/pycharm/scripts/supervisord-pycharm.conf /etc/supervisor/conf.d/pycharm.conf

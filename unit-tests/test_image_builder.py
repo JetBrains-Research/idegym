@@ -1,5 +1,6 @@
 import subprocess
 import sys
+from pathlib import Path
 from textwrap import dedent
 
 from idegym.api.plugin import BuildContext, PluginBase, get_all_server_plugins, image_plugin, server_plugin
@@ -980,6 +981,11 @@ def test_idea_render_installs_open_project_plugin_when_project_in_ctx():
     # Start script and supervisord config are COPY'd from the build context
     assert "COPY plugins/idea/scripts/start-idea.sh" in fragment
     assert "COPY plugins/idea/scripts/supervisord-idea.conf" in fragment
+    # Installed under bare names so IdeGYMServer's /usr/local/bin/*.{py,sh} rename
+    # pass leaves them intact and the supervisord command keeps resolving.
+    assert "chmod +x /usr/local/bin/check-mcp /usr/local/bin/start-idea" in fragment
+    assert "/usr/local/bin/start-idea.sh" not in fragment
+    assert "/usr/local/bin/check-mcp.sh" not in fragment
 
 
 def test_idea_render_skips_open_project_plugin_when_open_project_false():
@@ -1864,6 +1870,8 @@ def test_pycharm_mcp_steroid_default_version():
         param("0.94.0-8682a5ce", id="with-hash"),
         param("0.94.0", id="without-hash"),
         param("1.0.0", id="major-only-parts"),
+        param("0.94", id="two-part"),
+        param("0.100-409f23a2", id="two-part-with-hash"),
     ],
 )
 def test_pycharm_mcp_steroid_accepts_valid_version(version):
@@ -1873,7 +1881,7 @@ def test_pycharm_mcp_steroid_accepts_valid_version(version):
 @mark.parametrize(
     "version",
     [
-        param("0.94", id="missing-patch"),
+        param("0", id="major-only"),
         param("latest", id="non-numeric"),
         param("v0.94.0", id="v-prefix"),
         param("0.94.0-SNAPSHOT", id="non-hex-suffix"),
@@ -1918,6 +1926,11 @@ def test_pycharm_mcp_steroid_copies_start_script_when_no_project():
     assert "COPY plugins/pycharm/scripts/supervisord-pycharm.conf" in fragment
     # project-opener must not be present
     assert "open-project.zip" not in fragment
+    # Installed under bare names so IdeGYMServer's /usr/local/bin/*.{py,sh} rename
+    # pass leaves them intact and the supervisord command keeps resolving.
+    assert "chmod +x /usr/local/bin/check-mcp /usr/local/bin/start-pycharm" in fragment
+    assert "/usr/local/bin/start-pycharm.sh" not in fragment
+    assert "/usr/local/bin/check-mcp.sh" not in fragment
 
 
 def test_pycharm_mcp_steroid_no_start_script_when_open_project_active():
@@ -1969,6 +1982,34 @@ def test_idea_mcp_steroid_default_version():
     assert plugin.mcp_steroid_version == "0.94.0-8682a5ce"
 
 
+@mark.parametrize(
+    "version",
+    [
+        param("0.94.0-8682a5ce", id="with-hash"),
+        param("0.94.0", id="without-hash"),
+        param("1.0.0", id="major-only-parts"),
+        param("0.94", id="two-part"),
+        param("0.100-409f23a2", id="two-part-with-hash"),
+    ],
+)
+def test_idea_mcp_steroid_accepts_valid_version(version):
+    assert Idea(mcp_steroid=True, mcp_steroid_version=version).mcp_steroid_version == version
+
+
+@mark.parametrize(
+    "version",
+    [
+        param("0", id="major-only"),
+        param("latest", id="non-numeric"),
+        param("v0.94.0", id="v-prefix"),
+        param("0.94.0-SNAPSHOT", id="non-hex-suffix"),
+    ],
+)
+def test_idea_mcp_steroid_rejects_invalid_version(version):
+    with raises(ValueError, match="mcp-steroid"):
+        Idea(mcp_steroid=True, mcp_steroid_version=version)
+
+
 def test_idea_mcp_steroid_render_downloads_plugin():
     plugin = Idea(mcp_steroid=True)
     ctx = BuildContext(base="debian:bookworm-slim")
@@ -1994,6 +2035,33 @@ def test_idea_mcp_steroid_copies_start_script_when_no_project():
     assert "ENV MCP_STEROID=true" in fragment
     assert "COPY plugins/idea/scripts/supervisord-idea.conf" in fragment
     assert "open-project.zip" not in fragment
+    # Installed under bare names so IdeGYMServer's /usr/local/bin/*.{py,sh} rename
+    # pass leaves them intact and the supervisord command keeps resolving.
+    assert "chmod +x /usr/local/bin/check-mcp /usr/local/bin/start-idea" in fragment
+    assert "/usr/local/bin/start-idea.sh" not in fragment
+    assert "/usr/local/bin/check-mcp.sh" not in fragment
+
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+@mark.parametrize(
+    ("ide", "start_script"),
+    [
+        param("idea", "start-idea", id="idea"),
+        param("pycharm", "start-pycharm", id="pycharm"),
+    ],
+)
+def test_ide_start_scripts_installed_without_sh_suffix(ide, start_script):
+    # IdeGYMServer renames /usr/local/bin/*.{py,sh} to bare hyphenated commands.
+    # The supervisord program command and the start script's `source` of check-mcp
+    # must therefore reference the bare names, not the .sh source filenames.
+    scripts = _REPO_ROOT / "plugins" / ide / "scripts"
+    supervisord = (scripts / f"supervisord-{ide}.conf").read_text()
+    assert f"command=/usr/local/bin/{start_script}\n" in supervisord
+    assert f"{start_script}.sh" not in supervisord
+    start = (scripts / f"{start_script}.sh").read_text()
+    assert 'source "${SCRIPT_DIR}/check-mcp"' in start
 
 
 def test_idea_mcp_steroid_no_start_script_when_open_project_active():
