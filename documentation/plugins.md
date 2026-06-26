@@ -512,7 +512,11 @@ status = await server.my_plugin.status()   # → {"ok": True}
 
 ## Built-in Default Plugins
 
-### `idegym-plugin-defaults` (always installed)
+All plugins ship in a single distribution, `idegym-plugins`. The defaults and shared
+utilities are always installed; the IDE integrations are activated via extras
+(`idegym-plugins[pycharm]`, `idegym-plugins[idea]`).
+
+### `idegym-plugins` defaults (always installed)
 
 Ships with the IdeGYM workspace. Source: `plugins/defaults/src/idegym/plugins/defaults/`.
 
@@ -534,9 +538,9 @@ Ships with the IdeGYM workspace. Source: `plugins/defaults/src/idegym/plugins/de
 | `tools` | `ToolsPlugin` | Mounts the built-in tools router (`/api/tools/*`) |
 | `rewards` | `RewardsPlugin` | Mounts the built-in rewards router (`/api/rewards/*`) |
 
-### `idegym-plugin-pycharm` (optional, separate package)
+### PyCharm — `idegym-plugins[pycharm]` (optional extra)
 
-Ships in `plugins/pycharm/`. Install separately to use the PyCharm integration.
+Ships in `plugins/pycharm/`. Install the `pycharm` extra to use the PyCharm integration.
 
 | Integration point | Entry point group | Class |
 |---|---|---|
@@ -544,9 +548,9 @@ Ships in `plugins/pycharm/`. Install separately to use the PyCharm integration.
 | Server routing | `idegym.plugins.server` | `PyCharmPlugin` — mounts `POST /api/pycharm/inspect` |
 | Client operations | `idegym.plugins.client` | `PycharmClientOperations` — exposes `server.pycharm.inspect(...)` |
 
-### `idegym-plugin-idea` (optional, separate package)
+### IntelliJ IDEA — `idegym-plugins[idea]` (optional extra)
 
-Ships in `plugins/idea/`. Install separately to use the IntelliJ IDEA integration.
+Ships in `plugins/idea/`. Install the `idea` extra to use the IntelliJ IDEA integration.
 
 | Integration point | Entry point group | Class |
 |---|---|---|

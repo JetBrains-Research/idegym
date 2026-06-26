@@ -59,6 +59,11 @@ class IdeGYMServer(Base):
     # for servers started from a snapshot, otherwise the server's own generated_name.
     snapshot_id = Column(String, index=True, nullable=True)
 
+    # Restarts tolerated before the watcher marks the server CRASHED and tears it down (0 = fail on first crash).
+    max_restarts = Column(Integer, default=0, nullable=False)
+    # Human-readable reason populated on terminal failures (e.g. the crash/OOM/eviction cause).
+    details = Column(Text, nullable=True)
+
     @property
     def snapshot_name(self) -> str:
         return self.snapshot_id or self.generated_name

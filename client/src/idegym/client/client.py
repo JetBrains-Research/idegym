@@ -29,6 +29,12 @@ from idegym.api.orchestrator.servers import (
     SnapshotRef,
     StartServerResponse,
 )
+from idegym.api.pod_spec import (
+    KubernetesEnvFromSource,
+    KubernetesPodOverrides,
+    KubernetesVolume,
+    KubernetesVolumeMount,
+)
 from idegym.api.resources import KubernetesResources
 from idegym.api.type import KubernetesNodeSelector, KubernetesObjectName, OCIImageName
 from idegym.client.operations.clients import ClientOperations
@@ -247,6 +253,11 @@ class IdeGYMClient:
         container_port: int = 8000,
         resources: Optional[KubernetesResources] = None,
         node_selector: Optional[KubernetesNodeSelector] = None,
+        volumes: Optional[list[KubernetesVolume]] = None,
+        volume_mounts: Optional[list[KubernetesVolumeMount]] = None,
+        env_from: Optional[list[KubernetesEnvFromSource]] = None,
+        service_account_name: Optional[str] = None,
+        pod_overrides: Optional[KubernetesPodOverrides] = None,
         server_start_wait_timeout_in_seconds: int = 60,
         retry_delay_in_seconds: int = 15,
         polling_config: PollingConfig = PollingConfig(),
@@ -254,6 +265,7 @@ class IdeGYMClient:
         close_action: ServerCloseAction = ServerCloseAction.FINISH,
         server_kind: ServerKind = ServerKind.IDEGYM,
         snapshot: Optional[SnapshotRef] = None,
+        max_restarts: int = 0,
     ):
         """
         Async context manager that starts a server and yields an :class:`IdeGYMServer` handle.
@@ -272,12 +284,18 @@ class IdeGYMClient:
             container_port=container_port,
             resources=resources,
             node_selector=node_selector,
+            volumes=volumes,
+            volume_mounts=volume_mounts,
+            env_from=env_from,
+            service_account_name=service_account_name,
+            pod_overrides=pod_overrides,
             server_start_wait_timeout_in_seconds=server_start_wait_timeout_in_seconds,
             retry_delay_in_seconds=retry_delay_in_seconds,
             polling_config=polling_config,
             reuse_strategy=reuse_strategy,
             server_kind=server_kind,
             snapshot=snapshot,
+            max_restarts=max_restarts,
         )
 
         try:
@@ -328,12 +346,18 @@ class IdeGYMClient:
         container_port: int = 8000,
         resources: Optional[KubernetesResources] = None,
         node_selector: Optional[KubernetesNodeSelector] = None,
+        volumes: Optional[list[KubernetesVolume]] = None,
+        volume_mounts: Optional[list[KubernetesVolumeMount]] = None,
+        env_from: Optional[list[KubernetesEnvFromSource]] = None,
+        service_account_name: Optional[str] = None,
+        pod_overrides: Optional[KubernetesPodOverrides] = None,
         server_start_wait_timeout_in_seconds: int = 60,
         retry_delay_in_seconds: int = 15,
         polling_config: PollingConfig = PollingConfig(),
         reuse_strategy: ServerReuseStrategy = ServerReuseStrategy.RESET,
         server_kind: ServerKind = ServerKind.IDEGYM,
         snapshot: Optional[SnapshotRef] = None,
+        max_restarts: int = 0,
     ) -> IdeGYMServer:
         """
         Start an IdeGYM server and return an :class:`IdeGYMServer` handle.
@@ -353,12 +377,18 @@ class IdeGYMClient:
             container_port=container_port,
             resources=resources,
             node_selector=node_selector,
+            volumes=volumes,
+            volume_mounts=volume_mounts,
+            env_from=env_from,
+            service_account_name=service_account_name,
+            pod_overrides=pod_overrides,
             server_start_wait_timeout_in_seconds=server_start_wait_timeout_in_seconds,
             retry_delay_in_seconds=retry_delay_in_seconds,
             polling_config=polling_config,
             reuse_strategy=reuse_strategy,
             server_kind=server_kind,
             snapshot=snapshot,
+            max_restarts=max_restarts,
         )
 
         if isinstance(server_response, ErrorResponse):

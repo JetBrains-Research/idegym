@@ -26,6 +26,12 @@ from idegym.api.orchestrator.snapshots import (
     SnapshotExistsRequest,
     SnapshotExistsResponse,
 )
+from idegym.api.pod_spec import (
+    KubernetesEnvFromSource,
+    KubernetesPodOverrides,
+    KubernetesVolume,
+    KubernetesVolumeMount,
+)
 from idegym.api.resources import KubernetesResources
 from idegym.api.status import Status
 from idegym.api.type import KubernetesNodeSelector, KubernetesObjectName, OCIImageName
@@ -53,12 +59,18 @@ class ServerOperations:
         container_port: int = 8000,
         resources: Optional[KubernetesResources] = None,
         node_selector: Optional[KubernetesNodeSelector] = None,
+        volumes: Optional[list[KubernetesVolume]] = None,
+        volume_mounts: Optional[list[KubernetesVolumeMount]] = None,
+        env_from: Optional[list[KubernetesEnvFromSource]] = None,
+        service_account_name: Optional[str] = None,
+        pod_overrides: Optional[KubernetesPodOverrides] = None,
         server_start_wait_timeout_in_seconds: int = 60,
         retry_delay_in_seconds: int = 15,
         polling_config: PollingConfig = PollingConfig(),
         reuse_strategy: ServerReuseStrategy = ServerReuseStrategy.RESET,
         server_kind: ServerKind = ServerKind.IDEGYM,
         snapshot: Optional[SnapshotRef] = None,
+        max_restarts: int = 0,
     ) -> StartServerResponse | ErrorResponse:
         client_id = self._utils.validate_client_id(client_id)
         namespace = self._utils.validate_namespace(namespace)
@@ -84,10 +96,16 @@ class ServerOperations:
                 container_port=container_port,
                 resources=resources,
                 node_selector=node_selector,
+                volumes=volumes or [],
+                volume_mounts=volume_mounts or [],
+                env_from=env_from or [],
+                service_account_name=service_account_name,
+                pod_overrides=pod_overrides or KubernetesPodOverrides(),
                 server_start_wait_timeout_in_seconds=server_start_wait_timeout_in_seconds,
                 reuse_strategy=reuse_strategy,
                 server_kind=server_kind,
                 snapshot=snapshot,
+                max_restarts=max_restarts,
             )
             response_raw = await self._utils.make_request(
                 "POST", "/api/idegym-servers", request, request_timeout=remaining_time

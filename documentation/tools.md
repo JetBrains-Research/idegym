@@ -169,7 +169,7 @@ results = await server.execute_bash(f"cat {output_dir}/*.xml")
 ### Via Python Client
 
 ```python
-from idegym.client import IdeGYMClient
+from idegym.client.client import IdeGYMClient
 
 client = IdeGYMClient(...)
 server = await client.start_server(...)

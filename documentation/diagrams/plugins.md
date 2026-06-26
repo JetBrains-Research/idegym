@@ -7,7 +7,7 @@ authoring guide.
 
 ```mermaid
 flowchart LR
-    subgraph pkg["Plugin Package (e.g. idegym-plugin-pycharm)"]
+    subgraph pkg["Plugin Package (idegym-plugins, e.g. the pycharm extra)"]
         imgp["@image_plugin<br/>PluginBase: apply() / render()<br/>get_mcp_upstream()"]
         srvp["@server_plugin<br/>get_server_router()"]
         cliops["Client Ops class<br/>(typed async methods)"]

@@ -15,6 +15,8 @@ from kubernetes_asyncio.client import (
     V1Namespace,
     V1ObjectMeta,
     V1Pod,
+    V1Secret,
+    V1ServiceAccount,
 )
 from kubernetes_asyncio.stream import WsApiClient
 from kubernetes_asyncio.stream.ws_client import ERROR_CHANNEL, STDERR_CHANNEL, STDOUT_CHANNEL
@@ -314,3 +316,61 @@ def exec_in_pod(pod_name: str, namespace: str, command: list[str]) -> str:
             return "".join(stdout_chunks)
 
     return _run_async(_op())
+
+
+def create_secret(namespace: str, name: str, string_data: dict[str, str]) -> None:
+    """Create (or replace) an Opaque secret with the given plaintext key/value pairs."""
+
+    async def _op(core: CoreV1Api, _apps: AppsV1Api, _policy: PolicyV1Api) -> None:
+        body = V1Secret(metadata=V1ObjectMeta(name=name), type="Opaque", string_data=string_data)
+        try:
+            await _await_api_result(core.create_namespaced_secret(namespace=namespace, body=body))
+        except ApiException as exc:
+            if exc.status != 409:  # already exists -> overwrite so reruns are idempotent
+                raise
+            # A replace is an update, which requires the current resourceVersion for optimistic locking.
+            existing = await _await_api_result(core.read_namespaced_secret(name=name, namespace=namespace))
+            body.metadata.resource_version = existing.metadata.resource_version
+            await _await_api_result(core.replace_namespaced_secret(name=name, namespace=namespace, body=body))
+
+    _run_async(_with_clients(_op))
+
+
+def delete_secret(namespace: str, name: str) -> None:
+    """Delete a secret, ignoring a missing one."""
+
+    async def _op(core: CoreV1Api, _apps: AppsV1Api, _policy: PolicyV1Api) -> None:
+        try:
+            await _await_api_result(core.delete_namespaced_secret(name=name, namespace=namespace))
+        except ApiException as exc:
+            if exc.status != 404:
+                raise
+
+    _run_async(_with_clients(_op))
+
+
+def create_service_account(namespace: str, name: str) -> None:
+    """Create a ServiceAccount, tolerating one that already exists."""
+
+    async def _op(core: CoreV1Api, _apps: AppsV1Api, _policy: PolicyV1Api) -> None:
+        body = V1ServiceAccount(metadata=V1ObjectMeta(name=name))
+        try:
+            await _await_api_result(core.create_namespaced_service_account(namespace=namespace, body=body))
+        except ApiException as exc:
+            if exc.status != 409:
+                raise
+
+    _run_async(_with_clients(_op))
+
+
+def delete_service_account(namespace: str, name: str) -> None:
+    """Delete a ServiceAccount, ignoring a missing one."""
+
+    async def _op(core: CoreV1Api, _apps: AppsV1Api, _policy: PolicyV1Api) -> None:
+        try:
+            await _await_api_result(core.delete_namespaced_service_account(name=name, namespace=namespace))
+        except ApiException as exc:
+            if exc.status != 404:
+                raise
+
+    _run_async(_with_clients(_op))

@@ -439,6 +439,7 @@ async def save_idegym_server(
     run_as_root: bool = False,
     server_kind: str = "idegym",
     service_port: int = 80,
+    max_restarts: int = 0,
 ) -> IdeGYMServer:
     # Insert first to obtain an auto-increment ID, then derive generated_name from it.
     server = IdeGYMServer(
@@ -453,6 +454,7 @@ async def save_idegym_server(
         run_as_root=run_as_root,
         server_kind=server_kind,
         service_port=service_port,
+        max_restarts=max_restarts,
     )
     db.add(server)
     await db.flush()  # assigns ID without committing
@@ -464,7 +466,10 @@ async def save_idegym_server(
 
 
 async def update_idegym_server_heartbeat(
-    db: AsyncSession, server_id: int, availability: str = AvailabilityStatus.ALIVE
+    db: AsyncSession,
+    server_id: int,
+    availability: str = AvailabilityStatus.ALIVE,
+    details: Optional[str] = None,
 ) -> Optional[IdeGYMServer]:
     server = await get_idegym_server(db, server_id)
     if not server:
@@ -475,6 +480,8 @@ async def update_idegym_server_heartbeat(
 
     server.last_heartbeat_time = current_time_millis()
     server.availability = availability
+    if details is not None:
+        server.details = details
 
     # Release the server's resource quota when it transitions to a terminal non-FINISHED state.
     if availability in {
@@ -716,6 +723,7 @@ async def check_resources_and_save_server(
     server_kind: str = "idegym",
     service_port: int = 80,
     snapshot_id: Optional[str] = None,
+    max_restarts: int = 0,
 ) -> Optional[IdeGYMServer]:
     """
     Atomically check resource limits and create a new server record.
@@ -768,6 +776,7 @@ async def check_resources_and_save_server(
             run_as_root=run_as_root,
             server_kind=server_kind,
             service_port=service_port,
+            max_restarts=max_restarts,
         )
         db.add(server)
         await db.flush()  # assigns ID without committing
