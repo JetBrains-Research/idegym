@@ -149,9 +149,9 @@ async def test_prepare_snapshots_raises_400_when_feature_disabled(mocker):
 async def test_get_prepare_status_in_progress(mocker):
     prepare = SimpleNamespace(total_requested=3, succeeded=1, failed=0)
     job_results = [
-        (_hash("a"), Status.SUCCESS, "server-1", None),
-        (_hash("b"), Status.IN_PROGRESS, None, None),
-        (_hash("c"), Status.IN_PROGRESS, None, None),
+        (_hash("a"), Status.SUCCESS, "server-1", "ps-1", None),
+        (_hash("b"), Status.IN_PROGRESS, None, None, None),
+        (_hash("c"), Status.IN_PROGRESS, None, None, None),
     ]
     mocker.patch(
         "idegym.orchestrator.router.snapshot.find_snapshot_prepare_request_with_results",
@@ -168,8 +168,8 @@ async def test_get_prepare_status_ready_when_all_done(mocker):
     prepare = SimpleNamespace(total_requested=2, succeeded=1, failed=1)
     h1, h2 = _hash("x"), _hash("y")
     job_results = [
-        (h1, Status.SUCCESS, "server-10", None),
-        (h2, Status.FAILURE, None, "deploy failed"),
+        (h1, Status.SUCCESS, "server-10", "ps-10", None),
+        (h2, Status.FAILURE, None, None, "deploy failed"),
     ]
     mocker.patch(
         "idegym.orchestrator.router.snapshot.find_snapshot_prepare_request_with_results",
@@ -194,8 +194,8 @@ async def test_get_prepare_status_ready_results_map_hash_to_outcome(mocker):
         return_value=(
             prepare,
             [
-                (h1, Status.SUCCESS, "server-77", None),
-                (h2, Status.FAILURE, None, "timeout"),
+                (h1, Status.SUCCESS, "server-77", "ps-77", None),
+                (h2, Status.FAILURE, None, None, "timeout"),
             ],
         ),
     )
@@ -204,8 +204,10 @@ async def test_get_prepare_status_ready_results_map_hash_to_outcome(mocker):
 
     by_hash = {r.request_hash: r for r in response.results}
     assert by_hash[h1].snapshot_name == "server-77"
+    assert by_hash[h1].snapshot_tag == "ps-77"
     assert by_hash[h1].details is None
     assert by_hash[h2].snapshot_name is None
+    assert by_hash[h2].snapshot_tag is None
     assert by_hash[h2].details == "timeout"
 
 
@@ -232,8 +234,8 @@ async def test_get_prepare_status_ready_when_all_failed(mocker):
         return_value=(
             prepare,
             [
-                (_hash("f1"), Status.FAILURE, None, "err1"),
-                (_hash("f2"), Status.FAILURE, None, "err2"),
+                (_hash("f1"), Status.FAILURE, None, None, "err1"),
+                (_hash("f2"), Status.FAILURE, None, None, "err2"),
             ],
         ),
     )
@@ -255,7 +257,7 @@ async def test_get_snapshot_job_status_success(mocker):
     job = SimpleNamespace(job_id=job_id, status=Status.SUCCESS, details=None)
     mocker.patch(
         "idegym.orchestrator.router.snapshot.find_snapshot_job_with_name",
-        return_value=(job, "server-42"),
+        return_value=(job, "server-42", "ps-42"),
     )
 
     response = await get_snapshot_job_status(job_id=job_id)
@@ -263,6 +265,7 @@ async def test_get_snapshot_job_status_success(mocker):
     assert response.job_id == job_id
     assert response.status == Status.SUCCESS
     assert response.snapshot_name == "server-42"
+    assert response.snapshot_tag == "ps-42"
     assert response.details is None
 
 
@@ -271,13 +274,14 @@ async def test_get_snapshot_job_status_failure_with_details(mocker):
     job = SimpleNamespace(job_id=job_id, status=Status.FAILURE, details="pod crash")
     mocker.patch(
         "idegym.orchestrator.router.snapshot.find_snapshot_job_with_name",
-        return_value=(job, None),
+        return_value=(job, None, None),
     )
 
     response = await get_snapshot_job_status(job_id=job_id)
 
     assert response.status == Status.FAILURE
     assert response.snapshot_name is None
+    assert response.snapshot_tag is None
     assert response.details == "pod crash"
 
 
@@ -299,7 +303,7 @@ async def test_get_snapshot_job_status_returns_404_for_unknown(mocker):
 async def test_check_snapshot_exists_found(mocker):
     mocker.patch(
         "idegym.orchestrator.router.snapshot.find_snapshot_for_request",
-        return_value=SimpleNamespace(snapshot_name="server-77"),
+        return_value=SimpleNamespace(snapshot_name="server-77", pod_snapshot_name="ps-77"),
     )
 
     response = await check_snapshot_exists(
@@ -308,6 +312,7 @@ async def test_check_snapshot_exists_found(mocker):
 
     assert response.exists is True
     assert response.snapshot_name == "server-77"
+    assert response.snapshot_tag == "ps-77"
 
 
 async def test_check_snapshot_exists_not_found(mocker):

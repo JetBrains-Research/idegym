@@ -1,4 +1,5 @@
-from typing import Optional
+from enum import StrEnum
+from typing import Optional, Union
 from uuid import UUID
 
 from idegym.api.orchestrator.servers import ServerKind, StartServerRequest
@@ -43,6 +44,57 @@ class PodSnapshotManualTrigger(BaseModel):
     spec: PodSnapshotManualTriggerSpec
 
 
+class PodSnapshotTriggerReason(StrEnum):
+
+    PROCESSING = "Processing"
+    COMPLETE = "Complete"
+
+
+class PodSnapshotTriggerCondition(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="ignore")
+
+    type: Optional[str] = None
+    status: Optional[str] = None
+    reason: Optional[str] = None
+    message: Optional[str] = None
+
+
+class PodSnapshotCreated(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="ignore")
+
+    name: Optional[str] = None
+
+
+class PodSnapshotManualTriggerStatus(BaseModel):
+    """Typed view over the otherwise-untyped PodSnapshotManualTrigger.status dict the k8s API returns."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="ignore")
+
+    conditions: list[PodSnapshotTriggerCondition] = Field(default_factory=list)
+    # GKE's docs disagree on the shape: a nested object carrying `name`, or the plain name string.
+    snapshot_created: Optional[Union[PodSnapshotCreated, str]] = None
+    snapshot_created_name: Optional[str] = None
+
+    @property
+    def triggered_condition(self) -> Optional[PodSnapshotTriggerCondition]:
+        """The 'Triggered' status condition, if the controller has reported one."""
+        return next((cond for cond in self.conditions if cond.type == "Triggered"), None)
+
+    @property
+    def created_snapshot_name(self) -> Optional[str]:
+        """The auto-generated PodSnapshot resource name, across all documented status shapes.
+
+        Falls back to the flat snapshotCreatedName whenever snapshotCreated is absent, null,
+        empty, or a nested object without a name. Returns None when nothing is reported.
+        """
+        created = self.snapshot_created
+        if isinstance(created, PodSnapshotCreated):
+            return created.name or self.snapshot_created_name
+        if isinstance(created, str) and created:
+            return created
+        return self.snapshot_created_name
+
+
 class CreateSnapshotRequest(BaseModel):
     client_id: UUID = Field(description="UUID of the client that owns the server being snapshotted")
     server_id: int = Field(description="Numeric IdeGYM server ID that should be snapshotted")
@@ -55,6 +107,14 @@ class CreateSnapshotResponse(BaseModel):
     snapshot_id: Optional[str] = Field(
         default=None,
         description="ID of the taken snapshot. By implementation, equals the snapshot_id / name of the snapshotted pod.",
+    )
+    snapshot_tag: Optional[str] = Field(
+        default=None,
+        description=(
+            "GKE PodSnapshot resource name of the snapshot just taken. Pass it back as "
+            "start_server's snapshot_tag (together with snapshot_id) to restore this exact "
+            "snapshot. None if GKE did not report a name."
+        ),
     )
     operation_id: Optional[int] = Field(default=None, description="Async operation ID to poll for snapshot status")
 
@@ -81,6 +141,10 @@ class SnapshotJobResult(BaseModel):
         default=None,
         description="Server ID to pass as snapshot_id when starting from this snapshot; set on success",
     )
+    snapshot_tag: Optional[str] = Field(
+        default=None,
+        description="GKE PodSnapshot resource name to pass as snapshot_tag to restore this exact snapshot; set on success",
+    )
     details: Optional[str] = Field(default=None, description="Error details if the job failed")
 
 
@@ -103,6 +167,10 @@ class SnapshotJobStatusResponse(BaseModel):
         default=None,
         description="Server ID to use as snapshot_id when starting a server from this snapshot",
     )
+    snapshot_tag: Optional[str] = Field(
+        default=None,
+        description="GKE PodSnapshot resource name to use as snapshot_tag to restore this exact snapshot",
+    )
     details: Optional[str] = Field(default=None, description="Error details if the job failed")
 
 
@@ -120,4 +188,8 @@ class SnapshotExistsResponse(BaseModel):
     snapshot_name: Optional[str] = Field(
         default=None,
         description="Server ID to pass as snapshot_id when starting a server, present only if exists=True",
+    )
+    snapshot_tag: Optional[str] = Field(
+        default=None,
+        description="GKE PodSnapshot resource name to pass as snapshot_tag to restore this exact snapshot",
     )

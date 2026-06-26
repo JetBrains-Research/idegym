@@ -26,6 +26,7 @@ from idegym.api.orchestrator.servers import (
     ServerActionResponse,
     ServerKind,
     ServerReuseStrategy,
+    SnapshotRef,
     StartServerResponse,
 )
 from idegym.api.pod_spec import (
@@ -263,7 +264,7 @@ class IdeGYMClient:
         reuse_strategy=ServerReuseStrategy.RESET,
         close_action: ServerCloseAction = ServerCloseAction.FINISH,
         server_kind: ServerKind = ServerKind.IDEGYM,
-        snapshot_id: Optional[str] = None,
+        snapshot: Optional[SnapshotRef] = None,
         max_restarts: int = 0,
     ):
         """
@@ -293,7 +294,7 @@ class IdeGYMClient:
             polling_config=polling_config,
             reuse_strategy=reuse_strategy,
             server_kind=server_kind,
-            snapshot_id=snapshot_id,
+            snapshot=snapshot,
             max_restarts=max_restarts,
         )
 
@@ -355,7 +356,7 @@ class IdeGYMClient:
         polling_config: PollingConfig = PollingConfig(),
         reuse_strategy: ServerReuseStrategy = ServerReuseStrategy.RESET,
         server_kind: ServerKind = ServerKind.IDEGYM,
-        snapshot_id: Optional[str] = None,
+        snapshot: Optional[SnapshotRef] = None,
         max_restarts: int = 0,
     ) -> IdeGYMServer:
         """
@@ -386,7 +387,7 @@ class IdeGYMClient:
             polling_config=polling_config,
             reuse_strategy=reuse_strategy,
             server_kind=server_kind,
-            snapshot_id=snapshot_id,
+            snapshot=snapshot,
             max_restarts=max_restarts,
         )
 

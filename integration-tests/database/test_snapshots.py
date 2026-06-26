@@ -7,6 +7,7 @@ exercised faithfully.
 """
 
 import hashlib
+from typing import Optional
 from uuid import uuid4
 
 import pytest
@@ -35,7 +36,7 @@ def _hash(salt: str) -> str:
     return hashlib.sha256(f"test-{salt}".encode()).hexdigest()
 
 
-async def _snapshot(db: AsyncSession, name: str, request_hash: str) -> object:
+async def _snapshot(db: AsyncSession, name: str, request_hash: str, pod_snapshot_name: Optional[str] = None) -> object:
     return await save_snapshot(
         db,
         snapshot_name=name,
@@ -46,6 +47,7 @@ async def _snapshot(db: AsyncSession, name: str, request_hash: str) -> object:
         runtime_class_name="gvisor",
         run_as_root=False,
         server_kind="idegym",
+        pod_snapshot_name=pod_snapshot_name,
     )
 
 
@@ -62,6 +64,15 @@ async def test_save_and_find_snapshot(db: AsyncSession):
     found = await find_snapshot_by_request_hash(db, h)
     assert found is not None
     assert found.snapshot_name == "server-1"
+
+
+async def test_save_and_find_snapshot_with_pod_snapshot_name(db: AsyncSession):
+    h = _hash("with-tag")
+    await _snapshot(db, "server-tag", h, pod_snapshot_name="ps-uuid-123")
+
+    found = await find_snapshot_by_request_hash(db, h)
+    assert found is not None
+    assert found.pod_snapshot_name == "ps-uuid-123"
 
 
 async def test_find_snapshot_returns_most_recent(db: AsyncSession):
@@ -164,9 +175,10 @@ async def test_get_snapshot_job_with_name_before_snapshot(db: AsyncSession):
 
     result = await get_snapshot_job_with_name(db, job_id)
     assert result is not None
-    job, snapshot_name = result
+    job, snapshot_name, pod_snapshot_name = result
     assert job.job_id == job_id
     assert snapshot_name is None
+    assert pod_snapshot_name is None
 
 
 async def test_get_snapshot_job_with_name_after_success(db: AsyncSession):
@@ -176,14 +188,15 @@ async def test_get_snapshot_job_with_name_after_success(db: AsyncSession):
     job_id = str(uuid4())
     await save_snapshot_job(db, job_id=job_id, request_hash=h, request="{}", prepare_request_id=req_id)
 
-    snap = await _snapshot(db, "server-99", h)
+    snap = await _snapshot(db, "server-99", h, pod_snapshot_name="ps-99")
     await update_snapshot_job(db, job_id=job_id, status=Status.SUCCESS, snapshot_id=snap.id)
 
     result = await get_snapshot_job_with_name(db, job_id)
     assert result is not None
-    job, snapshot_name = result
+    job, snapshot_name, pod_snapshot_name = result
     assert job.status == Status.SUCCESS
     assert snapshot_name == "server-99"
+    assert pod_snapshot_name == "ps-99"
 
 
 # ===========================================================================
@@ -219,7 +232,7 @@ async def test_prepare_request_with_results_mixed(db: AsyncSession):
         await save_snapshot_job(db, job_id=job_id, request_hash=h, request="{}", prepare_request_id=req_id)
 
     # job_a succeeds
-    snap = await _snapshot(db, "server-100", h1)
+    snap = await _snapshot(db, "server-100", h1, pod_snapshot_name="ps-100")
     await update_snapshot_job(db, job_id=job_a, status=Status.SUCCESS, snapshot_id=snap.id)
     await increment_snapshot_prepare_succeeded(db, request_id=req_id)
 
@@ -238,12 +251,14 @@ async def test_prepare_request_with_results_mixed(db: AsyncSession):
     ra = by_hash[h1]
     assert ra[1] == Status.SUCCESS
     assert ra[2] == "server-100"
-    assert ra[3] is None
+    assert ra[3] == "ps-100"  # pod_snapshot_name
+    assert ra[4] is None  # details
 
     rb = by_hash[h2]
     assert rb[1] == Status.FAILURE
     assert rb[2] is None
-    assert rb[3] == "k8s error"
+    assert rb[3] is None  # pod_snapshot_name
+    assert rb[4] == "k8s error"  # details
 
     rc = by_hash[h3]
     assert rc[1] == Status.IN_PROGRESS

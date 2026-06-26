@@ -12,6 +12,7 @@ from idegym.api.orchestrator.servers import (
     ServerActionResponse,
     ServerKind,
     ServerReuseStrategy,
+    SnapshotRef,
     StartServerRequest,
     StartServerResponse,
     StopServerRequest,
@@ -68,7 +69,7 @@ class ServerOperations:
         polling_config: PollingConfig = PollingConfig(),
         reuse_strategy: ServerReuseStrategy = ServerReuseStrategy.RESET,
         server_kind: ServerKind = ServerKind.IDEGYM,
-        snapshot_id: Optional[str] = None,
+        snapshot: Optional[SnapshotRef] = None,
         max_restarts: int = 0,
     ) -> StartServerResponse | ErrorResponse:
         client_id = self._utils.validate_client_id(client_id)
@@ -103,7 +104,7 @@ class ServerOperations:
                 server_start_wait_timeout_in_seconds=server_start_wait_timeout_in_seconds,
                 reuse_strategy=reuse_strategy,
                 server_kind=server_kind,
-                snapshot_id=snapshot_id,
+                snapshot=snapshot,
                 max_restarts=max_restarts,
             )
             response_raw = await self._utils.make_request(

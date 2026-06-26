@@ -113,7 +113,7 @@ async def run_snapshot_pipeline_job(
         await update_server_status(server_id=server_id, availability_status=AvailabilityStatus.ALIVE)
 
         snapshot_service = PodSnapshotService(config=pod_snapshot, namespace=request.namespace)
-        await snapshot_service.snapshot_server(server_name=server_generated_name)
+        pod_snapshot_name = await snapshot_service.snapshot_server(server_name=server_generated_name)
 
         await _cleanup_server(
             server_id=server_id, server_generated_name=server_generated_name, namespace=request.namespace
@@ -129,6 +129,7 @@ async def run_snapshot_pipeline_job(
             runtime_class_name=request.runtime_class_name,
             run_as_root=request.run_as_root,
             server_kind=str(request.server_kind),
+            pod_snapshot_name=pod_snapshot_name,
         )
 
         await update_snapshot_job_status(

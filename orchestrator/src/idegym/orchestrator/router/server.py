@@ -231,6 +231,7 @@ async def _task_start_server(
                 server_kind=request.server_kind,
                 service_port=request.service_port,
                 run_as_root=request.run_as_root,
+                snapshot_id=request.snapshot.id if request.snapshot else None,
                 max_restarts=request.max_restarts,
             )
 
@@ -347,7 +348,8 @@ async def _task_start_server(
                 env_from=[source.model_dump(by_alias=True, exclude_none=True) for source in request.env_from],
                 pod_overrides=request.pod_overrides.model_dump(by_alias=True, exclude_none=True),
                 server_kind=request.server_kind,
-                snapshot_id=request.snapshot_id,
+                snapshot_id=request.snapshot.id if request.snapshot else None,
+                snapshot_tag=request.snapshot.tag if request.snapshot else None,
             )
 
             await wait_for_pods_ready(

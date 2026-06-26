@@ -24,6 +24,26 @@ class ServerKind(StrEnum):
     OPENENV = "openenv"
 
 
+class SnapshotRef(BaseModel):
+    """GKE-only reference to a pod snapshot to restore a server from."""
+
+    id: str = Field(
+        description=(
+            "ID of the server whose snapshot group to restore from. GKE restores the latest "
+            "snapshot in the group unless a specific tag is given."
+        ),
+    )
+    tag: Optional[str] = Field(
+        default=None,
+        description=(
+            "GKE PodSnapshot resource name of a specific snapshot to restore (the snapshot_tag "
+            "reported when the snapshot was created), passed through as the "
+            "'podsnapshot.gke.io/ps-name' pod annotation. Leave empty to restore the latest "
+            "snapshot in the group."
+        ),
+    )
+
+
 class StartServerRequest(BaseModel):
     client_id: UUID = Field(description="UUID of the client that will own the server")
     namespace: str = Field(default="idegym", description="Kubernetes namespace where the server should run")
@@ -123,13 +143,12 @@ class StartServerRequest(BaseModel):
         default=ServerKind.IDEGYM,
         description='Server type: "idegym" or "openenv"',
     )
-    snapshot_id: Optional[str] = Field(
+    snapshot: Optional[SnapshotRef] = Field(
         default=None,
         description=(
-            "GKE ONLY: Enable pod-snapshotting [Look at the README]."
-            "This field is used to restore a server from a snapshot."
-            "The value of this field is the ID of the server whose snapshot you want to reuse."
-            "Leave it empty to start a new server."
+            "GKE ONLY: restore the server from a pod snapshot [Look at the README]. Provide the "
+            "snapshot group id, and optionally a specific snapshot tag. Leave empty to start a "
+            "fresh server."
         ),
     )
     max_restarts: int = Field(

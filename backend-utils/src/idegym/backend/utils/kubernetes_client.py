@@ -10,6 +10,7 @@ from idegym.api.exceptions import ResourceDeletionFailedException
 from idegym.api.orchestrator.servers import ServerKind
 from idegym.api.paths import API_BASE_PATH, ActuatorPath, OpenenvPath
 from idegym.api.status import Status
+from idegym.api.type import ConditionStatus
 from idegym.utils.dict import deep_merge
 from idegym.utils.functools import cached_async_result
 from idegym.utils.logging import get_logger
@@ -260,6 +261,7 @@ async def deploy_server(
     pod_overrides: Optional[dict[str, Any]] = None,
     server_kind: ServerKind = ServerKind.IDEGYM,
     snapshot_id: Optional[str] = None,
+    snapshot_tag: Optional[str] = None,
 ):
     """
     Create a Kubernetes Deployment, Service, and PodDisruptionBudget for a server.
@@ -322,6 +324,9 @@ async def deploy_server(
         "cluster-autoscaler.kubernetes.io/safe-to-evict": "false",
         **prometheus_annotations,
     }
+    if snapshot_tag:
+        # Restore a specific GKE PodSnapshot instead of the latest one in the group.
+        annotations["podsnapshot.gke.io/ps-name"] = snapshot_tag
     match_labels = {
         "app": server_name,
         "app.kubernetes.io/component": "sandbox",
@@ -545,7 +550,7 @@ async def pods_are_ready(label_selector: str, namespace: str) -> tuple[bool, boo
                 for condition in pod.status.conditions:
                     if (
                         condition.type == "PodScheduled"
-                        and condition.status == "False"
+                        and condition.status == ConditionStatus.FALSE
                         and condition.reason == "Unschedulable"
                     ):
                         has_unschedulable_pods = True

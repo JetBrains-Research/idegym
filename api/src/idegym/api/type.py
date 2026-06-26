@@ -1,7 +1,17 @@
 from datetime import timedelta
+from enum import StrEnum
 from typing import Annotated, Literal, Type, TypeAlias
 
 from pydantic import AnyHttpUrl, BeforeValidator, IPvAnyAddress, StringConstraints, TypeAdapter
+
+
+class ConditionStatus(StrEnum):
+    """Kubernetes condition `status` values (the `ConditionStatus` type)."""
+
+    TRUE = "True"
+    FALSE = "False"
+    UNKNOWN = "Unknown"
+
 
 ipv_address_adapter = TypeAdapter(IPvAnyAddress)
 http_url_adapter = TypeAdapter(AnyHttpUrl)
