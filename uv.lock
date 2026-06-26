@@ -1499,7 +1499,7 @@ requires-dist = [
     { name = "idegym-api", editable = "api" },
     { name = "idegym-backend-utils", editable = "backend-utils" },
     { name = "idegym-common-utils", editable = "common-utils" },
-    { name = "junitparser", specifier = ">=3.2.0" },
+    { name = "junitparser", specifier = ">=5.0.1" },
 ]
 provides-extras = ["server"]
 
@@ -1736,11 +1736,11 @@ wheels = [
 
 [[package]]
 name = "junitparser"
-version = "5.0.0"
+version = "5.0.1"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/26/61/1685f940545177c553683c10114f5bb5bc093996fe651b29b8bee07f63e9/junitparser-5.0.0.tar.gz", hash = "sha256:f15e292877258d7c5755d672ce86f82c3622c7ea4c2f44f55de44ed7518484d3", size = 26259, upload-time = "2026-03-29T01:59:15.864Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/12/ed/063362ed6c5e39273879ba3db91da13b00551c6277de6842e45ab55a1a22/junitparser-5.0.1.tar.gz", hash = "sha256:45d100ca35ce5e2596c1f251de5e0f9411827aa93edaba7ad2d8eef423eecdd0", size = 12051, upload-time = "2026-06-05T03:55:55.888Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/31/e6/54c543336cc49aadc50fea1b66835903afbdcff9eeb8a9d26a475b2d9c47/junitparser-5.0.0-py3-none-any.whl", hash = "sha256:9e279f2214dc74b6a86b22db757abda2e8e66e819fe882dad5b392d57024cd26", size = 14801, upload-time = "2026-03-29T01:59:14.613Z" },
+    { url = "https://files.pythonhosted.org/packages/e5/32/15c6dd4267d530c38ca8b661c8322d201a6766087efd81ef81d3456e3cad/junitparser-5.0.1-py3-none-any.whl", hash = "sha256:019410471ac82c6b49c3cd500b930b3f39a5dae34e5ca5d5f719c4dcd9bb7e9a", size = 15014, upload-time = "2026-06-05T03:55:54.478Z" },
 ]
 
 [[package]]
