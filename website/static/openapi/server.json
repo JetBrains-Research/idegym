@@ -1,0 +1,481 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "IdeGYM Server API",
+    "description": "In-pod FastAPI server exposing tools (bash, file ops) and reward endpoints. Mounted under the /api prefix in the running container.",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/tools/bash": {
+      "post": {
+        "summary": "Execute Bash Script",
+        "operationId": "execute_bash_script_api_tools_bash_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BashCommandRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tools/file/create": {
+      "post": {
+        "summary": "Create File",
+        "operationId": "create_file_api_tools_file_create_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateFileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tools/file/edit": {
+      "post": {
+        "summary": "Replace Lines",
+        "operationId": "replace_lines_api_tools_file_edit_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EditFileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tools/file/patch": {
+      "post": {
+        "summary": "Patch File",
+        "operationId": "patch_file_api_tools_file_patch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchFileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/rewards/compilation": {
+      "post": {
+        "summary": "Compilation Reward",
+        "operationId": "compilation_reward_api_rewards_compilation_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompilationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/rewards/setup": {
+      "post": {
+        "summary": "Setup Reward",
+        "operationId": "setup_reward_api_rewards_setup_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/rewards/test": {
+      "post": {
+        "summary": "Unit Test Reward",
+        "operationId": "unit_test_reward_api_rewards_test_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "BashCommandRequest": {
+        "properties": {
+          "command": {
+            "type": "string",
+            "title": "Command",
+            "description": "Command to execute as a bash script"
+          },
+          "timeout": {
+            "type": "number",
+            "title": "Timeout",
+            "description": "Timeout for the command execution in seconds",
+            "default": 600.0
+          },
+          "graceful_termination_timeout": {
+            "type": "number",
+            "title": "Graceful Termination Timeout",
+            "description": "Timeout in seconds for graceful process termination",
+            "default": 2.0
+          }
+        },
+        "type": "object",
+        "required": [
+          "command"
+        ],
+        "title": "BashCommandRequest"
+      },
+      "CompilationRequest": {
+        "properties": {
+          "compilation_script": {
+            "type": "string",
+            "title": "Compilation Script",
+            "default": "./gradlew assemble"
+          },
+          "timeout": {
+            "type": "number",
+            "title": "Timeout",
+            "description": "Timeout for the compilation in seconds",
+            "default": 600.0
+          },
+          "graceful_termination_timeout": {
+            "type": "number",
+            "title": "Graceful Termination Timeout",
+            "description": "Timeout in seconds for graceful process termination",
+            "default": 2.0
+          }
+        },
+        "type": "object",
+        "title": "CompilationRequest"
+      },
+      "CreateFileRequest": {
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "title": "File Path"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file_path",
+          "content"
+        ],
+        "title": "CreateFileRequest"
+      },
+      "EditFileRequest": {
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "title": "File Path"
+          },
+          "start_line": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Start Line"
+          },
+          "end_line": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "End Line"
+          },
+          "new_content": {
+            "type": "string",
+            "title": "New Content"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file_path",
+          "start_line",
+          "end_line",
+          "new_content"
+        ],
+        "title": "EditFileRequest"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "PatchFileRequest": {
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "title": "File Path"
+          },
+          "patch": {
+            "type": "string",
+            "title": "Patch"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file_path",
+          "patch"
+        ],
+        "title": "PatchFileRequest",
+        "description": "Applies a unified diff patch generated by `diff_patch.compute_diff`."
+      },
+      "SetupRequest": {
+        "properties": {
+          "setup_check_script": {
+            "type": "string",
+            "title": "Setup Check Script",
+            "default": "true"
+          },
+          "timeout": {
+            "type": "number",
+            "title": "Timeout",
+            "description": "Timeout for the setup in seconds",
+            "default": 600.0
+          },
+          "graceful_termination_timeout": {
+            "type": "number",
+            "title": "Graceful Termination Timeout",
+            "description": "Timeout in seconds for graceful process termination",
+            "default": 2.0
+          }
+        },
+        "type": "object",
+        "title": "SetupRequest"
+      },
+      "TestRequest": {
+        "properties": {
+          "test_script": {
+            "type": "string",
+            "title": "Test Script",
+            "default": "python -m pytest --junitxml=test-results.xml"
+          },
+          "timeout": {
+            "type": "number",
+            "title": "Timeout",
+            "description": "Timeout for the test in seconds",
+            "default": 600.0
+          },
+          "graceful_termination_timeout": {
+            "type": "number",
+            "title": "Graceful Termination Timeout",
+            "description": "Timeout in seconds for graceful process termination",
+            "default": 2.0
+          }
+        },
+        "type": "object",
+        "title": "TestRequest"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}
