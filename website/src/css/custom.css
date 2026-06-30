@@ -1,0 +1,73 @@
+/**
+ * Any CSS included here will be global. The classic template
+ * bundles Infima by default. Infima is a CSS framework designed to
+ * work well for content-centric websites.
+ *
+ * IdeGYM theme: JetBrains-orange accent, dark-mode-first, tuned to stay
+ * legible when projected during a live talk.
+ */
+
+:root {
+  /* JetBrains orange */
+  --ifm-color-primary: #e84300;
+  --ifm-color-primary-dark: #d13c00;
+  --ifm-color-primary-darker: #c53900;
+  --ifm-color-primary-darkest: #a22f00;
+  --ifm-color-primary-light: #ff5413;
+  --ifm-color-primary-lighter: #ff6526;
+  --ifm-color-primary-lightest: #ff8552;
+  --ifm-code-font-size: 95%;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+
+  --ifm-heading-font-weight: 700;
+  --ifm-h1-font-size: 2.6rem;
+}
+
+/* Lighter accent for dark mode so it pops on a projector. */
+[data-theme='dark'] {
+  --ifm-color-primary: #ff6b2c;
+  --ifm-color-primary-dark: #ff5713;
+  --ifm-color-primary-darker: #f64f08;
+  --ifm-color-primary-darkest: #cb4106;
+  --ifm-color-primary-light: #ff7f45;
+  --ifm-color-primary-lighter: #ff8b58;
+  --ifm-color-primary-lightest: #ffab88;
+
+  --ifm-background-color: #0d1117;
+  --ifm-background-surface-color: #161b22;
+  --ifm-card-background-color: #161b22;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.4);
+}
+
+/* Slightly larger base type — comfortable reading, projector-friendly. */
+html {
+  font-size: 17px;
+}
+
+.markdown h1:first-child {
+  --ifm-h1-font-size: 2.8rem;
+}
+
+/* Mermaid diagrams: center them and give breathing room. Presentations
+   want big, legible diagrams. */
+.docusaurus-mermaid-container {
+  display: flex;
+  justify-content: center;
+  margin: 1.5rem 0;
+}
+
+.docusaurus-mermaid-container svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Make clickable mermaid nodes feel clickable. */
+.docusaurus-mermaid-container .node a,
+.docusaurus-mermaid-container .clickable {
+  cursor: pointer;
+}
+
+/* A reusable "view source" callout style used on component pages. */
+.view-source {
+  font-size: 0.9rem;
+}
