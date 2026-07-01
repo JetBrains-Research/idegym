@@ -61,10 +61,57 @@ html {
   height: auto;
 }
 
-/* Make clickable mermaid nodes feel clickable. */
-.docusaurus-mermaid-container .node a,
-.docusaurus-mermaid-container .clickable {
+/* ---- Clickable node affordance ------------------------------------------ *
+ * Mermaid adds `.clickable` to every node that has a `click` directive.
+ * Give those (and only those) a clear "this is a link" treatment so users
+ * never click a dead structural node: pointer cursor, dotted underline on the
+ * label, and a glow on hover. Non-clickable nodes keep the plain look.        */
+.docusaurus-mermaid-container .node.clickable {
   cursor: pointer;
+}
+
+.docusaurus-mermaid-container .node.clickable .nodeLabel,
+.docusaurus-mermaid-container .node.clickable foreignObject div,
+.docusaurus-mermaid-container .node.clickable span {
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+}
+
+.docusaurus-mermaid-container .node.clickable {
+  transition: filter 0.12s ease;
+}
+
+.docusaurus-mermaid-container a:hover .node.clickable,
+.docusaurus-mermaid-container .node.clickable:hover {
+  filter: brightness(1.15) drop-shadow(0 0 7px rgba(255, 107, 44, 0.7));
+}
+
+/* Structural containers (subgraphs) are groupings, not buttons — make that
+   obvious with a dashed, translucent frame so they don't invite clicks. */
+.docusaurus-mermaid-container .cluster rect {
+  stroke-dasharray: 5 4;
+  rx: 12;
+  ry: 12;
+  fill-opacity: 0.06;
+}
+
+/* ---- Readable tooltip ---------------------------------------------------- *
+ * Mermaid's default tooltip is dark-gray text on a pale-yellow box — illegible
+ * on the dark theme. Restyle it to a dark chip with light text, readable on
+ * both light and dark backgrounds.                                            */
+div.mermaidTooltip {
+  background: #1b2030 !important;
+  color: #f4f6fb !important;
+  border: 1px solid var(--ifm-color-primary) !important;
+  border-radius: 8px !important;
+  padding: 6px 10px !important;
+  font-size: 0.85rem !important;
+  line-height: 1.35 !important;
+  max-width: 280px !important;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.4) !important;
+  z-index: 1000 !important;
+  pointer-events: none;
 }
 
 /* A reusable "view source" callout style used on component pages. */

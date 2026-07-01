@@ -99,11 +99,22 @@ const config: Config = {
     // Mermaid light/dark palettes, legible on a projector.
     // securityLevel: 'loose' is required for `click NodeId "url"` drill-down
     // links to navigate.
+    // Adaptive light/dark chrome (edges, cluster labels stay readable per mode);
+    // vivid per-node colors come from `classDef` in each diagram and render the
+    // same in both modes. securityLevel 'loose' enables `click` drill-down links.
     mermaid: {
       theme: {light: 'neutral', dark: 'dark'},
       options: {
         securityLevel: 'loose',
-        flowchart: {useMaxWidth: true, htmlLabels: true},
+        flowchart: {
+          useMaxWidth: true,
+          htmlLabels: true,
+          curve: 'basis',
+          nodeSpacing: 45,
+          rankSpacing: 60,
+          padding: 12,
+        },
+        sequence: {useMaxWidth: true, mirrorActors: false, messageAlign: 'center'},
       },
     },
     navbar: {
