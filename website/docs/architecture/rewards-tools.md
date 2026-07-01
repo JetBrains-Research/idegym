@@ -13,22 +13,28 @@ rewards are the *signal*.
 
 ```mermaid
 flowchart LR
-    subgraph tools["Tools — what the agent does"]
-        bash["bash · execute a script"]
-        cf["create_file"]
-        ef["edit_file (line range)"]
-        pf["patch_file (unified diff)"]
-        inspect["IDE inspect (IDE plugins)"]
+    subgraph tools["🛠️ Tools — what the agent does"]
+        bash("bash · execute a script"):::tool
+        cf("create_file"):::tool
+        ef("edit_file · line range"):::tool
+        pf("patch_file · unified diff"):::tool
+        inspect("IDE inspect · IDE plugins"):::tool
     end
 
-    subgraph rewards["Rewards — how it's scored"]
-        comp["compilation_reward<br/>(pass / fail)"]
-        setup["setup_reward<br/>(pass / fail)"]
-        test["test_reward<br/>(passed / failed counts)"]
+    subgraph rewards["🎯 Rewards — how it's scored"]
+        comp[/"compilation_reward<br/>pass / fail"/]:::build
+        setup[/"setup_reward<br/>pass / fail"/]:::build
+        test[/"test_reward<br/>passed / failed counts"/]:::build
     end
 
-    agent["Agent / trainer"] --> tools --> env["Sandbox state"]
-    env --> rewards --> signal["Training signal"]
+    agent(["🤖 Agent / trainer"]):::client --> tools --> env[["📦 Sandbox state"]]:::pod
+    env --> rewards --> signal{{"📈 Training signal"}}:::ctrl
+
+    classDef tool fill:#2f9e44,stroke:#2b8a3e,color:#fff;
+    classDef build fill:#f08c00,stroke:#e67700,color:#fff;
+    classDef client fill:#1c7ed6,stroke:#1864ab,color:#fff;
+    classDef pod fill:#7048e8,stroke:#5f3dc4,color:#fff;
+    classDef ctrl fill:#e8590c,stroke:#c04405,color:#fff;
 
     click bash "https://github.com/JetBrains-Research/idegym/blob/main/tools/src/idegym/tools/tool_service.py" "tool service source"
     click cf "https://github.com/JetBrains-Research/idegym/blob/main/tools/src/idegym/tools/file_manager.py" "file manager source"

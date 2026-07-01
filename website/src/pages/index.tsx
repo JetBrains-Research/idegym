@@ -8,20 +8,22 @@ import Mermaid from '@theme/Mermaid';
 import styles from './index.module.css';
 
 const HEADLINE_DIAGRAM = `flowchart LR
-    user["You<br/>RL trainer · agent · researcher"]
-    orch["Orchestrator<br/>(the control plane)"]
-    pods["Disposable environments<br/>(sandboxed pods)"]
+    user(["👤 You<br/>RL trainer · agent · researcher"]):::client
+    orch{{"🎛️ Orchestrator<br/>the control plane"}}:::ctrl
+    pods[["📦 Disposable environments<br/>sandboxed pods"]]:::pod
 
     user -->|"define · build · run · evaluate"| orch
-    orch -->|"provision & forward"| pods
-    pods -->|"results & rewards"| orch
-    orch -->|"clean up automatically"| pods
+    orch -->|"provision &amp; forward"| pods
+    pods -->|"results &amp; rewards"| orch
+    orch -.->|"clean up automatically"| pods
 
+    click user "/idegym/architecture/client" "The client & MCP access"
     click orch "/idegym/architecture" "Open the interactive architecture"
     click pods "/idegym/architecture/server" "Inside an environment pod"
 
-    classDef accent fill:#f74b00,stroke:#f74b00,color:#fff;
-    class orch accent;`;
+    classDef client fill:#1c7ed6,stroke:#1864ab,color:#fff;
+    classDef ctrl fill:#e8590c,stroke:#c04405,color:#fff;
+    classDef pod fill:#7048e8,stroke:#5f3dc4,color:#fff;`;
 
 function Hero() {
   const {siteConfig} = useDocusaurusContext();

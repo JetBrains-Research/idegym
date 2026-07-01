@@ -13,24 +13,24 @@ IDE's MCP server. Supervisor boots it; an MCP gateway fronts it.
 
 ```mermaid
 flowchart TB
-    sup["Supervisor (supervisord)<br/>program:server → /usr/local/bin/idegym<br/>+ server-exit eventlistener"]
+    sup{{"🧭 Supervisor · supervisord<br/>program:server → /usr/local/bin/idegym<br/>+ server-exit eventlistener"}}:::ctrl
 
-    subgraph app["FastAPI app (Uvicorn :8000)"]
-        mw["Middleware:<br/>Shutdown · Tracing · AsyncioTaskContext"]
-        di["DI Container<br/>tool_service · reward_service"]
-        subgraph routers["Routers (prefix /api)"]
-            infra["Infrastructure (hardcoded):<br/>root · project · fs"]
-            plug["Plugin routers:<br/>tools · rewards · pycharm / idea"]
+    subgraph app["FastAPI app · Uvicorn :8000"]
+        mw["Middleware<br/>Shutdown · Tracing · AsyncioTaskContext"]:::infra
+        di("DI Container<br/>tool_service · reward_service"):::infra
+        subgraph routers["Routers · prefix /api"]
+            rinfra("Infrastructure (hardcoded)<br/>root · project · fs"):::tool
+            plug("Plugin routers<br/>tools · rewards · pycharm / idea"):::tool
         end
         subgraph mcp["MCP gateway at /mcp"]
-            ftools["File tools:<br/>create_file · edit_file · patch_file"]
-            proxy["Upstream proxies"]
+            ftools("File tools<br/>create_file · edit_file · patch_file"):::tool
+            proxy("Upstream proxies"):::pod
         end
     end
 
-    upstreams["/etc/idegym/mcp-upstreams.d/*.json"]
-    pjson["/etc/idegym/plugins.json"]
-    ide["In-container IDE MCP server<br/>localhost:6789/mcp"]
+    upstreams[("/etc/idegym/mcp-upstreams.d/*.json")]:::store
+    pjson[("/etc/idegym/plugins.json")]:::store
+    ide[["In-container IDE MCP server<br/>localhost:6789/mcp"]]:::pod
 
     sup --> app
     pjson -.->|"filters plugins"| plug
@@ -40,11 +40,17 @@ flowchart TB
     proxy -->|"proxied"| ide
 
     click sup "https://github.com/JetBrains-Research/idegym/blob/main/supervisord.conf" "supervisord.conf"
-    click app "https://github.com/JetBrains-Research/idegym/blob/main/server/main.py" "server/main.py"
+    click rinfra "https://github.com/JetBrains-Research/idegym/blob/main/server/main.py" "server/main.py — app assembly"
     click plug "https://github.com/JetBrains-Research/idegym/blob/main/plugins/defaults/src/idegym/plugins/defaults/server.py" "default server plugins"
-    click mcp "https://github.com/JetBrains-Research/idegym/blob/main/server/mcp_proxy.py" "MCP gateway source"
+    click ftools "https://github.com/JetBrains-Research/idegym/blob/main/server/mcp_proxy.py" "MCP gateway source"
     click proxy "https://github.com/JetBrains-Research/idegym/blob/main/server/mcp_proxy.py" "MCP gateway source"
     click di "https://github.com/JetBrains-Research/idegym/blob/main/server/dependencies.py" "DI container source"
+
+    classDef ctrl fill:#e8590c,stroke:#c04405,color:#fff;
+    classDef infra fill:#495057,stroke:#343a40,color:#fff;
+    classDef tool fill:#2f9e44,stroke:#2b8a3e,color:#fff;
+    classDef pod fill:#7048e8,stroke:#5f3dc4,color:#fff;
+    classDef store fill:#0c8599,stroke:#0b7285,color:#fff;
 ```
 
 <small><em>Adapted from

@@ -14,27 +14,33 @@ and persists all state in PostgreSQL.
 
 ```mermaid
 flowchart TB
-    subgraph app["FastAPI app — create_app()"]
-        mw["Middleware:<br/>Tracing · AsyncioTaskContext"]
+    subgraph app["FastAPI app · create_app()"]
+        mw["Middleware<br/>Tracing · AsyncioTaskContext"]:::infra
         subgraph routers["Routers"]
-            rc["client · register / heartbeat / finish"]
-            rs["server · start / stop / finish / restart"]
-            rb["build_images · Kaniko submit"]
-            rf["forwarding · HTTP / MCP / WS proxy"]
-            ra["async_operation · poll long-running ops"]
-            rsnap["snapshot · prepare / restore"]
+            rc("client<br/>register / heartbeat / finish"):::ctrl
+            rs("server<br/>start / stop / finish / restart"):::ctrl
+            rb("build_images<br/>Kaniko submit"):::ctrl
+            rf("forwarding<br/>HTTP / MCP / WS proxy"):::ctrl
+            ra("async_operation<br/>poll long-running ops"):::ctrl
+            rsnap("snapshot<br/>prepare / restore"):::ctrl
         end
-        mcp["MCP app mounted at /mcp"]
+        mcp{{"MCP app<br/>mounted at /mcp"}}:::tool
     end
-    pg[("PostgreSQL<br/>async SQLAlchemy + asyncpg")]
-    kapi["Kubernetes API"]
-    pods["Server pods"]
+    pg[("🗄️ PostgreSQL<br/>async SQLAlchemy + asyncpg")]:::store
+    kapi["Kubernetes API"]:::infra
+    pods[["Server pods"]]:::pod
 
     routers --> pg
     rb -->|"Kaniko Job"| kapi
     rs -->|"Deployment"| kapi --> pods
     rf -->|"forward"| pods
     mcp -.->|"same handlers as REST"| routers
+
+    classDef ctrl fill:#e8590c,stroke:#c04405,color:#fff;
+    classDef tool fill:#2f9e44,stroke:#2b8a3e,color:#fff;
+    classDef store fill:#0c8599,stroke:#0b7285,color:#fff;
+    classDef infra fill:#495057,stroke:#343a40,color:#fff;
+    classDef pod fill:#7048e8,stroke:#5f3dc4,color:#fff;
 
     click rc "https://github.com/JetBrains-Research/idegym/blob/main/orchestrator/src/idegym/orchestrator/router/client.py" "client router source"
     click rs "https://github.com/JetBrains-Research/idegym/blob/main/orchestrator/src/idegym/orchestrator/router/server.py" "server router source"

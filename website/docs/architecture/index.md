@@ -18,32 +18,32 @@ its own diagram that drills further, down to the source on GitHub.
 
 ```mermaid
 flowchart TB
-    subgraph clients["Clients"]
-        lib["Python Client Library"]
-        agent["AI Agents (MCP)"]
+    subgraph clients["👥 Clients"]
+        lib(["🐍 Python Client Library"]):::client
+        agent(["🤖 AI Agents · MCP"]):::client
     end
 
-    subgraph orch["Orchestrator Service (K8s Deployment)"]
-        api["FastAPI + MCP endpoint /mcp"]
-        builder["Image Builder (plugin-based)"]
-        kaniko["Kaniko build submitter"]
-        watcher["Watcher / cleanup loop"]
+    subgraph orch["🎛️ Orchestrator Service · K8s Deployment"]
+        api{{"FastAPI + MCP<br/>/mcp endpoint"}}:::ctrl
+        builder[/"Image Builder<br/>plugin-based"/]:::build
+        kaniko[/"Kaniko build<br/>submitter"/]:::build
+        watcher["Watcher /<br/>cleanup loop"]:::infra
     end
 
-    pg[("PostgreSQL<br/>clients · servers · jobs · snapshots")]
+    pg[("🗄️ PostgreSQL<br/>clients · servers · jobs · snapshots")]:::store
 
-    subgraph k8s["Kubernetes Cluster"]
-        kapi["Kubernetes API"]
-        buildjob["Kaniko Build Jobs"]
-        subgraph pod["Disposable Server Pod (gVisor sandbox)"]
-            srv["FastAPI Server :8000 + MCP gateway"]
-            tools["Tools · Rewards"]
-            ide["IDE process (PyCharm / IntelliJ)"]
+    subgraph k8s["☸️ Kubernetes Cluster"]
+        kapi["Kubernetes API"]:::infra
+        buildjob[/"Kaniko Build Jobs"/]:::build
+        subgraph pod["📦 Disposable Server Pod · gVisor sandbox"]
+            srv[["FastAPI Server :8000<br/>+ MCP gateway"]]:::pod
+            tools("Tools · Rewards"):::tool
+            ide("IDE process<br/>PyCharm / IntelliJ"):::pod
         end
     end
 
-    registry[("Docker Registry")]
-    otel["Observability<br/>(OpenTelemetry)"]
+    registry[("📦 Docker Registry")]:::store
+    otel["📊 Observability<br/>OpenTelemetry"]:::infra
 
     lib -->|"REST / forward"| api
     agent -->|"MCP"| api
@@ -68,17 +68,23 @@ flowchart TB
     click buildjob "/idegym/architecture/image-builder" "Kaniko build jobs"
     click watcher "/idegym/architecture/watcher" "Watcher"
     click pg "/idegym/architecture/orchestrator" "Persistent state"
+    click kapi "/idegym/deployment" "Kubernetes & deployment"
     click srv "/idegym/architecture/server" "Server internals"
     click tools "/idegym/architecture/rewards-tools" "Tools & rewards"
     click ide "/idegym/architecture/plugins" "IDE plugins"
     click registry "/idegym/architecture/image-builder" "Registry"
     click otel "/idegym/deployment" "Observability & deployment"
 
-    classDef accent fill:#f74b00,stroke:#c53900,color:#fff;
-    class api accent;
+    classDef client fill:#1c7ed6,stroke:#1864ab,color:#fff;
+    classDef ctrl fill:#e8590c,stroke:#c04405,color:#fff;
+    classDef build fill:#f08c00,stroke:#e67700,color:#fff;
+    classDef store fill:#0c8599,stroke:#0b7285,color:#fff;
+    classDef pod fill:#7048e8,stroke:#5f3dc4,color:#fff;
+    classDef tool fill:#2f9e44,stroke:#2b8a3e,color:#fff;
+    classDef infra fill:#495057,stroke:#343a40,color:#fff;
 ```
 
-<small><em>Can't click? The same links are in the legend below. (Adapted from
+<small><em>Underlined nodes are clickable; dashed boxes are groupings. (Adapted from
 [`documentation/diagrams/architecture.md`](https://github.com/JetBrains-Research/idegym/blob/main/documentation/diagrams/architecture.md).)</em></small>
 
 ## Component map

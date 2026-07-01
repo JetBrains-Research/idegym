@@ -15,25 +15,29 @@ are the canonical examples; the built-in defaults (`base-system`, `user`, `proje
 
 ```mermaid
 flowchart LR
-    subgraph pkg["Plugin package"]
-        imgp["@image_plugin<br/>apply() / render()<br/>get_mcp_upstream()"]
-        srvp["@server_plugin<br/>get_server_router()"]
-        cliops["Client Ops class<br/>(typed async methods)"]
+    subgraph pkg["🧩 Plugin package"]
+        imgp("@image_plugin<br/>apply() / render()<br/>get_mcp_upstream()"):::img
+        srvp("@server_plugin<br/>get_server_router()"):::srv
+        cliops("Client Ops class<br/>typed async methods"):::cli
     end
 
     subgraph eps["Entry-point groups"]
-        ep_img["idegym.plugins.image"]
-        ep_srv["idegym.plugins.server"]
-        ep_cli["idegym.plugins.client"]
+        ep_img{{"idegym.plugins.image"}}:::img
+        ep_srv{{"idegym.plugins.server"}}:::srv
+        ep_cli{{"idegym.plugins.client"}}:::cli
     end
 
     imgp --- ep_img
     srvp --- ep_srv
     cliops --- ep_cli
 
-    ep_img -->|"load at import"| toSpec["Image.to_spec()<br/>→ Dockerfile fragment + MCP config"]
-    ep_srv -->|"filtered by plugins.json"| main["server/main.py<br/>→ router at /api/&lt;plugin&gt;/*"]
-    ep_cli -->|"per instance"| cli["IdeGYMServer.__init__<br/>→ server.&lt;plugin&gt;.&lt;method&gt;()"]
+    ep_img -->|"load at import"| toSpec[/"Image.to_spec()<br/>→ Dockerfile fragment + MCP config"/]:::img
+    ep_srv -->|"filtered by plugins.json"| main[/"server/main.py<br/>→ router at /api/&lt;plugin&gt;/*"/]:::srv
+    ep_cli -->|"per instance"| cli[/"IdeGYMServer.__init__<br/>→ server.&lt;plugin&gt;.&lt;method&gt;()"/]:::cli
+
+    classDef img fill:#f08c00,stroke:#e67700,color:#fff;
+    classDef srv fill:#e8590c,stroke:#c04405,color:#fff;
+    classDef cli fill:#1c7ed6,stroke:#1864ab,color:#fff;
 
     click imgp "https://github.com/JetBrains-Research/idegym/blob/main/api/src/idegym/api/plugin.py" "PluginBase / @image_plugin source"
     click srvp "https://github.com/JetBrains-Research/idegym/blob/main/api/src/idegym/api/plugin.py" "@server_plugin source"

@@ -14,20 +14,20 @@ environment — all async. Agents that prefer tools over code can use the orches
 
 ```mermaid
 flowchart TB
-    client["IdeGYMClient<br/>(async context manager)"]
-    server["IdeGYMServer<br/>(one per environment)"]
+    client(["🐍 IdeGYMClient<br/>async context manager"]):::client
+    server[["📦 IdeGYMServer<br/>one per environment"]]:::pod
 
     subgraph ops["Typed operations"]
-        clients_op["clients · register / heartbeat"]
-        servers_op["servers · start / stop / finish / restart"]
-        jobs_op["jobs · build_and_push_images"]
-        tools_op["tools · execute_bash"]
-        files_op["files · create / edit / patch"]
-        rewards_op["rewards · compilation / setup / test"]
-        fwd["forwarding · forward()"]
+        clients_op("clients<br/>register / heartbeat"):::tool
+        servers_op("servers<br/>start / stop / finish / restart"):::tool
+        jobs_op("jobs<br/>build_and_push_images"):::tool
+        tools_op("tools<br/>execute_bash"):::tool
+        files_op("files<br/>create / edit / patch"):::tool
+        rewards_op("rewards<br/>compilation / setup / test"):::tool
+        fwd("forwarding<br/>forward()"):::ctrl
     end
 
-    plugin_ops["Plugin ops (per instance)<br/>server.pycharm · server.idea"]
+    plugin_ops{{"Plugin ops · per instance<br/>server.pycharm · server.idea"}}:::build
 
     client --> servers_op
     client --> jobs_op
@@ -45,6 +45,12 @@ flowchart TB
     click jobs_op "https://github.com/JetBrains-Research/idegym/blob/main/client/src/idegym/client/operations/jobs.py" "jobs ops source"
     click tools_op "https://github.com/JetBrains-Research/idegym/blob/main/client/src/idegym/client/operations/tools.py" "tools ops source"
     click rewards_op "https://github.com/JetBrains-Research/idegym/blob/main/client/src/idegym/client/operations/rewards.py" "rewards ops source"
+
+    classDef client fill:#1c7ed6,stroke:#1864ab,color:#fff;
+    classDef pod fill:#7048e8,stroke:#5f3dc4,color:#fff;
+    classDef tool fill:#2f9e44,stroke:#2b8a3e,color:#fff;
+    classDef ctrl fill:#e8590c,stroke:#c04405,color:#fff;
+    classDef build fill:#f08c00,stroke:#e67700,color:#fff;
 ```
 
 ## `IdeGYMClient`
