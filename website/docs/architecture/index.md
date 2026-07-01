@@ -11,9 +11,6 @@ This is the centerpiece. The diagram below is the **whole system** — and every
 is **clickable**. Click a node to drill into its deep-dive page; each of those pages has
 its own diagram that drills further, down to the source on GitHub.
 
-> 💡 **Three levels of drill-down:** this overview (L0) → component pages with their own
-> sub-diagrams (L1) → narrative + "view source" links (L2).
-
 ## System overview (click any node)
 
 ```mermaid
@@ -24,26 +21,26 @@ flowchart TB
     end
 
     subgraph orch["🎛️ Orchestrator Service · K8s Deployment"]
-        api{{"FastAPI + MCP<br/>/mcp endpoint"}}:::ctrl
-        builder[/"Image Builder<br/>plugin-based"/]:::build
-        kaniko[/"Kaniko build<br/>submitter"/]:::build
-        watcher["Watcher /<br/>cleanup loop"]:::infra
+        api{{"FastAPI + MCP"}}:::ctrl
+        builder[/"Image Builder"/]:::build
+        kaniko[/"Kaniko"/]:::build
+        watcher["Watcher"]:::infra
     end
 
-    pg[("🗄️ PostgreSQL<br/>clients · servers · jobs · snapshots")]:::store
+    pg[("🗄️ PostgreSQL")]:::store
 
     subgraph k8s["☸️ Kubernetes Cluster"]
         kapi["Kubernetes API"]:::infra
         buildjob[/"Kaniko Build Jobs"/]:::build
         subgraph pod["📦 Disposable Server Pod · gVisor sandbox"]
-            srv[["FastAPI Server :8000<br/>+ MCP gateway"]]:::pod
+            srv[["Server + MCP"]]:::pod
             tools("Tools · Rewards"):::tool
-            ide("IDE process<br/>PyCharm / IntelliJ"):::pod
+            ide("IDE · PyCharm / IntelliJ"):::pod
         end
     end
 
-    registry[("📦 Docker Registry")]:::store
-    otel["📊 Observability<br/>OpenTelemetry"]:::infra
+    registry[("📦 Registry")]:::store
+    otel["📊 Observability"]:::infra
 
     lib -->|"REST / forward"| api
     agent -->|"MCP"| api
@@ -75,13 +72,13 @@ flowchart TB
     click registry "/idegym/architecture/image-builder" "Registry"
     click otel "/idegym/deployment" "Observability & deployment"
 
-    classDef client fill:#1c7ed6,stroke:#1864ab,color:#fff;
-    classDef ctrl fill:#e8590c,stroke:#c04405,color:#fff;
-    classDef build fill:#f08c00,stroke:#e67700,color:#fff;
-    classDef store fill:#0c8599,stroke:#0b7285,color:#fff;
-    classDef pod fill:#7048e8,stroke:#5f3dc4,color:#fff;
-    classDef tool fill:#2f9e44,stroke:#2b8a3e,color:#fff;
-    classDef infra fill:#495057,stroke:#343a40,color:#fff;
+    classDef client fill:#2563eb,stroke:#1d4ed8,color:#fff;
+    classDef ctrl fill:#6b57ff,stroke:#5b4bd2,color:#fff;
+    classDef build fill:#c026d3,stroke:#a21caf,color:#fff;
+    classDef store fill:#0891b2,stroke:#0e7490,color:#fff;
+    classDef pod fill:#4f46e5,stroke:#4338ca,color:#fff;
+    classDef tool fill:#e23b3b,stroke:#c02626,color:#fff;
+    classDef infra fill:#475569,stroke:#334155,color:#fff;
 ```
 
 <small><em>Underlined nodes are clickable; dashed boxes are groupings. (Adapted from

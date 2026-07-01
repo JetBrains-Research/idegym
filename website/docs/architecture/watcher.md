@@ -14,12 +14,12 @@ no manual teardown.
 
 ```mermaid
 flowchart TB
-    timer(["⏱️ Periodic tick<br/>every cleanup_interval ~60s"]):::infra
-    lock["🔒 Acquire advisory lock<br/>single reconciler"]:::infra
-    crash{{"💥 Crash detection<br/>evaluate_pod_crash(pod, budget)"}}:::ctrl
-    cleanup("🧹 Cleanup / reconcile<br/>DB ⇄ live cluster state"):::tool
+    timer(["⏱️ Tick · ~60s"]):::infra
+    lock["🔒 Advisory lock"]:::infra
+    crash{{"💥 Crash detection"}}:::ctrl
+    cleanup("🧹 Cleanup / reconcile"):::tool
     db[("🗄️ PostgreSQL")]:::store
-    kapi["☸️ Kubernetes API"]:::infra
+    kapi["☸️ Kubernetes"]:::infra
 
     timer --> lock --> crash --> cleanup
     crash --> db
@@ -27,10 +27,10 @@ flowchart TB
     cleanup --> db
     cleanup --> kapi
 
-    classDef ctrl fill:#e8590c,stroke:#c04405,color:#fff;
-    classDef tool fill:#2f9e44,stroke:#2b8a3e,color:#fff;
-    classDef store fill:#0c8599,stroke:#0b7285,color:#fff;
-    classDef infra fill:#495057,stroke:#343a40,color:#fff;
+    classDef ctrl fill:#6b57ff,stroke:#5b4bd2,color:#fff;
+    classDef tool fill:#e23b3b,stroke:#c02626,color:#fff;
+    classDef store fill:#0891b2,stroke:#0e7490,color:#fff;
+    classDef infra fill:#475569,stroke:#334155,color:#fff;
 
     click timer "https://github.com/JetBrains-Research/idegym/blob/main/watcher/src/idegym/watcher/main.py" "watcher loop source"
     click crash "https://github.com/JetBrains-Research/idegym/blob/main/watcher/src/idegym/watcher/crash_detector.py" "crash detector source"

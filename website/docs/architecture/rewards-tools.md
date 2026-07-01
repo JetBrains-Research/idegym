@@ -32,11 +32,11 @@ flowchart TB
     agent(["🤖 Agent / trainer"]):::client --> tools --> env[["📦 Sandbox state"]]:::pod
     env --> rewards --> signal{{"📈 Training signal"}}:::ctrl
 
-    classDef tool fill:#2f9e44,stroke:#2b8a3e,color:#fff;
-    classDef build fill:#f08c00,stroke:#e67700,color:#fff;
-    classDef client fill:#1c7ed6,stroke:#1864ab,color:#fff;
-    classDef pod fill:#7048e8,stroke:#5f3dc4,color:#fff;
-    classDef ctrl fill:#e8590c,stroke:#c04405,color:#fff;
+    classDef tool fill:#e23b3b,stroke:#c02626,color:#fff;
+    classDef build fill:#c026d3,stroke:#a21caf,color:#fff;
+    classDef client fill:#2563eb,stroke:#1d4ed8,color:#fff;
+    classDef pod fill:#4f46e5,stroke:#4338ca,color:#fff;
+    classDef ctrl fill:#6b57ff,stroke:#5b4bd2,color:#fff;
 
     click bash "https://github.com/JetBrains-Research/idegym/blob/main/tools/src/idegym/tools/tool_service.py" "tool service source"
     click cf "https://github.com/JetBrains-Research/idegym/blob/main/tools/src/idegym/tools/file_manager.py" "file manager source"

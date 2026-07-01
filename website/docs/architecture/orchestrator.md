@@ -14,20 +14,21 @@ and persists all state in PostgreSQL.
 
 ```mermaid
 flowchart TB
-    subgraph app["FastAPI app · create_app()"]
-        mw["Middleware<br/>Tracing · AsyncioTaskContext"]:::infra
+    subgraph app["FastAPI app"]
+        mw["Middleware"]:::infra
         subgraph routers["Routers"]
-            rc("client<br/>register / heartbeat / finish"):::ctrl
-            rs("server<br/>start / stop / finish / restart"):::ctrl
-            rb("build_images<br/>Kaniko submit"):::ctrl
-            rf("forwarding<br/>HTTP / MCP / WS proxy"):::ctrl
-            ra("async_operation<br/>poll long-running ops"):::ctrl
-            rsnap("snapshot<br/>prepare / restore"):::ctrl
+            direction TB
+            rc("client"):::ctrl
+            rs("server"):::ctrl
+            rb("build images"):::ctrl
+            rf("forwarding"):::ctrl
+            ra("async ops"):::ctrl
+            rsnap("snapshot"):::ctrl
         end
-        mcp{{"MCP app<br/>mounted at /mcp"}}:::tool
+        mcp{{"MCP · /mcp"}}:::tool
     end
-    pg[("🗄️ PostgreSQL<br/>async SQLAlchemy + asyncpg")]:::store
-    kapi["Kubernetes API"]:::infra
+    pg[("🗄️ PostgreSQL")]:::store
+    kapi["Kubernetes"]:::infra
     pods[["Server pods"]]:::pod
 
     routers --> pg
@@ -36,11 +37,11 @@ flowchart TB
     rf -->|"forward"| pods
     mcp -.->|"same handlers as REST"| routers
 
-    classDef ctrl fill:#e8590c,stroke:#c04405,color:#fff;
-    classDef tool fill:#2f9e44,stroke:#2b8a3e,color:#fff;
-    classDef store fill:#0c8599,stroke:#0b7285,color:#fff;
-    classDef infra fill:#495057,stroke:#343a40,color:#fff;
-    classDef pod fill:#7048e8,stroke:#5f3dc4,color:#fff;
+    classDef ctrl fill:#6b57ff,stroke:#5b4bd2,color:#fff;
+    classDef tool fill:#e23b3b,stroke:#c02626,color:#fff;
+    classDef store fill:#0891b2,stroke:#0e7490,color:#fff;
+    classDef infra fill:#475569,stroke:#334155,color:#fff;
+    classDef pod fill:#4f46e5,stroke:#4338ca,color:#fff;
 
     click rc "https://github.com/JetBrains-Research/idegym/blob/main/orchestrator/src/idegym/orchestrator/router/client.py" "client router source"
     click rs "https://github.com/JetBrains-Research/idegym/blob/main/orchestrator/src/idegym/orchestrator/router/server.py" "server router source"

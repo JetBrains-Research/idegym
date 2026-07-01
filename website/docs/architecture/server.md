@@ -13,12 +13,12 @@ IDE's MCP server. Supervisor boots it; an MCP gateway fronts it.
 
 ```mermaid
 flowchart TB
-    sup{{"🧭 Supervisor<br/>runs the server<br/>+ exit listener"}}:::ctrl
+    sup{{"🧭 Supervisor"}}:::ctrl
 
     subgraph app["FastAPI app · Uvicorn :8000"]
         direction TB
-        mw["Middleware<br/>Shutdown · Tracing · Asyncio"]:::infra
-        di("DI Container<br/>tool_service · reward_service"):::infra
+        mw["Middleware"]:::infra
+        di("DI Container"):::infra
         subgraph routers["Routers · /api"]
             direction LR
             rinfra("Infrastructure<br/>root · project · fs"):::tool
@@ -26,7 +26,7 @@ flowchart TB
         end
         subgraph mcp["MCP gateway · /mcp"]
             direction LR
-            ftools("File tools<br/>create · edit · patch"):::tool
+            ftools("File tools"):::tool
             proxy("Upstream proxies"):::pod
         end
     end
@@ -49,11 +49,11 @@ flowchart TB
     click proxy "https://github.com/JetBrains-Research/idegym/blob/main/server/mcp_proxy.py" "MCP gateway source"
     click di "https://github.com/JetBrains-Research/idegym/blob/main/server/dependencies.py" "DI container source"
 
-    classDef ctrl fill:#e8590c,stroke:#c04405,color:#fff;
-    classDef infra fill:#495057,stroke:#343a40,color:#fff;
-    classDef tool fill:#2f9e44,stroke:#2b8a3e,color:#fff;
-    classDef pod fill:#7048e8,stroke:#5f3dc4,color:#fff;
-    classDef store fill:#0c8599,stroke:#0b7285,color:#fff;
+    classDef ctrl fill:#6b57ff,stroke:#5b4bd2,color:#fff;
+    classDef infra fill:#475569,stroke:#334155,color:#fff;
+    classDef tool fill:#e23b3b,stroke:#c02626,color:#fff;
+    classDef pod fill:#4f46e5,stroke:#4338ca,color:#fff;
+    classDef store fill:#0891b2,stroke:#0e7490,color:#fff;
 ```
 
 <small><em>Adapted from

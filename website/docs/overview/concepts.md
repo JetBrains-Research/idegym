@@ -83,11 +83,11 @@ jobs that build from the generated Dockerfile and push to a registry.
 ## How they fit together
 
 ```mermaid
-flowchart LR
-    client(["🧑‍💻 Client<br/>your code / an agent"]):::client
+flowchart TB
+    client(["🧑‍💻 Client"]):::client
     orch{{"🎛️ Orchestrator"}}:::ctrl
-    image[/"🧱 Image<br/>built from plugins"/]:::build
-    server[["📦 Server pod<br/>sandboxed environment"]]:::pod
+    image[/"🧱 Image"/]:::build
+    server[["📦 Server pod"]]:::pod
     reward("🎯 Rewards + tools"):::tool
     watcher["🧹 Watcher"]:::infra
 
@@ -105,12 +105,12 @@ flowchart LR
     click watcher "/idegym/architecture/watcher" "Watcher"
     click client "/idegym/architecture/client" "Client library"
 
-    classDef client fill:#1c7ed6,stroke:#1864ab,color:#fff;
-    classDef ctrl fill:#e8590c,stroke:#c04405,color:#fff;
-    classDef build fill:#f08c00,stroke:#e67700,color:#fff;
-    classDef pod fill:#7048e8,stroke:#5f3dc4,color:#fff;
-    classDef tool fill:#2f9e44,stroke:#2b8a3e,color:#fff;
-    classDef infra fill:#495057,stroke:#343a40,color:#fff;
+    classDef client fill:#2563eb,stroke:#1d4ed8,color:#fff;
+    classDef ctrl fill:#6b57ff,stroke:#5b4bd2,color:#fff;
+    classDef build fill:#c026d3,stroke:#a21caf,color:#fff;
+    classDef pod fill:#4f46e5,stroke:#4338ca,color:#fff;
+    classDef tool fill:#e23b3b,stroke:#c02626,color:#fff;
+    classDef infra fill:#475569,stroke:#334155,color:#fff;
 ```
 
 ## Next

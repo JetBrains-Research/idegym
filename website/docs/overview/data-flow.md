@@ -11,7 +11,7 @@ Five stages: **define → build → provision → use → evaluate**, with **cle
 continuously in the background.
 
 ```mermaid
-flowchart LR
+flowchart TB
     A(["1 · Define<br/>compose an Image from plugins"]):::s1
     B(["2 · Build<br/>Kaniko builds and pushes it"]):::s2
     C(["3 · Provision<br/>start a sandboxed server pod"]):::s3
@@ -30,12 +30,12 @@ flowchart LR
     click E "/idegym/architecture/rewards-tools" "Rewards and tools"
     click F "/idegym/architecture/watcher" "The watcher"
 
-    classDef s1 fill:#1c7ed6,stroke:#1864ab,color:#fff;
-    classDef s2 fill:#f08c00,stroke:#e67700,color:#fff;
-    classDef s3 fill:#e8590c,stroke:#c04405,color:#fff;
-    classDef s4 fill:#7048e8,stroke:#5f3dc4,color:#fff;
-    classDef s5 fill:#2f9e44,stroke:#2b8a3e,color:#fff;
-    classDef s6 fill:#495057,stroke:#343a40,color:#fff;
+    classDef s1 fill:#2563eb,stroke:#1d4ed8,color:#fff;
+    classDef s2 fill:#4f46e5,stroke:#4338ca,color:#fff;
+    classDef s3 fill:#6b57ff,stroke:#5b4bd2,color:#fff;
+    classDef s4 fill:#8b5cf6,stroke:#7c3aed,color:#fff;
+    classDef s5 fill:#c026d3,stroke:#a21caf,color:#fff;
+    classDef s6 fill:#475569,stroke:#334155,color:#fff;
 ```
 
 ## 1 · Define the environment

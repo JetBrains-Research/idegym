@@ -14,24 +14,24 @@ in-cluster with Kaniko.
 ## The build pipeline (click a node for source)
 
 ```mermaid
-flowchart LR
-    img{{"🧱 Image · fluent API<br/>.from_base() .with_plugin() ..."}}:::ctrl
-    ctx["BuildContext<br/>immutable, threaded"]:::infra
-    plugins("Plugin pipeline<br/>apply() → render()"):::tool
-    spec[/"ImageBuildSpec<br/>dockerfile_content + metadata"/]:::build
-    kaniko[/"Kaniko Job<br/>in-cluster"/]:::build
-    docker["Local Docker build"]:::infra
+flowchart TB
+    img{{"🧱 Image<br/>fluent API"}}:::ctrl
+    ctx["BuildContext"]:::infra
+    plugins("Plugin pipeline"):::tool
+    spec[/"ImageBuildSpec"/]:::build
+    kaniko[/"Kaniko"/]:::build
+    docker["Local Docker"]:::infra
     reg[("📦 Registry")]:::store
 
     img --> ctx --> plugins --> spec
     spec --> kaniko --> reg
     spec --> docker --> reg
 
-    classDef ctrl fill:#e8590c,stroke:#c04405,color:#fff;
-    classDef infra fill:#495057,stroke:#343a40,color:#fff;
-    classDef tool fill:#2f9e44,stroke:#2b8a3e,color:#fff;
-    classDef build fill:#f08c00,stroke:#e67700,color:#fff;
-    classDef store fill:#0c8599,stroke:#0b7285,color:#fff;
+    classDef ctrl fill:#6b57ff,stroke:#5b4bd2,color:#fff;
+    classDef infra fill:#475569,stroke:#334155,color:#fff;
+    classDef tool fill:#e23b3b,stroke:#c02626,color:#fff;
+    classDef build fill:#c026d3,stroke:#a21caf,color:#fff;
+    classDef store fill:#0891b2,stroke:#0e7490,color:#fff;
 
     click img "https://github.com/JetBrains-Research/idegym/blob/main/image-builder/src/idegym/image/builder.py" "Image fluent API source"
     click plugins "https://github.com/JetBrains-Research/idegym/blob/main/plugins/defaults/src/idegym/plugins/defaults/image.py" "Built-in image plugins source"

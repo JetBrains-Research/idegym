@@ -16,9 +16,9 @@ are the canonical examples; the built-in defaults (`base-system`, `user`, `proje
 ```mermaid
 flowchart LR
     subgraph pkg["🧩 Plugin package"]
-        imgp("@image_plugin<br/>apply() / render()<br/>get_mcp_upstream()"):::img
-        srvp("@server_plugin<br/>get_server_router()"):::srv
-        cliops("Client Ops class<br/>typed async methods"):::cli
+        imgp("@image_plugin"):::img
+        srvp("@server_plugin"):::srv
+        cliops("Client ops class"):::cli
     end
 
     subgraph eps["Entry-point groups"]
@@ -31,13 +31,13 @@ flowchart LR
     srvp --- ep_srv
     cliops --- ep_cli
 
-    ep_img -->|"load at import"| toSpec[/"Image.to_spec()<br/>→ Dockerfile fragment + MCP config"/]:::img
-    ep_srv -->|"filtered by plugins.json"| main[/"server/main.py<br/>→ router at /api/&lt;plugin&gt;/*"/]:::srv
-    ep_cli -->|"per instance"| cli[/"IdeGYMServer.__init__<br/>→ server.&lt;plugin&gt;.&lt;method&gt;()"/]:::cli
+    ep_img -->|"load at import"| toSpec[/"Image.to_spec()"/]:::img
+    ep_srv -->|"filtered by plugins.json"| main[/"server/main.py"/]:::srv
+    ep_cli -->|"per instance"| cli[/"server.&lt;plugin&gt;()"/]:::cli
 
-    classDef img fill:#f08c00,stroke:#e67700,color:#fff;
-    classDef srv fill:#e8590c,stroke:#c04405,color:#fff;
-    classDef cli fill:#1c7ed6,stroke:#1864ab,color:#fff;
+    classDef img fill:#c026d3,stroke:#a21caf,color:#fff;
+    classDef srv fill:#6b57ff,stroke:#5b4bd2,color:#fff;
+    classDef cli fill:#2563eb,stroke:#1d4ed8,color:#fff;
 
     click imgp "https://github.com/JetBrains-Research/idegym/blob/main/api/src/idegym/api/plugin.py" "PluginBase / @image_plugin source"
     click srvp "https://github.com/JetBrains-Research/idegym/blob/main/api/src/idegym/api/plugin.py" "@server_plugin source"
