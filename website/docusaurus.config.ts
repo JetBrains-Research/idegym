@@ -9,7 +9,7 @@ const GITHUB_REPO = 'https://github.com/JetBrains-Research/idegym';
 const config: Config = {
   title: 'IdeGYM',
   tagline: 'Disposable, scalable dev environments for RL training and agent evaluation at scale',
-  favicon: 'img/favicon.ico',
+  favicon: 'img/idegym-logo.png',
 
   // Future flags, see https://docusaurus.io/docs/api/docusaurus-config#future
   future: {
@@ -85,7 +85,7 @@ const config: Config = {
   ],
 
   themeConfig: {
-    image: 'img/docusaurus-social-card.jpg',
+    image: 'img/idegym-logo.png',
     // Dark mode first — the site is built to present on a projector.
     colorMode: {
       defaultMode: 'dark',
@@ -121,7 +121,7 @@ const config: Config = {
       title: 'IdeGYM',
       logo: {
         alt: 'IdeGYM',
-        src: 'img/logo.svg',
+        src: 'img/idegym-logo.png',
       },
       items: [
         {
