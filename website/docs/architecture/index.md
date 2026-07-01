@@ -82,7 +82,7 @@ flowchart TB
 ```
 
 <small><em>Underlined nodes are clickable; dashed boxes are groupings. (Adapted from
-[`documentation/diagrams/architecture.md`](https://github.com/JetBrains-Research/idegym/blob/main/documentation/diagrams/architecture.md).)</em></small>
+[`website/docs/reference/diagrams/architecture.md`](https://github.com/JetBrains-Research/idegym/blob/main/website/docs/reference/diagrams/architecture.md).)</em></small>
 
 ## Component map
 

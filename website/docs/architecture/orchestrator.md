@@ -15,7 +15,7 @@ and persists all state in PostgreSQL.
 ```mermaid
 flowchart TB
     subgraph app["FastAPI app"]
-        mw["Middleware"]:::infra
+        mw["Middleware<br/>tracing · task ctx"]:::infra
         subgraph routers["Routers"]
             direction TB
             rc("client"):::ctrl

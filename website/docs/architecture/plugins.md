@@ -48,7 +48,7 @@ flowchart LR
 ```
 
 <small><em>Adapted from
-[`documentation/diagrams/plugins.md`](https://github.com/JetBrains-Research/idegym/blob/main/documentation/diagrams/plugins.md).</em></small>
+[`website/docs/reference/diagrams/plugins.md`](https://github.com/JetBrains-Research/idegym/blob/main/website/docs/reference/diagrams/plugins.md).</em></small>
 
 ## The integration points
 

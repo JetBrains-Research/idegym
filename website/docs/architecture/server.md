@@ -13,12 +13,12 @@ IDE's MCP server. Supervisor boots it; an MCP gateway fronts it.
 
 ```mermaid
 flowchart TB
-    sup{{"🧭 Supervisor"}}:::ctrl
+    sup{{"🧭 Supervisor<br/>process manager"}}:::ctrl
 
     subgraph app["FastAPI app · Uvicorn :8000"]
         direction TB
-        mw["Middleware"]:::infra
-        di("DI Container"):::infra
+        mw["Middleware<br/>tracing · shutdown"]:::infra
+        di("DI Container<br/>tool + reward svc"):::infra
         subgraph routers["Routers · /api"]
             direction LR
             rinfra("Infrastructure<br/>root · project · fs"):::tool
@@ -26,7 +26,7 @@ flowchart TB
         end
         subgraph mcp["MCP gateway · /mcp"]
             direction LR
-            ftools("File tools"):::tool
+            ftools("File tools<br/>create · edit · patch"):::tool
             proxy("Upstream proxies"):::pod
         end
     end
@@ -57,7 +57,7 @@ flowchart TB
 ```
 
 <small><em>Adapted from
-[`documentation/diagrams/server.md`](https://github.com/JetBrains-Research/idegym/blob/main/documentation/diagrams/server.md).</em></small>
+[`website/docs/reference/diagrams/server.md`](https://github.com/JetBrains-Research/idegym/blob/main/website/docs/reference/diagrams/server.md).</em></small>
 
 ## Assembly (`server/main.py`)
 

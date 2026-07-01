@@ -17,7 +17,7 @@ in-cluster with Kaniko.
 flowchart TB
     img{{"🧱 Image<br/>fluent API"}}:::ctrl
     ctx["BuildContext"]:::infra
-    plugins("Plugin pipeline"):::tool
+    plugins("Plugin pipeline<br/>apply → render"):::tool
     spec[/"ImageBuildSpec"/]:::build
     kaniko[/"Kaniko"/]:::build
     docker["Local Docker"]:::infra
