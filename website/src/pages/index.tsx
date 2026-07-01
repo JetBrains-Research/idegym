@@ -168,54 +168,54 @@ type Mini = {title: string; body: string};
 
 const DEV_FEATURES: Mini[] = [
   {
-    title: 'IDE integration',
+    title: '🖥️ IDE integration',
     body: 'JetBrains IDEs run headlessly inside pods and route their MCP server through IdeGYM — inspections, refactoring, and code intelligence for any MCP agent, plus a direct HTTP inspection endpoint.',
   },
   {
-    title: 'MCP support',
+    title: '🔌 MCP support',
     body: 'Tools, rewards, filesystem, and server lifecycle are exposed as MCP endpoints, so any MCP-compatible agent or framework can use IdeGYM without custom client code.',
   },
   {
-    title: 'Integrations',
+    title: '🔗 Integrations',
     body: 'Drop-in support for OpenEnv and verl — works with the RL frameworks you already use.',
   },
   {
-    title: 'Episode lifecycle',
+    title: '🔄 Episode lifecycle',
     body: 'Reuse environments across episodes: reset just the project folder, restore from a filesystem + memory checkpoint, or restart completely.',
   },
   {
-    title: 'Shell execution',
+    title: '🐚 Shell execution',
     body: 'Bash execution, file editing, and a filesystem API are available on every pod.',
   },
   {
-    title: 'Rewards',
+    title: '🎯 Rewards',
     body: 'Define your own reward signals — run tests, check compilation, validate setup — and plug them directly into your training loop.',
   },
   {
-    title: 'Image builder',
+    title: '🧱 Image builder',
     body: 'Use any Docker image as a base. Compose custom images from reusable plugins, in Python or YAML.',
   },
 ];
 
 const OPS_FEATURES: Mini[] = [
   {
-    title: 'One-click deployment',
+    title: '🚀 One-click deployment',
     body: 'Deploy with a Helm chart, or customize the manifests.',
   },
   {
-    title: 'Resource limits & admission control',
+    title: '🛡️ Resource limits & admission control',
     body: 'Regex-based quota rules per tenant, enforced automatically at admission time.',
   },
   {
-    title: 'Observability',
+    title: '🔭 Observability',
     body: 'Prometheus metrics, OpenTelemetry tracing, and a live dashboard with OOMKill detection.',
   },
   {
-    title: 'Automatic cleanup & fault tolerance',
+    title: '🧹 Automatic cleanup & fault tolerance',
     body: 'A background watcher reconciles database state against live Kubernetes, removing stale resources and recovering crashed or missing pods.',
   },
   {
-    title: 'Audit log',
+    title: '🗄️ Audit log',
     body: 'Every forwarded request and response is stored in PostgreSQL — enabling reproducible reward computation and episode replay.',
   },
 ];
