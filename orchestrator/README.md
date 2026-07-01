@@ -27,7 +27,7 @@ The client library (`IdeGYMClient`) handles this automatically when initialized 
 The orchestrator exposes an MCP server at `/mcp`. It uses the same HTTP Basic Authentication as the REST API and
 provides tool-based access to client, server, forwarding, async operation, and Kaniko build operations.
 
-See [MCP Server](../documentation/mcp.md) for connection examples, available tools, and lifecycle examples.
+See [MCP Server](../website/docs/reference/mcp.md) for connection examples, available tools, and lifecycle examples.
 
 ---
 
@@ -302,7 +302,7 @@ start.
 
 The feature is implemented on top of [Google Kubernetes Engine pod
 snapshots](https://docs.cloud.google.com/kubernetes-engine/docs/concepts/pod-snapshots) and only works on a GKE
-cluster where the feature is enabled. See [Remote Deployment → Pod Snapshots](../documentation/remote_deployment.md)
+cluster where the feature is enabled. See [Remote Deployment → Pod Snapshots](../website/docs/reference/remote_deployment.md)
 for how to turn the feature on.
 
 #### Constraints
@@ -467,7 +467,7 @@ Bidirectionally proxies a WebSocket connection to `ws://{generated_name}.{namesp
 
 ### Image Building
 
-Image builds are executed as Kaniko jobs inside the cluster. See [Image Builder](../documentation/image_builder.md) for how to define images.
+Image builds are executed as Kaniko jobs inside the cluster. See [Image Builder](../website/docs/reference/image_builder.md) for how to define images.
 
 #### Start build jobs
 
@@ -693,8 +693,8 @@ helm dependency update charts/idegym
 helm install idegym charts/idegym -n idegym
 ```
 
-See [Local Deployment](/documentation/local_deployment.md) for the full Minikube setup,
-and [Remote Deployment](/documentation/remote_deployment.md) for production cluster configuration.
+See [Local Deployment](/website/docs/reference/local_deployment.md) for the full Minikube setup,
+and [Remote Deployment](/website/docs/reference/remote_deployment.md) for production cluster configuration.
 
 ---
 
@@ -719,4 +719,4 @@ uv run pytest -m integration   # requires Docker + registry on localhost:5000
 uv run pytest -m e2e            # requires a running Minikube cluster
 ```
 
-See [Getting Started](../documentation/getting_started.md) for test prerequisites.
+See [Getting Started](../website/docs/reference/getting_started.md) for test prerequisites.

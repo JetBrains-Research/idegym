@@ -44,7 +44,7 @@ website/
 │   ├── architecture/    # index.md = ★ interactive diagram, + one page per component
 │   ├── deployment.md
 │   ├── api.mdx          # hub linking the embedded Redoc API specs
-│   └── reference/       # clean copy of documentation/*.md (secondary nav)
+│   └── reference/       # the developer reference guides (secondary nav)
 ├── src/
 │   ├── pages/index.tsx  # custom landing page
 │   └── css/custom.css   # JetBrains-orange, dark-mode-first theme
@@ -81,7 +81,7 @@ This rebuilds `orchestrator.json` and `server.json`. Commit them when the APIs c
 
 ## Deployment
 
-Pushes to `main` that touch `website/**` (or `documentation/**`) trigger
+Pushes to `main` that touch `website/**` trigger
 [`.github/workflows/docs.yml`](../.github/workflows/docs.yml), which builds the site and
 publishes it via the official `actions/deploy-pages` flow. Enable it once in the repo
 settings: **Settings → Pages → Build and deployment → Source = "GitHub Actions"**.

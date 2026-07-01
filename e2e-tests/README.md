@@ -4,7 +4,7 @@ End-to-end tests for IdeGYM running on a local Minikube cluster.
 The tests cover the full stack: image building (via Kaniko and local Docker),
 server lifecycle, request forwarding, and the WebSocket protocol.
 
-For the broader deployment context see [Local Deployment](/documentation/local_deployment.md).
+For the broader deployment context see [Local Deployment](/website/docs/reference/local_deployment.md).
 
 ## Prerequisites
 

@@ -39,7 +39,7 @@ uv sync
 
 All examples require a running IdeGYM orchestrator. The fastest way to get one locally is with
 Minikube and pre-built GHCR images. See the full
-[Local Deployment Guide](../documentation/local_deployment.md) for details and a locally-built
+[Local Deployment Guide](../website/docs/reference/local_deployment.md) for details and a locally-built
 alternative.
 
 From the **repository root**:
@@ -121,5 +121,5 @@ Make sure `sudo minikube tunnel` is running in a separate terminal:
 curl http://idegym.test/health
 ```
 
-See [Local Deployment Guide — Troubleshooting](../documentation/local_deployment.md#troubleshooting)
+See [Local Deployment Guide — Troubleshooting](../website/docs/reference/local_deployment.md#troubleshooting)
 for more.
