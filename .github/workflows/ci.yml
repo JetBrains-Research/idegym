@@ -27,7 +27,7 @@ jobs:
 
     steps:
       - name: Checkout latest
-        uses: actions/checkout@v6.0.3
+        uses: actions/checkout@v7.0.0
 
       - name: Install Docker
         uses: docker/setup-docker-action@v5.2.0
@@ -71,7 +71,7 @@ jobs:
 
     steps:
       - name: Checkout latest
-        uses: actions/checkout@v6.0.3
+        uses: actions/checkout@v7.0.0
 
       - name: Start minikube
         uses: medyagh/setup-minikube@v0.0.21
@@ -127,7 +127,7 @@ jobs:
 
     steps:
       - name: Checkout latest
-        uses: actions/checkout@v6.0.3
+        uses: actions/checkout@v7.0.0
 
       - name: Start minikube
         uses: medyagh/setup-minikube@v0.0.21
