@@ -16,26 +16,25 @@ environment — all async. Agents that prefer tools over code can use the orches
 flowchart TB
     client(["🐍 IdeGYMClient<br/>async context manager"]):::client
     server[["📦 IdeGYMServer<br/>one per environment"]]:::pod
+    client -->|"with_server()"| server
 
-    subgraph ops["Typed operations"]
-        clients_op("clients<br/>register / heartbeat"):::tool
-        servers_op("servers<br/>start / stop / finish / restart"):::tool
-        jobs_op("jobs<br/>build_and_push_images"):::tool
-        tools_op("tools<br/>execute_bash"):::tool
-        files_op("files<br/>create / edit / patch"):::tool
-        rewards_op("rewards<br/>compilation / setup / test"):::tool
-        fwd("forwarding<br/>forward()"):::ctrl
+    subgraph cops["Client ops"]
+        servers_op("servers"):::tool
+        jobs_op("jobs"):::tool
+        clients_op("clients"):::tool
     end
 
-    plugin_ops{{"Plugin ops · per instance<br/>server.pycharm · server.idea"}}:::build
+    subgraph sops["Server ops"]
+        tools_op("tools · bash"):::tool
+        files_op("files"):::tool
+        rewards_op("rewards"):::tool
+        fwd("forward()"):::ctrl
+    end
 
-    client --> servers_op
-    client --> jobs_op
-    client -->|"with_server()"| server
-    server --> tools_op
-    server --> files_op
-    server --> rewards_op
-    server --> fwd
+    plugin_ops{{"Plugin ops<br/>pycharm · idea"}}:::build
+
+    client --> cops
+    server --> sops
     server -.->|"idegym.plugins.client"| plugin_ops
 
     click client "https://github.com/JetBrains-Research/idegym/blob/main/client/src/idegym/client/client.py" "IdeGYMClient source"

@@ -12,19 +12,21 @@ rewards are the *signal*.
 ## Act, then score (click a node for source)
 
 ```mermaid
-flowchart LR
-    subgraph tools["🛠️ Tools — what the agent does"]
-        bash("bash · execute a script"):::tool
+flowchart TB
+    subgraph tools["🛠️ Tools"]
+        direction TB
+        bash("bash"):::tool
         cf("create_file"):::tool
-        ef("edit_file · line range"):::tool
-        pf("patch_file · unified diff"):::tool
-        inspect("IDE inspect · IDE plugins"):::tool
+        ef("edit_file"):::tool
+        pf("patch_file"):::tool
+        inspect("IDE inspect"):::tool
     end
 
-    subgraph rewards["🎯 Rewards — how it's scored"]
-        comp[/"compilation_reward<br/>pass / fail"/]:::build
-        setup[/"setup_reward<br/>pass / fail"/]:::build
-        test[/"test_reward<br/>passed / failed counts"/]:::build
+    subgraph rewards["🎯 Rewards"]
+        direction TB
+        comp[/"compilation_reward"/]:::build
+        setup[/"setup_reward"/]:::build
+        test[/"test_reward"/]:::build
     end
 
     agent(["🤖 Agent / trainer"]):::client --> tools --> env[["📦 Sandbox state"]]:::pod

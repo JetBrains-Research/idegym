@@ -13,24 +13,27 @@ IDE's MCP server. Supervisor boots it; an MCP gateway fronts it.
 
 ```mermaid
 flowchart TB
-    sup{{"🧭 Supervisor · supervisord<br/>program:server → /usr/local/bin/idegym<br/>+ server-exit eventlistener"}}:::ctrl
+    sup{{"🧭 Supervisor<br/>runs the server<br/>+ exit listener"}}:::ctrl
 
     subgraph app["FastAPI app · Uvicorn :8000"]
-        mw["Middleware<br/>Shutdown · Tracing · AsyncioTaskContext"]:::infra
+        direction TB
+        mw["Middleware<br/>Shutdown · Tracing · Asyncio"]:::infra
         di("DI Container<br/>tool_service · reward_service"):::infra
-        subgraph routers["Routers · prefix /api"]
-            rinfra("Infrastructure (hardcoded)<br/>root · project · fs"):::tool
-            plug("Plugin routers<br/>tools · rewards · pycharm / idea"):::tool
+        subgraph routers["Routers · /api"]
+            direction LR
+            rinfra("Infrastructure<br/>root · project · fs"):::tool
+            plug("Plugin routers<br/>tools · rewards · idea"):::tool
         end
-        subgraph mcp["MCP gateway at /mcp"]
-            ftools("File tools<br/>create_file · edit_file · patch_file"):::tool
+        subgraph mcp["MCP gateway · /mcp"]
+            direction LR
+            ftools("File tools<br/>create · edit · patch"):::tool
             proxy("Upstream proxies"):::pod
         end
     end
 
-    upstreams[("/etc/idegym/mcp-upstreams.d/*.json")]:::store
-    pjson[("/etc/idegym/plugins.json")]:::store
-    ide[["In-container IDE MCP server<br/>localhost:6789/mcp"]]:::pod
+    upstreams[("mcp-upstreams.d/*.json")]:::store
+    pjson[("plugins.json")]:::store
+    ide[["IDE MCP server<br/>localhost:6789/mcp"]]:::pod
 
     sup --> app
     pjson -.->|"filters plugins"| plug

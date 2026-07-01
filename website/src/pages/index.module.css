@@ -71,10 +71,6 @@
   background: var(--ifm-card-background-color);
 }
 
-.diagramFrame :global(.docusaurus-mermaid-container) {
-  cursor: pointer;
-}
-
 .features {
   padding: 3rem 0;
 }
