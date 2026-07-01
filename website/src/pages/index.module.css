@@ -260,6 +260,20 @@
   background: var(--ifm-card-background-color);
 }
 
+/* Logos sit on a small white chip so any logo colour stays legible on the
+   dark card background. */
+.integrationLogo {
+  height: 40px;
+  width: auto;
+  max-width: 190px;
+  object-fit: contain;
+  margin-bottom: 0.9rem;
+  display: block;
+  background: #fff;
+  padding: 8px 12px;
+  border-radius: 10px;
+}
+
 .integrationCard h3 {
   margin-bottom: 0.5rem;
 }

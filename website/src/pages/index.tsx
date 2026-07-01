@@ -5,6 +5,8 @@ import useBaseUrl from '@docusaurus/useBaseUrl';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import Layout from '@theme/Layout';
 import Mermaid from '@theme/Mermaid';
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
 
 import styles from './index.module.css';
 
@@ -239,10 +241,14 @@ function Features() {
       <div className="container">
         <p className={styles.sectionEyebrow}>Features</p>
         <h2 className={styles.sectionHeading}>Everything a training loop needs</h2>
-        <h3 className={styles.groupHeading}>For researchers &amp; developers</h3>
-        {miniGrid(DEV_FEATURES)}
-        <h3 className={styles.groupHeading}>For ops</h3>
-        {miniGrid(OPS_FEATURES)}
+        <Tabs>
+          <TabItem value="dev" label="For researchers & developers" default>
+            {miniGrid(DEV_FEATURES)}
+          </TabItem>
+          <TabItem value="ops" label="For ops">
+            {miniGrid(OPS_FEATURES)}
+          </TabItem>
+        </Tabs>
       </div>
     </section>
   );
@@ -257,6 +263,11 @@ function Integrations() {
         <div className="row">
           <div className="col col--6" style={{marginBottom: '1rem'}}>
             <div className={styles.integrationCard}>
+              <img
+                className={styles.integrationLogo}
+                src={useBaseUrl('/img/openenv-pytorch.svg')}
+                alt="OpenEnv"
+              />
               <h3>OpenEnv</h3>
               <p>
                 IdeGYM is WebSocket-compatible with OpenEnv — run OpenEnv environments directly
@@ -266,6 +277,11 @@ function Integrations() {
           </div>
           <div className="col col--6" style={{marginBottom: '1rem'}}>
             <div className={styles.integrationCard}>
+              <img
+                className={styles.integrationLogo}
+                src={useBaseUrl('/img/verl.png')}
+                alt="verl"
+              />
               <h3>verl</h3>
               <p>
                 IdeGYM pairs with verl as the environment layer: verl handles RL training,
