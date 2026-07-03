@@ -1,5 +1,6 @@
 import re
 from dataclasses import dataclass, field, replace
+from importlib.resources.abc import Traversable
 from typing import Any, Optional, Self
 
 from idegym.api.download import DownloadRequest
@@ -104,6 +105,21 @@ class PluginBase(BaseModel):
         JAR) inside Docker without including the build toolchain in the final image.
         """
         return []
+
+    def get_context_files(self, ctx: BuildContext) -> dict[str, Traversable]:
+        """Return files this plugin needs staged into the Docker build context, or ``{}``.
+
+        Maps a destination path (relative to the build context, matching the plugin's
+        ``COPY`` directives) to a ``Traversable`` for the file's contents. The local build
+        driver writes these into a temporary context so the ``COPY`` instructions resolve
+        without the caller having a checkout of the idegym repo. (The Kaniko builder resolves
+        the same paths against a git checkout of the repo instead.)
+
+        Override when your ``render()`` emits ``COPY`` directives for files shipped inside the
+        plugin package (e.g. start scripts). Resolve the files with
+        ``idegym.plugins.plugin_utils.plugin_asset``.
+        """
+        return {}
 
     def get_mcp_upstream(self, ctx: BuildContext) -> Optional[str]:
         """Return the MCP server URL accessible inside the container, or ``None``.
