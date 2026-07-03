@@ -191,3 +191,76 @@ def test_start_server_request_accepts_camelcase_pod_specs():
         "name": "creds",
         "secret": {"secretName": "agent-creds"},
     }
+
+
+# ---------------------------------------------------------------------------
+# Kaniko build: secret build-arg forwarding (private IDE plugin downloads)
+# ---------------------------------------------------------------------------
+
+
+def _patch_kaniko_clients(mocker):
+    """Patch create_clients and return the batch mock capturing the submitted Job body."""
+    job_result = mocker.MagicMock()
+    job_result.api_version = "batch/v1"
+    job_result.kind = "Job"
+    job_result.metadata.name = "kaniko-build"
+    job_result.metadata.uid = "uid-1"
+
+    batch = mocker.MagicMock()
+    batch.create_namespaced_job = mocker.AsyncMock(return_value=job_result)
+    core = mocker.MagicMock()
+    core.create_namespaced_config_map = mocker.AsyncMock()
+    policy = mocker.MagicMock()
+    policy.create_namespaced_pod_disruption_budget = mocker.AsyncMock()
+
+    clients = (mocker.MagicMock(), batch, core, policy, mocker.MagicMock())
+    mocker.patch.object(kc, "create_clients", mocker.AsyncMock(return_value=clients))
+    return batch
+
+
+async def _kaniko_job_body(mocker, **kwargs):
+    batch = _patch_kaniko_clients(mocker)
+    await kc.build_and_push_image_with_kaniko(
+        tag="reg.example/idegym/img:v1",
+        service_version="1.2.3",
+        dockerfile_content="FROM debian\n",
+        namespace="ns",
+        insecure_registry=True,
+        **kwargs,
+    )
+    return batch.create_namespaced_job.call_args.kwargs["body"]
+
+
+async def _kaniko_job_container(mocker, **kwargs):
+    body = await _kaniko_job_body(mocker, **kwargs)
+    return body.spec.template.spec.containers[0]
+
+
+async def test_kaniko_forwards_secret_build_arg_from_env(mocker):
+    mocker.patch.dict("os.environ", {"PLUGIN_TOKEN": "s3cr3t"}, clear=False)
+    container = await _kaniko_job_container(mocker, secret_build_args=["PLUGIN_TOKEN"])
+    assert "--build-arg=PLUGIN_TOKEN=s3cr3t" in container.args
+    # kaniko substitutes ARGs from --build-arg; the token must NOT be duplicated into env,
+    # to avoid a second plaintext copy in the Job/Pod spec.
+    assert not any(e.name == "PLUGIN_TOKEN" for e in container.env)
+
+
+async def test_kaniko_omits_secret_build_arg_when_env_absent(mocker):
+    mocker.patch.dict("os.environ", {}, clear=True)
+    container = await _kaniko_job_container(mocker, secret_build_args=["PLUGIN_TOKEN"])
+    assert not any(arg.startswith("--build-arg=PLUGIN_TOKEN=") for arg in container.args)
+    assert not any(e.name == "PLUGIN_TOKEN" for e in container.env)
+
+
+async def test_kaniko_omits_secret_build_arg_when_env_empty(mocker):
+    mocker.patch.dict("os.environ", {"PLUGIN_TOKEN": ""}, clear=True)
+    container = await _kaniko_job_container(mocker, secret_build_args=["PLUGIN_TOKEN"])
+    assert not any(arg.startswith("--build-arg=PLUGIN_TOKEN=") for arg in container.args)
+
+
+async def test_kaniko_secret_forwarding_does_not_clobber_job_name(mocker):
+    # Regression: the secret-forwarding loop must not rebind the `name` used for the
+    # Job/ConfigMap/PDB metadata (which must stay a valid RFC-1123 kaniko-build-<rand> name).
+    mocker.patch.dict("os.environ", {"PLUGIN_TOKEN": "s3cr3t"}, clear=False)
+    body = await _kaniko_job_body(mocker, secret_build_args=["PLUGIN_TOKEN"])
+    assert body.metadata.name.startswith("kaniko-build-")
