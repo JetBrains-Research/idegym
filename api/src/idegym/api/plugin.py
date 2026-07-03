@@ -105,6 +105,20 @@ class PluginBase(BaseModel):
         """
         return []
 
+    def get_build_secrets(self, ctx: BuildContext) -> list[str]:
+        """Return names of build-time secret env vars this plugin needs as build args.
+
+        Each returned name is a build ``ARG`` referenced by this plugin's ``render()``
+        output whose value must be supplied at build time from the builder's environment
+        (never embedded in the Dockerfile or the ``ImageBuildSpec``). ``Image.to_spec()``
+        collects these into ``ImageBuildSpec.secret_build_args``; build backends forward
+        each name from ``os.environ`` as ``--build-arg <name>=<value>``.
+
+        Override when a plugin fetches a resource behind authentication resolved from an
+        environment variable (see the IDE plugins' ``external_plugins``).
+        """
+        return []
+
     def get_mcp_upstream(self, ctx: BuildContext) -> Optional[str]:
         """Return the MCP server URL accessible inside the container, or ``None``.
 
