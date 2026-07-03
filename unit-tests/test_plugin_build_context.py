@@ -122,44 +122,46 @@ def test_image_version_changes_when_asset_content_changes():
     assert a.image_version() == same.image_version()
 
 
-# --- DockerService._materialize_context ------------------------------------------------
+# --- DockerService._stage_context_files (stages in place, cleans up on exit) -----------
 
 
-def test_materialize_context_noop_when_no_files():
+def test_stage_context_files_noop_when_no_files(tmp_path):
     with ExitStack() as stack:
-        assert DockerService._materialize_context(".", {}, stack) == "."
+        DockerService._stage_context_files(str(tmp_path), {}, stack)
+    assert list(tmp_path.iterdir()) == []
 
 
-def test_materialize_context_left_untouched_when_assets_already_present(tmp_path):
-    (tmp_path / "plugins" / "idea" / "scripts").mkdir(parents=True)
-    (tmp_path / "plugins" / "idea" / "scripts" / "x.sh").write_bytes(b"present")
+def test_stage_context_files_leaves_present_assets_untouched(tmp_path):
+    existing = tmp_path / "plugins" / "idea" / "scripts" / "x.sh"
+    existing.parent.mkdir(parents=True)
+    existing.write_bytes(b"present")
     with ExitStack() as stack:
-        result = DockerService._materialize_context(str(tmp_path), {"plugins/idea/scripts/x.sh": b"other"}, stack)
-    assert result == str(tmp_path)  # not a temp dir
+        DockerService._stage_context_files(str(tmp_path), {"plugins/idea/scripts/x.sh": b"other"}, stack)
+        assert existing.read_bytes() == b"present"  # never clobbered
+    assert existing.read_bytes() == b"present"  # and not removed on cleanup
 
 
-def test_materialize_context_stages_missing_assets_without_copying_cwd(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)  # cwd has no assets; simulates a plugin author's project dir
-    (tmp_path / "unrelated.txt").write_text("should not be copied")
+def test_stage_context_files_writes_missing_assets_in_place_and_preserves_siblings(tmp_path):
+    # A plugin author's project dir: has its own COPY source, but not the plugin assets.
+    project_file = tmp_path / "app.py"
+    project_file.write_text("print('hi')")
+    files = {"plugins/idea/scripts/x.sh": b"asset", "plugins/idea/project-opener/o.zip": b"zip"}
     with ExitStack() as stack:
-        staged = DockerService._materialize_context(".", {"plugins/idea/scripts/x.sh": b"asset"}, stack)
-        assert staged != "."
-        from pathlib import Path
+        DockerService._stage_context_files(str(tmp_path), files, stack)
+        # assets available in the caller's own context, alongside its files
+        assert (tmp_path / "plugins" / "idea" / "scripts" / "x.sh").read_bytes() == b"asset"
+        assert (tmp_path / "plugins" / "idea" / "project-opener" / "o.zip").read_bytes() == b"zip"
+        assert project_file.read_text() == "print('hi')"
+    # staged files and the dirs they created are gone; the caller's own file remains
+    assert not (tmp_path / "plugins").exists()
+    assert project_file.read_text() == "print('hi')"
 
-        staged_path = Path(staged)
-        assert (staged_path / "plugins" / "idea" / "scripts" / "x.sh").read_bytes() == b"asset"
-        assert not (staged_path / "unrelated.txt").exists()  # cwd not copied for context "."
 
-
-def test_materialize_context_overlays_assets_on_explicit_context_dir(tmp_path):
-    project = tmp_path / "project"
-    project.mkdir()
-    (project / "app.py").write_text("print('hi')")
+def test_stage_context_files_preserves_preexisting_parent_dirs(tmp_path):
+    # A pre-existing `plugins/` dir must survive cleanup — only newly-created dirs are pruned.
+    (tmp_path / "plugins" / "keep.txt").parent.mkdir(parents=True)
+    (tmp_path / "plugins" / "keep.txt").write_text("keep")
     with ExitStack() as stack:
-        staged = DockerService._materialize_context(str(project), {"plugins/idea/scripts/x.sh": b"asset"}, stack)
-        assert staged != str(project)
-        from pathlib import Path
-
-        staged_path = Path(staged)
-        assert (staged_path / "app.py").read_text() == "print('hi')"  # base context carried along
-        assert (staged_path / "plugins" / "idea" / "scripts" / "x.sh").read_bytes() == b"asset"
+        DockerService._stage_context_files(str(tmp_path), {"plugins/idea/scripts/x.sh": b"asset"}, stack)
+    assert not (tmp_path / "plugins" / "idea").exists()  # created subtree pruned
+    assert (tmp_path / "plugins" / "keep.txt").read_text() == "keep"  # pre-existing dir kept

@@ -21,8 +21,9 @@ def test_git_ref_release_version_maps_to_tag():
     assert _kaniko_git_ref("1.2.3") == "refs/tags/v1.2.3"
 
 
-@pytest.mark.parametrize("version", ["latest", ""])
-def test_git_ref_dev_version_maps_to_main(version):
+@pytest.mark.parametrize("version", ["latest", "", "1.2.3.dev5+gabcdef", "1.2.3-5-gdeadbee", "main", "0.0.0.dev0"])
+def test_git_ref_non_release_version_maps_to_main(version):
+    # Only a clean X.Y.Z maps to a tag; anything else has no matching tag, so use main.
     assert _kaniko_git_ref(version) == "refs/heads/main"
 
 

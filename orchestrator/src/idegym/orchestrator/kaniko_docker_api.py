@@ -1,3 +1,4 @@
+import re
 from asyncio import create_task, sleep, timeout
 from os import environ as env
 from pathlib import Path
@@ -23,6 +24,12 @@ __DOCKER_REPOSITORY__ = env.get("DOCKER_REGISTRY", "ghcr.io/jetbrains-research/i
 __KANIKO_CONTEXT_GIT_URL__ = "github.com/JetBrains-Research/idegym.git"
 
 
+# A clean release version like "1.2.3" maps to the tag "v1.2.3"; anything else (dev builds,
+# "latest", PEP 440 dev/local segments like "1.2.3.dev5+gabc") has no matching tag, so fall back
+# to the main branch rather than cloning a nonexistent ref.
+_RELEASE_VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
+
+
 def _kaniko_git_ref(version: str) -> str:
     """Map the orchestrator version to a git ref: a release tag, else the main branch.
 
@@ -32,9 +39,9 @@ def _kaniko_git_ref(version: str) -> str:
     override = env.get("IDEGYM_KANIKO_CONTEXT_GIT_REF")
     if override:
         return override
-    if version in ("", "latest"):
-        return "refs/heads/main"
-    return f"refs/tags/v{version}"
+    if _RELEASE_VERSION_RE.match(version):
+        return f"refs/tags/v{version}"
+    return "refs/heads/main"
 
 
 def _kaniko_git_context(version: str) -> str:

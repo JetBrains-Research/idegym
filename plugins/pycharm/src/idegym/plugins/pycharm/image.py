@@ -4,7 +4,7 @@ from importlib.resources.abc import Traversable
 from typing import Optional
 
 from idegym.api.plugin import BuildContext, PluginBase, image_plugin
-from idegym.plugins.plugin_utils import check_linux_id, plugin_asset
+from idegym.plugins.plugin_utils import check_linux_id, ide_context_files
 from jinja2 import BaseLoader, Environment
 from pydantic import field_validator
 
@@ -126,24 +126,15 @@ class PyCharm(PluginBase):
         return ctx.with_extra("idegym.enabled_server_plugins", existing)
 
     def get_context_files(self, ctx: BuildContext) -> dict[str, Traversable]:
-        # Mirror render(): the open-project and mcp-steroid-start templates COPY the start
-        # scripts; only open-project also COPIES the prebuilt plugin zip.
         has_project = ctx.get_extra("idegym.has_project", False)
-        install_plugin = has_project and self.open_project
-        if not (install_plugin or self.mcp_steroid):
-            return {}
-        files_map: dict[str, Traversable] = {
-            "plugins/pycharm/scripts/check-mcp.sh": plugin_asset(__package__, "scripts", "check-mcp.sh"),
-            "plugins/pycharm/scripts/start-pycharm.sh": plugin_asset(__package__, "scripts", "start-pycharm.sh"),
-            "plugins/pycharm/scripts/supervisord-pycharm.conf": plugin_asset(
-                __package__, "scripts", "supervisord-pycharm.conf"
-            ),
-        }
-        if install_plugin:
-            files_map["plugins/pycharm/project-opener/project-opener.zip"] = plugin_asset(
-                __package__, "project-opener", "project-opener.zip"
-            )
-        return files_map
+        return ide_context_files(
+            __package__,
+            "plugins/pycharm",
+            start_script="start-pycharm.sh",
+            supervisor_conf="supervisord-pycharm.conf",
+            install_open_project=has_project and self.open_project,
+            mcp_steroid=self.mcp_steroid,
+        )
 
     def render(self, ctx: BuildContext) -> str:
         user = self.user or ctx.current_user

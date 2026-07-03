@@ -3,8 +3,7 @@ from collections.abc import Iterable
 from contextlib import ExitStack
 from os import environ as env
 from pathlib import Path
-from shutil import copytree
-from tempfile import NamedTemporaryFile, TemporaryDirectory
+from tempfile import NamedTemporaryFile
 from typing import Any, Final, Optional
 from uuid import uuid4
 
@@ -112,7 +111,7 @@ class DockerService:
         labels = {} if labels is None else labels
         rendered = dockerfile_content if dockerfile_content else render_dockerfile(commands=commands)
         with ExitStack() as stack:
-            context_path = self._materialize_context(context_path, context_files or {}, stack)
+            self._stage_context_files(context_path, context_files or {}, stack)
             temporary_dir = context_path if context_path != "." else None
             return self._build_from_context(
                 request=request,
@@ -129,30 +128,46 @@ class DockerService:
             )
 
     @staticmethod
-    def _materialize_context(context_path: str, context_files: dict[str, bytes], stack: ExitStack) -> str:
-        """Return the context path to build from, staging plugin assets if they're missing.
+    def _stage_context_files(context_path: str, context_files: dict[str, bytes], stack: ExitStack) -> None:
+        """Write plugin build assets into the caller's build context, cleaning them up afterwards.
 
-        Plugin ``COPY`` targets (e.g. ``plugins/idea/scripts/...``) live in the wheel, not the
-        caller's build context. When any are missing from ``context_path``, build from a temporary
-        directory with the assets written in — so a plugin author needs no checkout of the idegym
-        repo. When they're already present (e.g. the context *is* a repo checkout), leave the
-        context untouched.
+        Plugin ``COPY`` targets (e.g. ``plugins/idea/scripts/...``) live in the wheel, not the caller's
+        build context. Write the missing ones directly into ``context_path`` so their ``COPY`` resolves
+        without a checkout of the idegym repo. Building in place (rather than copying into a temp dir)
+        keeps the caller's other ``COPY`` sources — e.g. a ``Project.from_local`` project — and their
+        ``.dockerignore`` in effect. Files already present (e.g. the context *is* a repo checkout) are
+        left untouched; anything this method creates is removed when ``stack`` exits.
         """
-        if not context_files:
-            return context_path
         base = Path(context_path)
-        if all((base / dest).is_file() for dest in context_files):
-            return context_path
-        staged = Path(stack.enter_context(TemporaryDirectory(prefix="idegym-ctx-")))
-        # Carry an explicitly-set context dir along so its own COPY targets still resolve.
-        if context_path not in ("", "."):
-            copytree(base, staged, dirs_exist_ok=True)
+        created_files: list[Path] = []
+        created_dirs: list[Path] = []
+
+        def _cleanup() -> None:
+            for file in created_files:
+                file.unlink(missing_ok=True)
+            for directory in sorted(created_dirs, key=lambda path: len(path.parts), reverse=True):
+                try:
+                    directory.rmdir()  # only removes it if still empty — never touches caller content
+                except OSError:
+                    pass
+
+        stack.callback(_cleanup)
         for dest, data in context_files.items():
-            target = staged / dest
-            target.parent.mkdir(parents=True, exist_ok=True)
+            target = base / dest
+            if target.exists():
+                continue  # already provided by the caller's context; never clobber it
+            missing_parents = []
+            parent = target.parent
+            while not parent.exists():
+                missing_parents.append(parent)
+                parent = parent.parent
+            for directory in reversed(missing_parents):
+                directory.mkdir()
+                created_dirs.append(directory)
             target.write_bytes(data)
-        logger.debug("Staged plugin build context", files=sorted(context_files), context=str(staged))
-        return str(staged)
+            created_files.append(target)
+        if created_files:
+            logger.debug("Staged plugin build assets", files=sorted(created_files), context=str(base))
 
     def _build_from_context(
         self,

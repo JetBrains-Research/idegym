@@ -32,3 +32,33 @@ def plugin_asset(package: str, *parts: str) -> Traversable:
     for _ in range(4):
         source = source.parent
     return source.joinpath(*parts)
+
+
+def ide_context_files(
+    package: str,
+    prefix: str,
+    *,
+    start_script: str,
+    supervisor_conf: str,
+    install_open_project: bool,
+    mcp_steroid: bool,
+) -> dict[str, Traversable]:
+    """Build-context files an IDE plugin (idea/pycharm) ``COPY``s, mirroring its ``render()`` branches.
+
+    The open-project and mcp-steroid-start templates both ``COPY`` the start scripts; only open-project
+    also ``COPY``s the prebuilt plugin zip. Keys are the ``COPY`` destination paths (relative to the build
+    context); values are the packaged assets. Shared between the idea and pycharm plugins so the two never
+    drift out of sync with each other's ``render()``.
+    """
+    if not (install_open_project or mcp_steroid):
+        return {}
+    context_files = {
+        f"{prefix}/scripts/check-mcp.sh": plugin_asset(package, "scripts", "check-mcp.sh"),
+        f"{prefix}/scripts/{start_script}": plugin_asset(package, "scripts", start_script),
+        f"{prefix}/scripts/{supervisor_conf}": plugin_asset(package, "scripts", supervisor_conf),
+    }
+    if install_open_project:
+        context_files[f"{prefix}/project-opener/project-opener.zip"] = plugin_asset(
+            package, "project-opener", "project-opener.zip"
+        )
+    return context_files
