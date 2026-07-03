@@ -198,6 +198,7 @@ class Image(BaseModel):
         ctx = BuildContext(base=self.base)
         build_stages: list[str] = []
         fragments: list[str] = []
+        context_files: dict[str, bytes] = {}
         for plugin in self.plugins:
             ctx = plugin.apply(ctx)
             for stage in plugin.get_build_stages(ctx):
@@ -209,6 +210,8 @@ class Image(BaseModel):
             mcp_fragment = _mcp_upstream_fragment(plugin, ctx)
             if mcp_fragment:
                 fragments.append(mcp_fragment)
+            for dest, resource in plugin.get_context_files(ctx).items():
+                context_files[dest] = resource.read_bytes()
 
         dockerfile_content = self._render_dockerfile(ctx, fragments, build_stages)
         return ImageBuildSpec(
@@ -217,6 +220,7 @@ class Image(BaseModel):
             dockerfile_content=dockerfile_content,
             labels=dict(ctx.labels),
             context_path=ctx.context_path,
+            context_files=context_files,
             platforms=list(self.platforms),
             runtime_class_name=self.runtime_class_name,
             resources=self.resources,

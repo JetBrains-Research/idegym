@@ -1,8 +1,10 @@
 import re
 from collections.abc import Iterable
+from contextlib import ExitStack
 from os import environ as env
 from pathlib import Path
-from tempfile import NamedTemporaryFile
+from shutil import copytree
+from tempfile import NamedTemporaryFile, TemporaryDirectory
 from typing import Any, Final, Optional
 from uuid import uuid4
 
@@ -84,6 +86,7 @@ class DockerService:
             labels=compiled.labels,
             image_name=compiled.name,
             context_path=compiled.context_path,
+            context_files=compiled.context_files,
             platforms=compiled.platforms,
             dockerfile_content=compiled.dockerfile_content,
         )
@@ -99,6 +102,7 @@ class DockerService:
         registry: Optional[str] = None,
         image_name: Optional[str] = None,
         context_path: str = ".",
+        context_files: Optional[dict[str, bytes]] = None,
         platforms: Optional[list[str]] = None,
         dockerfile_content: Optional[str] = None,
     ) -> DockerImage:
@@ -107,7 +111,62 @@ class DockerService:
         platforms = None if not platforms else platforms
         labels = {} if labels is None else labels
         rendered = dockerfile_content if dockerfile_content else render_dockerfile(commands=commands)
-        temporary_dir = context_path if context_path != "." else None
+        with ExitStack() as stack:
+            context_path = self._materialize_context(context_path, context_files or {}, stack)
+            temporary_dir = context_path if context_path != "." else None
+            return self._build_from_context(
+                request=request,
+                image_version=image_version,
+                image_base=image_base,
+                service_version=service_version,
+                labels=labels,
+                registry=registry,
+                image_name=image_name,
+                context_path=context_path,
+                temporary_dir=temporary_dir,
+                platforms=platforms,
+                rendered=rendered,
+            )
+
+    def _materialize_context(self, context_path: str, context_files: dict[str, bytes], stack: ExitStack) -> str:
+        """Return the context path to build from, staging plugin assets if they're missing.
+
+        Plugin ``COPY`` targets (e.g. ``plugins/idea/scripts/...``) live in the wheel, not the
+        caller's build context. When any are missing from ``context_path``, build from a temporary
+        directory with the assets written in — so a plugin author needs no checkout of the idegym
+        repo. When they're already present (e.g. the context *is* a repo checkout), leave the
+        context untouched.
+        """
+        if not context_files:
+            return context_path
+        base = Path(context_path)
+        if all((base / dest).is_file() for dest in context_files):
+            return context_path
+        staged = Path(stack.enter_context(TemporaryDirectory(prefix="idegym-ctx-")))
+        # Carry an explicitly-set context dir along so its own COPY targets still resolve.
+        if context_path not in ("", "."):
+            copytree(base, staged, dirs_exist_ok=True)
+        for dest, data in context_files.items():
+            target = staged / dest
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+        logger.debug("Staged plugin build context", files=sorted(context_files), context=str(staged))
+        return str(staged)
+
+    def _build_from_context(
+        self,
+        request: Optional[DownloadRequest],
+        image_version: str,
+        image_base: Optional[str],
+        service_version: str,
+        labels: dict[str, str],
+        registry: Optional[str],
+        image_name: Optional[str],
+        context_path: str,
+        temporary_dir: Optional[str],
+        platforms: Optional[list[str]],
+        rendered: str,
+    ) -> DockerImage:
         with NamedTemporaryFile(mode="w", prefix="Dockerfile.", dir=temporary_dir, delete=True) as dockerfile:
             dockerfile.write(rendered)
             dockerfile.flush()
