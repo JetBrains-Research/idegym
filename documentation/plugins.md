@@ -141,6 +141,40 @@ BuildContext(base=...)
 > list. For example, if the `user` plugin comes after the `project` plugin, `project.render()` will
 > see `current_user="root"` (the default), not the user created by the `user` plugin.
 
+### Shipping files your `COPY` needs (`get_context_files`)
+
+If your `render()` emits a `COPY` directive, the source must exist in the Docker build context.
+Don't assume the caller builds from a checkout of the idegym repo — a plugin author may build from
+any directory. Instead, **ship the file inside your plugin package** and declare it from
+`get_context_files()`:
+
+```python
+from importlib.resources.abc import Traversable
+from idegym.plugins.plugin_utils import plugin_asset
+
+class MyPlugin(PluginBase):
+    def render(self, ctx: BuildContext) -> str:
+        return "COPY my_plugin/start.sh /usr/local/bin/start.sh"
+
+    def get_context_files(self, ctx: BuildContext) -> dict[str, Traversable]:
+        # dest path (matching the COPY source) -> packaged file
+        return {"my_plugin/start.sh": plugin_asset(__package__, "start.sh")}
+```
+
+`Image.to_spec()` collects these onto `ImageBuildSpec.context_files`. The two builders then make
+them available in the exact same `COPY` path:
+
+- **Local Docker build** stages the declared files into a temporary build context, so `COPY`
+  resolves regardless of the caller's working directory.
+- **Kaniko build** checks out the idegym repo at the orchestrator's version and uses it as the
+  context (see [Image Builder → Kaniko build](image_builder.md#kaniko-build-in-cluster)).
+
+Keep the `get_context_files()` keys in lockstep with the `COPY` sources your `render()` emits.
+Package the assets so they're readable via `importlib.resources` — for a single wheel that mixes
+`src`-layout code with data files outside `src`, use hatchling `force-include` (see the built-in
+plugins' [`plugins/pyproject.toml`](../plugins/pyproject.toml)); `plugin_asset()` also falls back
+to the source tree for editable installs.
+
 ### Registering with `@image_plugin`
 
 ```python

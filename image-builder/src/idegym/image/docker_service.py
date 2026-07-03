@@ -128,7 +128,8 @@ class DockerService:
                 rendered=rendered,
             )
 
-    def _materialize_context(self, context_path: str, context_files: dict[str, bytes], stack: ExitStack) -> str:
+    @staticmethod
+    def _materialize_context(context_path: str, context_files: dict[str, bytes], stack: ExitStack) -> str:
         """Return the context path to build from, staging plugin assets if they're missing.
 
         Plugin ``COPY`` targets (e.g. ``plugins/idea/scripts/...``) live in the wheel, not the
