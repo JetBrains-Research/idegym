@@ -173,7 +173,7 @@ when you opt into a tracing backend that requires credentials.
 > the Secret that no longer matches the one persisted in the PVC, and the orchestrator can't authenticate.
 > When you tear a local deployment down, delete the namespace (or the `data-postgres-0` PVC) so PostgreSQL and
 > the Secret are regenerated together. See [Cluster Cleanup](#cluster-cleanup) and, for stable long-lived
-> deployments, [Stabilizing the PostgreSQL password](remote_deployment.md#stabilizing-the-postgresql-password).
+> deployments, [Important notes on PostgreSQL secrets](remote_deployment.md#important-notes-on-postgresql-secrets).
 
 > [!TIP]
 > Grafana's admin password is randomly generated on initial installation and preserved across upgrades.
@@ -217,7 +217,7 @@ helm dependency update charts/idegym
 > and substitute it for `<version>` below. (When you install the *published* chart from the OCI registry
 > instead of this repo copy, its `appVersion` is set and the tags default correctly.)
 
-For a minimal installation, only the orchestrator and PostgreSQL instance are created:
+For a minimal installation, only the orchestrator, the watcher, and PostgreSQL instance are created:
 
 ```shell
 helm install idegym charts/idegym -n idegym \
@@ -310,7 +310,7 @@ platform**, and so does the `/etc/hosts` entry you need:
 Verify:
 
 ```shell
-curl -k https://idegym.test/health
+curl http://idegym.test/health
 # → {"status":"healthy"}
 ```
 
@@ -341,7 +341,7 @@ You need three images loaded into Minikube: the base server image, the orchestra
 **Base server image** (Debian bookworm, used as the base for environment containers):
 
 ```shell
-uv run python scripts/build_server_images.py --skip-base ubuntu
+uv run python scripts/build_server_images.py
 ```
 
 This builds the image from the server template and tags it as
@@ -460,7 +460,7 @@ Then add the `/etc/hosts` entry for the platform you're on:
 Verify:
 
 ```shell
-curl -k https://idegym-local.test/health
+curl http://idegym-local.test/health
 # → {"status":"healthy"}
 ```
 
@@ -554,7 +554,7 @@ minikube delete
 > *original* password, so the orchestrator fails to authenticate (`password authentication failed`).
 > Either delete the PVC (`kubectl delete pvc data-postgres-0 -n idegym-local`) together with the release,
 > or pin the password so it survives — see
-> [Stabilizing the PostgreSQL password](remote_deployment.md#stabilizing-the-postgresql-password).
+> [Important notes on PostgreSQL secrets](remote_deployment.md#important-notes-on-postgresql-secrets).
 
 ---
 
