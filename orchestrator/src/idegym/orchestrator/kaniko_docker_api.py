@@ -75,6 +75,7 @@ class IdeGYMKanikoDockerAPI:
             insecure_registry=self._insecure_registry,
             node_pool_taint_key=self._node_pool_taint_key,
             node_pool_preference_weight=self._node_pool_preference_weight,
+            secret_build_args=spec.secret_build_args,
         )
 
         create_task(self.monitor_image_building_job(job_name, tag, request_id))
