@@ -142,7 +142,7 @@ postgresql:
   enabled: false
 ```
 
-### Stabilizing the PostgreSQL password
+### Important notes on PostgreSQL secrets
 
 > [!IMPORTANT]
 > For any long-lived deployment, **pin the PostgreSQL password to a Secret you manage** instead of relying on
@@ -630,7 +630,7 @@ response = httpx.get("https://idegym.yourdomain.com/health", headers=headers)
 - [ ] `deployment.imagePullSecrets` set if the orchestrator image is in a private registry
 - [ ] PostgreSQL password pinned to a managed Secret via `postgresql.auth.existingSecret` (or overridden via
       `database` for an external DB) — do **not** rely on subchart auto-generation for long-lived deployments;
-      see [Stabilizing the PostgreSQL password](#stabilizing-the-postgresql-password)
+      see [Important notes on PostgreSQL secrets](#important-notes-on-postgresql-secrets)
 - [ ] Grafana admin credentials reviewed if `grafana.enabled=true` (either auto-generate with chart or override via values)
 - [ ] `tracing` secret created if your OTLP backend requires authentication
 - [ ] TLS secret provisioned for the orchestrator `Ingress` if enabled
