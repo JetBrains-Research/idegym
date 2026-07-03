@@ -142,6 +142,70 @@ postgresql:
   enabled: false
 ```
 
+### Stabilizing the PostgreSQL password
+
+> [!IMPORTANT]
+> For any long-lived deployment, **pin the PostgreSQL password to a Secret you manage** instead of relying on
+> the subchart's auto-generation. This is the single most common way to lock yourself out of the database.
+
+**Why auto-generation bites.** When `postgresql.auth.password` / `postgresql.auth.existingSecret` are unset,
+the Bitnami subchart mints a random password into the `postgres` Secret on the first install. PostgreSQL then
+bakes that password into its data directory (the PVC) on first boot. The two only ever match again if the
+Secret is never regenerated. But the password *is* regenerated whenever Helm re-renders the Secret without
+being told the current value — for example a `helm upgrade` **without** `--reuse-values` and without
+`--set postgresql.auth.password=...`, or a full reinstall against a **surviving PVC**. The new Secret no
+longer matches the password persisted in the PVC, and every service that connects fails with
+`password authentication failed for user "idegym"`. (This is exactly the class of incident behind
+forgetting the `--set` passwords on an upgrade — the run silently regenerates or aborts on credentials.)
+
+**Fix: pin the password.** Pre-create a Secret and point the subchart at it with `auth.existingSecret`. Bitnami
+then reads the password from your Secret and never generates or rotates one, so upgrades, reinstalls, and PVC
+reuse all stay consistent:
+
+```shell
+kubectl create secret generic idegym-postgres -n idegym \
+  --from-literal=password="$APP_PASSWORD" \
+  --from-literal=postgres-password="$SUPERUSER_PASSWORD"
+```
+
+```yaml
+postgresql:
+  auth:
+    existingSecret: idegym-postgres
+    # Bitnami's default secret keys; shown for clarity.
+    secretKeys:
+      userPasswordKey: password
+      adminPasswordKey: postgres-password
+```
+
+The orchestrator and watcher read the same Secret automatically (their `POSTGRES_PASSWORD` resolves through
+the subchart's `secretName` / `userPasswordKey` helpers), so no separate `database.password` override is
+needed. Alternatively, set `postgresql.auth.password` inline via a values overlay — but then you must pass it
+on **every** `helm upgrade`, which is easy to forget; `existingSecret` is the safer default.
+
+> [!TIP] Runbook — never regenerate credentials on an existing PVC
+> - Every `helm upgrade`/`install` must either use a pinned `auth.existingSecret`, or pass `--reuse-values`
+>   **and** re-supply `--set postgresql.auth.password=...` (and `postgresql.auth.postgres-password=...`).
+>   Do not run a bare `helm upgrade` that drops these.
+> - Before any upgrade, snapshot the current password so you can restore it:
+>   `kubectl get secret postgres -n idegym -o jsonpath='{.data.password}' | base64 -d`.
+> - When intentionally starting fresh, delete the PVC in the same breath as the release
+>   (`kubectl delete pvc data-postgres-0 -n idegym`) so PostgreSQL and the Secret regenerate together.
+
+> [!WARNING] Rollback — recovering from a regenerated password
+> If an upgrade already rotated the Secret and connections now fail with `password authentication failed`,
+> **do not** delete the PVC (that destroys the data). Instead:
+> 1. Roll the release back to the revision that held the working Secret:
+>    `helm rollback idegym <previous-revision> -n idegym` — Helm restores the previously-rendered Secret,
+>    which matches the password still baked into the PVC.
+> 2. Or, if you have the original password, write it back into the Secret and restart the consumers:
+>    ```shell
+>    kubectl patch secret postgres -n idegym \
+>      --type merge -p "{\"data\":{\"password\":\"$(printf %s "$OLD_PASSWORD" | base64)\"}}"
+>    kubectl rollout restart deployment/idegym deployment/idegym-watcher -n idegym
+>    ```
+> 3. Then pin `auth.existingSecret` (above) so it can't happen again.
+
 ### Grafana credentials (only when `grafana.enabled=true`)
 
 The Grafana subchart generates a random admin password on the first installation and preserves it across upgrades.
@@ -564,7 +628,9 @@ response = httpx.get("https://idegym.yourdomain.com/health", headers=headers)
 - [ ] Images pushed to a registry accessible from the cluster
 - [ ] `regcred` image pull secret created if environment or Kaniko pods target a private registry
 - [ ] `deployment.imagePullSecrets` set if the orchestrator image is in a private registry
-- [ ] PostgreSQL credentials reviewed (either auto-generate with chart or override via `database` for external connections)
+- [ ] PostgreSQL password pinned to a managed Secret via `postgresql.auth.existingSecret` (or overridden via
+      `database` for an external DB) — do **not** rely on subchart auto-generation for long-lived deployments;
+      see [Stabilizing the PostgreSQL password](#stabilizing-the-postgresql-password)
 - [ ] Grafana admin credentials reviewed if `grafana.enabled=true` (either auto-generate with chart or override via values)
 - [ ] `tracing` secret created if your OTLP backend requires authentication
 - [ ] TLS secret provisioned for the orchestrator `Ingress` if enabled
