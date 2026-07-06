@@ -9,7 +9,7 @@ dependencies:
     repository: oci://ghcr.io/grafana-community/helm-charts
     condition: grafana.enabled
   - name: postgresql
-    version: 18.7.8
+    version: 18.7.11
     repository: oci://registry-1.docker.io/bitnamicharts
     condition: postgresql.enabled
   - name: prometheus
