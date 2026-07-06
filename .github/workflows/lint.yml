@@ -35,7 +35,7 @@ jobs:
       - name: Checkout latest
         uses: actions/checkout@v7.0.0
       - name: Detect changed paths
-        uses: dorny/paths-filter@v4
+        uses: dorny/paths-filter@v4.0.1
         id: filter
         with:
           filters: |
