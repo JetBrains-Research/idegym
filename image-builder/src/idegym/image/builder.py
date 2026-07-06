@@ -199,6 +199,7 @@ class Image(BaseModel):
         build_stages: list[str] = []
         fragments: list[str] = []
         context_files: dict[str, bytes] = {}
+        secret_build_args: list[str] = []
         for plugin in self.plugins:
             ctx = plugin.apply(ctx)
             for stage in plugin.get_build_stages(ctx):
@@ -212,6 +213,9 @@ class Image(BaseModel):
                 fragments.append(mcp_fragment)
             for dest, resource in plugin.get_context_files(ctx).items():
                 context_files[dest] = resource.read_bytes()
+            for secret in plugin.get_build_secrets(ctx):
+                if secret not in secret_build_args:
+                    secret_build_args.append(secret)
 
         dockerfile_content = self._render_dockerfile(ctx, fragments, build_stages)
         return ImageBuildSpec(
@@ -224,6 +228,7 @@ class Image(BaseModel):
             platforms=list(self.platforms),
             runtime_class_name=self.runtime_class_name,
             resources=self.resources,
+            secret_build_args=secret_build_args,
         )
 
     def _render_base_stage_header(self) -> str:

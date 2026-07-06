@@ -1,6 +1,7 @@
 import json
 from asyncio import CancelledError, gather, sleep, timeout
 from contextlib import asynccontextmanager
+from os import environ as env
 from random import getrandbits
 from typing import Any, AsyncGenerator, Awaitable, Callable, Iterable, Optional, Union, cast
 
@@ -771,6 +772,7 @@ async def build_and_push_image_with_kaniko(
     node_pool_taint_key: Optional[str] = None,
     node_pool_preference_weight: int = 100,
     context: Optional[str] = None,
+    secret_build_args: Optional[list[str]] = None,
 ) -> str:
     """
     Build a Docker image using Kaniko in a Kubernetes Job and push it to a registry.
@@ -811,6 +813,17 @@ async def build_and_push_image_with_kaniko(
             args.append(f"--build-arg=IDEGYM_AUTH_TYPE={request.auth.type}")
         if request.auth.token is not None:
             args.append(f"--build-arg=IDEGYM_AUTH_TOKEN={request.auth.token}")
+
+    # Forward build-time secrets (e.g. private-plugin tokens) from the orchestrator's
+    # environment as Kaniko build args. Only the names travel in the spec; values are
+    # resolved here so they never reach the ConfigMap-mounted Dockerfile or an image layer.
+    # Not added to the container env — Kaniko substitutes ARGs from --build-arg, so a second
+    # copy would only widen the plaintext footprint in the Job spec. A distinct loop
+    # variable avoids clobbering the ``name`` used below for the Job/ConfigMap/PDB names.
+    for arg_name in secret_build_args or []:
+        arg_value = env.get(arg_name)
+        if arg_value:
+            args.append(f"--build-arg={arg_name}={arg_value}")
 
     if insecure_registry:
         args.append("--insecure")

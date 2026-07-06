@@ -22,6 +22,14 @@ class ImageBuildSpec(BaseModel):
     platforms: list[str] = Field(default_factory=list, description="Build target platforms")
     runtime_class_name: str = Field(default="gvisor", description="Kubernetes runtime class name")
     resources: Optional[KubernetesResources] = Field(default=None, description="Build resources")
+    secret_build_args: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Names of build ARGs whose values are sourced from the builder's environment "
+            "at build time (e.g. private-plugin download tokens). Only names are carried "
+            "here — never the secret values."
+        ),
+    )
 
     model_config = ConfigDict(extra="forbid")
 
@@ -35,4 +43,7 @@ class ImageBuildSpec(BaseModel):
         if self.context_files:
             content_hashes = {dest: _hashlib_md5(data).hexdigest() for dest, data in self.context_files.items()}
             identifiers.append(dump_json(content_hashes, sort_keys=True))
+        # Distinguishes images whose build secrets differ even if a future plugin declares
+        # a secret without emitting a matching ``ARG`` into the Dockerfile. Names only.
+        identifiers.append(dump_json(self.secret_build_args, sort_keys=True))
         return md5(*identifiers)
