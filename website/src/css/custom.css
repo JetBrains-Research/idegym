@@ -66,20 +66,12 @@ html {
   height: auto;
 }
 
-/* Edge labels: give them a solid chip so the text never blends into the
-   background (was invisible on the white/light theme). */
-.docusaurus-mermaid-container .edgeLabel,
+/* Edge labels: keep mermaid's own label background (it already masks the edge
+   line) and just ensure the text uses the theme's readable colour. No custom
+   box/border — that rendered as stray shapes. */
 .docusaurus-mermaid-container .edgeLabel p {
-  background-color: var(--ifm-background-surface-color) !important;
-  color: var(--ifm-font-color-base) !important;
-  padding: 1px 6px;
-  border-radius: 6px;
-  font-size: 0.9em;
-}
-
-[data-theme='light'] .docusaurus-mermaid-container .edgeLabel,
-[data-theme='light'] .docusaurus-mermaid-container .edgeLabel p {
-  border: 1px solid var(--ifm-color-emphasis-300);
+  color: var(--ifm-font-color-base);
+  margin: 0;
 }
 
 /* ---- Clickable node affordance ------------------------------------------ *

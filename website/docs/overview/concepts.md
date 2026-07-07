@@ -113,6 +113,28 @@ flowchart TB
     classDef infra fill:#475569,stroke:#334155,color:#fff;
 ```
 
+**Legend** — every diagram on this site uses the same colour and shape for each kind of component:
+
+```mermaid
+flowchart LR
+    c(["Client"]):::client
+    o{{"Orchestrator"}}:::ctrl
+    s[["Server / runtime"]]:::pod
+    b[/"Image / build"/]:::build
+    d[("Data store")]:::store
+    t("Tools · rewards"):::tool
+    i["Infra"]:::infra
+    c ~~~ o ~~~ s ~~~ b ~~~ d ~~~ t ~~~ i
+
+    classDef client fill:#2563eb,stroke:#1d4ed8,color:#fff;
+    classDef ctrl fill:#6b57ff,stroke:#5b4bd2,color:#fff;
+    classDef pod fill:#4f46e5,stroke:#4338ca,color:#fff;
+    classDef build fill:#c026d3,stroke:#a21caf,color:#fff;
+    classDef store fill:#0891b2,stroke:#0e7490,color:#fff;
+    classDef tool fill:#e23b3b,stroke:#c02626,color:#fff;
+    classDef infra fill:#475569,stroke:#334155,color:#fff;
+```
+
 ## Next
 
 - See the full lifecycle, end to end → [Data & usage flow](/overview/data-flow)

@@ -84,27 +84,6 @@ flowchart TB
 <small><em>Underlined nodes are clickable; dashed boxes are groupings. (Adapted from
 [`website/docs/reference/diagrams/architecture.md`](https://github.com/JetBrains-Research/idegym/blob/main/website/docs/reference/diagrams/architecture.md).)</em></small>
 
-**Legend** — every diagram on this site uses the same colour and shape for each kind of component:
-
-```mermaid
-flowchart LR
-    c(["<b>Client / agent</b>"]):::client
-    o{{"<b>Orchestrator</b>"}}:::ctrl
-    s[["<b>Server pod / runtime</b>"]]:::pod
-    b[/"<b>Image / build</b>"/]:::build
-    d[("<b>Data store</b>")]:::store
-    t("<b>Tools · rewards</b>"):::tool
-    i["<b>Infra / platform</b>"]:::infra
-
-    classDef client fill:#2563eb,stroke:#1d4ed8,color:#fff;
-    classDef ctrl fill:#6b57ff,stroke:#5b4bd2,color:#fff;
-    classDef pod fill:#4f46e5,stroke:#4338ca,color:#fff;
-    classDef build fill:#c026d3,stroke:#a21caf,color:#fff;
-    classDef store fill:#0891b2,stroke:#0e7490,color:#fff;
-    classDef tool fill:#e23b3b,stroke:#c02626,color:#fff;
-    classDef infra fill:#475569,stroke:#334155,color:#fff;
-```
-
 ## Component map
 
 | Component | What it does | Deep dive |
