@@ -108,16 +108,10 @@ The `registry` addon creates a cluster-internal Docker registry at
 
 ### Create the namespace
 
-Approach 1 installs into the `idegym` namespace. Approach 2 (local builds) uses a separate
-`idegym-local` namespace so the two installations never collide. Create the one for the approach
-you're following:
+Both approaches install into the `idegym` namespace:
 
 ```shell
-# Approach 1 (pre-built GHCR images)
 kubectl create namespace idegym
-
-# Approach 2 (local image builds)
-kubectl create namespace idegym-local
 ```
 
 > [!NOTE]
@@ -323,7 +317,6 @@ required. The e2e test suite uses this exact flow.
 
 The key differences from Approach 1:
 - The `registry` Minikube addon is required (for Kaniko builds inside the cluster)
-- A separate hostname (`idegym-local.test`) is used to avoid conflicts with Approach 1
 - Images are built locally and loaded into Minikube with `minikube image load`
 
 ### Build and load images
@@ -394,12 +387,12 @@ Pull the subchart dependencies (only needed once, and again whenever `Chart.yaml
 helm dependency update charts/idegym
 ```
 
-Install into the `idegym-local` namespace, pinning both images to the `:latest` tag the build scripts
+Install into the `idegym` namespace, pinning both images to the `:latest` tag the build scripts
 produced. The tag override is required because the repo chart ships an empty `appVersion` (see the
 [!IMPORTANT] note under [Approach 1 → Install the chart](#install-the-chart)):
 
 ```shell
-helm install idegym charts/idegym -n idegym-local \
+helm install idegym charts/idegym -n idegym \
   --create-namespace \
   --set deployment.image.tag=latest \
   --set watcher.image.tag=latest
@@ -411,7 +404,7 @@ helm install idegym charts/idegym -n idegym-local \
 > upgrade that omits them re-renders an empty tag:
 >
 > ```shell
-> helm upgrade idegym charts/idegym -n idegym-local \
+> helm upgrade idegym charts/idegym -n idegym \
 >   --reuse-values \
 >   --set deployment.image.tag=latest \
 >   --set watcher.image.tag=latest
@@ -420,23 +413,23 @@ helm install idegym charts/idegym -n idegym-local \
 Watch the rollout until `idegym-*`, `idegym-watcher-*`, and `postgres-*` are `Running`/`Ready`:
 
 ```shell
-kubectl get pods -n idegym-local -w
+kubectl get pods -n idegym -w
 ```
 
 ### Configure host access
 
 The tunnel semantics are the same as in
-[Approach 1 → Expose the orchestrator](#option-2-ingress--minikube-tunnel-closer-to-a-production-setup) —
-only the hostname (`idegym-local.test`) and namespace (`idegym-local`) differ. Enable the ingress:
+[Approach 1 → Expose the orchestrator](#option-2-ingress--minikube-tunnel-closer-to-a-production-setup).
+Enable the ingress:
 
 ```shell
-helm upgrade idegym charts/idegym -n idegym-local \
+helm upgrade idegym charts/idegym -n idegym \
   --reuse-values \
   --set deployment.image.tag=latest \
   --set watcher.image.tag=latest \
   --set ingress.enabled=true \
   --set ingress.className=nginx \
-  --set ingress.host=idegym-local.test
+  --set ingress.host=idegym.test
 ```
 
 In a **separate terminal**, start the tunnel and keep it running:
@@ -447,46 +440,45 @@ minikube tunnel
 
 Then add the `/etc/hosts` entry for the platform you're on:
 
-- **macOS:** `echo "127.0.0.1 idegym-local.test" | sudo tee -a /etc/hosts`
+- **macOS:** `echo "127.0.0.1 idegym.test" | sudo tee -a /etc/hosts`
 - **Linux:** point it at the tunnel's assigned external IP, not `127.0.0.1`, and don't run the tunnel under
   `sudo` (it aborts with `MK_USAGE_NO_PROFILE`):
 
     ```shell
     IP=$(kubectl get svc -n ingress-nginx ingress-nginx-controller \
       -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-    echo "$IP idegym-local.test" | sudo tee -a /etc/hosts
+    echo "$IP idegym.test" | sudo tee -a /etc/hosts
     ```
 
 Verify:
 
 ```shell
-curl http://idegym-local.test/health
+curl http://idegym.test/health
 # → {"status":"healthy"}
 ```
 
-Prefer no tunnel at all? `kubectl port-forward svc/idegym 8000:80 -n idegym-local` works the same on both
+Prefer no tunnel at all? `kubectl port-forward svc/idegym 8000:80 -n idegym` works the same on both
 platforms.
 
 ---
 
 ## Deploying Changes to the Orchestrator
 
-When you modify orchestrator code and want to test it in the cluster (use the namespace for your approach —
-`idegym` for Approach 1, `idegym-local` for Approach 2):
+When you modify orchestrator code and want to test it in the cluster:
 
 ```shell
 # Rebuild and load the new image into Minikube
 uv run python scripts/build_orchestrator_image.py
 
 # Point the chart at the local image and force a re-pull from the in-cluster cache
-helm upgrade idegym charts/idegym -n idegym-local \
+helm upgrade idegym charts/idegym -n idegym \
   --reuse-values \
   --set deployment.image.repository=ghcr.io/jetbrains-research/idegym/orchestrator \
   --set deployment.image.tag=latest \
   --set deployment.image.pullPolicy=IfNotPresent
 
 # Or, if image coordinates are unchanged, just bounce the rollout:
-kubectl rollout restart deployment/idegym -n idegym-local
+kubectl rollout restart deployment/idegym -n idegym
 ```
 
 The build script also accepts flags:
@@ -527,14 +519,14 @@ following data sources:
 
 ## Cluster Cleanup
 
-Use the namespace for the approach you followed (`idegym` or `idegym-local`):
+Tear the local deployment down:
 
 ```shell
 # Uninstall the chart (leaves PVCs behind by default)
-helm uninstall idegym -n idegym-local
+helm uninstall idegym -n idegym
 
 # Drop the namespace, including PVCs and the secrets you created
-kubectl delete namespace idegym-local
+kubectl delete namespace idegym
 
 # Stop Minikube
 minikube stop
@@ -552,7 +544,7 @@ minikube delete
 > Do **not** `helm uninstall` and then reinstall while keeping the old PostgreSQL PVC. The subchart
 > auto-generates a *fresh* password into the `postgres` Secret on reinstall, but the PVC still holds the
 > *original* password, so the orchestrator fails to authenticate (`password authentication failed`).
-> Either delete the PVC (`kubectl delete pvc data-postgres-0 -n idegym-local`) together with the release,
+> Either delete the PVC (`kubectl delete pvc data-postgres-0 -n idegym`) together with the release,
 > or pin the password so it survives — see
 > [Important notes on PostgreSQL secrets](remote_deployment.md#important-notes-on-postgresql-secrets).
 
@@ -565,7 +557,7 @@ minikube delete
 First check the exact image reference the pod is trying to pull:
 
 ```shell
-kubectl get pod <pod> -n idegym-local -o jsonpath='{.spec.containers[*].image}'
+kubectl get pod <pod> -n idegym -o jsonpath='{.spec.containers[*].image}'
 ```
 
 - **Tag ends in a bare colon** (e.g. `.../orchestrator:`) — you forgot to pin the tag. The repo chart has an
@@ -589,7 +581,7 @@ the orchestrator was deployed with tracing *partially* configured — e.g. an em
 forward nothing), or set a real endpoint:
 
 ```shell
-helm upgrade idegym charts/idegym -n idegym-local \
+helm upgrade idegym charts/idegym -n idegym \
   --reuse-values \
   --set deployment.image.tag=latest \
   --set watcher.image.tag=latest \
@@ -600,7 +592,7 @@ If you're running an older orchestrator image, rebuild and reload it
 ([Deploying Changes to the Orchestrator](#deploying-changes-to-the-orchestrator)) to pick up the fix that
 stops forwarding an empty endpoint.
 
-### `curl idegym.test/health` (or `idegym-local.test`) times out
+### `curl idegym.test/health` times out
 
 1. Confirm the tunnel is running (as your normal user, **not** under `sudo` on Linux):
 
@@ -622,10 +614,10 @@ stops forwarding an empty endpoint.
 4. Confirm the orchestrator pod is running:
 
    ```shell
-   kubectl get pods -n idegym-local
+   kubectl get pods -n idegym
    ```
 
-When in doubt, skip the tunnel entirely and use `kubectl port-forward svc/idegym 8000:80 -n idegym-local`.
+When in doubt, skip the tunnel entirely and use `kubectl port-forward svc/idegym 8000:80 -n idegym`.
 
 ### Port 5000 is already in use when starting a local Docker registry
 
