@@ -2,20 +2,29 @@
 
 Builds minimal FastAPI apps that mount the real routers (without the heavy
 create_app() init: Hydra config, k8s, DB, telemetry) and dumps app.openapi().
-Run with the project venv:  .venv/bin/python gen_openapi.py <out_dir>
+
+Run with the project venv:
+    .venv/bin/python website/scripts/gen_openapi.py website/static/openapi
+
+By default every schema must generate successfully — if one fails the script
+exits non-zero, so we never ship the site with a missing/stale OpenAPI. Pass
+--allow-partial to downgrade a failure to a warning.
 """
 
+import argparse
 import json
-import sys
+import logging
 from pathlib import Path
 
 from fastapi import FastAPI
+
+logger = logging.getLogger("gen_openapi")
 
 
 def _dump(app: FastAPI, path: Path) -> None:
     schema = app.openapi()
     path.write_text(json.dumps(schema, indent=2) + "\n")
-    print(f"wrote {path} ({len(schema.get('paths', {}))} paths)")
+    logger.info("wrote %s (%d paths)", path, len(schema.get("paths", {})))
 
 
 def gen_orchestrator(out_dir: Path) -> None:
@@ -43,6 +52,9 @@ def gen_orchestrator(out_dir: Path) -> None:
 
 
 def gen_server(out_dir: Path) -> None:
+    from idegym.rewards.router import router as rewards_router
+    from idegym.tools.router import router as tools_router
+
     app = FastAPI(
         title="IdeGYM Server API",
         description=(
@@ -51,24 +63,70 @@ def gen_server(out_dir: Path) -> None:
         ),
         version="1.0.0",
     )
-    from idegym.rewards.router import router as rewards_router
-    from idegym.tools.router import router as tools_router
-
     app.include_router(tools_router, prefix="/api")
     app.include_router(rewards_router, prefix="/api")
     _dump(app, out_dir / "server.json")
 
 
-def main() -> None:
-    out_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(".")
+GENERATORS = {"orchestrator": gen_orchestrator, "server": gen_server}
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Generate the orchestrator and server OpenAPI schemas for the website.",
+    )
+    parser.add_argument(
+        "out_dir",
+        nargs="?",
+        default=Path("."),
+        type=Path,
+        help="directory to write orchestrator.json and server.json into (default: current dir)",
+    )
+    parser.add_argument(
+        "--allow-partial",
+        action="store_true",
+        help="log and continue if a schema fails, instead of exiting non-zero",
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="enable debug logging",
+    )
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(levelname)s %(name)s: %(message)s",
+    )
+
+    out_dir: Path = args.out_dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    gen_orchestrator(out_dir)
-    try:
-        gen_server(out_dir)
-    except Exception as exc:  # best-effort; orchestrator is the required one
-        print(f"server openapi skipped: {exc!r}")
+    failed: list[str] = []
+    for name, generate in GENERATORS.items():
+        try:
+            generate(out_dir)
+        except Exception:
+            logger.exception("failed to generate the %s OpenAPI schema", name)
+            failed.append(name)
+
+    if failed:
+        if args.allow_partial:
+            logger.warning("continuing with a partial result; failed: %s", ", ".join(failed))
+            return 0
+        logger.error(
+            "aborting — these schemas failed to generate: %s (pass --allow-partial to ignore)",
+            ", ".join(failed),
+        )
+        return 1
+
+    logger.info("all OpenAPI schemas generated in %s", out_dir)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
