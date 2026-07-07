@@ -14,7 +14,7 @@ dependencies = [
 
 [project.optional-dependencies]
 server = [
-    "fastapi[standard]>=0.135.2",
+    "fastapi[standard]>=0.138.2",
 ]
 
 [build-system]
