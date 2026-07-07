@@ -94,7 +94,10 @@
   padding: 1.5rem;
   border: 1px solid var(--ifm-toc-border-color);
   border-radius: 16px;
-  background: var(--ifm-card-background-color);
+  /* faint brand glow so the diagram doesn't float on plain white in light mode */
+  background:
+    radial-gradient(120% 130% at 50% 0%, rgba(107, 87, 255, 0.08), transparent 70%),
+    var(--ifm-card-background-color);
 }
 
 .features {

@@ -66,6 +66,22 @@ html {
   height: auto;
 }
 
+/* Edge labels: give them a solid chip so the text never blends into the
+   background (was invisible on the white/light theme). */
+.docusaurus-mermaid-container .edgeLabel,
+.docusaurus-mermaid-container .edgeLabel p {
+  background-color: var(--ifm-background-surface-color) !important;
+  color: var(--ifm-font-color-base) !important;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 0.9em;
+}
+
+[data-theme='light'] .docusaurus-mermaid-container .edgeLabel,
+[data-theme='light'] .docusaurus-mermaid-container .edgeLabel p {
+  border: 1px solid var(--ifm-color-emphasis-300);
+}
+
 /* ---- Clickable node affordance ------------------------------------------ *
  * Mermaid adds `.clickable` to every node that has a `click` directive.
  * Give those (and only those) a clear "this is a link" treatment so users
