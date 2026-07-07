@@ -12,30 +12,29 @@ continuously in the background.
 
 ```mermaid
 flowchart TB
-    A(["1 · Define<br/>compose an Image from plugins"]):::s1
-    B(["2 · Build<br/>Kaniko builds and pushes it"]):::s2
-    C(["3 · Provision<br/>start a sandboxed server pod"]):::s3
-    D(["4 · Use<br/>bash · files · IDE (forwarded)"]):::s4
-    E(["5 · Evaluate<br/>compilation · setup · test rewards"]):::s5
-    F{{"♻️ Cleanup<br/>watcher reclaims resources"}}:::s6
+    A[/"<b>1 · Define the environment</b>"/]:::build
+    B[/"<b>2 · Build the image</b>"/]:::build
+    C{{"<b>3 · Provision a sandboxed environment</b>"}}:::ctrl
+    D[["<b>4 · Use the environment</b>"]]:::pod
+    E("<b>5 · Evaluate with rewards</b>"):::tool
+    F["<b>♻ Cleanup (always on)</b>"]:::infra
 
     A --> B --> C --> D --> E
-    E -.->|"reset + repeat<br/>(next episode)"| D
+    E -.->|"reset + repeat (next episode)"| D
     F -.-> C
 
-    click A "/idegym/architecture/plugins" "Define an environment with plugins"
-    click B "/idegym/architecture/image-builder" "How images are built"
-    click C "/idegym/architecture/orchestrator" "How servers are provisioned"
-    click D "/idegym/architecture/server" "What runs inside the pod"
-    click E "/idegym/architecture/rewards-tools" "Rewards and tools"
-    click F "/idegym/architecture/watcher" "The watcher"
+    click A "/idegym/architecture/plugins" "See how an environment is defined by composing plugins."
+    click B "/idegym/architecture/image-builder" "See how images are built and pushed in-cluster."
+    click C "/idegym/architecture/orchestrator" "See how the orchestrator provisions server pods."
+    click D "/idegym/architecture/server" "See what runs inside a pod and how requests reach it."
+    click E "/idegym/architecture/rewards-tools" "See the reward signals used to score a run."
+    click F "/idegym/architecture/watcher" "See how the watcher reclaims resources automatically."
 
-    classDef s1 fill:#2563eb,stroke:#1d4ed8,color:#fff;
-    classDef s2 fill:#4f46e5,stroke:#4338ca,color:#fff;
-    classDef s3 fill:#6b57ff,stroke:#5b4bd2,color:#fff;
-    classDef s4 fill:#8b5cf6,stroke:#7c3aed,color:#fff;
-    classDef s5 fill:#c026d3,stroke:#a21caf,color:#fff;
-    classDef s6 fill:#475569,stroke:#334155,color:#fff;
+    classDef build fill:#c026d3,stroke:#a21caf,color:#fff;
+    classDef ctrl fill:#6b57ff,stroke:#5b4bd2,color:#fff;
+    classDef pod fill:#4f46e5,stroke:#4338ca,color:#fff;
+    classDef tool fill:#e23b3b,stroke:#c02626,color:#fff;
+    classDef infra fill:#475569,stroke:#334155,color:#fff;
 ```
 
 ## 1 · Define the environment

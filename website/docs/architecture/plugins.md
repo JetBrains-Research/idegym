@@ -16,35 +16,35 @@ are the canonical examples; the built-in defaults (`base-system`, `user`, `proje
 ```mermaid
 flowchart LR
     subgraph pkg["🧩 Plugin package"]
-        imgp("@image_plugin"):::img
-        srvp("@server_plugin"):::srv
-        cliops("Client ops class"):::cli
+        imgp[/"<b>@image_plugin</b>"/]:::build
+        srvp[["<b>@server_plugin</b>"]]:::pod
+        cliops(["<b>Client ops class</b>"]):::client
     end
 
     subgraph eps["Entry-point groups"]
-        ep_img{{"idegym.plugins.image"}}:::img
-        ep_srv{{"idegym.plugins.server"}}:::srv
-        ep_cli{{"idegym.plugins.client"}}:::cli
+        ep_img[/"<b>idegym.plugins.image</b>"/]:::build
+        ep_srv[["<b>idegym.plugins.server</b>"]]:::pod
+        ep_cli(["<b>idegym.plugins.client</b>"]):::client
     end
 
     imgp --- ep_img
     srvp --- ep_srv
     cliops --- ep_cli
 
-    ep_img -->|"load at import"| toSpec[/"Image.to_spec()"/]:::img
-    ep_srv -->|"filtered by plugins.json"| main[/"server/main.py"/]:::srv
-    ep_cli -->|"per instance"| cli[/"server.&lt;plugin&gt;()"/]:::cli
+    ep_img -->|"load at import"| toSpec[/"<b>Image.to_spec()</b>"/]:::build
+    ep_srv -->|"filtered by plugins.json"| main[["<b>server/main.py</b>"]]:::pod
+    ep_cli -->|"per instance"| cli(["<b>server.&lt;plugin&gt;()</b>"]):::client
 
-    classDef img fill:#c026d3,stroke:#a21caf,color:#fff;
-    classDef srv fill:#6b57ff,stroke:#5b4bd2,color:#fff;
-    classDef cli fill:#2563eb,stroke:#1d4ed8,color:#fff;
+    classDef build fill:#c026d3,stroke:#a21caf,color:#fff;
+    classDef pod fill:#4f46e5,stroke:#4338ca,color:#fff;
+    classDef client fill:#2563eb,stroke:#1d4ed8,color:#fff;
 
-    click imgp "https://github.com/JetBrains-Research/idegym/blob/main/api/src/idegym/api/plugin.py" "PluginBase / @image_plugin source"
-    click srvp "https://github.com/JetBrains-Research/idegym/blob/main/api/src/idegym/api/plugin.py" "@server_plugin source"
-    click toSpec "https://github.com/JetBrains-Research/idegym/blob/main/image-builder/src/idegym/image/builder.py" "Image.to_spec() source"
-    click main "https://github.com/JetBrains-Research/idegym/blob/main/server/main.py" "server/main.py source"
-    click cli "https://github.com/JetBrains-Research/idegym/blob/main/client/src/idegym/client/server.py" "IdeGYMServer source"
-    click cliops "https://github.com/JetBrains-Research/idegym/blob/main/plugins/pycharm/src/idegym/plugins/pycharm/client.py" "PyCharm client ops source"
+    click imgp "https://github.com/JetBrains-Research/idegym/blob/main/api/src/idegym/api/plugin.py" "View the PluginBase and @image_plugin source on GitHub."
+    click srvp "https://github.com/JetBrains-Research/idegym/blob/main/api/src/idegym/api/plugin.py" "View the @server_plugin source on GitHub."
+    click toSpec "https://github.com/JetBrains-Research/idegym/blob/main/image-builder/src/idegym/image/builder.py" "See how Image.to_spec() renders the Dockerfile on GitHub."
+    click main "https://github.com/JetBrains-Research/idegym/blob/main/server/main.py" "See how the server mounts plugin routers on GitHub."
+    click cli "https://github.com/JetBrains-Research/idegym/blob/main/client/src/idegym/client/server.py" "See how the client attaches plugin operations on GitHub."
+    click cliops "https://github.com/JetBrains-Research/idegym/blob/main/plugins/pycharm/src/idegym/plugins/pycharm/client.py" "View the PyCharm client-ops example on GitHub."
 ```
 
 <small><em>Adapted from

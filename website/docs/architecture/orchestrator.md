@@ -15,21 +15,21 @@ and persists all state in PostgreSQL.
 ```mermaid
 flowchart TB
     subgraph app["FastAPI app"]
-        mw["Middleware<br/>tracing · task ctx"]:::infra
+        mw["<b>Middleware</b><br/>tracing · task ctx"]:::infra
         subgraph routers["Routers"]
             direction TB
-            rc("client"):::ctrl
-            rs("server"):::ctrl
-            rb("build images"):::ctrl
-            rf("forwarding"):::ctrl
-            ra("async ops"):::ctrl
-            rsnap("snapshot"):::ctrl
+            rc{{"<b>client</b>"}}:::ctrl
+            rs{{"<b>server</b>"}}:::ctrl
+            rb{{"<b>build images</b>"}}:::ctrl
+            rf{{"<b>forwarding</b>"}}:::ctrl
+            ra{{"<b>async ops</b>"}}:::ctrl
+            rsnap{{"<b>snapshot</b>"}}:::ctrl
         end
-        mcp{{"MCP · /mcp"}}:::tool
+        mcp{{"<b>MCP</b><br/>/mcp"}}:::ctrl
     end
-    pg[("🗄️ PostgreSQL")]:::store
-    kapi["Kubernetes"]:::infra
-    pods[["Server pods"]]:::pod
+    pg[("<b>🗄️ PostgreSQL</b>")]:::store
+    kapi["<b>Kubernetes</b>"]:::infra
+    pods[["<b>Server pods</b>"]]:::pod
 
     routers --> pg
     rb -->|"Kaniko Job"| kapi
@@ -38,19 +38,18 @@ flowchart TB
     mcp -.->|"same handlers as REST"| routers
 
     classDef ctrl fill:#6b57ff,stroke:#5b4bd2,color:#fff;
-    classDef tool fill:#e23b3b,stroke:#c02626,color:#fff;
     classDef store fill:#0891b2,stroke:#0e7490,color:#fff;
     classDef infra fill:#475569,stroke:#334155,color:#fff;
     classDef pod fill:#4f46e5,stroke:#4338ca,color:#fff;
 
-    click rc "https://github.com/JetBrains-Research/idegym/blob/main/orchestrator/src/idegym/orchestrator/router/client.py" "client router source"
-    click rs "https://github.com/JetBrains-Research/idegym/blob/main/orchestrator/src/idegym/orchestrator/router/server.py" "server router source"
-    click rb "https://github.com/JetBrains-Research/idegym/blob/main/orchestrator/src/idegym/orchestrator/router/build_images.py" "build_images router source"
-    click rf "https://github.com/JetBrains-Research/idegym/blob/main/orchestrator/src/idegym/orchestrator/router/forwarding.py" "forwarding router source"
-    click ra "https://github.com/JetBrains-Research/idegym/blob/main/orchestrator/src/idegym/orchestrator/router/async_operation.py" "async_operation router source"
-    click rsnap "https://github.com/JetBrains-Research/idegym/blob/main/orchestrator/src/idegym/orchestrator/router/snapshot.py" "snapshot router source"
-    click mcp "https://github.com/JetBrains-Research/idegym/blob/main/orchestrator/src/idegym/orchestrator/mcp.py" "MCP server source"
-    click pg "https://github.com/JetBrains-Research/idegym/blob/main/orchestrator/src/idegym/orchestrator/database" "database layer source"
+    click rc "https://github.com/JetBrains-Research/idegym/blob/main/orchestrator/src/idegym/orchestrator/router/client.py" "View the client router source on GitHub."
+    click rs "https://github.com/JetBrains-Research/idegym/blob/main/orchestrator/src/idegym/orchestrator/router/server.py" "View the server-lifecycle router source on GitHub."
+    click rb "https://github.com/JetBrains-Research/idegym/blob/main/orchestrator/src/idegym/orchestrator/router/build_images.py" "View the image-build router source on GitHub."
+    click rf "https://github.com/JetBrains-Research/idegym/blob/main/orchestrator/src/idegym/orchestrator/router/forwarding.py" "View the request-forwarding router source on GitHub."
+    click ra "https://github.com/JetBrains-Research/idegym/blob/main/orchestrator/src/idegym/orchestrator/router/async_operation.py" "View the async-operation router source on GitHub."
+    click rsnap "https://github.com/JetBrains-Research/idegym/blob/main/orchestrator/src/idegym/orchestrator/router/snapshot.py" "View the snapshot router source on GitHub."
+    click mcp "https://github.com/JetBrains-Research/idegym/blob/main/orchestrator/src/idegym/orchestrator/mcp.py" "View the MCP server source on GitHub."
+    click pg "https://github.com/JetBrains-Research/idegym/blob/main/orchestrator/src/idegym/orchestrator/database" "Browse the database layer source on GitHub."
 ```
 
 ## Responsibilities

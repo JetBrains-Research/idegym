@@ -14,42 +14,40 @@ environment — all async. Agents that prefer tools over code can use the orches
 
 ```mermaid
 flowchart TB
-    client(["🐍 IdeGYMClient"]):::client
-    server[["📦 IdeGYMServer"]]:::pod
+    client(["<b>🐍 IdeGYMClient</b>"]):::client
+    server[["<b>📦 IdeGYMServer</b>"]]:::pod
     client -->|"with_server()"| server
 
     subgraph cops["Client ops"]
-        servers_op("servers"):::tool
-        jobs_op("jobs"):::tool
-        clients_op("clients"):::tool
+        servers_op("<b>servers</b>"):::tool
+        jobs_op("<b>jobs</b>"):::tool
+        clients_op("<b>clients</b>"):::tool
     end
 
     subgraph sops["Server ops"]
-        tools_op("tools · bash"):::tool
-        files_op("files"):::tool
-        rewards_op("rewards"):::tool
-        fwd("forward()"):::ctrl
+        tools_op("<b>tools · bash</b>"):::tool
+        files_op("<b>files</b>"):::tool
+        rewards_op("<b>rewards</b>"):::tool
+        fwd("<b>forward()</b>"):::tool
     end
 
-    plugin_ops{{"Plugin ops<br/>pycharm · idea"}}:::build
+    plugin_ops("<b>Plugin ops</b><br/>pycharm · idea"):::tool
 
     client --> cops
     server --> sops
     server -.->|"idegym.plugins.client"| plugin_ops
 
-    click client "https://github.com/JetBrains-Research/idegym/blob/main/client/src/idegym/client/client.py" "IdeGYMClient source"
-    click server "https://github.com/JetBrains-Research/idegym/blob/main/client/src/idegym/client/server.py" "IdeGYMServer source"
-    click fwd "https://github.com/JetBrains-Research/idegym/blob/main/client/src/idegym/client/operations/forwarding.py" "forwarding source"
-    click servers_op "https://github.com/JetBrains-Research/idegym/blob/main/client/src/idegym/client/operations/servers.py" "servers ops source"
-    click jobs_op "https://github.com/JetBrains-Research/idegym/blob/main/client/src/idegym/client/operations/jobs.py" "jobs ops source"
-    click tools_op "https://github.com/JetBrains-Research/idegym/blob/main/client/src/idegym/client/operations/tools.py" "tools ops source"
-    click rewards_op "https://github.com/JetBrains-Research/idegym/blob/main/client/src/idegym/client/operations/rewards.py" "rewards ops source"
+    click client "https://github.com/JetBrains-Research/idegym/blob/main/client/src/idegym/client/client.py" "View the IdeGYMClient source on GitHub."
+    click server "https://github.com/JetBrains-Research/idegym/blob/main/client/src/idegym/client/server.py" "View the IdeGYMServer source on GitHub."
+    click fwd "https://github.com/JetBrains-Research/idegym/blob/main/client/src/idegym/client/operations/forwarding.py" "View the request-forwarding operations on GitHub."
+    click servers_op "https://github.com/JetBrains-Research/idegym/blob/main/client/src/idegym/client/operations/servers.py" "View the server-lifecycle operations on GitHub."
+    click jobs_op "https://github.com/JetBrains-Research/idegym/blob/main/client/src/idegym/client/operations/jobs.py" "View the image-build operations on GitHub."
+    click tools_op "https://github.com/JetBrains-Research/idegym/blob/main/client/src/idegym/client/operations/tools.py" "View the tool operations on GitHub."
+    click rewards_op "https://github.com/JetBrains-Research/idegym/blob/main/client/src/idegym/client/operations/rewards.py" "View the reward operations on GitHub."
 
     classDef client fill:#2563eb,stroke:#1d4ed8,color:#fff;
     classDef pod fill:#4f46e5,stroke:#4338ca,color:#fff;
     classDef tool fill:#e23b3b,stroke:#c02626,color:#fff;
-    classDef ctrl fill:#6b57ff,stroke:#5b4bd2,color:#fff;
-    classDef build fill:#c026d3,stroke:#a21caf,color:#fff;
 ```
 
 ## `IdeGYMClient`

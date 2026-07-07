@@ -15,30 +15,28 @@ in-cluster with Kaniko.
 
 ```mermaid
 flowchart TB
-    img{{"🧱 Image<br/>fluent API"}}:::ctrl
-    ctx["BuildContext"]:::infra
-    plugins("Plugin pipeline<br/>apply → render"):::tool
-    spec[/"ImageBuildSpec"/]:::build
-    kaniko[/"Kaniko"/]:::build
-    docker["Local Docker"]:::infra
-    reg[("📦 Registry")]:::store
+    img[/"<b>🧱 Image</b><br/>fluent API"/]:::build
+    ctx["<b>BuildContext</b>"]:::infra
+    plugins[/"<b>Plugin pipeline</b><br/>apply → render"/]:::build
+    spec[/"<b>ImageBuildSpec</b>"/]:::build
+    kaniko[/"<b>Kaniko</b>"/]:::build
+    docker["<b>Local Docker</b>"]:::infra
+    reg[("<b>📦 Registry</b>")]:::store
 
     img --> ctx --> plugins --> spec
     spec --> kaniko --> reg
     spec --> docker --> reg
 
-    classDef ctrl fill:#6b57ff,stroke:#5b4bd2,color:#fff;
-    classDef infra fill:#475569,stroke:#334155,color:#fff;
-    classDef tool fill:#e23b3b,stroke:#c02626,color:#fff;
     classDef build fill:#c026d3,stroke:#a21caf,color:#fff;
+    classDef infra fill:#475569,stroke:#334155,color:#fff;
     classDef store fill:#0891b2,stroke:#0e7490,color:#fff;
 
-    click img "https://github.com/JetBrains-Research/idegym/blob/main/image-builder/src/idegym/image/builder.py" "Image fluent API source"
-    click plugins "https://github.com/JetBrains-Research/idegym/blob/main/plugins/defaults/src/idegym/plugins/defaults/image.py" "Built-in image plugins source"
-    click ctx "https://github.com/JetBrains-Research/idegym/blob/main/api/src/idegym/api/plugin.py" "BuildContext source"
-    click spec "https://github.com/JetBrains-Research/idegym/blob/main/api/src/idegym/api/image_build.py" "ImageBuildSpec source"
-    click docker "https://github.com/JetBrains-Research/idegym/blob/main/image-builder/src/idegym/image/docker_api.py" "Docker build source"
-    click kaniko "https://github.com/JetBrains-Research/idegym/blob/main/backend-utils/src/idegym/backend/utils/kubernetes_client.py" "Kaniko submit source"
+    click img "https://github.com/JetBrains-Research/idegym/blob/main/image-builder/src/idegym/image/builder.py" "View the Image fluent-API source on GitHub."
+    click plugins "https://github.com/JetBrains-Research/idegym/blob/main/plugins/defaults/src/idegym/plugins/defaults/image.py" "Browse the built-in image plugins on GitHub."
+    click ctx "https://github.com/JetBrains-Research/idegym/blob/main/api/src/idegym/api/plugin.py" "View the BuildContext source on GitHub."
+    click spec "https://github.com/JetBrains-Research/idegym/blob/main/api/src/idegym/api/image_build.py" "View the ImageBuildSpec model on GitHub."
+    click docker "https://github.com/JetBrains-Research/idegym/blob/main/image-builder/src/idegym/image/docker_api.py" "View the local Docker build source on GitHub."
+    click kaniko "https://github.com/JetBrains-Research/idegym/blob/main/backend-utils/src/idegym/backend/utils/kubernetes_client.py" "View the Kaniko submit source on GitHub."
 ```
 
 ## How it works

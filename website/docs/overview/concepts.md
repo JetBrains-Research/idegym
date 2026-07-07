@@ -84,26 +84,26 @@ jobs that build from the generated Dockerfile and push to a registry.
 
 ```mermaid
 flowchart TB
-    client(["🧑‍💻 Client"]):::client
-    orch{{"🎛️ Orchestrator"}}:::ctrl
-    image[/"🧱 Image"/]:::build
-    server[["📦 Server pod"]]:::pod
-    reward("🎯 Rewards + tools"):::tool
-    watcher["🧹 Watcher"]:::infra
+    client(["<b>🧑‍💻 Client</b>"]):::client
+    orch{{"<b>🎛️ Orchestrator</b>"}}:::ctrl
+    image[/"<b>🧱 Image</b>"/]:::build
+    server[["<b>📦 Server pod</b>"]]:::pod
+    reward("<b>🎯 Rewards + tools</b>"):::tool
+    watcher["<b>🧹 Watcher</b>"]:::infra
 
     client -->|"asks for an environment"| orch
     orch -->|"builds"| image
     image -->|"provisions"| server
-    client -->|"acts via tools (forwarded)"| server
-    server --> reward
+    client <-->|"acts via tools · reads rewards"| reward
+    reward <-->|"run inside the pod"| server
     watcher -.->|"reclaims when done"| server
 
-    click orch "/idegym/architecture/orchestrator" "Orchestrator deep dive"
-    click image "/idegym/architecture/image-builder" "Image builder deep dive"
-    click server "/idegym/architecture/server" "Server internals"
-    click reward "/idegym/architecture/rewards-tools" "Rewards and tools"
-    click watcher "/idegym/architecture/watcher" "Watcher"
-    click client "/idegym/architecture/client" "Client library"
+    click orch "/idegym/architecture/orchestrator" "Dive into the orchestrator — the control plane that manages every environment."
+    click image "/idegym/architecture/image-builder" "See how environment images are composed from plugins."
+    click server "/idegym/architecture/server" "Look inside a running, sandboxed environment pod."
+    click reward "/idegym/architecture/rewards-tools" "See what agents can do inside an environment and how runs are scored."
+    click watcher "/idegym/architecture/watcher" "See how the watcher reclaims stale environments."
+    click client "/idegym/architecture/client" "Dive into the Python client and MCP access."
 
     classDef client fill:#2563eb,stroke:#1d4ed8,color:#fff;
     classDef ctrl fill:#6b57ff,stroke:#5b4bd2,color:#fff;

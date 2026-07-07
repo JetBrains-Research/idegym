@@ -14,18 +14,18 @@ const TRY_NOW = 'https://jb.gg/idegym';
 const ISSUES = 'https://github.com/JetBrains-Research/idegym/issues';
 
 const HEADLINE_DIAGRAM = `flowchart LR
-    user(["👤 You<br/>trainer · agent"]):::client
-    orch{{"🎛️ Orchestrator"}}:::ctrl
-    pods[["📦 Disposable<br/>environments"]]:::pod
+    user(["<b>👤 You</b><br/>trainer · agent"]):::client
+    orch{{"<b>🎛️ Orchestrator</b><br/>control plane"}}:::ctrl
+    pods[["<b>📦 Disposable</b><br/>environments"]]:::pod
 
     user -->|"define · build · run · evaluate"| orch
     orch -->|"provision & forward"| pods
     pods -->|"results & rewards"| orch
     orch -.->|"clean up"| pods
 
-    click user "/idegym/architecture/client" "The client & MCP access"
-    click orch "/idegym/architecture" "Open the interactive architecture"
-    click pods "/idegym/architecture/server" "Inside an environment pod"
+    click user "/idegym/architecture/client" "Dive into the client library and how agents connect over MCP."
+    click orch "/idegym/architecture" "Open the full interactive architecture diagram."
+    click pods "/idegym/architecture/server" "Look inside a running, sandboxed environment pod."
 
     classDef client fill:#2563eb,stroke:#1d4ed8,color:#fff;
     classDef ctrl fill:#6b57ff,stroke:#5b4bd2,color:#fff;

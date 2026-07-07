@@ -16,31 +16,31 @@ its own diagram that drills further, down to the source on GitHub.
 ```mermaid
 flowchart TB
     subgraph clients["👥 Clients"]
-        lib(["🐍 Python Client Library"]):::client
-        agent(["🤖 AI Agents · MCP"]):::client
+        lib(["<b>🐍 Python Client Library</b>"]):::client
+        agent(["<b>🤖 AI Agents · MCP</b>"]):::client
     end
 
     subgraph orch["🎛️ Orchestrator Service · K8s Deployment"]
-        api{{"FastAPI + MCP"}}:::ctrl
-        builder[/"Image Builder"/]:::build
-        kaniko[/"Kaniko"/]:::build
-        watcher["Watcher"]:::infra
+        api{{"<b>FastAPI + MCP</b>"}}:::ctrl
+        builder[/"<b>Image Builder</b>"/]:::build
+        kaniko[/"<b>Kaniko</b>"/]:::build
+        watcher["<b>Watcher</b>"]:::infra
     end
 
-    pg[("🗄️ PostgreSQL")]:::store
+    pg[("<b>🗄️ PostgreSQL</b>")]:::store
 
     subgraph k8s["☸️ Kubernetes Cluster"]
-        kapi["Kubernetes API"]:::infra
-        buildjob[/"Kaniko Build Jobs"/]:::build
+        kapi["<b>Kubernetes API</b>"]:::infra
+        buildjob[/"<b>Kaniko Build Jobs</b>"/]:::build
         subgraph pod["📦 Disposable Server Pod · gVisor sandbox"]
-            srv[["Server + MCP"]]:::pod
-            tools("Tools · Rewards"):::tool
-            ide("IDE · PyCharm / IntelliJ"):::pod
+            srv[["<b>Server + MCP</b>"]]:::pod
+            tools("<b>Tools · Rewards</b>"):::tool
+            ide[["<b>IDE · PyCharm / IntelliJ</b>"]]:::pod
         end
     end
 
-    registry[("📦 Registry")]:::store
-    otel["📊 Observability"]:::infra
+    registry[("<b>📦 Registry</b>")]:::store
+    otel["<b>📊 Observability</b>"]:::infra
 
     lib -->|"REST / forward"| api
     agent -->|"MCP"| api
@@ -57,20 +57,20 @@ flowchart TB
     srv --> otel
     api --> otel
 
-    click lib "/idegym/architecture/client" "Client library"
-    click agent "/idegym/architecture/client" "Client & MCP access"
-    click api "/idegym/architecture/orchestrator" "Orchestrator"
-    click builder "/idegym/architecture/image-builder" "Image builder"
-    click kaniko "/idegym/architecture/image-builder" "Kaniko builds"
-    click buildjob "/idegym/architecture/image-builder" "Kaniko build jobs"
-    click watcher "/idegym/architecture/watcher" "Watcher"
-    click pg "/idegym/architecture/orchestrator" "Persistent state"
-    click kapi "/idegym/deployment" "Kubernetes & deployment"
-    click srv "/idegym/architecture/server" "Server internals"
-    click tools "/idegym/architecture/rewards-tools" "Tools & rewards"
-    click ide "/idegym/architecture/plugins" "IDE plugins"
-    click registry "/idegym/architecture/image-builder" "Registry"
-    click otel "/idegym/deployment" "Observability & deployment"
+    click lib "/idegym/architecture/client" "Dive into the Python client library."
+    click agent "/idegym/architecture/client" "See how AI agents connect over MCP."
+    click api "/idegym/architecture/orchestrator" "Dive into the orchestrator — the FastAPI control plane."
+    click builder "/idegym/architecture/image-builder" "See how images are composed from plugins."
+    click kaniko "/idegym/architecture/image-builder" "See how images are built in-cluster with Kaniko."
+    click buildjob "/idegym/architecture/image-builder" "See how Kaniko build jobs run in the cluster."
+    click watcher "/idegym/architecture/watcher" "See how the watcher reclaims stale resources."
+    click pg "/idegym/architecture/orchestrator" "See how the orchestrator persists all its state."
+    click kapi "/idegym/deployment" "See how IdeGYM is deployed on Kubernetes."
+    click srv "/idegym/architecture/server" "Look inside a running environment pod."
+    click tools "/idegym/architecture/rewards-tools" "See what agents can do and how runs are scored."
+    click ide "/idegym/architecture/plugins" "See how IDE plugins expose inspections and MCP tools."
+    click registry "/idegym/architecture/image-builder" "See where built images are stored."
+    click otel "/idegym/deployment" "See metrics and tracing across the stack."
 
     classDef client fill:#2563eb,stroke:#1d4ed8,color:#fff;
     classDef ctrl fill:#6b57ff,stroke:#5b4bd2,color:#fff;
@@ -84,14 +84,35 @@ flowchart TB
 <small><em>Underlined nodes are clickable; dashed boxes are groupings. (Adapted from
 [`website/docs/reference/diagrams/architecture.md`](https://github.com/JetBrains-Research/idegym/blob/main/website/docs/reference/diagrams/architecture.md).)</em></small>
 
+**Legend** — every diagram on this site uses the same colour and shape for each kind of component:
+
+```mermaid
+flowchart LR
+    c(["<b>Client / agent</b>"]):::client
+    o{{"<b>Orchestrator</b>"}}:::ctrl
+    s[["<b>Server pod / runtime</b>"]]:::pod
+    b[/"<b>Image / build</b>"/]:::build
+    d[("<b>Data store</b>")]:::store
+    t("<b>Tools · rewards</b>"):::tool
+    i["<b>Infra / platform</b>"]:::infra
+
+    classDef client fill:#2563eb,stroke:#1d4ed8,color:#fff;
+    classDef ctrl fill:#6b57ff,stroke:#5b4bd2,color:#fff;
+    classDef pod fill:#4f46e5,stroke:#4338ca,color:#fff;
+    classDef build fill:#c026d3,stroke:#a21caf,color:#fff;
+    classDef store fill:#0891b2,stroke:#0e7490,color:#fff;
+    classDef tool fill:#e23b3b,stroke:#c02626,color:#fff;
+    classDef infra fill:#475569,stroke:#334155,color:#fff;
+```
+
 ## Component map
 
 | Component | What it does | Deep dive |
 |---|---|---|
-| **Clients** | Python client library + MCP access for agents | [Client →](/architecture/client) |
 | **Orchestrator** | FastAPI control plane: lifecycle, state, forwarding | [Orchestrator →](/architecture/orchestrator) |
 | **Image Builder / Kaniko** | Compose images from plugins, build in-cluster | [Image builder →](/architecture/image-builder) |
 | **Server Pod** | Sandboxed FastAPI environment + MCP gateway | [Server →](/architecture/server) |
+| **Clients** | Python client library + MCP access for agents | [Client →](/architecture/client) |
 | **Plugins** | Image / server / client extension points | [Plugins →](/architecture/plugins) |
 | **Watcher** | Cleanup / reconcile loop | [Watcher →](/architecture/watcher) |
 | **Rewards & Tools** | What agents do & how they're scored | [Rewards & tools →](/architecture/rewards-tools) |

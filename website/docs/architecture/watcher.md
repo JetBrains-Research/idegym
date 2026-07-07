@@ -14,12 +14,12 @@ no manual teardown.
 
 ```mermaid
 flowchart TB
-    timer(["⏱️ Tick · ~60s"]):::infra
-    lock["🔒 Advisory lock"]:::infra
-    crash{{"💥 Crash detection"}}:::ctrl
-    cleanup("🧹 Cleanup / reconcile"):::tool
-    db[("🗄️ PostgreSQL")]:::store
-    kapi["☸️ Kubernetes"]:::infra
+    timer["<b>⏱️ Tick · ~60s</b>"]:::infra
+    lock["<b>🔒 Advisory lock</b>"]:::infra
+    crash("<b>💥 Crash detection</b>"):::tool
+    cleanup("<b>🧹 Cleanup / reconcile</b>"):::tool
+    db[("<b>🗄️ PostgreSQL</b>")]:::store
+    kapi["<b>☸️ Kubernetes</b>"]:::infra
 
     timer --> lock --> crash --> cleanup
     crash --> db
@@ -27,15 +27,14 @@ flowchart TB
     cleanup --> db
     cleanup --> kapi
 
-    classDef ctrl fill:#6b57ff,stroke:#5b4bd2,color:#fff;
     classDef tool fill:#e23b3b,stroke:#c02626,color:#fff;
     classDef store fill:#0891b2,stroke:#0e7490,color:#fff;
     classDef infra fill:#475569,stroke:#334155,color:#fff;
 
-    click timer "https://github.com/JetBrains-Research/idegym/blob/main/watcher/src/idegym/watcher/main.py" "watcher loop source"
-    click crash "https://github.com/JetBrains-Research/idegym/blob/main/watcher/src/idegym/watcher/crash_detector.py" "crash detector source"
-    click cleanup "https://github.com/JetBrains-Research/idegym/blob/main/watcher/src/idegym/watcher/cleanup.py" "cleanup source"
-    click lock "https://github.com/JetBrains-Research/idegym/blob/main/watcher/src/idegym/watcher/cleanup.py" "advisory lock in cleanup"
+    click timer "https://github.com/JetBrains-Research/idegym/blob/main/watcher/src/idegym/watcher/main.py" "View the watcher loop source on GitHub."
+    click crash "https://github.com/JetBrains-Research/idegym/blob/main/watcher/src/idegym/watcher/crash_detector.py" "View the crash-detector source on GitHub."
+    click cleanup "https://github.com/JetBrains-Research/idegym/blob/main/watcher/src/idegym/watcher/cleanup.py" "View the cleanup / reconcile source on GitHub."
+    click lock "https://github.com/JetBrains-Research/idegym/blob/main/watcher/src/idegym/watcher/cleanup.py" "See how the advisory lock is taken in cleanup on GitHub."
 ```
 
 ## What it does each tick

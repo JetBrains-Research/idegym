@@ -15,37 +15,36 @@ rewards are the *signal*.
 flowchart TB
     subgraph tools["🛠️ Tools"]
         direction TB
-        bash("bash"):::tool
-        cf("create_file"):::tool
-        ef("edit_file"):::tool
-        pf("patch_file"):::tool
-        inspect("IDE inspect"):::tool
+        bash("<b>bash</b>"):::tool
+        cf("<b>create_file</b>"):::tool
+        ef("<b>edit_file</b>"):::tool
+        pf("<b>patch_file</b>"):::tool
+        inspect("<b>IDE inspect</b>"):::tool
     end
 
     subgraph rewards["🎯 Rewards"]
         direction TB
-        comp[/"compilation_reward"/]:::build
-        setup[/"setup_reward"/]:::build
-        test[/"test_reward"/]:::build
+        comp("<b>compilation_reward</b>"):::tool
+        setup("<b>setup_reward</b>"):::tool
+        test("<b>test_reward</b>"):::tool
     end
 
-    agent(["🤖 Agent / trainer"]):::client --> tools --> env[["📦 Sandbox state"]]:::pod
-    env --> rewards --> signal{{"📈 Training signal"}}:::ctrl
+    agent(["<b>🤖 Agent / trainer</b>"]):::client --> tools --> env[["<b>📦 Sandbox state</b>"]]:::pod
+    env --> rewards --> signal["<b>📈 Training signal</b>"]:::infra
 
     classDef tool fill:#e23b3b,stroke:#c02626,color:#fff;
-    classDef build fill:#c026d3,stroke:#a21caf,color:#fff;
     classDef client fill:#2563eb,stroke:#1d4ed8,color:#fff;
     classDef pod fill:#4f46e5,stroke:#4338ca,color:#fff;
-    classDef ctrl fill:#6b57ff,stroke:#5b4bd2,color:#fff;
+    classDef infra fill:#475569,stroke:#334155,color:#fff;
 
-    click bash "https://github.com/JetBrains-Research/idegym/blob/main/tools/src/idegym/tools/tool_service.py" "tool service source"
-    click cf "https://github.com/JetBrains-Research/idegym/blob/main/tools/src/idegym/tools/file_manager.py" "file manager source"
-    click ef "https://github.com/JetBrains-Research/idegym/blob/main/tools/src/idegym/tools/file_manager.py" "file manager source"
-    click pf "https://github.com/JetBrains-Research/idegym/blob/main/tools/src/idegym/tools/file_manager.py" "file manager source"
-    click inspect "https://github.com/JetBrains-Research/idegym/blob/main/plugins/pycharm/src/idegym/plugins/pycharm/server.py" "IDE inspect plugin source"
-    click comp "https://github.com/JetBrains-Research/idegym/blob/main/rewards/src/idegym/rewards/compilation_checker.py" "compilation checker source"
-    click setup "https://github.com/JetBrains-Research/idegym/blob/main/rewards/src/idegym/rewards/setup_checker.py" "setup checker source"
-    click test "https://github.com/JetBrains-Research/idegym/blob/main/rewards/src/idegym/rewards/test_checker.py" "test checker source"
+    click bash "https://github.com/JetBrains-Research/idegym/blob/main/tools/src/idegym/tools/tool_service.py" "View the bash tool-service source on GitHub."
+    click cf "https://github.com/JetBrains-Research/idegym/blob/main/tools/src/idegym/tools/file_manager.py" "View the file-manager source on GitHub."
+    click ef "https://github.com/JetBrains-Research/idegym/blob/main/tools/src/idegym/tools/file_manager.py" "View the file-manager source on GitHub."
+    click pf "https://github.com/JetBrains-Research/idegym/blob/main/tools/src/idegym/tools/file_manager.py" "View the file-manager source on GitHub."
+    click inspect "https://github.com/JetBrains-Research/idegym/blob/main/plugins/pycharm/src/idegym/plugins/pycharm/server.py" "View the IDE-inspection plugin source on GitHub."
+    click comp "https://github.com/JetBrains-Research/idegym/blob/main/rewards/src/idegym/rewards/compilation_checker.py" "View the compilation-reward checker source on GitHub."
+    click setup "https://github.com/JetBrains-Research/idegym/blob/main/rewards/src/idegym/rewards/setup_checker.py" "View the setup-reward checker source on GitHub."
+    click test "https://github.com/JetBrains-Research/idegym/blob/main/rewards/src/idegym/rewards/test_checker.py" "View the test-reward checker source on GitHub."
 ```
 
 ## Tools — the action space
