@@ -5,7 +5,7 @@ version: 0.0.0
 appVersion: ""
 dependencies:
   - name: grafana
-    version: 12.4.7
+    version: 12.7.1
     repository: oci://ghcr.io/grafana-community/helm-charts
     condition: grafana.enabled
   - name: postgresql
