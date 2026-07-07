@@ -16,7 +16,7 @@ const ISSUES = 'https://github.com/JetBrains-Research/idegym/issues';
 const HEADLINE_DIAGRAM = `flowchart LR
     user(["<b>👤 You</b><br/>trainer · agent"]):::client
     orch{{"<b>🎛️ Orchestrator</b><br/>control plane"}}:::ctrl
-    pods[["<b>📦 Disposable</b><br/>environments"]]:::pod
+    pods[["<b>📦 Disposable<br/>environments</b>"]]:::pod
 
     user -->|"define · build · run · evaluate"| orch
     orch -->|"provision & forward"| pods
