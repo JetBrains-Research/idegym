@@ -594,6 +594,7 @@ image = (
         )
     )
 )
+```
 
 ---
 
@@ -621,7 +622,7 @@ PyCharm(
 **Notes:**
 - Emits `USER root` to install PyCharm and its dependencies, then switches back to `ctx.current_user`
 - Version format: `YYYY.N` or `YYYY.N.N` (e.g., `2026.1`, `2026.1.1`)
-- See [IdeGYM PyCharm Plugin](../plugins/pycharm/README.md) for the full reference
+- See [IdeGYM PyCharm Plugin](https://github.com/JetBrains-Research/idegym/blob/main/plugins/pycharm/README.md) for the full reference
 
 ---
 

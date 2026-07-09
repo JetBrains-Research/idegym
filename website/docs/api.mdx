@@ -1,0 +1,59 @@
+---
+title: API
+description: Interactive OpenAPI reference for the orchestrator and in-pod server.
+slug: /api
+sidebar_position: 4
+---
+
+import Link from '@docusaurus/Link';
+
+# API reference
+
+Interactive, always-in-sync OpenAPI documentation, rendered with
+[Redoc](https://github.com/Redocly/redoc) from schemas generated straight from the
+FastAPI apps.
+
+## Browse the APIs
+
+<div className="row">
+  <div className="col col--6" style={{marginBottom: '1rem'}}>
+    <div style={{padding: '1.5rem', border: '1px solid var(--ifm-toc-border-color)', borderRadius: '12px', height: '100%'}}>
+      <h3>🎛️ Orchestrator API</h3>
+      <p>The control-plane REST API: clients, server lifecycle, image builds,
+      forwarding, async operations, and snapshots.</p>
+      <Link className="button button--primary" to="/api/orchestrator">Open orchestrator API →</Link>
+    </div>
+  </div>
+  <div className="col col--6" style={{marginBottom: '1rem'}}>
+    <div style={{padding: '1.5rem', border: '1px solid var(--ifm-toc-border-color)', borderRadius: '12px', height: '100%'}}>
+      <h3>📦 Server API</h3>
+      <p>The in-pod server API: tools (bash, file create/edit/patch) and reward
+      endpoints (compilation, setup, test).</p>
+      <Link className="button button--secondary" to="/api/server">Open server API →</Link>
+    </div>
+  </div>
+</div>
+
+## How these are produced
+
+Both FastAPI apps expose `/openapi.json`. The committed schemas under
+`website/static/openapi/` are generated from the real router definitions by
+[`website/scripts/gen_openapi.py`](https://github.com/JetBrains-Research/idegym/blob/main/website/scripts/gen_openapi.py),
+so the rendered docs match the code. Regenerate them with the project's Python
+environment:
+
+```shell
+# from the repo root, with the project venv
+python website/scripts/gen_openapi.py website/static/openapi
+```
+
+> This is a **static** interactive schema — you can read every endpoint, model, and
+> example. To "try it out" against a live console, point a tool like `curl`, the
+> [Python client](/architecture/client), or the [MCP interface](/reference/mcp) at a
+> running orchestrator.
+
+## Beyond the schema
+
+- HTTP status codes & error semantics → [HTTP Error Codes](/reference/http_error_codes)
+- Agent-native tool access → [MCP Server](/reference/mcp)
+- The orchestrator component → [Architecture: Orchestrator](/architecture/orchestrator)

@@ -314,12 +314,12 @@ receive a preferred node affinity and toleration matching the configured key.
 ## Step 10: Pod Snapshots (GKE only, Optional)
 
 IdeGYM can checkpoint a running server pod and restore future pods from that snapshot, skipping cold-start work.
-See [Orchestrator → Pod Snapshots](../orchestrator/README.md#pod-snapshots-checkpointrestore) for the API surface
+See [Orchestrator → Pod Snapshots](https://github.com/JetBrains-Research/idegym/blob/main/orchestrator/README.md#pod-snapshots-checkpointrestore) for the API surface
 and how the snapshot/restore flow is modelled. This section covers what you need on the cluster side.
 
 The feature is built on [GKE pod snapshots](https://docs.cloud.google.com/kubernetes-engine/docs/concepts/pod-snapshots)
 and is therefore **GKE-only**. The snapshot-related resources rendered by the chart live under
-[`charts/idegym/templates/podsnapshot*.yaml`](../charts/idegym/templates) and are all gated on the
+[`charts/idegym/templates/podsnapshot*.yaml`](https://github.com/JetBrains-Research/idegym/tree/main/charts/idegym/templates) and are all gated on the
 `podsnapshot.gke.io/v1` API being available.
 
 ### Prerequisites
@@ -343,7 +343,7 @@ Set `podSnapshot.enabled=true` and point the chart at your bucket. The shape und
 `PodSnapshotStorageConfig` CRD spec verbatim, so all GKE-documented fields work without translation.
 
 Minimal example — overlay only what differs from the chart defaults in
-[`charts/idegym/values.yaml`](../charts/idegym/values.yaml):
+[`charts/idegym/values.yaml`](https://github.com/JetBrains-Research/idegym/blob/main/charts/idegym/values.yaml):
 
 ```yaml
 podSnapshot:

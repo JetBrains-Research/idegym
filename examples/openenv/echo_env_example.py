@@ -32,7 +32,7 @@ logger = get_logger(__name__)
 # See README.md for how to build and load it into Minikube.
 ECHO_ENV_IMAGE_TAG = os.environ["ECHO_ENV_IMAGE_TAG"]
 
-# IdeGYM orchestrator URL. For local deployment via Minikube (documentation/local_deployment.md),
+# IdeGYM orchestrator URL. For local deployment via Minikube (website/docs/reference/local_deployment.md),
 # the default is http://idegym.test which requires no authentication.
 ORCHESTRATOR_URL = os.getenv("IDEGYM_ORCHESTRATOR_URL", "http://idegym.test")
 
