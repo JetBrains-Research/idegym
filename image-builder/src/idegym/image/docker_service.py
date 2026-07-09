@@ -127,6 +127,7 @@ class DockerService:
                 temporary_dir=temporary_dir,
                 platforms=platforms,
                 rendered=rendered,
+                secret_build_args=secret_build_args,
             )
 
     @staticmethod
@@ -184,6 +185,7 @@ class DockerService:
         temporary_dir: Optional[str],
         platforms: Optional[list[str]],
         rendered: str,
+        secret_build_args: Optional[list[str]] = None,
     ) -> DockerImage:
         with NamedTemporaryFile(mode="w", prefix="Dockerfile.", dir=temporary_dir, delete=True) as dockerfile:
             dockerfile.write(rendered)
