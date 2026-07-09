@@ -9,7 +9,7 @@ from idegym.backend.utils.kubernetes_client import build_and_push_image_with_kan
 
 @dataclass(frozen=True)
 class KanikoBuildHandle(BuildHandle):
-    """Kaniko handle: `name` is the Kubernetes Job name, plus the namespace it lives in."""
+    """Kaniko handle: `name` is the Kubernetes Job name; `namespace` is the namespace it lives in."""
 
     namespace: str = "idegym"
 
