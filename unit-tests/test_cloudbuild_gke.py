@@ -15,10 +15,14 @@ from idegym.api.download import ArchiveDescriptor, Authorization, DownloadReques
 from idegym.api.image_build import ImageBuildSpec
 from idegym.api.status import Status
 from idegym.backend.utils.image_builder.cloudbuild_gke import (
+    AUTH_SECRET_ID,
+    AUTH_SECRET_PATH,
+    AUTH_SECRET_SRC,
     SKIPPED_PREFIX,
     CloudBuildGKEHandle,
     CloudBuildGKEImageBuilder,
     _docker_image_resource_name,
+    _inject_auth_secret,
     build_cloudbuild_config,
     build_context_tar,
     map_build_status,
@@ -27,6 +31,18 @@ from idegym.backend.utils.image_builder.cloudbuild_gke import (
 pytestmark = pytest.mark.unit
 
 _TAG = "europe-west1-docker.pkg.dev/proj/repo/image:v1"
+
+# Mirrors the RUN block from runtime.Dockerfile.jinja that consumes the auth token.
+_DOCKERFILE_WITH_AUTH = (
+    "FROM scratch\n"
+    "ARG IDEGYM_AUTH_TOKEN\n"
+    "ARG IDEGYM_AUTH_TYPE\n"
+    "RUN set -ex; \\\n"
+    "    download $IDEGYM_PROJECT_ARCHIVE_URL $IDEGYM_PROJECT_ARCHIVE_PATH \\\n"
+    "        --auth-type $IDEGYM_AUTH_TYPE \\\n"
+    "        --auth-token $IDEGYM_AUTH_TOKEN; \\\n"
+    "    extract $IDEGYM_PROJECT_ARCHIVE_PATH $IDEGYM_PROJECT_ROOT\n"
+)
 
 
 def _spec(**kwargs) -> ImageBuildSpec:
@@ -70,13 +86,32 @@ def test_config_includes_archive_and_auth_build_args():
     assert "IDEGYM_PROJECT_ARCHIVE_URL=https://example.com/proj.zip" in args
     assert "IDEGYM_PROJECT_ARCHIVE_PATH=proj.zip" in args
     assert "IDEGYM_AUTH_TYPE=Bearer" in args
-    assert "IDEGYM_AUTH_TOKEN=secret-token" in args
+
+
+def test_config_passes_auth_token_as_secret_not_build_arg():
+    args = build_cloudbuild_config(_TAG, _spec(request=_request()), "1.2.3")["steps"][0]["args"]
+    # the token value must never appear in the (build-viewer-readable) Build request
+    assert not any("secret-token" in a for a in args)
+    assert not any("IDEGYM_AUTH_TOKEN" in a for a in args)
+    secret_index = args.index("--secret")
+    assert args[secret_index + 1] == f"id={AUTH_SECRET_ID},src=./{AUTH_SECRET_SRC}"
 
 
 def test_config_omits_auth_args_without_request():
     args = build_cloudbuild_config(_TAG, _spec(), "1.2.3")["steps"][0]["args"]
     assert not any("IDEGYM_PROJECT_ARCHIVE_URL" in a for a in args)
-    assert not any("IDEGYM_AUTH_TOKEN" in a for a in args)
+    assert "--secret" not in args
+
+
+def test_config_omits_secret_when_token_absent():
+    # a request without credentials (Authorization forbids a type without a token)
+    request = DownloadRequest(
+        descriptor=ArchiveDescriptor(name="proj.zip", url="https://example.com/proj.zip"),
+        auth=Authorization(),
+    )
+    args = build_cloudbuild_config(_TAG, _spec(request=request), "1.2.3")["steps"][0]["args"]
+    assert "--secret" not in args
+    assert "IDEGYM_PROJECT_ARCHIVE_PATH=proj.zip" in args
 
 
 def test_config_includes_labels():
@@ -112,6 +147,47 @@ def test_context_tar_contains_dockerfile():
         assert names == ["Dockerfile"]
         content = tar.extractfile("Dockerfile").read().decode()
     assert content == "FROM scratch\nLABEL x=y\n"
+
+
+def test_context_tar_ships_auth_token_as_locked_down_file():
+    archive = build_context_tar("FROM scratch\n", auth_token="secret-token")
+    with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tar:
+        assert set(tar.getnames()) == {"Dockerfile", AUTH_SECRET_SRC, ".dockerignore"}
+        member = tar.getmember(AUTH_SECRET_SRC)
+        assert member.mode == 0o600
+        assert tar.extractfile(AUTH_SECRET_SRC).read().decode() == "secret-token"
+        # the secret file is excluded from the build context sent to the daemon
+        assert AUTH_SECRET_SRC in tar.extractfile(".dockerignore").read().decode()
+
+
+# ---------------------------------------------------------------------------
+# _inject_auth_secret
+# ---------------------------------------------------------------------------
+
+
+def test_inject_auth_secret_rewrites_run_to_use_mounted_secret():
+    result = _inject_auth_secret(_DOCKERFILE_WITH_AUTH)
+
+    # the build-arg reference is gone, replaced by reading the mounted secret file
+    assert "$IDEGYM_AUTH_TOKEN" not in result
+    assert f'--auth-token "$(cat {AUTH_SECRET_PATH})"' in result
+    # exactly the RUN that reads the token gains the secret mount
+    assert f"RUN --mount=type=secret,id={AUTH_SECRET_ID} set -ex;" in result
+    assert result.count("--mount=type=secret") == 1
+    # unrelated args are untouched
+    assert "--auth-type $IDEGYM_AUTH_TYPE" in result
+
+
+def test_inject_auth_secret_handles_braced_reference():
+    dockerfile = "FROM scratch\nRUN download --auth-token ${IDEGYM_AUTH_TOKEN}\n"
+    result = _inject_auth_secret(dockerfile)
+    assert "${IDEGYM_AUTH_TOKEN}" not in result
+    assert f"RUN --mount=type=secret,id={AUTH_SECRET_ID} download" in result
+
+
+def test_inject_auth_secret_noop_without_token_reference():
+    dockerfile = "FROM scratch\nRUN echo hi\n"
+    assert _inject_auth_secret(dockerfile) == dockerfile
 
 
 # ---------------------------------------------------------------------------
@@ -201,6 +277,32 @@ async def test_submit_build_uploads_context_and_returns_handle():
     _, kwargs = build_client.create_build.call_args
     assert kwargs["parent"] == "projects/proj/locations/europe-west1"
     assert kwargs["build"].source.storage_source.bucket == "bucket"
+
+
+async def test_submit_build_uploads_secret_and_transformed_dockerfile():
+    build_client = _fake_build_client()
+    storage_client, bucket, blob = _fake_storage_client()
+    builder = CloudBuildGKEImageBuilder(
+        project_id="proj",
+        region="europe-west1",
+        staging_bucket="bucket",
+        build_client=build_client,
+        storage_client=storage_client,
+    )
+
+    spec = _spec(dockerfile_content=_DOCKERFILE_WITH_AUTH, request=_request())
+    await builder.submit_build(_TAG, spec, namespace="idegym", service_version="1.2.3")
+
+    (uploaded,), _ = blob.upload_from_string.call_args
+    with tarfile.open(fileobj=io.BytesIO(uploaded), mode="r:gz") as tar:
+        assert set(tar.getnames()) == {"Dockerfile", AUTH_SECRET_SRC, ".dockerignore"}
+        dockerfile = tar.extractfile("Dockerfile").read().decode()
+        assert tar.extractfile(AUTH_SECRET_SRC).read().decode() == "secret-token"
+    # the uploaded Dockerfile reads the mounted secret, not the build arg
+    assert "$IDEGYM_AUTH_TOKEN" not in dockerfile
+    assert f"--mount=type=secret,id={AUTH_SECRET_ID}" in dockerfile
+    # and the token value is nowhere in the submitted build args
+    assert not any("secret-token" in a for a in build_client.create_build.call_args.kwargs["build"].steps[0].args)
 
 
 def test_monitor_timeout_exceeds_build_timeout():

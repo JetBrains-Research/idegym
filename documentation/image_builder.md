@@ -765,10 +765,19 @@ Implementations live in `idegym.backend.utils.image_builder` (`base.py`, `kaniko
 `cloudbuild_gke` builds images with [GCP Cloud Build](https://cloud.google.com/build) instead of an
 in-cluster Kaniko Job. It uses BuildKit (`DOCKER_BUILDKIT=1`) with a generated `docker build` step —
 equivalent to a `cloudbuild.yaml` — so Dockerfile heredocs and `--mount=type=secret` work. The build
-context (just the rendered `Dockerfile`, mirroring the Kaniko ConfigMap) is uploaded to a GCS staging
+context (the rendered `Dockerfile`, mirroring the Kaniko ConfigMap) is uploaded to a GCS staging
 bucket; project sources are still fetched at build time via the same archive build args Kaniko uses.
 It submits asynchronously and polls the build, via the `google-cloud-build` Python client (no `gcloud`
 CLI dependency in the orchestrator image).
+
+**Auth token handling.** Unlike Kaniko (which passes `IDEGYM_AUTH_TOKEN` as a `--build-arg`), the
+Cloud Build backend passes the token as a **BuildKit build secret**: `build.steps[].args` are stored on
+the Build resource and readable by anyone with build-viewer access, so a `--build-arg` there would leak
+the credential. Instead the backend ships the token as a separate file in the (access-controlled) GCS
+build context and rewrites the token-consuming `RUN` to `--mount=type=secret,id=idegym_auth_token`,
+reading it from `/run/secrets/idegym_auth_token`. The token therefore never appears in the Build
+request, its logs, or the image history. This transform is applied only to the Cloud Build context; the
+shared rendered Dockerfile — and the Kaniko path, which cannot parse `RUN --mount` — is untouched.
 
 **Configuration** (all under `orchestrator.build.cloudbuild_gke`):
 

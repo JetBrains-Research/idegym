@@ -16,6 +16,14 @@ T = TypeVar("T")
 DOCKER_CLOUD_BUILDER = "gcr.io/cloud-builders/docker"
 SKIPPED_PREFIX = "skipped:"
 
+# The auth token is passed as a BuildKit build secret rather than a `--build-arg`, so it
+# never lands in the Cloud Build request (visible to anyone with build-viewer access) nor in
+# the image history. `AUTH_SECRET_SRC` is the file shipped in the (access-controlled) GCS
+# build context; `AUTH_SECRET_PATH` is where BuildKit mounts it inside the RUN step.
+AUTH_SECRET_ID = "idegym_auth_token"
+AUTH_SECRET_SRC = "idegym_auth_token"
+AUTH_SECRET_PATH = f"/run/secrets/{AUTH_SECRET_ID}"
+
 # Cloud Build statuses that mean the build is over and did not succeed.
 _TERMINAL_FAILURE_STATUSES = frozenset({"FAILURE", "INTERNAL_ERROR", "TIMEOUT", "CANCELLED", "EXPIRED"})
 
@@ -39,9 +47,11 @@ def build_cloudbuild_config(
 
     Uses a single ``docker build`` step with BuildKit enabled so Dockerfile heredocs and
     ``--mount=type=secret`` work (``--tag`` on ``gcloud builds submit`` does not support
-    BuildKit). The same archive URL / auth build args Kaniko receives are forwarded here, so
-    the rendered Dockerfile behaves identically across backends. ``CLOUD_LOGGING_ONLY`` avoids
-    a non-zero exit when the default GCS logs bucket is unreadable (VPC-SC / missing
+    BuildKit). The same archive URL / auth args Kaniko receives are forwarded here, so the
+    rendered Dockerfile behaves identically across backends -- except the auth token, which
+    is passed as a BuildKit secret (see :func:`_inject_auth_secret`) instead of a build arg so
+    it stays out of the Build resource and image history. ``CLOUD_LOGGING_ONLY`` avoids a
+    non-zero exit when the default GCS logs bucket is unreadable (VPC-SC / missing
     ``storage.objects.get``).
     """
     docker_args: list[str] = ["build", "--build-arg", f"IDEGYM_VERSION={service_version}"]
@@ -56,7 +66,7 @@ def build_cloudbuild_config(
         if spec.request.auth.type is not None:
             docker_args += ["--build-arg", f"IDEGYM_AUTH_TYPE={spec.request.auth.type}"]
         if spec.request.auth.token is not None:
-            docker_args += ["--build-arg", f"IDEGYM_AUTH_TOKEN={spec.request.auth.token}"]
+            docker_args += ["--secret", f"id={AUTH_SECRET_ID},src=./{AUTH_SECRET_SRC}"]
 
     for key, value in spec.labels.items():
         docker_args += ["--label", f"{key}={value}"]
@@ -83,16 +93,54 @@ def build_cloudbuild_config(
     }
 
 
-def build_context_tar(dockerfile_content: str) -> bytes:
+def build_context_tar(dockerfile_content: str, *, auth_token: Optional[str] = None) -> bytes:
     """Pack the build context as a gzipped tar. Mirrors the Kaniko ConfigMap, which ships only
-    the Dockerfile; the project sources are fetched at build time via the archive build args."""
+    the Dockerfile; the project sources are fetched at build time via the archive build args.
+
+    When ``auth_token`` is given it is added as a separate file consumed via a BuildKit secret
+    mount (never ``COPY``-ed), so the token stays out of the image while still reaching the
+    ``download`` step."""
     buffer = io.BytesIO()
-    data = dockerfile_content.encode("utf-8")
     with tarfile.open(fileobj=buffer, mode="w:gz") as tar:
-        info = tarfile.TarInfo(name="Dockerfile")
-        info.size = len(data)
-        tar.addfile(info, io.BytesIO(data))
+        _add_tar_file(tar, "Dockerfile", dockerfile_content.encode("utf-8"))
+        if auth_token is not None:
+            _add_tar_file(tar, AUTH_SECRET_SRC, auth_token.encode("utf-8"), mode=0o600)
+            # BuildKit reads the secret from the local FS (`src=`), so ignoring it in the build
+            # context keeps it out of the image even if custom commands add a stray `COPY .`.
+            _add_tar_file(tar, ".dockerignore", f"{AUTH_SECRET_SRC}\n".encode("utf-8"))
     return buffer.getvalue()
+
+
+def _add_tar_file(tar: tarfile.TarFile, name: str, data: bytes, mode: int = 0o644) -> None:
+    info = tarfile.TarInfo(name=name)
+    info.size = len(data)
+    info.mode = mode
+    tar.addfile(info, io.BytesIO(data))
+
+
+def _inject_auth_secret(dockerfile_content: str) -> str:
+    """Rewrite the rendered Dockerfile so the auth token is read from a BuildKit secret mount
+    instead of the ``IDEGYM_AUTH_TOKEN`` build arg.
+
+    This keeps the token out of the Cloud Build request/logs and the image history, while
+    leaving the shared Kaniko path -- which cannot parse ``RUN --mount`` -- untouched, since
+    only the Cloud Build backend applies this transform to the tar it uploads. The token
+    reference is replaced with ``$(cat <secret path>)`` and the enclosing ``RUN`` gains the
+    secret mount. No-op when the token is not referenced (e.g. a template that omits auth)."""
+    read_secret = f'"$(cat {AUTH_SECRET_PATH})"'
+    rewritten = dockerfile_content.replace("${IDEGYM_AUTH_TOKEN}", read_secret).replace(
+        "$IDEGYM_AUTH_TOKEN", read_secret
+    )
+    if rewritten == dockerfile_content:
+        return dockerfile_content
+
+    lines = rewritten.splitlines(keepends=True)
+    secret_line = next(i for i, line in enumerate(lines) if AUTH_SECRET_PATH in line)
+    run_start = next((i for i in range(secret_line, -1, -1) if lines[i].startswith("RUN ")), None)
+    if run_start is None:
+        raise ValueError("IDEGYM_AUTH_TOKEN is referenced outside a RUN instruction; cannot mount it as a secret")
+    lines[run_start] = f"RUN --mount=type=secret,id={AUTH_SECRET_ID} " + lines[run_start][len("RUN ") :]
+    return "".join(lines)
 
 
 def map_build_status(status_name: str) -> Status:
@@ -235,7 +283,13 @@ class CloudBuildGKEImageBuilder(ImageBuilder):
         return await client.create_build(parent=parent, build=build)
 
     async def _upload_context(self, tag: str, spec: ImageBuildSpec) -> str:
-        archive = build_context_tar(spec.dockerfile_content)
+        dockerfile = spec.dockerfile_content
+        auth_token: Optional[str] = None
+        if spec.request is not None and spec.request.auth.token is not None:
+            dockerfile = _inject_auth_secret(dockerfile)
+            auth_token = spec.request.auth.token
+
+        archive = build_context_tar(dockerfile, auth_token=auth_token)
         object_name = f"idegym-builds/{spec.image_version()}.tar.gz"
 
         def _upload() -> None:
