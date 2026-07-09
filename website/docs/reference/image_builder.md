@@ -813,6 +813,25 @@ IDEGYM_CLOUDBUILD_STAGING_BUCKET=my-idegym-build-context
 DOCKER_REGISTRY=europe-west1-docker.pkg.dev/my-gcp-project/idegym
 ```
 
+**Smoke test.** The Kaniko backend is covered by the kind-based e2e suite, but Cloud Build needs a real
+GCP project and so cannot run there. `scripts/cloudbuild_gke_smoke_test.py` exercises the backend
+end-to-end against live GCP: it renders each image in a YAML file exactly as the orchestrator does,
+submits a Cloud Build per image via the same `build_image_builder` factory, polls until each finishes,
+and then confirms the pushed image resolves in Artifact Registry. Authenticate with
+`gcloud auth application-default login` (as a principal holding the IAM roles above), then:
+
+```shell
+uv run python scripts/cloudbuild_gke_smoke_test.py \
+    --images scripts/cloudbuild_gke_smoke_images.example.yaml \
+    --project-id my-gcp-project --region europe-west1 \
+    --staging-bucket my-idegym-build-context \
+    --registry europe-west1-docker.pkg.dev/my-gcp-project/idegym
+```
+
+The example YAML builds two images without a project download; add a `project` plugin with a URL and
+token to also exercise the auth-token BuildKit secret mount. The script exits non-zero if any build
+fails or its image is not found afterwards.
+
 ---
 
 ## Writing Custom Plugins
