@@ -231,6 +231,8 @@ async def _task_start_server(
                 server_kind=request.server_kind,
                 service_port=request.service_port,
                 run_as_root=request.run_as_root,
+                snapshot_id=request.snapshot.id if request.snapshot else None,
+                max_restarts=request.max_restarts,
             )
 
             server_id = server.id
@@ -313,7 +315,10 @@ async def _task_start_server(
                 },
             )
 
-            service_account_name = pod_snapshot.service_account_name if pod_snapshot.enabled else None
+            # A caller-supplied ServiceAccount takes precedence over the snapshot one here.
+            service_account_name = request.service_account_name or (
+                pod_snapshot.service_account_name if pod_snapshot.enabled else None
+            )
 
             resources = (
                 request.resources.model_dump(
@@ -338,8 +343,13 @@ async def _task_start_server(
                 node_pool_preference_weight=node_pool.preference_weight,
                 resources=resources,
                 environment_variables=environment_variables,
+                volumes=[volume.model_dump(by_alias=True, exclude_none=True) for volume in request.volumes],
+                volume_mounts=[mount.model_dump(by_alias=True, exclude_none=True) for mount in request.volume_mounts],
+                env_from=[source.model_dump(by_alias=True, exclude_none=True) for source in request.env_from],
+                pod_overrides=request.pod_overrides.model_dump(by_alias=True, exclude_none=True),
                 server_kind=request.server_kind,
-                snapshot_id=request.snapshot_id,
+                snapshot_id=request.snapshot.id if request.snapshot else None,
+                snapshot_tag=request.snapshot.tag if request.snapshot else None,
             )
 
             await wait_for_pods_ready(

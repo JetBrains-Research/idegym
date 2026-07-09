@@ -296,3 +296,8 @@ charts/*/charts/
 /test-results.xml
 examples/*.json
 examples/**/*.patch
+
+### Docusaurus website (Node toolchain, isolated under website/)
+website/node_modules/
+website/build/
+website/.docusaurus/

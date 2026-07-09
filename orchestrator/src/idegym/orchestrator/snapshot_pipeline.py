@@ -81,6 +81,8 @@ async def run_snapshot_pipeline_job(
 
         resources = request.resources.model_dump(by_alias=True, exclude_none=True) if request.resources else None
 
+        # Snapshot preparation always runs under the snapshot ServiceAccount (which carries the
+        # snapshot permissions); a caller-supplied service_account_name is intentionally ignored here.
         await deploy_server(
             image_tag=request.image_tag,
             server_name=server_generated_name,
@@ -95,6 +97,10 @@ async def run_snapshot_pipeline_job(
             node_pool_preference_weight=node_pool.preference_weight,
             resources=resources,
             environment_variables=(),
+            volumes=[volume.model_dump(by_alias=True, exclude_none=True) for volume in request.volumes],
+            volume_mounts=[mount.model_dump(by_alias=True, exclude_none=True) for mount in request.volume_mounts],
+            env_from=[source.model_dump(by_alias=True, exclude_none=True) for source in request.env_from],
+            pod_overrides=request.pod_overrides.model_dump(by_alias=True, exclude_none=True),
             server_kind=request.server_kind,
         )
 
@@ -107,7 +113,7 @@ async def run_snapshot_pipeline_job(
         await update_server_status(server_id=server_id, availability_status=AvailabilityStatus.ALIVE)
 
         snapshot_service = PodSnapshotService(config=pod_snapshot, namespace=request.namespace)
-        await snapshot_service.snapshot_server(server_name=server_generated_name)
+        pod_snapshot_name = await snapshot_service.snapshot_server(server_name=server_generated_name)
 
         await _cleanup_server(
             server_id=server_id, server_generated_name=server_generated_name, namespace=request.namespace
@@ -123,6 +129,7 @@ async def run_snapshot_pipeline_job(
             runtime_class_name=request.runtime_class_name,
             run_as_root=request.run_as_root,
             server_kind=str(request.server_kind),
+            pod_snapshot_name=pod_snapshot_name,
         )
 
         await update_snapshot_job_status(

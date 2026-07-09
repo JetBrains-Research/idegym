@@ -207,6 +207,10 @@ class MCPConfig(BaseModel):
 
 class WatcherConfig(BaseModel):
     cleanup_interval: Duration = Field(default=Duration(seconds=60))
+    crash_detection_enabled: bool = Field(
+        description="Detect crashed/OOMKilled/evicted server pods, mark them CRASHED, and tear them down",
+        default=True,
+    )
     inactive_timeout: Duration = Field(
         description="Inactivity timeout after which idle servers/clients are cleaned up",
         default=Duration(minutes=10),

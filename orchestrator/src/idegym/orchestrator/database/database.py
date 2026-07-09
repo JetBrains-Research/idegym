@@ -439,6 +439,7 @@ async def save_idegym_server(
     run_as_root: bool = False,
     server_kind: str = "idegym",
     service_port: int = 80,
+    max_restarts: int = 0,
 ) -> IdeGYMServer:
     # Insert first to obtain an auto-increment ID, then derive generated_name from it.
     server = IdeGYMServer(
@@ -453,6 +454,7 @@ async def save_idegym_server(
         run_as_root=run_as_root,
         server_kind=server_kind,
         service_port=service_port,
+        max_restarts=max_restarts,
     )
     db.add(server)
     await db.flush()  # assigns ID without committing
@@ -464,7 +466,10 @@ async def save_idegym_server(
 
 
 async def update_idegym_server_heartbeat(
-    db: AsyncSession, server_id: int, availability: str = AvailabilityStatus.ALIVE
+    db: AsyncSession,
+    server_id: int,
+    availability: str = AvailabilityStatus.ALIVE,
+    details: Optional[str] = None,
 ) -> Optional[IdeGYMServer]:
     server = await get_idegym_server(db, server_id)
     if not server:
@@ -475,6 +480,8 @@ async def update_idegym_server_heartbeat(
 
     server.last_heartbeat_time = current_time_millis()
     server.availability = availability
+    if details is not None:
+        server.details = details
 
     # Release the server's resource quota when it transitions to a terminal non-FINISHED state.
     if availability in {
@@ -715,6 +722,8 @@ async def check_resources_and_save_server(
     run_as_root: bool = False,
     server_kind: str = "idegym",
     service_port: int = 80,
+    snapshot_id: Optional[str] = None,
+    max_restarts: int = 0,
 ) -> Optional[IdeGYMServer]:
     """
     Atomically check resource limits and create a new server record.
@@ -767,11 +776,14 @@ async def check_resources_and_save_server(
             run_as_root=run_as_root,
             server_kind=server_kind,
             service_port=service_port,
+            max_restarts=max_restarts,
         )
         db.add(server)
         await db.flush()  # assigns ID without committing
 
         server.generated_name = f"{server_name}-{server.id}"
+        # Mirror the pod's idegym.jetbrains.com/snapshot-id label: the restored-from id, or own name when fresh.
+        server.snapshot_id = snapshot_id or server.generated_name
 
         # Transaction commits on context exit; rolls back on exception.
     logger.info(
@@ -838,9 +850,11 @@ async def save_snapshot(
     runtime_class_name: Optional[str],
     run_as_root: bool,
     server_kind: str,
+    pod_snapshot_name: Optional[str] = None,
 ) -> SnapshotRecord:
     record = SnapshotRecord(
         snapshot_name=snapshot_name,
+        pod_snapshot_name=pod_snapshot_name,
         request_hash=request_hash,
         namespace=namespace,
         image_tag=image_tag,
@@ -917,10 +931,10 @@ async def get_snapshot_job(db: AsyncSession, job_id: str) -> Optional[SnapshotJo
 
 async def get_snapshot_job_with_name(
     db: AsyncSession, job_id: str
-) -> Optional[tuple[SnapshotJobRecord, Optional[str]]]:
-    """Return a job record along with the snapshot_name from the linked snapshots row (if any)."""
+) -> Optional[tuple[SnapshotJobRecord, Optional[str], Optional[str]]]:
+    """Return a job record with the snapshot_name and pod_snapshot_name from the linked row (if any)."""
     query = (
-        select(SnapshotJobRecord, SnapshotRecord.snapshot_name)
+        select(SnapshotJobRecord, SnapshotRecord.snapshot_name, SnapshotRecord.pod_snapshot_name)
         .outerjoin(SnapshotRecord, SnapshotJobRecord.snapshot_id == SnapshotRecord.id)
         .filter(SnapshotJobRecord.job_id == job_id)
     )
@@ -928,8 +942,8 @@ async def get_snapshot_job_with_name(
     row = result.one_or_none()
     if row is None:
         return None
-    job, snapshot_name = row
-    return job, snapshot_name
+    job, snapshot_name, pod_snapshot_name = row
+    return job, snapshot_name, pod_snapshot_name
 
 
 async def save_snapshot_prepare_request(
@@ -999,12 +1013,13 @@ async def get_snapshot_prepare_request(db: AsyncSession, request_id: UUID) -> Op
 
 async def get_snapshot_prepare_request_with_results(
     db: AsyncSession, request_id: UUID
-) -> Optional[tuple[SnapshotPrepareRequestRecord, list[tuple[str, str, Optional[str], Optional[str]]]]]:
+) -> Optional[tuple[SnapshotPrepareRequestRecord, list[tuple[str, str, Optional[str], Optional[str], Optional[str]]]]]:
     """
     Return the prepare request record along with per-job results for all jobs in the batch.
 
-    Each job result is a tuple of (request_hash, status, snapshot_name_or_none, details_or_none).
-    snapshot_name is populated only for successful jobs.
+    Each job result is a tuple of
+    (request_hash, status, snapshot_name_or_none, pod_snapshot_name_or_none, details_or_none).
+    snapshot_name and pod_snapshot_name are populated only for successful jobs.
     """
     prepare = await get_snapshot_prepare_request(db, request_id)
     if prepare is None:
@@ -1015,13 +1030,14 @@ async def get_snapshot_prepare_request_with_results(
             SnapshotJobRecord.request_hash,
             SnapshotJobRecord.status,
             SnapshotRecord.snapshot_name,
+            SnapshotRecord.pod_snapshot_name,
             SnapshotJobRecord.details,
         )
         .outerjoin(SnapshotRecord, SnapshotJobRecord.snapshot_id == SnapshotRecord.id)
         .filter(SnapshotJobRecord.prepare_request_id == request_id)
     )
     result = await db.execute(query)
-    job_results = [(row[0], row[1], row[2], row[3]) for row in result.all()]
+    job_results = [(row[0], row[1], row[2], row[3], row[4]) for row in result.all()]
     return prepare, job_results
 
 

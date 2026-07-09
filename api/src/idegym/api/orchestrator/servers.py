@@ -2,6 +2,12 @@ from enum import StrEnum
 from typing import Optional
 from uuid import UUID
 
+from idegym.api.pod_spec import (
+    KubernetesEnvFromSource,
+    KubernetesPodOverrides,
+    KubernetesVolume,
+    KubernetesVolumeMount,
+)
 from idegym.api.resources import KubernetesResources
 from idegym.api.type import KubernetesNodeSelector, KubernetesObjectName, OCIImageName
 from pydantic import BaseModel, Field
@@ -16,6 +22,26 @@ class ServerReuseStrategy(StrEnum):
 class ServerKind(StrEnum):
     IDEGYM = "idegym"
     OPENENV = "openenv"
+
+
+class SnapshotRef(BaseModel):
+    """GKE-only reference to a pod snapshot to restore a server from."""
+
+    id: str = Field(
+        description=(
+            "ID of the server whose snapshot group to restore from. GKE restores the latest "
+            "snapshot in the group unless a specific tag is given."
+        ),
+    )
+    tag: Optional[str] = Field(
+        default=None,
+        description=(
+            "GKE PodSnapshot resource name of a specific snapshot to restore (the snapshot_tag "
+            "reported when the snapshot was created), passed through as the "
+            "'podsnapshot.gke.io/ps-name' pod annotation. Leave empty to restore the latest "
+            "snapshot in the group."
+        ),
+    )
 
 
 class StartServerRequest(BaseModel):
@@ -65,6 +91,41 @@ class StartServerRequest(BaseModel):
         description="Kubernetes node selector labels for scheduling the server pod",
         examples=[{"kubernetes.io/os": "linux"}],
     )
+    volumes: list[KubernetesVolume] = Field(
+        default_factory=list,
+        description="Pod-level volumes (native Kubernetes shape), mounted into the server container via 'volume_mounts'",
+        examples=[[{"name": "agent-creds", "secret": {"secretName": "agent-creds"}}]],
+    )
+    volume_mounts: list[KubernetesVolumeMount] = Field(
+        default_factory=list,
+        description="Volume mounts added to the server container (native Kubernetes shape)",
+        examples=[[{"name": "agent-creds", "mountPath": "/etc/creds", "readOnly": True}]],
+    )
+    env_from: list[KubernetesEnvFromSource] = Field(
+        default_factory=list,
+        description="envFrom sources (secretRef/configMapRef) imported into the server container as env vars",
+        examples=[[{"secretRef": {"name": "agent-creds"}}]],
+    )
+    service_account_name: Optional[str] = Field(
+        default=None,
+        description=(
+            "ServiceAccount for the server pod. Ignored during snapshot preparation, where the "
+            "configured snapshot ServiceAccount takes precedence."
+        ),
+        examples=["agent-runner"],
+    )
+    pod_overrides: KubernetesPodOverrides = Field(
+        default_factory=KubernetesPodOverrides,
+        description=(
+            "Partial V1PodSpec deep-merged into the generated pod spec. Escape hatch for pod-level "
+            "fields without a dedicated option, e.g. tolerations, hostAliases, dnsConfig, or pod-level "
+            "securityContext. Applied last, so for any overlapping key it takes precedence over the "
+            "dedicated fields above (scalars overridden, list fields concatenated). Two invariants are "
+            "enforced: it may not set serviceAccountName (use service_account_name), and it may add "
+            "sidecar containers but not replace the managed 'server' container."
+        ),
+        examples=[{"tolerations": [{"key": "dedicated", "operator": "Exists", "effect": "NoSchedule"}]}],
+    )
     server_start_wait_timeout_in_seconds: int = Field(
         default=60,
         description="How long to wait in seconds for the server pod to become ready",
@@ -82,14 +143,23 @@ class StartServerRequest(BaseModel):
         default=ServerKind.IDEGYM,
         description='Server type: "idegym" or "openenv"',
     )
-    snapshot_id: Optional[str] = Field(
+    snapshot: Optional[SnapshotRef] = Field(
         default=None,
         description=(
-            "GKE ONLY: Enable pod-snapshotting [Look at the README]."
-            "This field is used to restore a server from a snapshot."
-            "The value of this field is the ID of the server whose snapshot you want to reuse."
-            "Leave it empty to start a new server."
+            "GKE ONLY: restore the server from a pod snapshot [Look at the README]. Provide the "
+            "snapshot group id, and optionally a specific snapshot tag. Leave empty to start a "
+            "fresh server."
         ),
+    )
+    max_restarts: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Pod restarts tolerated before the server is marked CRASHED and torn down by the watcher. "
+            "0 (default) gives up on the first crash, which surfaces the failure reason to the client "
+            "instead of looping restarts. Increase to allow transient crashes to self-heal."
+        ),
+        examples=[0, 3],
     )
 
 

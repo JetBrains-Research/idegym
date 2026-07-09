@@ -1,3 +1,4 @@
+import json
 from asyncio import CancelledError, gather, sleep, timeout
 from contextlib import asynccontextmanager
 from random import getrandbits
@@ -9,6 +10,8 @@ from idegym.api.exceptions import ResourceDeletionFailedException
 from idegym.api.orchestrator.servers import ServerKind
 from idegym.api.paths import API_BASE_PATH, ActuatorPath, OpenenvPath
 from idegym.api.status import Status
+from idegym.api.type import ConditionStatus
+from idegym.utils.dict import deep_merge
 from idegym.utils.functools import cached_async_result
 from idegym.utils.logging import get_logger
 from kubernetes_asyncio.client import (
@@ -45,6 +48,7 @@ from kubernetes_asyncio.client import (
     V1ObjectFieldSelector,
     V1ObjectMeta,
     V1OwnerReference,
+    V1Pod,
     V1PodDisruptionBudget,
     V1PodDisruptionBudgetList,
     V1PodDisruptionBudgetSpec,
@@ -200,6 +204,22 @@ def to_env_var(dictionary: dict[str, Any]) -> V1EnvVar:
     )
 
 
+def deserialize_k8s(api_client: ApiClient, data: Any, klass: str) -> Any:
+    """Deserialize a native (camelCase) Kubernetes-shaped dict/list into client model(s).
+
+    ``klass`` is a kubernetes_asyncio model name or container expression, for example
+    ``"V1PodSpec"`` or ``"list[V1Volume]"``. The client's deserializer maps camelCase keys to
+    model attributes via each model's ``attribute_map`` and silently ignores unknown keys.
+    """
+
+    class _Response:
+        # ApiClient.deserialize reads the payload from a response-like object's ``.data``.
+        def __init__(self, payload: str) -> None:
+            self.data = payload
+
+    return api_client.deserialize(_Response(json.dumps(data)), klass)
+
+
 async def load_kubernetes_config():
     try:
         load_incluster_config()
@@ -235,8 +255,13 @@ async def deploy_server(
     node_pool_preference_weight: int = 100,
     resources: Optional[Union[V1ResourceRequirements, dict[str, Any]]] = None,
     environment_variables: Iterable[Union[V1EnvVar, dict[str, Any]]] = (),
+    volumes: Optional[Iterable[dict[str, Any]]] = None,
+    volume_mounts: Optional[Iterable[dict[str, Any]]] = None,
+    env_from: Optional[Iterable[dict[str, Any]]] = None,
+    pod_overrides: Optional[dict[str, Any]] = None,
     server_kind: ServerKind = ServerKind.IDEGYM,
     snapshot_id: Optional[str] = None,
+    snapshot_tag: Optional[str] = None,
 ):
     """
     Create a Kubernetes Deployment, Service, and PodDisruptionBudget for a server.
@@ -245,6 +270,9 @@ async def deploy_server(
     they are garbage-collected when the Deployment is deleted.
     """
     logger.debug(f"Deploying '{server_name}' in namespace '{namespace}' with runtime class '{runtime_class_name}'.")
+
+    # Reuse the cached API client (no extra aiohttp session) for camelCase deserialization.
+    api_client = (await create_clients())[0].api_client
 
     uid = 0 if run_as_root else 1000
     security_context = V1SecurityContext(
@@ -285,6 +313,10 @@ async def deploy_server(
         security_context=security_context,
         resources=resources,
         env=env,
+        env_from=deserialize_k8s(api_client, list(env_from), "list[V1EnvFromSource]") if env_from else None,
+        volume_mounts=(
+            deserialize_k8s(api_client, list(volume_mounts), "list[V1VolumeMount]") if volume_mounts else None
+        ),
     )
 
     image_pull_secret = V1LocalObjectReference(name="regcred")
@@ -292,6 +324,9 @@ async def deploy_server(
         "cluster-autoscaler.kubernetes.io/safe-to-evict": "false",
         **prometheus_annotations,
     }
+    if snapshot_tag:
+        # Restore a specific GKE PodSnapshot instead of the latest one in the group.
+        annotations["podsnapshot.gke.io/ps-name"] = snapshot_tag
     match_labels = {
         "app": server_name,
         "app.kubernetes.io/component": "sandbox",
@@ -323,6 +358,40 @@ async def deploy_server(
         else None
     )
 
+    pod_spec = V1PodSpec(
+        containers=[container],
+        image_pull_secrets=[image_pull_secret],
+        service_account_name=service_account_name,
+        runtime_class_name=runtime_class_name,
+        node_selector=node_selector,
+        tolerations=[toleration] if toleration else None,
+        affinity=affinity,
+        volumes=deserialize_k8s(api_client, list(volumes), "list[V1Volume]") if volumes else None,
+    )
+
+    if pod_overrides:
+        # Layer arbitrary pod-level fields on top of the managed spec: serialize to a camelCase
+        # dict, deep-merge, and deserialize back, concatenating list fields (tolerations, volumes,
+        # ...) instead of replacing them. Before merging, enforce the invariants the API promises:
+        #   - drop null values so callers cannot delete a managed field by setting it to null;
+        #   - the ServiceAccount is owned by `service_account_name` (so the snapshot ServiceAccount
+        #     stays authoritative during snapshot preparation), never by pod_overrides;
+        #   - the managed "server" container may be augmented with sidecars but never replaced.
+        overrides = {key: value for key, value in pod_overrides.items() if value is not None}
+
+        if overrides.keys() & {"serviceAccountName", "service_account_name"}:
+            raise ValueError("pod_overrides must not set serviceAccountName; use service_account_name instead")
+
+        sidecars = overrides.get("containers")
+        if sidecars is not None:
+            if not isinstance(sidecars, list):
+                raise ValueError("pod_overrides.containers must be a list of sidecar containers")
+            if any(isinstance(container, dict) and container.get("name") == "server" for container in sidecars):
+                raise ValueError("pod_overrides.containers must not redefine the managed 'server' container")
+
+        merged_spec = deep_merge(api_client.sanitize_for_serialization(pod_spec), overrides, concat_lists=True)
+        pod_spec = deserialize_k8s(api_client, merged_spec, "V1PodSpec")
+
     deployment = V1Deployment(
         api_version="apps/v1",
         kind="Deployment",
@@ -340,15 +409,7 @@ async def deploy_server(
                     annotations=annotations,
                     labels=labels,
                 ),
-                spec=V1PodSpec(
-                    containers=[container],
-                    image_pull_secrets=[image_pull_secret],
-                    service_account_name=service_account_name,
-                    runtime_class_name=runtime_class_name,
-                    node_selector=node_selector,
-                    tolerations=[toleration] if toleration else None,
-                    affinity=affinity,
-                ),
+                spec=pod_spec,
             ),
         ),
     )
@@ -489,7 +550,7 @@ async def pods_are_ready(label_selector: str, namespace: str) -> tuple[bool, boo
                 for condition in pod.status.conditions:
                     if (
                         condition.type == "PodScheduled"
-                        and condition.status == "False"
+                        and condition.status == ConditionStatus.FALSE
                         and condition.reason == "Unschedulable"
                     ):
                         has_unschedulable_pods = True
@@ -514,6 +575,13 @@ async def pods_are_ready(label_selector: str, namespace: str) -> tuple[bool, boo
     )
 
     return pods_ready, has_image_pull_error, has_terminating_pods, has_unschedulable_pods
+
+
+async def list_pods(label_selector: str, namespace: str) -> list[V1Pod]:
+    """Return all pods in a namespace matching the label selector."""
+
+    async with async_kube_api() as (_, _, core, _, _):
+        return (await core.list_namespaced_pod(namespace=namespace, label_selector=label_selector)).items
 
 
 async def are_any_pods_alive(label_selector: str, namespace: str) -> bool:

@@ -8,7 +8,7 @@ from jinja2 import BaseLoader, Environment
 from pydantic import field_validator
 
 _PYCHARM_VERSION_RE = re.compile(r"^\d{4}\.\d+(\.\d+)?$")
-_MCP_STEROID_VERSION_RE = re.compile(r"^\d+\.\d+\.\d+(-[a-f0-9]+)?$")
+_MCP_STEROID_VERSION_RE = re.compile(r"^\d+\.\d+(\.\d+)?(-[a-f0-9]+)?$")
 
 _MCP_PORT = 64342
 _BRIDGE_PORT = 64343
@@ -75,9 +75,9 @@ class PyCharm(PluginBase):
         mcp_steroid: Download and install the mcp-steroid plugin at build time.
             When ``True`` and ``open_project`` resolves to ``False``, the IDE starts
             without a project and agents can open one via the ``open-project`` MCP tool.
-        mcp_steroid_version: mcp-steroid version to install. Format: ``X.Y.Z`` or
-            ``X.Y.Z-HASH`` (e.g. ``0.94.0-8682a5ce``). Defaults to the latest tested
-            version.
+        mcp_steroid_version: mcp-steroid version to install. Format: ``X.Y`` or
+            ``X.Y.Z``, optionally with a ``-HASH`` suffix (e.g. ``0.94.0-8682a5ce`` or
+            ``0.100-409f23a2``). Defaults to the latest tested version.
         user: User to switch back to after installation. Defaults to ``ctx.current_user``.
     """
 
@@ -98,7 +98,9 @@ class PyCharm(PluginBase):
     @classmethod
     def _validate_mcp_steroid_version(cls, v: str) -> str:
         if not _MCP_STEROID_VERSION_RE.match(v):
-            raise ValueError(f"Invalid mcp-steroid version: {v!r}. Expected format: X.Y.Z or X.Y.Z-HASH")
+            raise ValueError(
+                f"Invalid mcp-steroid version: {v!r}. Expected format: X.Y or X.Y.Z, optionally with a -HASH suffix"
+            )
         return v
 
     @field_validator("user")

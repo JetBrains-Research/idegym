@@ -73,10 +73,10 @@ def _patch_all(mocker, *, deploy_error=None):
     mocker.patch("idegym.orchestrator.snapshot_pipeline.update_server_status", return_value=None)
     mocker.patch("idegym.orchestrator.snapshot_pipeline.clean_up_server", return_value=None)
     snapshot_svc = mocker.MagicMock()
-    snapshot_svc.snapshot_server = mocker.AsyncMock(return_value="trigger-name")
+    snapshot_svc.snapshot_server = mocker.AsyncMock(return_value="ps-snapshot-name")
     mocker.patch("idegym.orchestrator.snapshot_pipeline.PodSnapshotService", return_value=snapshot_svc)
 
-    mocker.patch("idegym.orchestrator.snapshot_pipeline.create_snapshot", return_value=snapshot)
+    create_snapshot = mocker.patch("idegym.orchestrator.snapshot_pipeline.create_snapshot", return_value=snapshot)
 
     update_job = mocker.patch("idegym.orchestrator.snapshot_pipeline.update_snapshot_job_status", return_value=None)
     update_succeeded = mocker.patch(
@@ -89,6 +89,8 @@ def _patch_all(mocker, *, deploy_error=None):
     return SimpleNamespace(
         server=server,
         snapshot=snapshot,
+        snapshot_svc=snapshot_svc,
+        create_snapshot=create_snapshot,
         update_job=update_job,
         update_succeeded=update_succeeded,
         update_failed=update_failed,
@@ -151,6 +153,15 @@ async def test_success_calls_snapshot_service(mocker):
     await run_snapshot_pipeline_job(job_id=str(uuid4()), request=_request(), config=_config())
 
     instance.snapshot_server.assert_awaited_once()
+
+
+async def test_success_persists_pod_snapshot_name(mocker):
+    """The PodSnapshot name returned by snapshot_server is stored on the snapshot record."""
+    mocks = _patch_all(mocker)
+
+    await run_snapshot_pipeline_job(job_id=str(uuid4()), request=_request(), config=_config())
+
+    assert mocks.create_snapshot.await_args.kwargs["pod_snapshot_name"] == "ps-snapshot-name"
 
 
 # ===========================================================================

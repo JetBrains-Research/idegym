@@ -107,9 +107,12 @@ async def validate_server(db: AsyncSession, client_id: UUID, server_id: int):
         )
 
     if server.availability not in {AvailabilityStatus.ALIVE, AvailabilityStatus.REUSED}:
+        detail = f"IdeGYM server with ID {server_id} is not available (status: {server.availability})"
+        if server.details:
+            detail = f"{detail}: {server.details}"
         raise HTTPException(
             status_code=status.HTTP_410_GONE,
-            detail=f"IdeGYM server with ID {server_id} is not available (status: {server.availability})",
+            detail=detail,
         )
 
     return server
@@ -129,6 +132,8 @@ async def check_resources_and_save_server_in_db(
     server_kind: str = "idegym",
     service_port: int = 80,
     run_as_root: bool = False,
+    snapshot_id: Optional[str] = None,
+    max_restarts: int = 0,
 ):
     server = await check_resources_and_save_server(
         db=db,
@@ -143,6 +148,8 @@ async def check_resources_and_save_server_in_db(
         server_kind=server_kind,
         service_port=service_port,
         run_as_root=run_as_root,
+        snapshot_id=snapshot_id,
+        max_restarts=max_restarts,
     )
     if not server:
         raise HTTPException(
@@ -274,6 +281,7 @@ async def create_snapshot(
     runtime_class_name: Optional[str],
     run_as_root: bool,
     server_kind: str,
+    pod_snapshot_name: Optional[str] = None,
 ):
     return await save_snapshot(
         db,
@@ -285,6 +293,7 @@ async def create_snapshot(
         runtime_class_name=runtime_class_name,
         run_as_root=run_as_root,
         server_kind=server_kind,
+        pod_snapshot_name=pod_snapshot_name,
     )
 
 

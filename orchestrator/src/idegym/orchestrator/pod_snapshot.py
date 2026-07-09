@@ -1,7 +1,7 @@
 import asyncio
 import time
 from http import HTTPStatus
-from typing import Any, Optional
+from typing import Optional
 
 from fastapi import HTTPException, status
 from idegym.api.config import PodSnapshotConfig
@@ -10,7 +10,10 @@ from idegym.api.orchestrator.snapshots import (
     PodSnapshotManualTrigger,
     PodSnapshotManualTriggerMetadata,
     PodSnapshotManualTriggerSpec,
+    PodSnapshotManualTriggerStatus,
+    PodSnapshotTriggerReason,
 )
+from idegym.api.type import ConditionStatus
 from idegym.backend.utils.kubernetes_client import ApiException, async_kube_api
 from idegym.utils.logging import get_logger
 
@@ -27,6 +30,7 @@ class SnapshotFailedError(RuntimeError):
 
 class SnapshotTimeoutError(RuntimeError):
     """Raised when the PodSnapshotManualTrigger does not reach a terminal status within the configured timeout."""
+
 
 class PodSnapshotService:
     """
@@ -71,9 +75,7 @@ class PodSnapshotService:
             node = await core.read_node(name=node_name)
 
         labels = node.metadata.labels or {}
-        instance_type = labels.get("node.kubernetes.io/instance-type") or labels.get(
-            "beta.kubernetes.io/instance-type"
-        )
+        instance_type = labels.get("node.kubernetes.io/instance-type") or labels.get("beta.kubernetes.io/instance-type")
 
         if instance_type and instance_type.startswith("e2-"):
             raise HTTPException(
@@ -117,7 +119,8 @@ class PodSnapshotService:
         logger.info(f"Created PodSnapshotManualTrigger '{trigger_name}' in namespace '{self._namespace}'")
         return trigger_name
 
-    async def wait_for_completion(self, trigger_name: str) -> None:
+    async def wait_for_completion(self, trigger_name: str) -> Optional[str]:
+        """Wait for the trigger to finish; return the created PodSnapshot resource name, if reported."""
         timeout = self._config.completion_timeout.total_seconds()
         poll_interval = self._config.poll_interval.total_seconds()
         deadline = time.monotonic() + timeout
@@ -132,16 +135,21 @@ class PodSnapshotService:
                     name=trigger_name,
                 )
 
-            condition = self._triggered_condition(obj)
+            trigger_status = PodSnapshotManualTriggerStatus.model_validate(obj.get("status") or {})
+            condition = trigger_status.triggered_condition
             if condition:
-                triggered = condition.get("status") == "True"
-                if triggered:
-                    logger.info(f"PodSnapshotManualTrigger '{trigger_name}' completed")
-                    await asyncio.sleep(3)  # Delay to ensure image got uploaded to the GCS
-                    return
-                else:
-                    message = condition.get("message") or condition.get("reason") or "unknown reason"
+                if condition.status == ConditionStatus.FALSE:
+                    message = condition.message or condition.reason or "unknown reason"
                     raise SnapshotFailedError(f"PodSnapshotManualTrigger '{trigger_name}' failed: {message}")
+                # The Triggered condition stays status=True while processing (reason=Processing);
+                # only reason=Complete signals the snapshot has actually been created.
+                if condition.reason == PodSnapshotTriggerReason.COMPLETE:
+                    snapshot_name = trigger_status.created_snapshot_name
+                    logger.info(
+                        f"PodSnapshotManualTrigger '{trigger_name}' completed (snapshot '{snapshot_name or 'unknown'}')"
+                    )
+                    await asyncio.sleep(3)  # Delay to ensure image got uploaded to the GCS
+                    return snapshot_name
 
             if time.monotonic() >= deadline:
                 raise SnapshotTimeoutError(
@@ -167,21 +175,15 @@ class PodSnapshotService:
                 return
             raise
 
-    async def snapshot_server(self, server_name: str) -> None:
+    async def snapshot_server(self, server_name: str) -> Optional[str]:
+        """Snapshot the server's pod and return the created PodSnapshot resource name, if reported."""
         pod_name, pod_uid, node_name = await self.get_pod_for_server(server_name)
         await self.validate_node_eligible_for_snapshot(node_name)
         trigger_name = await self.create_trigger(server_name=server_name, pod_name=pod_name, pod_uid=pod_uid)
         try:
-            await self.wait_for_completion(trigger_name)
+            return await self.wait_for_completion(trigger_name)
         finally:
             try:
                 await self.delete_trigger(trigger_name)
             except Exception:
                 logger.exception(f"Failed to delete PodSnapshotManualTrigger '{trigger_name}'")
-
-    @staticmethod
-    def _triggered_condition(obj: dict[str, Any]) -> dict[str, Any] | None:
-        for cond in (obj.get("status") or {}).get("conditions") or []:
-            if cond.get("type") == "Triggered":
-                return cond
-        return None

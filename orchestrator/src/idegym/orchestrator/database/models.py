@@ -55,9 +55,18 @@ class IdeGYMServer(Base):
     server_kind = Column(String, default="idegym", nullable=False)
     service_port = Column(Integer, default=80, nullable=False)
 
+    # GKE snapshot group id (the idegym.jetbrains.com/snapshot-id pod label): the restored-from id
+    # for servers started from a snapshot, otherwise the server's own generated_name.
+    snapshot_id = Column(String, index=True, nullable=True)
+
+    # Restarts tolerated before the watcher marks the server CRASHED and tears it down (0 = fail on first crash).
+    max_restarts = Column(Integer, default=0, nullable=False)
+    # Human-readable reason populated on terminal failures (e.g. the crash/OOM/eviction cause).
+    details = Column(Text, nullable=True)
+
     @property
     def snapshot_name(self) -> str:
-        return self.generated_name
+        return self.snapshot_id or self.generated_name
 
 
 class ResourceLimitRule(Base):
@@ -106,6 +115,7 @@ class SnapshotRecord(Base):
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     snapshot_name = Column(String, nullable=False)
+    pod_snapshot_name = Column(String, nullable=True)
     request_hash = Column(String, index=True, nullable=False)
     namespace = Column(String, nullable=False)
     image_tag = Column(String, nullable=False)
