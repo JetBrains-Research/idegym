@@ -14,7 +14,7 @@ def build_image_builder(
     node_pool_preference_weight: int = 100,
     ttl_seconds_after_finished: int = 300,
 ) -> ImageBuilder:
-    """Construct the :class:`ImageBuilder` selected by `config.backend`.
+    """Construct the `ImageBuilder` selected by `config.backend`.
 
     Kaniko-specific runtime knobs (insecure registry, node pool) come from the orchestrator
     config/env rather than `BuildConfig`, so they are passed explicitly and ignored by other

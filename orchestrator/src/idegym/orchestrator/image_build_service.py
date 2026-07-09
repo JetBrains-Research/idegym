@@ -23,7 +23,7 @@ class ImageBuildService:
 
     Owns the parts shared across backends — tag/version construction, persisting build
     status to the DB, and the polling loop — and delegates the actual build to an injected
-    :class:`ImageBuilder`. The backend-specific :class:`BuildHandle` is kept in memory for
+    `ImageBuilder`. The backend-specific `BuildHandle` is kept in memory for
     the monitoring task; only ``handle.name`` is persisted (as ``JobStatusRecord.job_name``)
     and returned to clients.
     """

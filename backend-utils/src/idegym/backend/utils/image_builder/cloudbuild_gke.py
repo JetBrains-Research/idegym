@@ -49,7 +49,7 @@ def build_cloudbuild_config(
     ``--mount=type=secret`` work (``--tag`` on ``gcloud builds submit`` does not support
     BuildKit). The same archive URL / auth args Kaniko receives are forwarded here, so the
     rendered Dockerfile behaves identically across backends -- except the auth token, which
-    is passed as a BuildKit secret (see :func:`_inject_auth_secret`) instead of a build arg so
+    is passed as a BuildKit secret (see `_inject_auth_secret`) instead of a build arg so
     it stays out of the Build resource and image history. ``CLOUD_LOGGING_ONLY`` avoids a
     non-zero exit when the default GCS logs bucket is unreadable (VPC-SC / missing
     ``storage.objects.get``).
@@ -144,7 +144,7 @@ def _inject_auth_secret(dockerfile_content: str) -> str:
 
 
 def map_build_status(status_name: str) -> Status:
-    """Map a Cloud Build ``Build.Status`` name to the orchestrator's :class:`Status`."""
+    """Map a Cloud Build ``Build.Status`` name to the orchestrator's `Status`."""
     if status_name == "SUCCESS":
         return Status.SUCCESS
     if status_name in _TERMINAL_FAILURE_STATUSES:
@@ -155,7 +155,7 @@ def map_build_status(status_name: str) -> Status:
 class CloudBuildGKEImageBuilder(ImageBuilder):
     """Builds images with GCP Cloud Build (BuildKit) and pushes to Artifact Registry.
 
-    Submits asynchronously and polls — matching :class:`ImageBuilder`'s submit/poll split —
+    Submits asynchronously and polls — matching `ImageBuilder`'s submit/poll split —
     using the ``google-cloud-build`` Python client rather than shelling out to ``gcloud``.
     The build context is uploaded to a GCS staging bucket; auth relies on the orchestrator
     pod's ambient GCP credentials (service account / Workload Identity), which need Cloud

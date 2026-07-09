@@ -12,7 +12,7 @@ class BuildHandle:
     `name` is the string the orchestrator persists as ``JobStatusRecord.job_name`` and
     returns to clients to query status later, so it must be unique and stable for the
     lifetime of the build. Backends may subclass to carry extra fields (project, region,
-    namespace, ...) needed by :meth:`ImageBuilder.get_status`; only `name` crosses the
+    namespace, ...) needed by `ImageBuilder.get_status`; only `name` crosses the
     persistence/API boundary.
     """
 
@@ -28,9 +28,9 @@ class ImageBuilder(ABC):
     expects.
     """
 
-    #: Default upper bound (seconds) the orchestrator waits for a build to finish before
-    #: giving up and recording FAILURE. Backends whose own timeout is configurable should
-    #: override :meth:`monitor_timeout` so the two stay consistent.
+    # Default upper bound (seconds) the orchestrator waits for a build to finish before
+    # giving up and recording FAILURE. Backends whose own timeout is configurable should
+    # override `monitor_timeout` so the two stay consistent.
     DEFAULT_MONITOR_TIMEOUT: float = 2400.0
 
     def monitor_timeout(self) -> float:
@@ -55,5 +55,5 @@ class ImageBuilder(ABC):
 
     @abstractmethod
     async def get_status(self, handle: BuildHandle) -> Status:
-        """Return the current :class:`Status` for a previously submitted build."""
+        """Return the current `Status` for a previously submitted build."""
         ...

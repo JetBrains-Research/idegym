@@ -17,7 +17,7 @@ class KanikoBuildHandle(BuildHandle):
 class KanikoImageBuilder(ImageBuilder):
     """Builds images with an in-cluster Kaniko Job (the default, unchanged backend).
 
-    Thin wrapper over :func:`build_and_push_image_with_kaniko` and :func:`get_job_status`
+    Thin wrapper over `build_and_push_image_with_kaniko` and `get_job_status`
     in ``kubernetes_client`` — the heavy Kubernetes Job construction stays there.
     """
 
