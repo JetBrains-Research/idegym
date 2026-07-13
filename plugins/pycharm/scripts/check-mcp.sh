@@ -35,14 +35,11 @@ check_mcp_endpoint() {
         fi
         return 1
     else
-        # For /stream and /mcp endpoints, try JSON-RPC initialize
-
-        # Fast probe - check for jsonrpc response
-        if ! curl -s --max-time 3 "${url}" 2>/dev/null | grep -q '"jsonrpc"'; then
-            return 1
-        fi
-
-        # Try proper MCP initialize
+        # For /stream and /mcp endpoints, the authoritative readiness signal is a JSON-RPC
+        # `initialize` that returns a result. Do NOT gate on a GET "fast probe": some mcp-steroid
+        # builds answer a plain GET with a bare server-info object (e.g.
+        # {"name":"mcp-steroid","status":"available"}) that has no "jsonrpc" field, so the old probe
+        # reported not-ready forever — start-idea.sh then hit its WAIT_SECONDS timeout and killed the IDE.
         local init_resp=$(curl -s --max-time 3 "${url}" \
             -H "Content-Type: application/json" \
             -H "Accept: application/json, text/event-stream" \
@@ -91,38 +88,34 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
                 echo "  ✖ SSE endpoint not ready (HTTP ${http_code:-000})"
             fi
         else
-            # JSON-RPC endpoint - try initialize
-            if ! curl -s --max-time 3 "$url" 2>/dev/null | grep -q '"jsonrpc"'; then
-                echo "  ✖ Not an MCP endpoint"
-            else
-                echo "  ✔ MCP-like response detected"
-
-                init_resp=$(curl -s --max-time 3 "$url" \
-                    -H "Content-Type: application/json" \
-                    -H "Accept: application/json, text/event-stream" \
-                    -d '{
-                        "jsonrpc": "2.0",
-                        "id": 1,
-                        "method": "initialize",
-                        "params": {
-                            "protocolVersion": "2025-03-26",
-                            "capabilities": {},
-                            "clientInfo": {
-                                "name": "idegym-check",
-                                "version": "0.1.0"
-                            }
+            # JSON-RPC endpoint - the real check is an `initialize` that returns a result. (No GET
+            # "fast probe": mcp-steroid answers GET with a bare server-info object that lacks
+            # "jsonrpc", which would make the probe wrongly declare it not an MCP endpoint.)
+            init_resp=$(curl -s --max-time 3 "$url" \
+                -H "Content-Type: application/json" \
+                -H "Accept: application/json, text/event-stream" \
+                -d '{
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2025-03-26",
+                        "capabilities": {},
+                        "clientInfo": {
+                            "name": "idegym-check",
+                            "version": "0.1.0"
                         }
-                    }' 2>/dev/null)
+                    }
+                }' 2>/dev/null)
 
-                if echo "$init_resp" | grep -q '"result"'; then
-                    echo "  ✅ MCP is READY (initialize succeeded)"
-                    echo
-                    echo "🎉 Working MCP endpoint: $url"
-                    exit 0
-                else
-                    echo "  ⚠ MCP detected but initialize failed"
-                    echo "  Response: $init_resp"
-                fi
+            if echo "$init_resp" | grep -q '"result"'; then
+                echo "  ✅ MCP is READY (initialize succeeded)"
+                echo
+                echo "🎉 Working MCP endpoint: $url"
+                exit 0
+            else
+                echo "  ⚠ MCP detected but initialize failed"
+                echo "  Response: $init_resp"
             fi
         fi
         echo
