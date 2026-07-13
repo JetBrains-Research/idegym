@@ -86,6 +86,7 @@ class DockerService:
             context_path=compiled.context_path,
             platforms=compiled.platforms,
             dockerfile_content=compiled.dockerfile_content,
+            secret_build_args=compiled.secret_build_args,
         )
 
     def build(
@@ -101,6 +102,7 @@ class DockerService:
         context_path: str = ".",
         platforms: Optional[list[str]] = None,
         dockerfile_content: Optional[str] = None,
+        secret_build_args: Optional[list[str]] = None,
     ) -> DockerImage:
         commands = [] if commands is None else commands
         commands = "\n".join(commands) if isiterable(commands) else commands
@@ -132,6 +134,15 @@ class DockerService:
                 )
             if image_base is not None:
                 build_args["IDEGYM_BASE"] = image_base
+
+            # Forward build-time secrets (e.g. private-plugin tokens) from the builder's
+            # environment. Only names travel in the spec; values are resolved here and used
+            # as build args, so they never persist in an image layer. Empty values are
+            # skipped (matching the Kaniko path) — an empty credential is never useful.
+            for name in secret_build_args or []:
+                value = env.get(name)
+                if value:
+                    build_args[name] = value
 
             build_args = {k: v for k, v in build_args.items() if v is not None}
             logs: Iterable[str] = self._client.build(

@@ -5,9 +5,11 @@ from textwrap import dedent
 
 from idegym.api.plugin import BuildContext, PluginBase, get_all_server_plugins, image_plugin, server_plugin
 from idegym.image.builder import Image
+from idegym.image.docker_service import DockerService
 from idegym.image.serialization import deserialize_plugin, serialize_plugin
 from idegym.plugins.defaults.image import BaseSystem, IdeGYMServer, MCPUpstream, Permissions, Project, User
 from idegym.plugins.idea.image import Idea
+from idegym.plugins.plugin_utils import PluginSource, render_external_plugins
 from idegym.plugins.pycharm.image import PyCharm
 from pytest import mark, param, raises
 
@@ -2085,3 +2087,278 @@ def test_idea_get_mcp_upstream_returns_bundled_when_steroid_disabled():
     ctx = BuildContext(base="debian:bookworm-slim").with_extra("idegym.has_project", True)
     upstream = plugin.get_mcp_upstream(ctx)
     assert upstream == "http://localhost:64342"
+
+
+# ---------------------------------------------------------------------------
+# External IDE plugins (PluginSource) — Idea/PyCharm external_plugins knob
+# ---------------------------------------------------------------------------
+
+
+def test_plugin_source_defaults_to_bearer_and_no_auth():
+    source = PluginSource(url="https://example.com/plugin.zip")
+    assert source.auth_env is None
+    assert source.auth_scheme == "Bearer"
+
+
+def test_plugin_source_is_frozen_and_hashable():
+    source = PluginSource(url="https://example.com/plugin.zip")
+    # Frozen so Idea/PyCharm (frozen models) stay hashable.
+    assert hash(source) == hash(PluginSource(url="https://example.com/plugin.zip"))
+    with raises(ValueError):
+        source.url = "https://other.example/x.zip"
+
+
+@mark.parametrize(
+    "url",
+    [
+        param("https://example.com/plugin.tar.gz", id="tar-gz"),
+        param("https://example.com/plugin", id="no-suffix"),
+        param("https://example.com/plugin.jar", id="jar"),
+    ],
+)
+def test_plugin_source_rejects_non_zip_url(url):
+    with raises(ValueError, match="zip"):
+        PluginSource(url=url)
+
+
+def test_plugin_source_accepts_zip_url_with_query_string():
+    # The .zip check is on the path, so query strings (tokens, versions) are allowed.
+    source = PluginSource(url="https://intranet/repo/plugin.zip?build=42")
+    assert source.url.endswith("?build=42")
+
+
+def test_plugin_source_accepts_uppercase_zip_suffix():
+    # The suffix check is case-insensitive so .ZIP / .Zip archives are not falsely rejected.
+    assert PluginSource(url="https://intranet/repo/plugin.ZIP").url.endswith(".ZIP")
+
+
+def test_plugin_source_rejects_auth_env_with_trailing_newline():
+    # A trailing newline must be rejected (``$`` would tolerate it and inject into the RUN).
+    with raises(ValueError, match="auth_env"):
+        PluginSource(url="https://example.com/p.zip", auth_env="PLUGIN_TOKEN\n")
+
+
+@mark.parametrize("url", [param("ftp://example.com/x.zip", id="ftp"), param("not-a-url.zip", id="scheme-less")])
+def test_plugin_source_rejects_non_http_url(url):
+    with raises(ValueError):
+        PluginSource(url=url)
+
+
+@mark.parametrize(
+    "auth_env",
+    [param("1TOKEN", id="leading-digit"), param("MY TOKEN", id="space"), param("TOK-EN", id="hyphen")],
+)
+def test_plugin_source_rejects_invalid_auth_env(auth_env):
+    with raises(ValueError, match="auth_env"):
+        PluginSource(url="https://example.com/p.zip", auth_env=auth_env)
+
+
+def test_render_external_plugins_empty_returns_empty_string():
+    assert render_external_plugins((), plugins_dir="${IDE_DIR}/plugins") == ""
+
+
+def test_render_external_plugins_public_source_downloads_without_auth():
+    sources = (PluginSource(url="https://example.com/public.zip"),)
+    fragment = render_external_plugins(sources, plugins_dir="${IDE_DIR}/plugins")
+    assert "curl -fsSL https://example.com/public.zip" in fragment
+    # public source has no credential machinery
+    assert "ARG " not in fragment
+    assert "Authorization:" not in fragment
+    # ...but tracing is still disabled around curl so a secret accidentally embedded in the
+    # URL is not echoed to the build log
+    assert "{ set +x; } 2>/dev/null" in fragment
+    # unpacks into the (expanded, not shell-quoted) IDE plugins dir
+    assert 'unzip -qo /tmp/external-plugin-0.zip -d "${IDE_DIR}/plugins"/' in fragment
+    assert "'${IDE_DIR}" not in fragment
+
+
+def test_render_external_plugins_private_source_uses_env_header_without_leaking():
+    sources = (PluginSource(url="https://intranet/private.zip", auth_env="PLUGIN_TOKEN"),)
+    fragment = render_external_plugins(sources, plugins_dir="${IDE_DIR}/plugins")
+    # credential comes from a build ARG, referenced only inside the Authorization header
+    assert "ARG PLUGIN_TOKEN" in fragment
+    assert "Authorization: Bearer ${PLUGIN_TOKEN:?" in fragment
+    # never turned into an ENV -> not baked into an image layer
+    assert "ENV PLUGIN_TOKEN" not in fragment
+    # xtrace disabled around curl -> secret stays out of the build log
+    assert "{ set +x; } 2>/dev/null" in fragment
+    assert "{ set -x; } 2>/dev/null" in fragment
+
+
+def test_render_external_plugins_respects_auth_scheme():
+    sources = (PluginSource(url="https://intranet/x.zip", auth_env="TOK", auth_scheme="Token"),)
+    fragment = render_external_plugins(sources, plugins_dir="${IDE_DIR}/plugins")
+    assert "Authorization: Token ${TOK:?" in fragment
+
+
+def test_render_external_plugins_preserves_order_and_unique_archives():
+    sources = (
+        PluginSource(url="https://example.com/a.zip"),
+        PluginSource(url="https://example.com/b.zip"),
+    )
+    fragment = render_external_plugins(sources, plugins_dir="${IDE_DIR}/plugins")
+    assert fragment.index("a.zip") < fragment.index("b.zip")
+    # distinct temp files so concurrent-looking layers never clobber each other
+    assert "/tmp/external-plugin-0.zip" in fragment
+    assert "/tmp/external-plugin-1.zip" in fragment
+
+
+def test_idea_external_plugins_default_empty():
+    assert Idea().external_plugins == ()
+    fragment = Idea().render(BuildContext(base="debian:bookworm-slim"))
+    assert "external-plugin" not in fragment
+
+
+def test_idea_external_plugins_render_installs_into_ide_dir():
+    plugin = Idea(external_plugins=[PluginSource(url="https://example.com/skill.zip")])
+    fragment = plugin.render(BuildContext(base="debian:bookworm-slim"))
+    assert "# Install external plugin: https://example.com/skill.zip" in fragment
+    assert 'unzip -qo /tmp/external-plugin-0.zip -d "${IDE_DIR}/plugins"/' in fragment
+
+
+def test_idea_external_plugins_installed_after_mcp_steroid():
+    plugin = Idea(
+        mcp_steroid=True,
+        external_plugins=[PluginSource(url="https://example.com/skill.zip")],
+    )
+    fragment = plugin.render(BuildContext(base="debian:bookworm-slim"))
+    assert fragment.index("mcp-steroid") < fragment.index("skill.zip")
+
+
+def test_idea_get_build_secrets_returns_auth_envs():
+    plugin = Idea(
+        external_plugins=[
+            PluginSource(url="https://example.com/public.zip"),
+            PluginSource(url="https://intranet/private.zip", auth_env="PLUGIN_TOKEN"),
+        ]
+    )
+    assert plugin.get_build_secrets(BuildContext(base="debian:bookworm-slim")) == ["PLUGIN_TOKEN"]
+
+
+def test_pycharm_external_plugins_render_installs_into_pycharm_dir():
+    plugin = PyCharm(external_plugins=[PluginSource(url="https://intranet/private.zip", auth_env="PLUGIN_TOKEN")])
+    fragment = plugin.render(BuildContext(base="debian:bookworm-slim"))
+    assert 'unzip -qo /tmp/external-plugin-0.zip -d "${PYCHARM_DIR}/plugins"/' in fragment
+    assert "ARG PLUGIN_TOKEN" in fragment
+
+
+def test_pycharm_get_build_secrets_returns_auth_envs():
+    plugin = PyCharm(external_plugins=[PluginSource(url="https://intranet/private.zip", auth_env="TOK")])
+    assert plugin.get_build_secrets(BuildContext(base="debian:bookworm-slim")) == ["TOK"]
+
+
+def test_to_spec_aggregates_and_dedupes_secret_build_args():
+    image = (
+        Image.from_base("debian:bookworm-slim", name="img")
+        .with_plugin(BaseSystem())
+        .with_plugin(
+            Idea(
+                external_plugins=[
+                    PluginSource(url="https://intranet/private.zip", auth_env="PLUGIN_TOKEN"),
+                    # same token reused by a second plugin -> must appear once
+                    PluginSource(url="https://intranet/other.zip", auth_env="PLUGIN_TOKEN"),
+                ]
+            )
+        )
+    )
+    spec = image.to_spec()
+    assert spec.secret_build_args == ["PLUGIN_TOKEN"]
+
+
+def test_to_spec_no_external_plugins_has_empty_secret_build_args():
+    spec = Image.from_base("debian:bookworm-slim", name="img").with_plugin(Idea()).to_spec()
+    assert spec.secret_build_args == []
+
+
+def test_to_spec_never_bakes_token_as_env():
+    spec = (
+        Image.from_base("debian:bookworm-slim", name="img")
+        .with_plugin(Idea(external_plugins=[PluginSource(url="https://intranet/private.zip", auth_env="PLUGIN_TOKEN")]))
+        .to_spec()
+    )
+    assert "ARG PLUGIN_TOKEN" in spec.dockerfile_content
+    assert "ENV PLUGIN_TOKEN" not in spec.dockerfile_content
+
+
+def test_idea_external_plugins_yaml_round_trip():
+    image = (
+        Image.from_base("debian:bookworm-slim", name="img")
+        .with_plugin(BaseSystem())
+        .with_plugin(
+            Idea(
+                external_plugins=[
+                    PluginSource(url="https://example.com/public.zip"),
+                    PluginSource(url="https://intranet/private.zip", auth_env="PLUGIN_TOKEN", auth_scheme="Token"),
+                ]
+            )
+        )
+    )
+    restored = Image.from_yaml(image.to_yaml())
+    assert restored.to_spec().dockerfile_content == image.to_spec().dockerfile_content
+    assert restored.to_spec().secret_build_args == ["PLUGIN_TOKEN"]
+
+
+def test_idea_external_plugins_serialize_round_trip():
+    plugin = Idea(external_plugins=[PluginSource(url="https://intranet/private.zip", auth_env="TOK")])
+    restored = deserialize_plugin(serialize_plugin(plugin))
+    assert restored == plugin
+
+
+class _FakeDockerImage:
+    id = "sha256:" + "0" * 40
+    repo_tags: list[str] = []
+
+
+class _FakeDockerClient:
+    """Minimal python_on_whales.DockerClient stand-in capturing build_args."""
+
+    def __init__(self):
+        self.captured_build_args: dict[str, str] = {}
+        self.image = self
+
+    def build(self, *, build_args, **_):
+        self.captured_build_args = dict(build_args)
+        return iter(())
+
+    def inspect(self, _tag):  # self.image.inspect(tag)
+        return _FakeDockerImage()
+
+
+def test_docker_service_forwards_secret_build_arg_from_env(monkeypatch):
+    monkeypatch.setenv("PLUGIN_TOKEN", "s3cr3t")
+    client = _FakeDockerClient()
+    DockerService(client=client, registry="reg.example/idegym").build(
+        request=None,
+        image_version="v1",
+        image_name="img",
+        dockerfile_content="FROM debian\n",
+        secret_build_args=["PLUGIN_TOKEN"],
+    )
+    assert client.captured_build_args.get("PLUGIN_TOKEN") == "s3cr3t"
+
+
+def test_docker_service_omits_secret_build_arg_when_env_absent(monkeypatch):
+    monkeypatch.delenv("PLUGIN_TOKEN", raising=False)
+    client = _FakeDockerClient()
+    DockerService(client=client, registry="reg.example/idegym").build(
+        request=None,
+        image_version="v1",
+        image_name="img",
+        dockerfile_content="FROM debian\n",
+        secret_build_args=["PLUGIN_TOKEN"],
+    )
+    assert "PLUGIN_TOKEN" not in client.captured_build_args
+
+
+def test_docker_service_omits_secret_build_arg_when_env_empty(monkeypatch):
+    # Empty credential is skipped (same as the kaniko backend) rather than forwarded as "".
+    monkeypatch.setenv("PLUGIN_TOKEN", "")
+    client = _FakeDockerClient()
+    DockerService(client=client, registry="reg.example/idegym").build(
+        request=None,
+        image_version="v1",
+        image_name="img",
+        dockerfile_content="FROM debian\n",
+        secret_build_args=["PLUGIN_TOKEN"],
+    )
+    assert "PLUGIN_TOKEN" not in client.captured_build_args

@@ -63,6 +63,7 @@ class KanikoImageBuilder(ImageBuilder):
             insecure_registry=self._insecure_registry,
             node_pool_taint_key=self._node_pool_taint_key,
             node_pool_preference_weight=self._node_pool_preference_weight,
+            secret_build_args=spec.secret_build_args,
         )
 
         return KanikoBuildHandle(name=job_name, namespace=namespace)
