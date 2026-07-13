@@ -76,9 +76,12 @@ live cluster and reclaims anything stale — finished clients, crashed pods, orp
 resources — so capacity never silently leaks. See the [watcher](/architecture/watcher).
 
 ### Kaniko
-The **in-cluster image builder**. Building images inside Kubernetes (rather than needing
-a Docker daemon on every node) is done with [Kaniko](https://github.com/GoogleContainerTools/kaniko)
-jobs that build from the generated Dockerfile and push to a registry.
+The **default in-cluster image builder**. Building images inside Kubernetes (rather than
+needing a Docker daemon on every node) is done with
+[Kaniko](https://github.com/GoogleContainerTools/kaniko) jobs that build from the generated
+Dockerfile and push to a registry. Image builds go through a pluggable backend, so on GKE
+you can swap Kaniko for [Cloud Build](https://cloud.google.com/build) — see
+[build backends](/architecture/image-builder#build-backends).
 
 ## How they fit together
 

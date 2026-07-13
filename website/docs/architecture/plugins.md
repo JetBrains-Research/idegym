@@ -56,10 +56,21 @@ flowchart LR
 |---|---|---|---|
 | **Image** | `@image_plugin("name")` + `apply()` / `render()` | `Image.to_spec()` ([image builder](/architecture/image-builder)) | A Dockerfile fragment |
 | **MCP upstream** | `get_mcp_upstream()` on the image plugin | `Image.to_spec()` (auto-writes config) | `/etc/idegym/mcp-upstreams.d/<name>.json` |
+| **Build context files** | `get_context_files()` on the image plugin | `Image.to_spec()` → the build backend | Bundled files staged so your `COPY` sources resolve |
+| **Build secrets** | `get_build_secrets()` on the image plugin | `Image.to_spec()` → the build backend | Build-arg names forwarded as secrets (kept out of image layers) |
 | **Server** | `@server_plugin` + `get_server_router()` | `server/main.py` at startup | An `APIRouter` at `/api/<plugin>/*` |
 | **Client** | `idegym.plugins.client` entry point | `IdeGYMServer.__init__` | `server.<plugin>.<method>()` |
 
-Every method has a no-op default, so a plugin implements only the points it needs.
+Every method has a no-op default, so a plugin implements only the points it needs. The
+MCP-upstream, build-context-files, and build-secrets hooks refine the **image** hook — they
+run at `to_spec()` time alongside `render()`, feeding the build rather than the runtime.
+
+> **Shipping files your `COPY` needs.** A plugin whose `render()` emits a `COPY` should ship
+> that file inside its own package and declare it from `get_context_files()`, instead of
+> assuming the caller builds from a checkout of the idegym repo. The build backend stages the
+> declared files so `COPY` resolves from any working directory — see
+> [image builder → shipping COPY files](/architecture/image-builder#shipping-files-a-plugin-copys)
+> and the [reference](/reference/plugins#shipping-files-your-copy-needs-get_context_files).
 
 The shared base lives in [`api/src/idegym/api/plugin.py`](https://github.com/JetBrains-Research/idegym/blob/main/api/src/idegym/api/plugin.py)
 — `PluginBase`, `BuildContext`, and both registries (`@image_plugin`, `@server_plugin`).
@@ -92,9 +103,32 @@ upstream under its stem as a namespace — that's how an IDE's MCP tools surface
 | `idegym-plugins[pycharm]` | `PyCharm` (image) + `PyCharmPlugin` (server) + `PycharmClientOperations` (client) |
 | `idegym-plugins[idea]` | `Idea` (image) + `IdeaPlugin` (server) + `IdeaClientOperations` (client) |
 
+## Baking external IDE plugins
+
+The `Idea` and `PyCharm` image plugins take an ordered `external_plugins` list to bake extra
+IntelliJ-platform plugins into the IDE at build time. Each `PluginSource` names a `.zip` URL
+that is downloaded and unzipped into the IDE's bundled plugins directory — the same mechanism
+that installs mcp-steroid:
+
+```python
+from idegym.plugins.plugin_utils import PluginSource
+from idegym.plugins.idea.image import Idea
+
+Idea(external_plugins=(
+    PluginSource(url="https://example.com/my-plugin.zip"),
+    PluginSource(url="https://registry.example.com/private.zip", auth_env="MY_TOKEN"),
+))
+```
+
+For a download behind authentication, set `auth_env` to the name of a build-time environment
+variable holding the credential. It is consumed as a build **secret** (surfaced via
+`get_build_secrets()` and sent as an `Authorization` header), never promoted to an `ENV` or
+echoed to the build log, so it does not persist in an image layer.
+
 ## View source
 
 - Plugin base & registries → [`api/src/idegym/api/plugin.py`](https://github.com/JetBrains-Research/idegym/blob/main/api/src/idegym/api/plugin.py)
 - Built-in defaults → [`plugins/defaults/`](https://github.com/JetBrains-Research/idegym/tree/main/plugins/defaults)
 - PyCharm / IDEA extras → [`plugins/pycharm/`](https://github.com/JetBrains-Research/idegym/tree/main/plugins/pycharm) · [`plugins/idea/`](https://github.com/JetBrains-Research/idegym/tree/main/plugins/idea)
+- Shared helpers (external plugins, packaged assets) → [`plugins/plugin-utils/`](https://github.com/JetBrains-Research/idegym/tree/main/plugins/plugin-utils)
 - Authoring guide → [Plugin Architecture docs](/reference/plugins)
