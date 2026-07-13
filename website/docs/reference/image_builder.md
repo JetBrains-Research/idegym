@@ -22,6 +22,8 @@ cluster with Kaniko.
 - [Building Images](#building-images)
   - [Local Docker build](#local-docker-build)
   - [Kaniko build (in-cluster)](#kaniko-build-in-cluster)
+  - [Build backends](#build-backends)
+  - [GKE Cloud Build backend](#gke-cloud-build-backend)
 - [Writing Custom Plugins](#writing-custom-plugins)
 
 ---
@@ -726,6 +728,109 @@ RUN set -eux; curl -H "Authorization: ${IDEGYM_AUTH_TOKEN:-}" ...
 ```
 
 The built-in plugins handle this correctly.
+
+---
+
+### Build backends
+
+The `/api/build-push-images` flow is **backend-agnostic**. The orchestrator selects an
+`ImageBuilder` implementation at request time and the shared `ImageBuildService` drives it —
+constructing the image tag, persisting status to the `job_statuses` table, and polling until the
+build is done. Each backend implements a small interface:
+
+```python
+class ImageBuilder:
+    async def submit_build(self, tag, spec, *, namespace, service_version) -> BuildHandle: ...
+    async def get_status(self, handle) -> Status: ...
+```
+
+`submit_build` starts a build; `get_status` reports its progress. The returned `BuildHandle.name`
+is the opaque string stored as `JobStatusRecord.job_name` and returned to clients (for Kaniko it is
+the Kubernetes Job name; for Cloud Build it is the build id), so the existing
+`/api/jobs/status/{job_name}` endpoint works for every backend.
+
+The backend is chosen via Hydra config (`orchestrator.build.backend`) / environment, **defaulting to
+`kaniko`** so existing deployments are unchanged:
+
+| Variable | Description | Default |
+|---|---|---|
+| `IDEGYM_BUILD_BACKEND` | `kaniko` or `cloudbuild_gke` | `kaniko` |
+
+Implementations live in `idegym.backend.utils.image_builder` (`base.py`, `kaniko.py`,
+`cloudbuild_gke.py`, `factory.py`). The `BuildBackend` enum is in `idegym.api.image_build`.
+
+---
+
+### GKE Cloud Build backend
+
+`cloudbuild_gke` builds images with [GCP Cloud Build](https://cloud.google.com/build) instead of an
+in-cluster Kaniko Job. It uses BuildKit (`DOCKER_BUILDKIT=1`) with a generated `docker build` step —
+equivalent to a `cloudbuild.yaml` — so Dockerfile heredocs and `--mount=type=secret` work. The build
+context (the rendered `Dockerfile`, mirroring the Kaniko ConfigMap) is uploaded to a GCS staging
+bucket; project sources are still fetched at build time via the same archive build args Kaniko uses.
+It submits asynchronously and polls the build, via the `google-cloud-build` Python client (no `gcloud`
+CLI dependency in the orchestrator image).
+
+**Auth token handling.** Unlike Kaniko (which passes `IDEGYM_AUTH_TOKEN` as a `--build-arg`), the
+Cloud Build backend passes the token as a **BuildKit build secret**: `build.steps[].args` are stored on
+the Build resource and readable by anyone with build-viewer access, so a `--build-arg` there would leak
+the credential. Instead the backend ships the token as a separate file in the (access-controlled) GCS
+build context and rewrites the token-consuming `RUN` to `--mount=type=secret,id=idegym_auth_token`,
+reading it from `/run/secrets/idegym_auth_token`. The token therefore never appears in the Build
+request, its logs, or the image history. This transform is applied only to the Cloud Build context; the
+shared rendered Dockerfile — and the Kaniko path, which cannot parse `RUN --mount` — is untouched.
+
+**Configuration** (all under `orchestrator.build.cloudbuild_gke`):
+
+| Variable | Description | Default |
+|---|---|---|
+| `IDEGYM_CLOUDBUILD_PROJECT_ID` | GCP project that runs the build | _(required)_ |
+| `IDEGYM_CLOUDBUILD_REGION` | Cloud Build region (e.g. `europe-west1`) | _(required)_ |
+| `IDEGYM_CLOUDBUILD_STAGING_BUCKET` | GCS bucket (name only) for the uploaded context | _(required)_ |
+| `IDEGYM_CLOUDBUILD_MACHINE_TYPE` | Worker machine type (e.g. `E2_HIGHCPU_8`) | project default |
+| `IDEGYM_CLOUDBUILD_DISK_SIZE_GB` | Worker disk size in GB | project default |
+| `IDEGYM_CLOUDBUILD_TIMEOUT_SECONDS` | Per-build timeout | `2400` |
+| `IDEGYM_CLOUDBUILD_SKIP_EXISTING` | Skip the build if the image already exists in Artifact Registry | `false` |
+
+`project_id`, `region`, and `staging_bucket` are required when this backend is selected (validated at
+config load). `DOCKER_REGISTRY` should point at an Artifact Registry repository
+(`<region>-docker.pkg.dev/<project>/<repo>`).
+
+**Required GCP IAM / credentials.** Auth relies on the orchestrator pod's ambient credentials
+(service account via Workload Identity). The service account needs:
+
+- **Cloud Build Editor** (`roles/cloudbuild.builds.editor`) — submit and read builds.
+- **Artifact Registry Writer** (`roles/artifactregistry.writer`) — push images (and read, for
+  `skip_existing`).
+- **Storage Object Admin** (`roles/storage.objectAdmin`) on the staging bucket — upload the build
+  context.
+
+```shell
+IDEGYM_BUILD_BACKEND=cloudbuild_gke
+IDEGYM_CLOUDBUILD_PROJECT_ID=my-gcp-project
+IDEGYM_CLOUDBUILD_REGION=europe-west1
+IDEGYM_CLOUDBUILD_STAGING_BUCKET=my-idegym-build-context
+DOCKER_REGISTRY=europe-west1-docker.pkg.dev/my-gcp-project/idegym
+```
+
+**Smoke test.** The Kaniko backend is covered by the kind-based e2e suite, but Cloud Build needs a real
+GCP project and so cannot run there. `scripts/cloudbuild_gke_smoke_test.py` exercises the backend
+end-to-end against live GCP: it renders each image in a YAML file exactly as the orchestrator does,
+submits a Cloud Build per image via the same `build_image_builder` factory, polls until each finishes,
+and then confirms the pushed image resolves in Artifact Registry. Authenticate with
+`gcloud auth application-default login` (as a principal holding the IAM roles above), then:
+
+```shell
+uv run python scripts/cloudbuild_gke_smoke_test.py \
+    --images scripts/cloudbuild_gke_smoke_images.example.yaml \
+    --project-id my-gcp-project --region europe-west1 \
+    --staging-bucket my-idegym-build-context \
+    --registry europe-west1-docker.pkg.dev/my-gcp-project/idegym
+```
+
+The example YAML builds two images without a project download; add a `project` plugin with a URL and
+token to also exercise the auth-token BuildKit secret mount. The script exits non-zero if any build
+fails or its image is not found afterwards.
 
 ---
 

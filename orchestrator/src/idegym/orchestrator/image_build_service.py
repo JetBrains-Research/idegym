@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from idegym.api.image_build import ImageBuildSpec
 from idegym.api.status import Status
-from idegym.backend.utils.kubernetes_client import build_and_push_image_with_kaniko, get_job_status
+from idegym.backend.utils.image_builder import BuildHandle, ImageBuilder
 from idegym.image.builder import Image
 from idegym.orchestrator.database.database import get_db_session, save_job_status, update_job_status
 from idegym.utils import __version__
@@ -18,20 +18,27 @@ logger = get_logger(__name__)
 __DOCKER_REPOSITORY__ = env.get("DOCKER_REGISTRY", "ghcr.io/jetbrains-research/idegym")
 
 
-class IdeGYMKanikoDockerAPI:
+class ImageBuildService:
+    """Builder-agnostic orchestration of image builds.
+
+    Owns the parts shared across backends — tag/version construction, persisting build
+    status to the DB, and the polling loop — and delegates the actual build to an injected
+    `ImageBuilder`. The backend-specific `BuildHandle` is kept in memory for
+    the monitoring task; only ``handle.name`` is persisted (as ``JobStatusRecord.job_name``)
+    and returned to clients.
+    """
+
     def __init__(
         self,
+        builder: ImageBuilder,
         namespace: str = "idegym",
-        job_timeout: float = 2400,
-        insecure_registry: bool = False,
-        node_pool_taint_key: Optional[str] = None,
-        node_pool_preference_weight: int = 100,
+        job_timeout: Optional[float] = None,
     ):
+        self._builder = builder
         self._namespace = namespace
-        self._job_timeout = job_timeout
-        self._insecure_registry = insecure_registry
-        self._node_pool_taint_key = node_pool_taint_key
-        self._node_pool_preference_weight = node_pool_preference_weight
+        # Default the monitor timeout to whatever the backend advertises so a backend with a
+        # configurable build timeout (e.g. Cloud Build) is not cut off prematurely.
+        self._job_timeout = job_timeout if job_timeout is not None else builder.monitor_timeout()
 
     async def build_and_push_single_image(
         self,
@@ -53,45 +60,29 @@ class IdeGYMKanikoDockerAPI:
         if spec.request is not None:
             logger.info(f"Download request: {spec.request.descriptor.url}, {spec.request.descriptor.name}")
 
-        resources = (
-            spec.resources.model_dump(
-                by_alias=True,
-                exclude_none=True,
-            )
-            if spec.resources
-            else None
-        )
-
-        job_name = await build_and_push_image_with_kaniko(
-            request=spec.request,
-            tag=tag,
-            service_version=idegym_version,
-            dockerfile_content=spec.dockerfile_content,
-            labels=spec.labels,
+        handle = await self._builder.submit_build(
+            tag,
+            spec,
             namespace=self._namespace,
-            ttl_seconds_after_finished=300,
-            runtime_class_name=spec.runtime_class_name,
-            resources=resources,
-            insecure_registry=self._insecure_registry,
-            node_pool_taint_key=self._node_pool_taint_key,
-            node_pool_preference_weight=self._node_pool_preference_weight,
+            service_version=idegym_version,
         )
 
-        create_task(self.monitor_image_building_job(job_name, tag, request_id))
+        create_task(self.monitor_image_building_job(handle, tag, request_id))
 
-        return job_name
+        return handle.name
 
-    async def monitor_image_building_job(self, job_name: str, tag: str, request_id: Optional[str] = None) -> None:
+    async def monitor_image_building_job(self, handle: BuildHandle, tag: str, request_id: Optional[str] = None) -> None:
+        job_name = handle.name
         try:
             async with get_db_session() as db:
                 await save_job_status(db, job_name, status=Status.IN_PROGRESS, tag=tag, request_id=request_id)
 
             try:
                 async with timeout(self._job_timeout):
-                    status = await get_job_status(job_name, self._namespace)
+                    status = await self._builder.get_status(handle)
                     while status == Status.IN_PROGRESS:
                         await sleep(2)
-                        status = await get_job_status(job_name, self._namespace)
+                        status = await self._builder.get_status(handle)
 
                     async with get_db_session() as db:
                         await update_job_status(db, job_name, status=status, tag=tag, request_id=request_id)

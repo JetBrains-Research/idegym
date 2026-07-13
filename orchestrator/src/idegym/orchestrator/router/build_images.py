@@ -6,8 +6,9 @@ from fastapi import APIRouter, HTTPException, Request, status
 from idegym.api.config import Config
 from idegym.api.orchestrator.build import BuildFromYamlRequest, BuildFromYamlResponse
 from idegym.api.orchestrator.jobs import JobStatusResponse
+from idegym.backend.utils.image_builder import build_image_builder
 from idegym.orchestrator.database.helpers import find_kaniko_job_status
-from idegym.orchestrator.kaniko_docker_api import IdeGYMKanikoDockerAPI
+from idegym.orchestrator.image_build_service import ImageBuildService
 from idegym.orchestrator.util.decorators import handle_general_exceptions
 from idegym.utils.logging import get_logger
 
@@ -18,7 +19,7 @@ logger = get_logger(__name__)
 @router.post("/api/build-push-images")
 @handle_general_exceptions(error_message="Failed to start image building jobs from YAML")
 async def build_and_push(request: BuildFromYamlRequest, low_level_request: Request):
-    """Build Docker images from a YAML file using Kaniko in Kubernetes."""
+    """Build Docker images from a YAML file using the configured build backend."""
     return await build_and_push_with_config(request=request, config=low_level_request.app.state.config)
 
 
@@ -30,13 +31,14 @@ async def build_and_push_with_config(request: BuildFromYamlRequest, config: Conf
     try:
         insecure_registry = env.get("KANIKO_INSECURE_REGISTRY", "false").lower() == "true"
         node_pool = config.orchestrator.node_pool
-        kaniko_api = IdeGYMKanikoDockerAPI(
-            namespace=request.namespace,
+        builder = build_image_builder(
+            config.orchestrator.build,
             insecure_registry=insecure_registry,
             node_pool_taint_key=node_pool.taint_key if node_pool.enabled else None,
             node_pool_preference_weight=node_pool.preference_weight,
         )
-        job_names = await kaniko_api.build_and_push_images(path=Path(yaml_path))
+        build_service = ImageBuildService(builder=builder, namespace=request.namespace)
+        job_names = await build_service.build_and_push_images(path=Path(yaml_path))
 
         logger.info(f"Successfully started: {job_names}")
         return BuildFromYamlResponse(job_names=job_names)
