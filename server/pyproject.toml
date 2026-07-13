@@ -23,7 +23,7 @@ dependencies = [
     "opentelemetry-instrumentation-fastapi>=0.57b0",
     "opentelemetry-instrumentation-httpx>=0.57b0",
     "opentelemetry-instrumentation-system-metrics>=0.57b0",
-    "uvicorn>=0.35.0",
+    "uvicorn>=0.50.1",
 ]
 
 [build-system]
