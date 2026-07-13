@@ -83,11 +83,16 @@ else
     echo ">>> Launching IDEA with open-project AppStarter (project: ${PROJECT})"
 fi
 
+# -Dmcp.steroid.review.mode=NEVER: run mcp-steroid's steroid_execute_code without the manual
+# code-review gate. Its default (ALWAYS) opens a review.kts and waits for a human to approve every
+# execution; headless there is no reviewer, so each call hangs until mcp.steroid.review.timeout (600s).
+# NEVER auto-approves all executions — required for autonomous use (harmless when mcp-steroid absent).
 "${IDE_DIR}/bin/idea.sh" \
     -Djava.awt.headless=true \
     -Didea.platform.prefix=Idea \
     -Didea.trust.all.projects=true \
     -Dide.no.platform.update=true \
+    -Dmcp.steroid.review.mode=NEVER \
     -Didea.system.path="${IDE_SYSTEM_PATH}" \
     -Didea.config.path="${IDE_CONFIG_PATH}" \
     -Didea.plugins.path="${IDE_DIR}/plugins" \
