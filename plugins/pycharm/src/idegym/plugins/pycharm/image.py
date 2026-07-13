@@ -1,5 +1,6 @@
 import re
 from importlib.resources import files
+from importlib.resources.abc import Traversable
 from typing import Optional
 
 from idegym.api.plugin import BuildContext, PluginBase, image_plugin
@@ -7,6 +8,7 @@ from idegym.plugins.plugin_utils import (
     PluginSource,
     check_linux_id,
     external_plugin_build_secrets,
+    ide_context_files,
     render_external_plugins,
 )
 from jinja2 import BaseLoader, Environment
@@ -137,6 +139,17 @@ class PyCharm(PluginBase):
         if "pycharm" not in existing:
             existing.append("pycharm")
         return ctx.with_extra("idegym.enabled_server_plugins", existing)
+
+    def get_context_files(self, ctx: BuildContext) -> dict[str, Traversable]:
+        has_project = ctx.get_extra("idegym.has_project", False)
+        return ide_context_files(
+            __package__,
+            "plugins/pycharm",
+            start_script="start-pycharm.sh",
+            supervisor_conf="supervisord-pycharm.conf",
+            install_open_project=has_project and self.open_project,
+            mcp_steroid=self.mcp_steroid,
+        )
 
     def render(self, ctx: BuildContext) -> str:
         user = self.user or ctx.current_user

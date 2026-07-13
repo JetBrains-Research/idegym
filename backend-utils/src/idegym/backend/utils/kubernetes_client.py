@@ -772,6 +772,7 @@ async def build_and_push_image_with_kaniko(
     node_pool_taint_key: Optional[str] = None,
     node_pool_preference_weight: int = 100,
     secret_build_args: Optional[list[str]] = None,
+    context: Optional[str] = None,
 ) -> str:
     """
     Build a Docker image using Kaniko in a Kubernetes Job and push it to a registry.
@@ -780,6 +781,13 @@ async def build_and_push_image_with_kaniko(
     provided, the archive URL and auth credentials are passed as both build args and
     container env vars. The ConfigMap and a PodDisruptionBudget are created as children of
     the Job (owner references) so they are garbage-collected automatically.
+
+    `context` is the Kaniko build context. It defaults to `dir:///workspace` (only the mounted
+    Dockerfile), which is all a download/inline-based build needs. Images whose Dockerfile
+    `COPY`s files from the idegym repo (e.g. the idea/pycharm plugins) pass a git context such
+    as `git://github.com/JetBrains-Research/idegym.git#refs/tags/v1.2.3`; Kaniko still reads the
+    generated Dockerfile from the absolute `/workspace/Dockerfile` mount, so the `COPY` paths
+    resolve against the checkout.
 
     When `insecure_registry` is True the regcred secret volume is omitted and --insecure is
     passed to Kaniko, which allows pushing to plain-HTTP registries (e.g. in-cluster registries
@@ -791,7 +799,7 @@ async def build_and_push_image_with_kaniko(
     args = [
         "--dockerfile=/workspace/Dockerfile",
         f"--destination={tag}",
-        "--context=dir:///workspace",
+        f"--context={context or 'dir:///workspace'}",
     ]
 
     if request is not None:

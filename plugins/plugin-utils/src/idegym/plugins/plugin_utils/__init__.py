@@ -1,5 +1,6 @@
 """Shared utilities for IdeGYM plugins."""
 
+from idegym.plugins.plugin_utils.assets import ide_context_files, plugin_asset
 from idegym.plugins.plugin_utils.external_plugins import (
     PluginSource,
     external_plugin_build_secrets,
@@ -12,6 +13,8 @@ __all__ = [
     "check_linux_id",
     "run_ide_inspect",
     "InspectClientOperationsMixin",
+    "plugin_asset",
+    "ide_context_files",
     "PluginSource",
     "render_external_plugins",
     "external_plugin_build_secrets",

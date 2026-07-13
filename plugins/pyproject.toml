@@ -51,10 +51,8 @@ pycharm = "idegym.plugins.pycharm.client:PycharmClientOperations"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-# Single distribution assembled from the per-plugin source trees. The trees stay in
-# place (zero-move) so the build-context paths embedded in generated Dockerfiles
-# (e.g. `COPY plugins/idea/scripts/...`) remain valid. All four roots contribute to
-# the shared `idegym.plugins.*` PEP 420 namespace.
+# Single distribution assembled from the per-plugin source trees. All four roots contribute
+# to the shared `idegym.plugins.*` PEP 420 namespace.
 [tool.hatch.build.targets.wheel]
 packages = [
     "defaults/src/idegym",
@@ -72,3 +70,15 @@ dev-mode-dirs = [
     "pycharm/src",
     "plugin-utils/src",
 ]
+
+# Build-time assets the idea/pycharm plugins COPY into images (start scripts, supervisor
+# configs, and the prebuilt open-project plugin zip) live outside the `src` trees. Ship them
+# in the wheel, under their plugin package, so a plugin author can build images without a
+# checkout of the idegym repo. `plugin_asset()` reads them via importlib.resources; the local
+# build driver stages them into the Docker build context, and the Kaniko path resolves the same
+# `COPY plugins/<name>/...` paths against a git checkout of this repo at the orchestrator version.
+[tool.hatch.build.targets.wheel.force-include]
+"idea/scripts" = "idegym/plugins/idea/scripts"
+"idea/project-opener/project-opener.zip" = "idegym/plugins/idea/project-opener/project-opener.zip"
+"pycharm/scripts" = "idegym/plugins/pycharm/scripts"
+"pycharm/project-opener/project-opener.zip" = "idegym/plugins/pycharm/project-opener/project-opener.zip"

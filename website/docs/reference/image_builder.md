@@ -656,6 +656,13 @@ print(built.repo_tags)  # ['my-env:latest']
 
 The built image tag is based on the `name` field. If `name` is not set, a hash-based tag is generated.
 
+> [!NOTE]
+> Plugins whose Dockerfile `COPY`s bundled files (e.g. `idea`/`pycharm` start scripts and the
+> open-project zip) declare those files via `get_context_files()`. The build driver stages any missing
+> ones in place into the build context directory and cleans them up afterwards, so the build works from
+> any working directory — you do **not** need a checkout of the idegym repo. See
+> [Plugin Architecture → Shipping files your `COPY` needs](plugins.md#shipping-files-your-copy-needs-get_context_files).
+
 After building, load the image into Minikube for use in pods:
 
 ```shell
@@ -694,9 +701,18 @@ to build images inside Kubernetes pods. This avoids the need for a Docker daemon
    ```
 
 3. The orchestrator creates a Kaniko job that:
-   - Uses the `dockerfile_content` from `ImageBuildSpec`
+   - Uses the `dockerfile_content` from `ImageBuildSpec` (mounted as a ConfigMap)
    - Passes download ARGs as `--build-arg` values (for project plugins)
    - Pushes the result to the configured registry
+
+   For images whose Dockerfile `COPY`s files from the idegym repo (the `idea`/`pycharm` plugins, which
+   declare `get_context_files()`), the job's build context is a **git checkout of the idegym repo** —
+   `git://github.com/JetBrains-Research/idegym.git#<ref>` — instead of the Dockerfile-only ConfigMap, so
+   those `COPY` paths resolve. `<ref>` tracks the orchestrator version (`refs/tags/v<version>`, or
+   `refs/heads/main` for `latest`/dev builds), keeping the checkout in sync with the plugin code that
+   generated the Dockerfile. Plain download/inline images keep the ConfigMap-only context (no clone).
+   Override the source with `IDEGYM_KANIKO_CONTEXT_GIT_URL` / `IDEGYM_KANIKO_CONTEXT_GIT_REF` on the
+   orchestrator (e.g. for a fork, a mirror, or to pin an exact commit in CI).
 
 4. Use the returned tag to start a server:
    ```python

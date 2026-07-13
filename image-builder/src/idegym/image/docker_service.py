@@ -1,5 +1,6 @@
 import re
 from collections.abc import Iterable
+from contextlib import ExitStack
 from os import environ as env
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -84,6 +85,7 @@ class DockerService:
             labels=compiled.labels,
             image_name=compiled.name,
             context_path=compiled.context_path,
+            context_files=compiled.context_files,
             platforms=compiled.platforms,
             dockerfile_content=compiled.dockerfile_content,
             secret_build_args=compiled.secret_build_args,
@@ -100,6 +102,7 @@ class DockerService:
         registry: Optional[str] = None,
         image_name: Optional[str] = None,
         context_path: str = ".",
+        context_files: Optional[dict[str, bytes]] = None,
         platforms: Optional[list[str]] = None,
         dockerfile_content: Optional[str] = None,
         secret_build_args: Optional[list[str]] = None,
@@ -109,7 +112,89 @@ class DockerService:
         platforms = None if not platforms else platforms
         labels = {} if labels is None else labels
         rendered = dockerfile_content if dockerfile_content else render_dockerfile(commands=commands)
-        temporary_dir = context_path if context_path != "." else None
+        with ExitStack() as stack:
+            self._stage_context_files(context_path, context_files or {}, stack)
+            temporary_dir = context_path if context_path != "." else None
+            return self._build_from_context(
+                request=request,
+                image_version=image_version,
+                image_base=image_base,
+                service_version=service_version,
+                labels=labels,
+                registry=registry,
+                image_name=image_name,
+                context_path=context_path,
+                temporary_dir=temporary_dir,
+                platforms=platforms,
+                rendered=rendered,
+                secret_build_args=secret_build_args,
+            )
+
+    @staticmethod
+    def _stage_context_files(context_path: str, context_files: dict[str, bytes], stack: ExitStack) -> None:
+        """Write plugin build assets into the caller's build context, cleaning them up afterwards.
+
+        Plugin ``COPY`` targets (e.g. ``plugins/idea/scripts/...``) live in the wheel, not the caller's
+        build context. Write the missing ones directly into ``context_path`` so their ``COPY`` resolves
+        without a checkout of the idegym repo. Building in place (rather than copying into a temp dir)
+        keeps the caller's other ``COPY`` sources — e.g. a ``Project.from_local`` project — and their
+        ``.dockerignore`` in effect. Files already present (e.g. the context *is* a repo checkout) are
+        left untouched; anything this method creates is removed when ``stack`` exits.
+        """
+        base = Path(context_path)
+        created_files: list[Path] = []
+        created_dirs: list[Path] = []
+
+        def _cleanup() -> None:
+            for file in created_files:
+                file.unlink(missing_ok=True)
+            for directory in sorted(created_dirs, key=lambda path: len(path.parts), reverse=True):
+                try:
+                    directory.rmdir()  # only removes it if still empty — never touches caller content
+                except OSError:
+                    pass
+
+        stack.callback(_cleanup)
+        for dest, data in context_files.items():
+            # `dest` mirrors a Dockerfile COPY source, so it must stay inside the build context.
+            # Reject absolute paths and any ``..`` segment before joining onto ``base`` so a plugin
+            # cannot escape the context (e.g. ``/etc/passwd`` or ``../../secret``).
+            dest_path = Path(dest)
+            if dest_path.is_absolute() or ".." in dest_path.parts:
+                raise ValueError(f"Context file destination must be a relative path within the build context: {dest!r}")
+            target = base / dest_path
+            if target.exists():
+                continue  # already provided by the caller's context; never clobber it
+            missing_parents = []
+            parent = target.parent
+            while not parent.exists():
+                missing_parents.append(parent)
+                parent = parent.parent
+            for directory in reversed(missing_parents):
+                # exist_ok tolerates a concurrent builder creating the dir between the exists() walk
+                # above and this mkdir; the dir is still one we intended to create, so track it for cleanup.
+                directory.mkdir(exist_ok=True)
+                created_dirs.append(directory)
+            target.write_bytes(data)
+            created_files.append(target)
+        if created_files:
+            logger.debug("Staged plugin build assets", files=sorted(created_files), context=str(base))
+
+    def _build_from_context(
+        self,
+        request: Optional[DownloadRequest],
+        image_version: str,
+        image_base: Optional[str],
+        service_version: str,
+        labels: dict[str, str],
+        registry: Optional[str],
+        image_name: Optional[str],
+        context_path: str,
+        temporary_dir: Optional[str],
+        platforms: Optional[list[str]],
+        rendered: str,
+        secret_build_args: Optional[list[str]] = None,
+    ) -> DockerImage:
         with NamedTemporaryFile(mode="w", prefix="Dockerfile.", dir=temporary_dir, delete=True) as dockerfile:
             dockerfile.write(rendered)
             dockerfile.flush()
