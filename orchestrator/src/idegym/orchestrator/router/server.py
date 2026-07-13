@@ -46,6 +46,47 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 
+def build_otel_tracing_env(otel_config: OTELConfig) -> list[dict]:
+    """Env vars that forward the orchestrator's tracing config to a spawned env-server pod.
+
+    Returns an empty list when no endpoint is configured. Forwarding an empty
+    ``IDEGYM_OTEL_TRACING_ENDPOINT`` makes the env-server's pydantic ``HttpUrl`` config reject
+    the value and crash-loop the pod (exit 137); see ``TracingConfig`` in ``api/config.py``.
+    """
+    if not otel_config.tracing.enabled:
+        return []
+    return [
+        {
+            "name": "IDEGYM_OTEL_TRACING_ENDPOINT",
+            "value": str(otel_config.tracing.endpoint),
+        },
+        {
+            "name": "IDEGYM_OTEL_TRACING_AUTH_USERNAME",
+            "valueFrom": {
+                "secretKeyRef": {
+                    "name": "tracing",
+                    "key": "username",
+                    "optional": True,
+                }
+            },
+        },
+        {
+            "name": "IDEGYM_OTEL_TRACING_AUTH_PASSWORD",
+            "valueFrom": {
+                "secretKeyRef": {
+                    "name": "tracing",
+                    "key": "password",
+                    "optional": True,
+                }
+            },
+        },
+        {
+            "name": "IDEGYM_OTEL_TRACING_TIMEOUT",
+            "value": str(otel_config.tracing.timeout),
+        },
+    ]
+
+
 @executes_operation_in_background
 @router.post("/api/idegym-servers", status_code=status.HTTP_202_ACCEPTED)
 @handle_server_exceptions(server_operation_description="starting IdeGYM server")
@@ -243,7 +284,7 @@ async def _task_start_server(
             node_pool: NodePoolConfig = config.orchestrator.node_pool
             pod_snapshot: PodSnapshotConfig = config.orchestrator.pod_snapshot
             otel_config: OTELConfig = config.otel
-            environment_variables = (
+            environment_variables = [
                 {
                     "name": "__POD_UID",
                     "valueFrom": {
@@ -285,35 +326,8 @@ async def _task_start_server(
                     'k8s.node.name: "$(__NODE_NAME)" '
                     "}",
                 },
-                {
-                    "name": "IDEGYM_OTEL_TRACING_ENDPOINT",
-                    "value": otel_config.tracing.endpoint,
-                },
-                {
-                    "name": "IDEGYM_OTEL_TRACING_AUTH_USERNAME",
-                    "valueFrom": {
-                        "secretKeyRef": {
-                            "name": "tracing",
-                            "key": "username",
-                            "optional": True,
-                        }
-                    },
-                },
-                {
-                    "name": "IDEGYM_OTEL_TRACING_AUTH_PASSWORD",
-                    "valueFrom": {
-                        "secretKeyRef": {
-                            "name": "tracing",
-                            "key": "password",
-                            "optional": True,
-                        }
-                    },
-                },
-                {
-                    "name": "IDEGYM_OTEL_TRACING_TIMEOUT",
-                    "value": str(otel_config.tracing.timeout),
-                },
-            )
+            ]
+            environment_variables.extend(build_otel_tracing_env(otel_config))
 
             # A caller-supplied ServiceAccount takes precedence over the snapshot one here.
             service_account_name = request.service_account_name or (
