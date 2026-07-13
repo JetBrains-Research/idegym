@@ -88,6 +88,7 @@ class DockerService:
             context_files=compiled.context_files,
             platforms=compiled.platforms,
             dockerfile_content=compiled.dockerfile_content,
+            secret_build_args=compiled.secret_build_args,
         )
 
     def build(
@@ -104,6 +105,7 @@ class DockerService:
         context_files: Optional[dict[str, bytes]] = None,
         platforms: Optional[list[str]] = None,
         dockerfile_content: Optional[str] = None,
+        secret_build_args: Optional[list[str]] = None,
     ) -> DockerImage:
         commands = [] if commands is None else commands
         commands = "\n".join(commands) if isiterable(commands) else commands
@@ -125,6 +127,7 @@ class DockerService:
                 temporary_dir=temporary_dir,
                 platforms=platforms,
                 rendered=rendered,
+                secret_build_args=secret_build_args,
             )
 
     @staticmethod
@@ -153,7 +156,13 @@ class DockerService:
 
         stack.callback(_cleanup)
         for dest, data in context_files.items():
-            target = base / dest
+            # `dest` mirrors a Dockerfile COPY source, so it must stay inside the build context.
+            # Reject absolute paths and any ``..`` segment before joining onto ``base`` so a plugin
+            # cannot escape the context (e.g. ``/etc/passwd`` or ``../../secret``).
+            dest_path = Path(dest)
+            if dest_path.is_absolute() or ".." in dest_path.parts:
+                raise ValueError(f"Context file destination must be a relative path within the build context: {dest!r}")
+            target = base / dest_path
             if target.exists():
                 continue  # already provided by the caller's context; never clobber it
             missing_parents = []
@@ -162,7 +171,9 @@ class DockerService:
                 missing_parents.append(parent)
                 parent = parent.parent
             for directory in reversed(missing_parents):
-                directory.mkdir()
+                # exist_ok tolerates a concurrent builder creating the dir between the exists() walk
+                # above and this mkdir; the dir is still one we intended to create, so track it for cleanup.
+                directory.mkdir(exist_ok=True)
                 created_dirs.append(directory)
             target.write_bytes(data)
             created_files.append(target)
@@ -182,6 +193,7 @@ class DockerService:
         temporary_dir: Optional[str],
         platforms: Optional[list[str]],
         rendered: str,
+        secret_build_args: Optional[list[str]] = None,
     ) -> DockerImage:
         with NamedTemporaryFile(mode="w", prefix="Dockerfile.", dir=temporary_dir, delete=True) as dockerfile:
             dockerfile.write(rendered)
@@ -207,6 +219,15 @@ class DockerService:
                 )
             if image_base is not None:
                 build_args["IDEGYM_BASE"] = image_base
+
+            # Forward build-time secrets (e.g. private-plugin tokens) from the builder's
+            # environment. Only names travel in the spec; values are resolved here and used
+            # as build args, so they never persist in an image layer. Empty values are
+            # skipped (matching the Kaniko path) — an empty credential is never useful.
+            for name in secret_build_args or []:
+                value = env.get(name)
+                if value:
+                    build_args[name] = value
 
             build_args = {k: v for k, v in build_args.items() if v is not None}
             logs: Iterable[str] = self._client.build(

@@ -9,9 +9,9 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "anyio>=4.8.0",
-    "dependency-injector>=4.46.0",
-    "fastapi[standard]>=0.135.2",
+    "anyio>=4.14.1",
+    "dependency-injector>=4.49.1",
+    "fastapi[standard]>=0.139.0",
     "fastmcp>=3.3.1",
     "idegym-api",
     "idegym-backend-utils",
@@ -23,7 +23,7 @@ dependencies = [
     "opentelemetry-instrumentation-fastapi>=0.57b0",
     "opentelemetry-instrumentation-httpx>=0.57b0",
     "opentelemetry-instrumentation-system-metrics>=0.57b0",
-    "uvicorn>=0.35.0",
+    "uvicorn>=0.50.1",
 ]
 
 [build-system]

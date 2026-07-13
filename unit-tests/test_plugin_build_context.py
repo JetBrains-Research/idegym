@@ -3,8 +3,8 @@
 Covers the mechanism that lets plugin authors build idea/pycharm images without a checkout
 of the idegym repo: assets ship in the wheel and are resolved by ``plugin_asset()``, declared
 by each plugin's ``get_context_files()``, collected onto ``ImageBuildSpec.context_files``,
-staged into a temp context by the local build driver, and resolved via a git checkout by the
-Kaniko path.
+staged in place into the caller's build context (and cleaned up) by the local build driver, and
+resolved via a git checkout by the Kaniko path.
 """
 
 import re
@@ -165,3 +165,13 @@ def test_stage_context_files_preserves_preexisting_parent_dirs(tmp_path):
         DockerService._stage_context_files(str(tmp_path), {"plugins/idea/scripts/x.sh": b"asset"}, stack)
     assert not (tmp_path / "plugins" / "idea").exists()  # created subtree pruned
     assert (tmp_path / "plugins" / "keep.txt").read_text() == "keep"  # pre-existing dir kept
+
+
+@pytest.mark.parametrize("dest", ["/etc/passwd", "../escape.sh", "plugins/../../escape.sh"])
+def test_stage_context_files_rejects_paths_escaping_the_context(tmp_path, dest):
+    # A destination must stay inside the build context: absolute paths or `..` are rejected
+    # before any write, so a plugin cannot clobber files outside the caller's context.
+    with ExitStack() as stack:
+        with pytest.raises(ValueError, match="relative path within the build context"):
+            DockerService._stage_context_files(str(tmp_path), {dest: b"asset"}, stack)
+    assert list(tmp_path.iterdir()) == []  # nothing written

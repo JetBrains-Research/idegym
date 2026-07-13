@@ -4,7 +4,13 @@ from importlib.resources.abc import Traversable
 from typing import Optional
 
 from idegym.api.plugin import BuildContext, PluginBase, image_plugin
-from idegym.plugins.plugin_utils import check_linux_id, ide_context_files
+from idegym.plugins.plugin_utils import (
+    PluginSource,
+    check_linux_id,
+    external_plugin_build_secrets,
+    ide_context_files,
+    render_external_plugins,
+)
 from jinja2 import BaseLoader, Environment
 from pydantic import field_validator
 
@@ -76,6 +82,11 @@ class Idea(PluginBase):
         mcp_steroid_version: mcp-steroid version to install. Format: ``X.Y`` or
             ``X.Y.Z``, optionally with a ``-HASH`` suffix (e.g. ``0.94.0-8682a5ce`` or
             ``0.100-409f23a2``). Defaults to the latest tested version.
+        external_plugins: Extra plugins to bake into ``${IDE_DIR}/plugins`` at build time,
+            in order. Each :class:`PluginSource` names a ``.zip`` URL; set ``auth_env`` for
+            downloads behind authentication (the credential is read from that build-time
+            env var and never persisted into an image layer or build log). Installed after
+            mcp-steroid so they load alongside the bundled plugins.
         user: User to switch back to after installation. Defaults to ``ctx.current_user``.
     """
 
@@ -83,6 +94,7 @@ class Idea(PluginBase):
     open_project: bool = True
     mcp_steroid: bool = False
     mcp_steroid_version: str = "0.94.0-8682a5ce"
+    external_plugins: tuple[PluginSource, ...] = ()
     user: Optional[str] = None
 
     @field_validator("version")
@@ -107,6 +119,9 @@ class Idea(PluginBase):
         if v is not None:
             check_linux_id(v, "user")
         return v
+
+    def get_build_secrets(self, ctx: BuildContext) -> list[str]:
+        return external_plugin_build_secrets(self.external_plugins)
 
     def get_mcp_upstream(self, ctx: BuildContext) -> Optional[str]:
         if self.mcp_steroid:
@@ -151,6 +166,9 @@ class Idea(PluginBase):
                     plugins_dir="${IDE_DIR}/plugins",
                 )
             )
+
+        if self.external_plugins:
+            parts.append(render_external_plugins(self.external_plugins, plugins_dir="${IDE_DIR}/plugins"))
 
         if install_plugin:
             parts.append(

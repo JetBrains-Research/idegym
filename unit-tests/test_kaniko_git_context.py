@@ -4,12 +4,12 @@ from types import SimpleNamespace
 
 import pytest
 from idegym.api.image_build import ImageBuildSpec
-from idegym.backend.utils.kubernetes_client import build_and_push_image_with_kaniko
-from idegym.orchestrator.kaniko_docker_api import (
-    IdeGYMKanikoDockerAPI,
+from idegym.backend.utils.image_builder.kaniko import (
+    KanikoImageBuilder,
     _kaniko_git_context,
     _kaniko_git_ref,
 )
+from idegym.backend.utils.kubernetes_client import build_and_push_image_with_kaniko
 
 pytestmark = pytest.mark.unit
 
@@ -83,26 +83,25 @@ async def test_kaniko_uses_supplied_git_context(mocker):
     assert "--dockerfile=/workspace/Dockerfile" in args  # generated Dockerfile still from the mount
 
 
-# --- orchestrator picks the git context only for images with COPY assets ---------------
+# --- the Kaniko builder picks the git context only for images with COPY assets ---------
 
 
 async def _single_image_context(mocker, context_files):
-    api = IdeGYMKanikoDockerAPI(namespace="idegym")
+    builder = KanikoImageBuilder()
     build = mocker.patch(
-        "idegym.orchestrator.kaniko_docker_api.build_and_push_image_with_kaniko",
+        "idegym.backend.utils.image_builder.kaniko.build_and_push_image_with_kaniko",
         new=mocker.AsyncMock(return_value="kaniko-1"),
     )
-    mocker.patch.object(api, "monitor_image_building_job", new=mocker.AsyncMock())
     spec = ImageBuildSpec(name="img", dockerfile_content="FROM scratch", context_files=context_files)
-    await api.build_and_push_single_image(spec)
+    await builder.submit_build("reg/img:v", spec, namespace="idegym", service_version="1.2.3")
     return build.await_args.kwargs["context"]
 
 
-async def test_orchestrator_uses_git_context_for_images_with_assets(mocker):
+async def test_kaniko_builder_uses_git_context_for_images_with_assets(mocker):
     context = await _single_image_context(mocker, {"plugins/idea/scripts/x.sh": b"asset"})
     assert context is not None
     assert context.startswith("git://github.com/JetBrains-Research/idegym.git#")
 
 
-async def test_orchestrator_keeps_default_context_for_plain_images(mocker):
+async def test_kaniko_builder_keeps_default_context_for_plain_images(mocker):
     assert await _single_image_context(mocker, {}) is None

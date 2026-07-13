@@ -1,0 +1,2413 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "IdeGYM Orchestrator API",
+    "description": "REST API for the IdeGYM orchestrator: client registration, server lifecycle, in-cluster image builds, request forwarding, async operations, and pod snapshots.",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/clients/heartbeat": {
+      "post": {
+        "summary": "Accept Client Heartbeat",
+        "operationId": "accept_client_heartbeat_api_clients_heartbeat_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendClientHeartbeatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/clients": {
+      "post": {
+        "summary": "Register Client",
+        "operationId": "register_client_api_clients_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterClientRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Stop Client",
+        "operationId": "stop_client_api_clients_delete",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StopClientRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/clients/finish": {
+      "post": {
+        "summary": "Finish Client",
+        "operationId": "finish_client_api_clients_finish_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FinishClientRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/idegym-servers": {
+      "post": {
+        "summary": "Start Server",
+        "operationId": "start_server_api_idegym_servers_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartServerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Stop Server",
+        "operationId": "stop_server_api_idegym_servers_delete",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StopServerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/idegym-servers/finish": {
+      "post": {
+        "summary": "Finish Server",
+        "operationId": "finish_server_api_idegym_servers_finish_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FinishServerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/idegym-servers/{server_id}/capabilities": {
+      "get": {
+        "summary": "Get Server Capabilities",
+        "operationId": "get_server_capabilities_api_idegym_servers__server_id__capabilities_get",
+        "parameters": [
+          {
+            "name": "server_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Server Id"
+            }
+          },
+          {
+            "name": "client_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Client Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/idegym-servers/restart": {
+      "post": {
+        "summary": "Restart Server",
+        "operationId": "restart_server_api_idegym_servers_restart_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestartServerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/build-push-images": {
+      "post": {
+        "summary": "Build And Push",
+        "description": "Build Docker images from a YAML file using Kaniko in Kubernetes.",
+        "operationId": "build_and_push_api_build_push_images_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BuildFromYamlRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/status/{job_name}": {
+      "get": {
+        "summary": "Get Job Status By Name",
+        "description": "Get job status and tag by job name.",
+        "operationId": "get_job_status_by_name_api_jobs_status__job_name__get",
+        "parameters": [
+          {
+            "name": "job_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/forward/{client_id}/{server_id}/{path}": {
+      "delete": {
+        "summary": "Forward Request By Server Id",
+        "operationId": "forward_request_by_server_id_api_forward__client_id___server_id___path__delete",
+        "parameters": [
+          {
+            "name": "client_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Client Id"
+            }
+          },
+          {
+            "name": "server_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Server Id"
+            }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Path"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "Forward Request By Server Id",
+        "operationId": "forward_request_by_server_id_api_forward__client_id___server_id___path__delete",
+        "parameters": [
+          {
+            "name": "client_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Client Id"
+            }
+          },
+          {
+            "name": "server_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Server Id"
+            }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Path"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Forward Request By Server Id",
+        "operationId": "forward_request_by_server_id_api_forward__client_id___server_id___path__delete",
+        "parameters": [
+          {
+            "name": "client_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Client Id"
+            }
+          },
+          {
+            "name": "server_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Server Id"
+            }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Path"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "summary": "Forward Request By Server Id",
+        "operationId": "forward_request_by_server_id_api_forward__client_id___server_id___path__delete",
+        "parameters": [
+          {
+            "name": "client_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Client Id"
+            }
+          },
+          {
+            "name": "server_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Server Id"
+            }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Path"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Forward Request By Server Id",
+        "operationId": "forward_request_by_server_id_api_forward__client_id___server_id___path__delete",
+        "parameters": [
+          {
+            "name": "client_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Client Id"
+            }
+          },
+          {
+            "name": "server_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Server Id"
+            }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Path"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "head": {
+        "summary": "Forward Request By Server Id",
+        "operationId": "forward_request_by_server_id_api_forward__client_id___server_id___path__delete",
+        "parameters": [
+          {
+            "name": "client_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Client Id"
+            }
+          },
+          {
+            "name": "server_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Server Id"
+            }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Path"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "options": {
+        "summary": "Forward Request By Server Id",
+        "operationId": "forward_request_by_server_id_api_forward__client_id___server_id___path__delete",
+        "parameters": [
+          {
+            "name": "client_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Client Id"
+            }
+          },
+          {
+            "name": "server_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Server Id"
+            }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Path"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/operations/status/{operation_id}": {
+      "get": {
+        "summary": "Get Operation Status",
+        "description": "Check status of an async operation.",
+        "operationId": "get_operation_status_api_operations_status__operation_id__get",
+        "parameters": [
+          {
+            "name": "operation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Operation Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/idegym-servers/snapshot": {
+      "post": {
+        "summary": "Create Snapshot",
+        "operationId": "create_snapshot_api_idegym_servers_snapshot_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSnapshotRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/snapshots/prepare": {
+      "post": {
+        "summary": "Prepare Snapshots",
+        "description": "Accept a batch of start-server requests, prepare a snapshot for each independently.",
+        "operationId": "prepare_snapshots_api_snapshots_prepare_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrepareSnapshotsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/snapshots/prepare/{request_id}": {
+      "get": {
+        "summary": "Get Prepare Snapshots Status",
+        "description": "Poll the status of a batch snapshot prepare request.",
+        "operationId": "get_prepare_snapshots_status_api_snapshots_prepare__request_id__get",
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Request Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/snapshots/jobs/{job_id}": {
+      "get": {
+        "summary": "Get Snapshot Job Status",
+        "description": "Poll the status of a snapshot pipeline job by its job ID.",
+        "operationId": "get_snapshot_job_status_api_snapshots_jobs__job_id__get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/snapshots/exists": {
+      "get": {
+        "summary": "Check Snapshot Exists",
+        "description": "Check whether a snapshot exists for the given server configuration.",
+        "operationId": "check_snapshot_exists_api_snapshots_exists_get",
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "idegym",
+              "title": "Namespace"
+            }
+          },
+          {
+            "name": "image_tag",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 383,
+              "pattern": "^[a-z0-9._/:@-]+$",
+              "title": "Image Tag"
+            }
+          },
+          {
+            "name": "server_name",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 63,
+              "pattern": "^[a-z]([-a-z0-9]*[a-z0-9])?$",
+              "default": "default-idegym-server",
+              "title": "Server Name"
+            }
+          },
+          {
+            "name": "runtime_class_name",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Runtime Class Name"
+            }
+          },
+          {
+            "name": "run_as_root",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Run As Root"
+            }
+          },
+          {
+            "name": "server_kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ServerKind",
+              "default": "idegym"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AvailabilityStatus": {
+        "type": "string",
+        "enum": [
+          "ALIVE",
+          "FINISHED",
+          "REUSED",
+          "FAILED_TO_START",
+          "STOPPED",
+          "KILLED",
+          "CRASHED",
+          "DELETION_FAILED",
+          "RESTART_FAILED"
+        ],
+        "title": "AvailabilityStatus"
+      },
+      "BuildFromYamlRequest": {
+        "properties": {
+          "namespace": {
+            "type": "string",
+            "title": "Namespace",
+            "description": "Kubernetes namespace for the image build jobs",
+            "default": "idegym"
+          },
+          "yaml_content": {
+            "type": "string",
+            "title": "Yaml Content",
+            "description": "YAML content containing image build job definitions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "yaml_content"
+        ],
+        "title": "BuildFromYamlRequest"
+      },
+      "ConfigMapEnvSource": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "optional": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Optional"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "ConfigMapEnvSource",
+        "description": "Maps to ``V1ConfigMapEnvSource``."
+      },
+      "ConfigMapVolumeSource": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "items": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Items"
+          },
+          "defaultMode": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Defaultmode"
+          },
+          "optional": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Optional"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "ConfigMapVolumeSource",
+        "description": "Maps to ``V1ConfigMapVolumeSource``."
+      },
+      "CreateSnapshotRequest": {
+        "properties": {
+          "client_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Client Id",
+            "description": "UUID of the client that owns the server being snapshotted"
+          },
+          "server_id": {
+            "type": "integer",
+            "title": "Server Id",
+            "description": "Numeric IdeGYM server ID that should be snapshotted"
+          },
+          "namespace": {
+            "type": "string",
+            "title": "Namespace",
+            "description": "Kubernetes namespace the server runs in",
+            "default": "idegym"
+          }
+        },
+        "type": "object",
+        "required": [
+          "client_id",
+          "server_id"
+        ],
+        "title": "CreateSnapshotRequest"
+      },
+      "EmptyDirVolumeSource": {
+        "properties": {
+          "medium": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Medium"
+          },
+          "sizeLimit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sizelimit"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "EmptyDirVolumeSource",
+        "description": "Maps to ``V1EmptyDirVolumeSource``."
+      },
+      "FinishClientRequest": {
+        "properties": {
+          "client_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Client Id",
+            "description": "UUID of the client"
+          },
+          "namespace": {
+            "type": "string",
+            "title": "Namespace",
+            "description": "Kubernetes namespace containing the client servers",
+            "default": "idegym"
+          }
+        },
+        "type": "object",
+        "required": [
+          "client_id"
+        ],
+        "title": "FinishClientRequest"
+      },
+      "FinishServerRequest": {
+        "properties": {
+          "client_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Client Id",
+            "description": "UUID of the client that owns the server"
+          },
+          "namespace": {
+            "type": "string",
+            "title": "Namespace",
+            "description": "Kubernetes namespace containing the server",
+            "default": "idegym"
+          },
+          "server_id": {
+            "type": "integer",
+            "title": "Server Id",
+            "description": "Numeric IdeGYM server ID"
+          }
+        },
+        "type": "object",
+        "required": [
+          "client_id",
+          "server_id"
+        ],
+        "title": "FinishServerRequest"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "KubernetesEnvFromSource": {
+        "properties": {
+          "prefix": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prefix"
+          },
+          "secretRef": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SecretEnvSource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "configMapRef": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConfigMapEnvSource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "KubernetesEnvFromSource",
+        "description": "Bulk environment import for the server container (maps to ``V1EnvFromSource``)."
+      },
+      "KubernetesHostAlias": {
+        "properties": {
+          "ip": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ip"
+          },
+          "hostnames": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hostnames"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "KubernetesHostAlias",
+        "description": "Maps to ``V1HostAlias``."
+      },
+      "KubernetesPodOverrides": {
+        "properties": {
+          "tolerations": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/KubernetesToleration"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tolerations"
+          },
+          "hostAliases": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/KubernetesHostAlias"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hostaliases"
+          },
+          "nodeSelector": {
+            "anyOf": [
+              {
+                "patternProperties": {
+                  "^([a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?/)?[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?$": {
+                    "type": "string",
+                    "maxLength": 63,
+                    "pattern": "^([a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?)?$"
+                  }
+                },
+                "propertyNames": {
+                  "maxLength": 317,
+                  "minLength": 1
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nodeselector"
+          },
+          "runtimeClassName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runtimeclassname"
+          },
+          "priorityClassName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Priorityclassname"
+          },
+          "schedulerName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schedulername"
+          },
+          "terminationGracePeriodSeconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Terminationgraceperiodseconds"
+          },
+          "automountServiceAccountToken": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Automountserviceaccounttoken"
+          },
+          "restartPolicy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Restartpolicy"
+          },
+          "dnsPolicy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dnspolicy"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "KubernetesPodOverrides",
+        "description": "Partial pod spec deep-merged into the generated one (maps to ``V1PodSpec``).\n\nCommon pod-level fields are typed below; anything else (``affinity``, ``securityContext``,\n``dnsConfig``, sidecar ``containers``, ...) may be supplied as extra camelCase keys and is\nforwarded verbatim. Applied last, so it takes precedence over the dedicated request fields on\nkey overlap (scalars override, list fields concatenate); the managed server container cannot\nbe replaced through it."
+      },
+      "KubernetesResources": {
+        "properties": {
+          "requests": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResourceQuantities"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "limits": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResourceQuantities"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "title": "KubernetesResources",
+        "description": "Kubernetes resource requirements for pods."
+      },
+      "KubernetesToleration": {
+        "properties": {
+          "key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key"
+          },
+          "operator": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operator"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "effect": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effect"
+          },
+          "tolerationSeconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tolerationseconds"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "KubernetesToleration",
+        "description": "Maps to ``V1Toleration``."
+      },
+      "KubernetesVolume": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "secret": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SecretVolumeSource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "configMap": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConfigMapVolumeSource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "emptyDir": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EmptyDirVolumeSource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "persistentVolumeClaim": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersistentVolumeClaimVolumeSource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "KubernetesVolume",
+        "description": "A pod-level volume (maps to ``V1Volume``); set exactly one source.\n\nCommon sources are typed below; others (``csi``, ``projected``, ``hostPath``,\n``downwardAPI``, ...) may be passed as extra camelCase keys and are forwarded as-is."
+      },
+      "KubernetesVolumeMount": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "mountPath": {
+            "type": "string",
+            "title": "Mountpath"
+          },
+          "readOnly": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Readonly"
+          },
+          "subPath": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subpath"
+          },
+          "subPathExpr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subpathexpr"
+          },
+          "mountPropagation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mountpropagation"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "name",
+          "mountPath"
+        ],
+        "title": "KubernetesVolumeMount",
+        "description": "A container volume mount (maps to ``V1VolumeMount``)."
+      },
+      "PersistentVolumeClaimVolumeSource": {
+        "properties": {
+          "claimName": {
+            "type": "string",
+            "title": "Claimname"
+          },
+          "readOnly": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Readonly"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "claimName"
+        ],
+        "title": "PersistentVolumeClaimVolumeSource",
+        "description": "Maps to ``V1PersistentVolumeClaimVolumeSource``."
+      },
+      "PrepareSnapshotsRequest": {
+        "properties": {
+          "requests": {
+            "items": {
+              "$ref": "#/components/schemas/StartServerRequest"
+            },
+            "type": "array",
+            "title": "Requests",
+            "description": "List of start server requests to prepare snapshots for"
+          }
+        },
+        "type": "object",
+        "required": [
+          "requests"
+        ],
+        "title": "PrepareSnapshotsRequest"
+      },
+      "RegisterClientRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "Human-readable name for the client"
+          },
+          "nodes_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Nodes Count",
+            "description": "Number of nodes to spin up for the client",
+            "default": 0
+          },
+          "namespace": {
+            "type": "string",
+            "title": "Namespace",
+            "description": "Kubernetes namespace for the client and its servers",
+            "default": "idegym"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "RegisterClientRequest"
+      },
+      "ResourceQuantities": {
+        "properties": {
+          "cpu": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "CPU quantity in cores or millicores (e.g. '500m', '1', '2.5')",
+                "examples": [
+                  "100m",
+                  "250m",
+                  "500m",
+                  "1",
+                  "1500m",
+                  "2"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cpu"
+          },
+          "memory": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "Kubernetes memory/storage quantity (e.g. '256Mi', '1Gi')",
+                "examples": [
+                  "128Mi",
+                  "256Mi",
+                  "1Gi",
+                  "2Gi",
+                  "4Ti"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memory"
+          },
+          "ephemeral-storage": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "Kubernetes memory/storage quantity (e.g. '256Mi', '1Gi')",
+                "examples": [
+                  "128Mi",
+                  "256Mi",
+                  "1Gi",
+                  "2Gi",
+                  "4Ti"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ephemeral-Storage"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ResourceQuantities",
+        "description": "A set of resource quantities keyed by resource type."
+      },
+      "RestartServerRequest": {
+        "properties": {
+          "client_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Client Id",
+            "description": "UUID of the client that owns the server"
+          },
+          "namespace": {
+            "type": "string",
+            "title": "Namespace",
+            "description": "Kubernetes namespace containing the server",
+            "default": "idegym"
+          },
+          "server_id": {
+            "type": "integer",
+            "title": "Server Id",
+            "description": "Numeric IdeGYM server ID"
+          },
+          "server_start_wait_timeout_in_seconds": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Server Start Wait Timeout In Seconds",
+            "description": "Seconds to wait for server readiness after restart",
+            "default": 60
+          }
+        },
+        "type": "object",
+        "required": [
+          "client_id",
+          "server_id"
+        ],
+        "title": "RestartServerRequest"
+      },
+      "SecretEnvSource": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "optional": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Optional"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "SecretEnvSource",
+        "description": "Maps to ``V1SecretEnvSource``."
+      },
+      "SecretVolumeSource": {
+        "properties": {
+          "secretName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Secretname"
+          },
+          "items": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Items"
+          },
+          "defaultMode": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Defaultmode"
+          },
+          "optional": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Optional"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "SecretVolumeSource",
+        "description": "Maps to ``V1SecretVolumeSource``."
+      },
+      "SendClientHeartbeatRequest": {
+        "properties": {
+          "client_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Client Id"
+          },
+          "availability": {
+            "$ref": "#/components/schemas/AvailabilityStatus",
+            "default": "ALIVE"
+          }
+        },
+        "type": "object",
+        "required": [
+          "client_id"
+        ],
+        "title": "SendClientHeartbeatRequest"
+      },
+      "ServerKind": {
+        "type": "string",
+        "enum": [
+          "idegym",
+          "openenv"
+        ],
+        "title": "ServerKind"
+      },
+      "ServerReuseStrategy": {
+        "type": "string",
+        "enum": [
+          "NONE",
+          "RESTART",
+          "RESET"
+        ],
+        "title": "ServerReuseStrategy"
+      },
+      "SnapshotRef": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "ID of the server whose snapshot group to restore from. GKE restores the latest snapshot in the group unless a specific tag is given."
+          },
+          "tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tag",
+            "description": "GKE PodSnapshot resource name of a specific snapshot to restore (the snapshot_tag reported when the snapshot was created), passed through as the 'podsnapshot.gke.io/ps-name' pod annotation. Leave empty to restore the latest snapshot in the group."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "title": "SnapshotRef",
+        "description": "GKE-only reference to a pod snapshot to restore a server from."
+      },
+      "StartServerRequest": {
+        "properties": {
+          "client_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Client Id",
+            "description": "UUID of the client that will own the server"
+          },
+          "namespace": {
+            "type": "string",
+            "title": "Namespace",
+            "description": "Kubernetes namespace where the server should run",
+            "default": "idegym"
+          },
+          "image_tag": {
+            "type": "string",
+            "maxLength": 383,
+            "minLength": 1,
+            "pattern": "^[a-z0-9._/:@-]+$",
+            "title": "Image Tag",
+            "description": "OCI image to deploy as the server",
+            "examples": [
+              "registry.example.com/my-env:latest"
+            ]
+          },
+          "server_name": {
+            "type": "string",
+            "maxLength": 63,
+            "minLength": 1,
+            "pattern": "^[a-z]([-a-z0-9]*[a-z0-9])?$",
+            "title": "Server Name",
+            "description": "Logical server name used as the Kubernetes resource name prefix and for matching reusable servers",
+            "default": "default-idegym-server",
+            "examples": [
+              "my-server",
+              "echo-env-server"
+            ]
+          },
+          "runtime_class_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runtime Class Name",
+            "description": "Kubernetes RuntimeClass for the server pod, for example \"gvisor\" for sandboxing",
+            "examples": [
+              "gvisor"
+            ]
+          },
+          "run_as_root": {
+            "type": "boolean",
+            "title": "Run As Root",
+            "description": "Run the server container as UID 0",
+            "default": false
+          },
+          "service_port": {
+            "type": "integer",
+            "maximum": 65535.0,
+            "minimum": 0.0,
+            "title": "Service Port",
+            "description": "Port exposed by the Kubernetes Service",
+            "default": 80,
+            "examples": [
+              80,
+              8000
+            ]
+          },
+          "container_port": {
+            "type": "integer",
+            "maximum": 65535.0,
+            "minimum": 0.0,
+            "title": "Container Port",
+            "description": "Port the server container listens on",
+            "default": 8000,
+            "examples": [
+              8000
+            ]
+          },
+          "resources": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/KubernetesResources"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Kubernetes resource requirements as requests/limits dictionaries",
+            "examples": [
+              {
+                "limits": {
+                  "cpu": "1",
+                  "memory": "1Gi"
+                },
+                "requests": {
+                  "cpu": "500m",
+                  "memory": "512Mi"
+                }
+              }
+            ]
+          },
+          "node_selector": {
+            "anyOf": [
+              {
+                "patternProperties": {
+                  "^([a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?/)?[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?$": {
+                    "type": "string",
+                    "maxLength": 63,
+                    "pattern": "^([a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?)?$"
+                  }
+                },
+                "propertyNames": {
+                  "maxLength": 317,
+                  "minLength": 1
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Selector",
+            "description": "Kubernetes node selector labels for scheduling the server pod",
+            "examples": [
+              {
+                "kubernetes.io/os": "linux"
+              }
+            ]
+          },
+          "volumes": {
+            "items": {
+              "$ref": "#/components/schemas/KubernetesVolume"
+            },
+            "type": "array",
+            "title": "Volumes",
+            "description": "Pod-level volumes (native Kubernetes shape), mounted into the server container via 'volume_mounts'",
+            "examples": [
+              [
+                {
+                  "name": "agent-creds",
+                  "secret": {
+                    "secretName": "agent-creds"
+                  }
+                }
+              ]
+            ]
+          },
+          "volume_mounts": {
+            "items": {
+              "$ref": "#/components/schemas/KubernetesVolumeMount"
+            },
+            "type": "array",
+            "title": "Volume Mounts",
+            "description": "Volume mounts added to the server container (native Kubernetes shape)",
+            "examples": [
+              [
+                {
+                  "mountPath": "/etc/creds",
+                  "name": "agent-creds",
+                  "readOnly": true
+                }
+              ]
+            ]
+          },
+          "env_from": {
+            "items": {
+              "$ref": "#/components/schemas/KubernetesEnvFromSource"
+            },
+            "type": "array",
+            "title": "Env From",
+            "description": "envFrom sources (secretRef/configMapRef) imported into the server container as env vars",
+            "examples": [
+              [
+                {
+                  "secretRef": {
+                    "name": "agent-creds"
+                  }
+                }
+              ]
+            ]
+          },
+          "service_account_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Service Account Name",
+            "description": "ServiceAccount for the server pod. Ignored during snapshot preparation, where the configured snapshot ServiceAccount takes precedence.",
+            "examples": [
+              "agent-runner"
+            ]
+          },
+          "pod_overrides": {
+            "$ref": "#/components/schemas/KubernetesPodOverrides",
+            "description": "Partial V1PodSpec deep-merged into the generated pod spec. Escape hatch for pod-level fields without a dedicated option, e.g. tolerations, hostAliases, dnsConfig, or pod-level securityContext. Applied last, so for any overlapping key it takes precedence over the dedicated fields above (scalars overridden, list fields concatenated). Two invariants are enforced: it may not set serviceAccountName (use service_account_name), and it may add sidecar containers but not replace the managed 'server' container.",
+            "examples": [
+              {
+                "tolerations": [
+                  {
+                    "effect": "NoSchedule",
+                    "key": "dedicated",
+                    "operator": "Exists"
+                  }
+                ]
+              }
+            ]
+          },
+          "server_start_wait_timeout_in_seconds": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Server Start Wait Timeout In Seconds",
+            "description": "How long to wait in seconds for the server pod to become ready",
+            "default": 60,
+            "examples": [
+              60,
+              120
+            ]
+          },
+          "reuse_strategy": {
+            "$ref": "#/components/schemas/ServerReuseStrategy",
+            "description": "What to do if a server with this name already exists: NONE recreates from scratch, RESTART restarts it, RESET resets project state.",
+            "default": "RESET"
+          },
+          "server_kind": {
+            "$ref": "#/components/schemas/ServerKind",
+            "description": "Server type: \"idegym\" or \"openenv\"",
+            "default": "idegym"
+          },
+          "snapshot": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SnapshotRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "GKE ONLY: restore the server from a pod snapshot [Look at the README]. Provide the snapshot group id, and optionally a specific snapshot tag. Leave empty to start a fresh server."
+          },
+          "max_restarts": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Max Restarts",
+            "description": "Pod restarts tolerated before the server is marked CRASHED and torn down by the watcher. 0 (default) gives up on the first crash, which surfaces the failure reason to the client instead of looping restarts. Increase to allow transient crashes to self-heal.",
+            "default": 0,
+            "examples": [
+              0,
+              3
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "client_id",
+          "image_tag"
+        ],
+        "title": "StartServerRequest"
+      },
+      "StopClientRequest": {
+        "properties": {
+          "client_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Client Id",
+            "description": "UUID of the client"
+          },
+          "namespace": {
+            "type": "string",
+            "title": "Namespace",
+            "description": "Kubernetes namespace containing the client servers",
+            "default": "idegym"
+          }
+        },
+        "type": "object",
+        "required": [
+          "client_id"
+        ],
+        "title": "StopClientRequest"
+      },
+      "StopServerRequest": {
+        "properties": {
+          "client_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Client Id",
+            "description": "UUID of the client that owns the server"
+          },
+          "namespace": {
+            "type": "string",
+            "title": "Namespace",
+            "description": "Kubernetes namespace containing the server",
+            "default": "idegym"
+          },
+          "server_id": {
+            "type": "integer",
+            "title": "Server Id",
+            "description": "Numeric IdeGYM server ID"
+          }
+        },
+        "type": "object",
+        "required": [
+          "client_id",
+          "server_id"
+        ],
+        "title": "StopServerRequest"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

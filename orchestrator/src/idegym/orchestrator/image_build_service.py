@@ -1,4 +1,3 @@
-import re
 from asyncio import create_task, sleep, timeout
 from os import environ as env
 from pathlib import Path
@@ -7,7 +6,7 @@ from uuid import uuid4
 
 from idegym.api.image_build import ImageBuildSpec
 from idegym.api.status import Status
-from idegym.backend.utils.kubernetes_client import build_and_push_image_with_kaniko, get_job_status
+from idegym.backend.utils.image_builder import BuildHandle, ImageBuilder
 from idegym.image.builder import Image
 from idegym.orchestrator.database.database import get_db_session, save_job_status, update_job_status
 from idegym.utils import __version__
@@ -18,51 +17,28 @@ logger = get_logger(__name__)
 
 __DOCKER_REPOSITORY__ = env.get("DOCKER_REGISTRY", "ghcr.io/jetbrains-research/idegym")
 
-# Default git repository (without scheme) that Kaniko checks out as the build context for images
-# whose Dockerfile COPYs files from the idegym repo (idea/pycharm plugins). Overridable for forks
-# or air-gapped mirrors via IDEGYM_KANIKO_CONTEXT_GIT_URL / IDEGYM_KANIKO_CONTEXT_GIT_REF.
-__KANIKO_CONTEXT_GIT_URL__ = "github.com/JetBrains-Research/idegym.git"
 
+class ImageBuildService:
+    """Builder-agnostic orchestration of image builds.
 
-# A clean release version like "1.2.3" maps to the tag "v1.2.3"; anything else (dev builds,
-# "latest", PEP 440 dev/local segments like "1.2.3.dev5+gabc") has no matching tag, so fall back
-# to the main branch rather than cloning a nonexistent ref.
-_RELEASE_VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
-
-
-def _kaniko_git_ref(version: str) -> str:
-    """Map the orchestrator version to a git ref: a release tag, else the main branch.
-
-    Cloning the repo at the orchestrator's OWN version keeps the checkout in sync with the
-    same-version plugin code that generated the Dockerfile.
+    Owns the parts shared across backends — tag/version construction, persisting build
+    status to the DB, and the polling loop — and delegates the actual build to an injected
+    `ImageBuilder`. The backend-specific `BuildHandle` is kept in memory for
+    the monitoring task; only ``handle.name`` is persisted (as ``JobStatusRecord.job_name``)
+    and returned to clients.
     """
-    override = env.get("IDEGYM_KANIKO_CONTEXT_GIT_REF")
-    if override:
-        return override
-    if _RELEASE_VERSION_RE.match(version):
-        return f"refs/tags/v{version}"
-    return "refs/heads/main"
 
-
-def _kaniko_git_context(version: str) -> str:
-    url = env.get("IDEGYM_KANIKO_CONTEXT_GIT_URL", __KANIKO_CONTEXT_GIT_URL__)
-    return f"git://{url}#{_kaniko_git_ref(version)}"
-
-
-class IdeGYMKanikoDockerAPI:
     def __init__(
         self,
+        builder: ImageBuilder,
         namespace: str = "idegym",
-        job_timeout: float = 2400,
-        insecure_registry: bool = False,
-        node_pool_taint_key: Optional[str] = None,
-        node_pool_preference_weight: int = 100,
+        job_timeout: Optional[float] = None,
     ):
+        self._builder = builder
         self._namespace = namespace
-        self._job_timeout = job_timeout
-        self._insecure_registry = insecure_registry
-        self._node_pool_taint_key = node_pool_taint_key
-        self._node_pool_preference_weight = node_pool_preference_weight
+        # Default the monitor timeout to whatever the backend advertises so a backend with a
+        # configurable build timeout (e.g. Cloud Build) is not cut off prematurely.
+        self._job_timeout = job_timeout if job_timeout is not None else builder.monitor_timeout()
 
     async def build_and_push_single_image(
         self,
@@ -80,57 +56,33 @@ class IdeGYMKanikoDockerAPI:
         tag = f"{registry}/{image_name}:{spec.image_version()}"
         idegym_version = env.get("IDEGYM_VERSION") or __version__
 
-        # Images that COPY files from the idegym repo (idea/pycharm plugins) declare context
-        # files; give Kaniko a git checkout of the repo at this version so the COPY paths
-        # resolve. Plain download/inline builds keep the default Dockerfile-only context.
-        context = _kaniko_git_context(idegym_version) if spec.context_files else None
-
         logger.info(f"Building image: {tag}")
-        if context is not None:
-            logger.info(f"Using Kaniko git build context: {context}")
         if spec.request is not None:
             logger.info(f"Download request: {spec.request.descriptor.url}, {spec.request.descriptor.name}")
 
-        resources = (
-            spec.resources.model_dump(
-                by_alias=True,
-                exclude_none=True,
-            )
-            if spec.resources
-            else None
-        )
-
-        job_name = await build_and_push_image_with_kaniko(
-            request=spec.request,
-            tag=tag,
-            service_version=idegym_version,
-            dockerfile_content=spec.dockerfile_content,
-            labels=spec.labels,
+        handle = await self._builder.submit_build(
+            tag,
+            spec,
             namespace=self._namespace,
-            ttl_seconds_after_finished=300,
-            runtime_class_name=spec.runtime_class_name,
-            resources=resources,
-            insecure_registry=self._insecure_registry,
-            node_pool_taint_key=self._node_pool_taint_key,
-            node_pool_preference_weight=self._node_pool_preference_weight,
-            context=context,
+            service_version=idegym_version,
         )
 
-        create_task(self.monitor_image_building_job(job_name, tag, request_id))
+        create_task(self.monitor_image_building_job(handle, tag, request_id))
 
-        return job_name
+        return handle.name
 
-    async def monitor_image_building_job(self, job_name: str, tag: str, request_id: Optional[str] = None) -> None:
+    async def monitor_image_building_job(self, handle: BuildHandle, tag: str, request_id: Optional[str] = None) -> None:
+        job_name = handle.name
         try:
             async with get_db_session() as db:
                 await save_job_status(db, job_name, status=Status.IN_PROGRESS, tag=tag, request_id=request_id)
 
             try:
                 async with timeout(self._job_timeout):
-                    status = await get_job_status(job_name, self._namespace)
+                    status = await self._builder.get_status(handle)
                     while status == Status.IN_PROGRESS:
                         await sleep(2)
-                        status = await get_job_status(job_name, self._namespace)
+                        status = await self._builder.get_status(handle)
 
                     async with get_db_session() as db:
                         await update_job_status(db, job_name, status=status, tag=tag, request_id=request_id)

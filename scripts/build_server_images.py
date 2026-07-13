@@ -23,7 +23,6 @@ images = {
     "debian": "bookworm-20250520-slim",  # 12.11-slim
     "ubuntu": "jammy-20250530",  # 22.04
 }
-platforms = {"linux/amd64", "linux/arm64"}
 
 
 class BaseImage(NamedTuple):
@@ -39,12 +38,16 @@ class BuildArgs:
     base: BaseImage
     versions: Iterable[str]
     push: bool
+    multiplatform: bool
 
 
 def build(args: BuildArgs):
     name = f"server-{args.base.name}-{args.base.tag}"
     qualified = f"{args.registry}/{name}"
     tags = [f"{qualified}:{version}" for version in args.versions]
+    # A single-platform build uses the default `docker` driver (no buildx/QEMU emulation),
+    # which is all a native (e.g. Linux/amd64) run needs. Multi-arch releases must opt in.
+    platforms = ["linux/amd64", "linux/arm64"] if args.multiplatform else None
     with NamedTemporaryFile(mode="w", prefix="Dockerfile.") as temporary:
         content = args.template.render(
             image=args.base.name,
@@ -72,6 +75,7 @@ def main(args: Namespace):
     registry: str = args.registry
     versions: Set[str] = args.versions
     push: bool = args.push
+    multiplatform: bool = args.multiplatform
     skip_base: Set[str] = args.skip_base
 
     with open(args.template, "r") as buffer:
@@ -87,6 +91,7 @@ def main(args: Namespace):
             base=base,
             versions=versions,
             push=push,
+            multiplatform=multiplatform,
         )
         for base in bases
     ]
@@ -141,6 +146,13 @@ if __name__ == "__main__":
         "-p",
         "--push",
         help="Push the built images to the Docker registry",
+        action="store_true",
+        default=False,
+    )
+    parser.add_argument(
+        "--multiplatform",
+        help="Build the images for linux/amd64 and linux/arm64 (requires a buildx container driver). "
+        "Omit for a fast native single-platform build.",
         action="store_true",
         default=False,
     )

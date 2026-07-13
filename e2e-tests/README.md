@@ -4,7 +4,7 @@ End-to-end tests for IdeGYM running on a local Minikube cluster.
 The tests cover the full stack: image building (via Kaniko and local Docker),
 server lifecycle, request forwarding, and the WebSocket protocol.
 
-For the broader deployment context see [Local Deployment](/documentation/local_deployment.md).
+For the broader deployment context see [Local Deployment](/website/docs/reference/local_deployment.md).
 
 ## Prerequisites
 
@@ -60,21 +60,37 @@ kubectl run curl --rm -it --image=curlimages/curl --restart=Never -- \
   curl http://registry.kube-system.svc.cluster.local/v2/
 ```
 
-### 4. Configure host access
-
-Add the test hostname to `/etc/hosts` (only needs to be done once):
-
-```bash
-echo "127.0.0.1 idegym-local.test" | sudo tee -a /etc/hosts
-```
-
-### 5. Start the Minikube tunnel
+### 4. Start the Minikube tunnel
 
 In a **separate terminal window** (keep it open while running tests):
 
 ```bash
-sudo minikube tunnel
+# macOS: sudo may be requested to bind ports 80/443
+minikube tunnel
 ```
+
+> [!WARNING]
+> On **Linux**, do **not** prefix this with `sudo` — as root Minikube can't see your user's profile and
+> aborts with `MK_USAGE_NO_PROFILE: No minikube profile was found`. Run it as your normal user.
+
+### 5. Configure host access
+
+Add the test hostname to `/etc/hosts` (only needs to be done once). The IP differs by platform:
+
+- **macOS** (Docker driver): the tunnel maps the ingress onto `127.0.0.1`:
+
+    ```bash
+    echo "127.0.0.1 idegym-local.test" | sudo tee -a /etc/hosts
+    ```
+
+- **Linux** (Docker driver): the tunnel assigns a real cluster-range external IP (e.g. `10.x.x.x`), not
+  `127.0.0.1`. Read it from the ingress controller and point the hostname at it:
+
+    ```bash
+    IP=$(kubectl get svc -n ingress-nginx ingress-nginx-controller \
+      -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+    echo "$IP idegym-local.test" | sudo tee -a /etc/hosts
+    ```
 
 ---
 
@@ -213,8 +229,9 @@ Requests from the test process reach the orchestrator through the local ingress 
 
 ```text
 pytest -> http://idegym-local.test
-       -> /etc/hosts maps idegym-local.test to 127.0.0.1
-       -> minikube tunnel exposes ingress-nginx on 127.0.0.1
+       -> /etc/hosts maps idegym-local.test to the ingress external IP
+          (macOS: 127.0.0.1; Linux: a cluster-range IP such as 10.x.x.x)
+       -> minikube tunnel exposes ingress-nginx on that IP
        -> ingress-nginx routes to the orchestrator service
 ```
 
@@ -381,10 +398,11 @@ Image building and loading:
    ```bash
    ps aux | grep "minikube tunnel"
    ```
-2. Verify the ingress controller has an external IP:
+2. Verify the ingress controller has an external IP, and that your `/etc/hosts` entry points at it:
    ```bash
    kubectl get svc -n ingress-nginx ingress-nginx-controller
-   # EXTERNAL-IP should be 127.0.0.1
+   # macOS: EXTERNAL-IP is 127.0.0.1
+   # Linux: EXTERNAL-IP is a cluster-range address (e.g. 10.x.x.x) — /etc/hosts must match it
    ```
 3. Test connectivity:
    ```bash

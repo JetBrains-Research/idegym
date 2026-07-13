@@ -1,0 +1,133 @@
+/**
+ * Any CSS included here will be global. The classic template
+ * bundles Infima by default. Infima is a CSS framework designed to
+ * work well for content-centric websites.
+ *
+ * IdeGYM theme: JetBrains-orange accent, dark-mode-first, tuned to stay
+ * legible when projected during a live talk.
+ */
+
+:root {
+  /* IdeGYM brand purple (blue–red–purple scheme) */
+  --ifm-color-primary: #6b57ff;
+  --ifm-color-primary-dark: #5641ff;
+  --ifm-color-primary-darker: #4a34ff;
+  --ifm-color-primary-darkest: #2f18e6;
+  --ifm-color-primary-light: #806dff;
+  --ifm-color-primary-lighter: #8c7aff;
+  --ifm-color-primary-lightest: #b3aaff;
+  --ifm-code-font-size: 95%;
+  --docusaurus-highlighted-code-line-bg: rgba(107, 87, 255, 0.1);
+
+  --ifm-heading-font-weight: 700;
+  --ifm-h1-font-size: 2.6rem;
+
+  /* Brand accents used by the hero gradient. */
+  --idegym-blue: #2f6fed;
+  --idegym-red: #f45c4a;
+  --idegym-purple: #6b57ff;
+}
+
+/* Lighter accent for dark mode so it pops on a projector. */
+[data-theme='dark'] {
+  --ifm-color-primary: #8473ff;
+  --ifm-color-primary-dark: #6f5bff;
+  --ifm-color-primary-darker: #644fff;
+  --ifm-color-primary-darkest: #4a34ff;
+  --ifm-color-primary-light: #998bff;
+  --ifm-color-primary-lighter: #a497ff;
+  --ifm-color-primary-lightest: #c7bfff;
+
+  --ifm-background-color: #0d1220;
+  --ifm-background-surface-color: #151a2b;
+  --ifm-card-background-color: #151a2b;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.4);
+}
+
+/* Slightly larger base type — comfortable reading, projector-friendly. */
+html {
+  font-size: 17px;
+}
+
+.markdown h1:first-child {
+  --ifm-h1-font-size: 2.8rem;
+}
+
+/* Mermaid diagrams: center them and give breathing room. Presentations
+   want big, legible diagrams. */
+.docusaurus-mermaid-container {
+  display: flex;
+  justify-content: center;
+  margin: 1.5rem 0;
+}
+
+.docusaurus-mermaid-container svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Edge labels: keep mermaid's own label background (it already masks the edge
+   line) and just ensure the text uses the theme's readable colour. No custom
+   box/border — that rendered as stray shapes. */
+.docusaurus-mermaid-container .edgeLabel p {
+  color: var(--ifm-font-color-base);
+  margin: 0;
+}
+
+/* ---- Clickable node affordance ------------------------------------------ *
+ * Mermaid adds `.clickable` to every node that has a `click` directive.
+ * Give those (and only those) a clear "this is a link" treatment so users
+ * never click a dead structural node: pointer cursor, dotted underline on the
+ * label, and a glow on hover. Non-clickable nodes keep the plain look.        */
+.docusaurus-mermaid-container .node.clickable {
+  cursor: pointer;
+}
+
+.docusaurus-mermaid-container .node.clickable .nodeLabel,
+.docusaurus-mermaid-container .node.clickable foreignObject div,
+.docusaurus-mermaid-container .node.clickable span {
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+}
+
+.docusaurus-mermaid-container .node.clickable {
+  transition: filter 0.12s ease;
+}
+
+.docusaurus-mermaid-container a:hover .node.clickable,
+.docusaurus-mermaid-container .node.clickable:hover {
+  filter: brightness(1.15) drop-shadow(0 0 7px rgba(132, 115, 255, 0.75));
+}
+
+/* Structural containers (subgraphs) are groupings, not buttons — make that
+   obvious with a dashed, translucent frame so they don't invite clicks. */
+.docusaurus-mermaid-container .cluster rect {
+  stroke-dasharray: 5 4;
+  rx: 12;
+  ry: 12;
+  fill-opacity: 0.06;
+}
+
+/* ---- Readable tooltip ---------------------------------------------------- *
+ * Mermaid's default tooltip is dark-gray text on a pale-yellow box — illegible
+ * on the dark theme. Restyle it to a dark chip with light text, readable on
+ * both light and dark backgrounds.                                            */
+div.mermaidTooltip {
+  background: #1b2030 !important;
+  color: #f4f6fb !important;
+  border: 1px solid var(--ifm-color-primary) !important;
+  border-radius: 8px !important;
+  padding: 6px 10px !important;
+  font-size: 0.85rem !important;
+  line-height: 1.35 !important;
+  max-width: 280px !important;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.4) !important;
+  z-index: 1000 !important;
+  pointer-events: none;
+}
+
+/* A reusable "view source" callout style used on component pages. */
+.view-source {
+  font-size: 0.9rem;
+}

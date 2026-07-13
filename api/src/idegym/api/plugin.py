@@ -111,15 +111,30 @@ class PluginBase(BaseModel):
 
         Maps a destination path (relative to the build context, matching the plugin's
         ``COPY`` directives) to a ``Traversable`` for the file's contents. The local build
-        driver writes these into a temporary context so the ``COPY`` instructions resolve
-        without the caller having a checkout of the idegym repo. (The Kaniko builder resolves
-        the same paths against a git checkout of the repo instead.)
+        driver stages any missing ones in place into the caller's build context so the
+        ``COPY`` instructions resolve without a checkout of the idegym repo, then removes only
+        the files it created. (The Kaniko builder resolves the same paths against a git
+        checkout of the repo instead.)
 
         Override when your ``render()`` emits ``COPY`` directives for files shipped inside the
         plugin package (e.g. start scripts). Resolve the files with
         ``idegym.plugins.plugin_utils.plugin_asset``.
         """
         return {}
+
+    def get_build_secrets(self, ctx: BuildContext) -> list[str]:
+        """Return names of build-time secret env vars this plugin needs as build args.
+
+        Each returned name is a build ``ARG`` referenced by this plugin's ``render()``
+        output whose value must be supplied at build time from the builder's environment
+        (never embedded in the Dockerfile or the ``ImageBuildSpec``). ``Image.to_spec()``
+        collects these into ``ImageBuildSpec.secret_build_args``; build backends forward
+        each name from ``os.environ`` as ``--build-arg <name>=<value>``.
+
+        Override when a plugin fetches a resource behind authentication resolved from an
+        environment variable (see the IDE plugins' ``external_plugins``).
+        """
+        return []
 
     def get_mcp_upstream(self, ctx: BuildContext) -> Optional[str]:
         """Return the MCP server URL accessible inside the container, or ``None``.
