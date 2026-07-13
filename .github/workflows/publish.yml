@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6.0.3
+        uses: actions/checkout@v7.0.0
         with:
           ref: ${{ github.ref_name }}
       - name: Prepare Docker Build
@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6.0.3
+        uses: actions/checkout@v7.0.0
         with:
           ref: ${{ github.ref_name }}
       - name: Prepare Docker Build
@@ -37,7 +37,7 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and publish orchestrator image
-        uses: docker/build-push-action@v7.2.0
+        uses: docker/build-push-action@v7.3.0
         with:
           context: .
           file: ./orchestrator/Dockerfile
@@ -53,7 +53,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6.0.3
+        uses: actions/checkout@v7.0.0
         with:
           ref: ${{ github.ref_name }}
       - name: Prepare Docker Build
@@ -61,7 +61,7 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and publish watcher image
-        uses: docker/build-push-action@v7.2.0
+        uses: docker/build-push-action@v7.3.0
         with:
           context: .
           file: ./watcher/Dockerfile
@@ -78,7 +78,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6.0.3
+        uses: actions/checkout@v7.0.0
         with:
           ref: ${{ github.ref_name }}
       - name: Prepare Docker Build
@@ -90,7 +90,7 @@ jobs:
           mkdir -p .github/docker-build
           scripts/render_example_image_dockerfile.py --output .github/docker-build/Dockerfile
       - name: Build and publish example image
-        uses: docker/build-push-action@v7.2.0
+        uses: docker/build-push-action@v7.3.0
         with:
           context: .
           file: .github/docker-build/Dockerfile
@@ -111,7 +111,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6.0.3
+        uses: actions/checkout@v7.0.0
         with:
           ref: ${{ github.ref_name }}
       - name: Extract version from tag
@@ -142,7 +142,7 @@ jobs:
       id-token: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v6.0.3
+        uses: actions/checkout@v7.0.0
         with:
           ref: ${{ github.ref_name }}
       - name: Prepare Repository

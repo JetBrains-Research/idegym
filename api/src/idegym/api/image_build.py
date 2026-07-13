@@ -1,3 +1,4 @@
+from enum import StrEnum
 from json import dumps as dump_json
 from typing import Optional
 
@@ -5,6 +6,14 @@ from idegym.api.download import DownloadRequest
 from idegym.api.resources import KubernetesResources
 from idegym.utils.hashing import md5
 from pydantic import BaseModel, ConfigDict, Field
+
+
+class BuildBackend(StrEnum):
+    """Selectable image build backends. Lives in `api` so both config and the
+    builder package can reference it without an import cycle."""
+
+    KANIKO = "kaniko"
+    CLOUDBUILD_GKE = "cloudbuild_gke"
 
 
 class ImageBuildSpec(BaseModel):

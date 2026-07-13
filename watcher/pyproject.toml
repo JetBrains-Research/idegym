@@ -11,13 +11,13 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi[standard]>=0.135.2",
+    "fastapi[standard]>=0.139.0",
     "idegym-api",
     "idegym-backend-utils",
     "idegym-common-utils",
     "idegym-orchestrator",
     "pydantic>=2.10.6",
-    "uvicorn>=0.35.0",
+    "uvicorn>=0.50.1",
 ]
 
 [build-system]

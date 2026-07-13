@@ -377,7 +377,7 @@ Use a privileged job to push it from Minikube's containerd to the registry:
 
 > [!NOTE]
 > The e2e tests handle all of this automatically. If you just want to run the test suite,
-> follow [E2E Tests](../e2e-tests/README.md) instead.
+> follow [E2E Tests](https://github.com/JetBrains-Research/idegym/blob/main/e2e-tests/README.md) instead.
 
 ### Install the chart
 

@@ -2,7 +2,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-from fastapi.routing import APIRoute
+from fastapi.routing import APIRoute, iter_route_contexts
 from fastmcp.exceptions import ToolError
 from idegym.api.orchestrator.mcp import MCPToolName
 from idegym.orchestrator.main import create_app
@@ -31,8 +31,13 @@ EXPECTED_MCP_TOOLS = {
 def test_orchestrator_mounts_mcp_app():
     app = create_app()
 
-    route_paths = {route.path for route in app.routes if isinstance(route, APIRoute)}
-    mount_paths = {route.path for route in app.routes if isinstance(route, Mount)}
+    # FastAPI 0.137+ (fastapi/fastapi#15745) no longer flattens included routers into
+    # app.routes; instead it stores a lazy router tree, so app.routes only holds the
+    # _IncludedRouter wrappers (and mounts). Walk the tree with the public
+    # iter_route_contexts() helper to resolve the effective routes and their paths.
+    route_contexts = list(iter_route_contexts(app.routes))
+    route_paths = {ctx.path for ctx in route_contexts if isinstance(ctx.route, APIRoute)}
+    mount_paths = {ctx.path for ctx in route_contexts if isinstance(ctx.route, Mount)}
 
     assert "/health" in route_paths
     assert "/mcp" in mount_paths

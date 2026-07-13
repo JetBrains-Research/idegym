@@ -323,4 +323,4 @@ When `client.jobs.build_and_push_images()` is called:
 - [Client Library](client.md) — complete API for starting servers and running tasks
 - [Local Deployment](local_deployment.md) — set up Minikube, including local Docker builds
 - [Remote Deployment](remote_deployment.md) — deploy to a production cluster
-- [E2E Tests](../e2e-tests/README.md) — runnable end-to-end examples
+- [E2E Tests](https://github.com/JetBrains-Research/idegym/blob/main/e2e-tests/README.md) — runnable end-to-end examples

@@ -48,7 +48,7 @@ Integration tests build real Docker images and push them to a local registry. Th
    > ```
    > To free port 5000 permanently, turn off AirPlay Receiver in
    > **System Settings → General → AirDrop & Handoff → AirPlay Receiver**.
-   > See also: [Port 5000 already in use](local_deployment.md#port-5000-already-in-use-when-starting-a-local-docker-registry).
+   > See also: [Port 5000 already in use](local_deployment.md#port-5000-is-already-in-use-when-starting-a-local-docker-registry).
 3. The `IDEGYM_TEST_REGISTRY` environment variable set to the registry address:
    ```sh
    export IDEGYM_TEST_REGISTRY=localhost:5000   # or localhost:5001 on macOS
@@ -63,7 +63,7 @@ In CI this registry is provided automatically as a Docker service container. Loc
 | [kubectl](https://kubernetes.io/docs/tasks/tools/) | >= 1.28 | Kubernetes CLI | `brew install kubernetes-cli` |
 | [minikube](https://minikube.sigs.k8s.io/docs/start/) | >= 1.35 | Local Kubernetes cluster | `brew install minikube` |
 
-> See [Local Deployment](local_deployment.md) and [E2E Tests](../e2e-tests/README.md) for full setup instructions.
+> See [Local Deployment](local_deployment.md) and [E2E Tests](https://github.com/JetBrains-Research/idegym/blob/main/e2e-tests/README.md) for full setup instructions.
 
 ## Installation
 
@@ -143,7 +143,7 @@ IDEGYM_TEST_REGISTRY=localhost:5001 uv run pytest -m integration
 
 ### End-to-end tests
 
-E2E tests require a running Minikube cluster with specific addons. See [E2E Tests](../e2e-tests/README.md) for the full setup, then run:
+E2E tests require a running Minikube cluster with specific addons. See [E2E Tests](https://github.com/JetBrains-Research/idegym/blob/main/e2e-tests/README.md) for the full setup, then run:
 
 ```sh
 uv run pytest -m e2e
