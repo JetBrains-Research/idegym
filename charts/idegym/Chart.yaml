@@ -5,15 +5,15 @@ version: 0.0.0
 appVersion: ""
 dependencies:
   - name: grafana
-    version: 12.7.1
+    version: 12.7.2
     repository: oci://ghcr.io/grafana-community/helm-charts
     condition: grafana.enabled
   - name: postgresql
-    version: 18.7.11
+    version: 18.7.13
     repository: oci://registry-1.docker.io/bitnamicharts
     condition: postgresql.enabled
   - name: prometheus
-    version: 29.13.0
+    version: 29.14.0
     repository: oci://ghcr.io/prometheus-community/charts
     condition: prometheus.enabled
   - name: tempo
