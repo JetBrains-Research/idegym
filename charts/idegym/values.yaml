@@ -18,7 +18,7 @@ deployment:
     # Stateless mode: each request gets a fresh transport, no server-side session
     # state. Set false only for session-mode features (SSE resumability); you then
     # must keep uvicornWorkers at 1 and pin ingress affinity. See "MCP Sessions and
-    # Ingress Affinity" in documentation/remote_deployment.md.
+    # Ingress Affinity" in website/docs/reference/remote_deployment.md.
     statelessHttp: true
   sqlalchemy:
     pool:
@@ -110,7 +110,7 @@ ingress:
   # Controller-specific annotations passed through verbatim. For session-mode MCP
   # (deployment.mcp.statelessHttp: false) you must pin ingress affinity on the
   # Mcp-Session-Id header; see "MCP Sessions and Ingress Affinity" in
-  # documentation/remote_deployment.md for a full ingress-nginx example.
+  # website/docs/reference/remote_deployment.md for a full ingress-nginx example.
   annotations: { }
   className: ""
   host: ""

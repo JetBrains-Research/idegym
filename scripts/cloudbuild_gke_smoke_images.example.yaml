@@ -1,0 +1,24 @@
+# Example image definitions for scripts/cloudbuild_gke_smoke_test.py.
+#
+# Two independent images so the smoke test submits more than one Cloud Build. Edit `base` to
+# a base image your Cloud Build project can pull (a public image, or one in your Artifact
+# Registry). These definitions use no `project` plugin, so they exercise the build/push path
+# without needing a private archive or auth token. To also exercise the BuildKit auth-token
+# secret mount, add a `project` plugin with a URL + token to one of the images.
+images:
+  - name: cloudbuild-smoke-minimal
+    base: debian:bookworm-slim
+    plugins:
+      - type: base-system
+        minimal: true
+    commands:
+      - echo "cloudbuild-smoke-minimal" > /tmp/cloudbuild-smoke.txt
+
+  - name: cloudbuild-smoke-packages
+    base: debian:bookworm-slim
+    plugins:
+      - type: base-system
+        packages:
+          - jq
+    commands:
+      - echo "cloudbuild-smoke-packages" > /tmp/cloudbuild-smoke.txt

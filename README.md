@@ -6,36 +6,48 @@ and can also be used for running AI agents or any workflow that requires clean, 
 
 Think of it as **GitHub Codespaces for RL training** — but designed for thousands of parallel, short-lived environments.
 
+> 📖 **Docs & interactive architecture → [jetbrains-research.github.io/idegym](https://jetbrains-research.github.io/idegym/)**
+> The site is built from [`website/`](website/); the reference guides live under [`website/docs/reference/`](website/docs/reference/).
+
 ## Key Features
 
 - **Scalable orchestration** — spin up and tear down Kubernetes-based environments on demand
-- **Plugin-based image builder** — compose Docker images from reusable plugins via a Python API or YAML; see [Plugin Architecture](documentation/plugins.md)
-- **Flexible project loading** — clone from Git, download and extract a project archive, or mount a volume with a project directly into the image; see [Image Builder](documentation/image_builder.md)
+- **Plugin-based image builder** — compose Docker images from reusable plugins via a Python API or YAML; see [Plugin Architecture](https://jetbrains-research.github.io/idegym/reference/plugins)
+- **Flexible project loading** — clone from Git, download and extract a project archive, or mount a volume with a project directly into the image; see [Image Builder](https://jetbrains-research.github.io/idegym/reference/image_builder)
 - **HTTP and WebSocket forwarding** — the orchestrator proxies requests directly to running server pods; WebSocket support enables integration with [OpenEnv](https://github.com/meta-pytorch/OpenEnv)-compatible environments
 - **Persistent request history** — every forwarded request and its response is stored in the database and retrievable later, enabling offline reward computation and reproducible evaluation
 - **Automatic resource cleanup** — a background watcher periodically reconciles the database against live Kubernetes state, evicting stale servers and reclaiming resources without manual intervention
 - **Full observability** — built-in Prometheus metrics, Grafana dashboards, and distributed tracing via Tempo
-- **MCP interface** — the orchestrator exposes an MCP server at `/mcp`; agents can discover and call all IdeGYM operations as MCP tools without touching the REST API directly; see [MCP Server](documentation/mcp.md)
-- **IDE integration** — optional IntelliJ IDEA and PyCharm plugins add live code inspection endpoints and typed client methods for IDE-aware environments; see [Tools Reference](documentation/tools.md#ide-inspection-inspectsh)
+- **MCP interface** — the orchestrator exposes an MCP server at `/mcp`; agents can discover and call all IdeGYM operations as MCP tools without touching the REST API directly; see [MCP Server](https://jetbrains-research.github.io/idegym/reference/mcp)
+- **IDE integration** — optional IntelliJ IDEA and PyCharm plugins add live code inspection endpoints and typed client methods for IDE-aware environments; see [Tools Reference](https://jetbrains-research.github.io/idegym/reference/tools#ide-inspection-inspectsh)
 - **Server checkpoint/restore** — snapshot a warmed-up server and restore future servers from it, skipping cold-start work like project indexing; see [Pod Snapshots](orchestrator/README.md#pod-snapshots-checkpointrestore)
 - **Fast iteration** — local development with Minikube mirrors the production Kubernetes setup
 
 ## Documentation
 
+Everything lives on the **[IdeGYM site](https://jetbrains-research.github.io/idegym/)** — an
+interactive, drill-down architecture diagram plus the guides below. The site is built from
+[`website/`](website/), and the reference guides are the relocated docs under
+[`website/docs/reference/`](website/docs/reference/).
+
 | Guide | Description |
 |---|---|
-| [Getting Started](documentation/getting_started.md) | Prerequisites, installation, and running tests locally |
-| [Local Deployment](documentation/local_deployment.md) | Run the full stack on Minikube (with GHCR images or local builds) |
-| [Remote Deployment](documentation/remote_deployment.md) | Deploy to a production Kubernetes cluster |
-| [Image Builder](documentation/image_builder.md) | Build custom environment images with the plugin API |
-| [Client Library](documentation/client.md) | Python client API reference |
-| [MCP Server](documentation/mcp.md) | Tool-based access to orchestrator operations |
-| [Tools Reference](documentation/tools.md) | All tools available on IdeGYM servers: bash, file ops, IDE inspection, mcp-steroid |
-| [Full Flow Example](documentation/full_flow_example.md) | End-to-end walkthrough: build an image, start a server, run a command |
+| [Architecture](https://jetbrains-research.github.io/idegym/architecture) | Interactive system diagram — click a component to drill in |
+| [Core Concepts](https://jetbrains-research.github.io/idegym/overview/concepts) | Plain-language glossary of every moving part |
+| [Data & Usage Flow](https://jetbrains-research.github.io/idegym/overview/data-flow) | The end-to-end RL / eval lifecycle |
+| [Getting Started](https://jetbrains-research.github.io/idegym/reference/getting_started) | Prerequisites, installation, and running tests locally |
+| [Local Deployment](https://jetbrains-research.github.io/idegym/reference/local_deployment) | Run the full stack on Minikube (with GHCR images or local builds) |
+| [Remote Deployment](https://jetbrains-research.github.io/idegym/reference/remote_deployment) | Deploy to a production Kubernetes cluster |
+| [Image Builder](https://jetbrains-research.github.io/idegym/reference/image_builder) | Build custom environment images with the plugin API |
+| [Client Library](https://jetbrains-research.github.io/idegym/reference/client) | Python client API reference |
+| [MCP Server](https://jetbrains-research.github.io/idegym/reference/mcp) | Tool-based access to orchestrator operations |
+| [Tools Reference](https://jetbrains-research.github.io/idegym/reference/tools) | All tools available on IdeGYM servers: bash, file ops, IDE inspection, mcp-steroid |
+| [Full Flow Example](https://jetbrains-research.github.io/idegym/reference/full_flow_example) | End-to-end walkthrough: build an image, start a server, run a command |
+| [Plugin Architecture](https://jetbrains-research.github.io/idegym/reference/plugins) | Extending IdeGYM with image, server, and client plugins |
+| [HTTP Error Codes](https://jetbrains-research.github.io/idegym/reference/http_error_codes) | HTTP status codes for orchestrator and server endpoints |
+| [API Reference](https://jetbrains-research.github.io/idegym/api) | Interactive OpenAPI for the orchestrator and in-pod server |
 | [E2E Tests](e2e-tests/README.md) | Running the end-to-end test suite on Minikube |
 | [Orchestrator API](orchestrator/README.md) | REST API reference for the orchestrator service |
-| [Plugin Architecture](documentation/plugins.md) | Extending IdeGYM with image, server, and client plugins |
-| [HTTP Error Codes](documentation/http_error_codes.md) | HTTP status codes for orchestrator and server endpoints |
 
 ## Quick Start
 
@@ -74,7 +86,7 @@ uv run pytest -m integration
 uv run pytest -m e2e
 ```
 
-See [Getting Started](documentation/getting_started.md) for per-suite prerequisites.
+See [Getting Started](https://jetbrains-research.github.io/idegym/reference/getting_started) for per-suite prerequisites.
 
 ### Check Code Style
 
@@ -103,7 +115,7 @@ idegym/
 ├── plugins/              # IDE plugins (IntelliJ IDEA, PyCharm, shared utilities)
 ├── charts/               # Helm charts for Kubernetes deployment
 ├── scripts/              # Build and deployment scripts
-└── documentation/        # Extended documentation
+└── website/              # Docs & presentation site (Docusaurus); guides in website/docs/reference/
 ```
 
 ## Examples

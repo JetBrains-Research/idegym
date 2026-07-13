@@ -23,20 +23,18 @@ it uses.
 
 ## Overview
 
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                         Plugin Package                           │
-│                                                                  │
-│  ┌─────────────────┐  ┌──────────────────┐  ┌────────────────┐  │
-│  │  @image_plugin  │  │  @server_plugin  │  │  client ops    │  │
-│  │  PluginBase     │  │  get_server_     │  │  (entry point) │  │
-│  │  apply/render   │  │  router()        │  │                │  │
-│  └────────┬────────┘  └────────┬─────────┘  └───────┬────────┘  │
-└───────────┼────────────────────┼────────────────────┼───────────┘
-            │                    │                     │
-            ▼                    ▼                     ▼
-     Dockerfile fragment   FastAPI router        server.pycharm
-     written at build time  mounted at startup   .inspect() etc.
+```mermaid
+flowchart TB
+    subgraph pkg["Plugin package"]
+        imgp["@image_plugin<br/>PluginBase · apply / render"]:::hook
+        srvp["@server_plugin<br/>get_server_router()"]:::hook
+        cliops["client ops<br/>(entry point)"]:::hook
+    end
+    imgp --> o1["Dockerfile fragment<br/>written at build time"]:::out
+    srvp --> o2["FastAPI router<br/>mounted at startup"]:::out
+    cliops --> o3["server.pycharm.inspect()<br/>typed client method"]:::out
+    classDef hook fill:#6b57ff,stroke:#5b4bd2,color:#fff;
+    classDef out fill:#2563eb,stroke:#1d4ed8,color:#fff;
 ```
 
 The central module is `api/src/idegym/api/plugin.py`. It defines `PluginBase`, `BuildContext`,
@@ -562,24 +560,10 @@ Ships in `plugins/idea/`. Install the `idea` extra to use the IntelliJ IDEA inte
 
 ## Entry Point Groups Reference
 
-```
-idegym.plugins.image
-    ├─ base-system   → idegym.plugins.defaults.image:BaseSystem
-    ├─ user          → idegym.plugins.defaults.image:User
-    ├─ permissions   → idegym.plugins.defaults.image:Permissions
-    ├─ mcp-upstream  → idegym.plugins.defaults.image:MCPUpstream
-    ├─ project       → idegym.plugins.defaults.image:Project
-    ├─ idegym-server → idegym.plugins.defaults.image:IdeGYMServer
-    ├─ pycharm       → idegym.plugins.pycharm.image:PyCharm
-    └─ idea          → idegym.plugins.idea.image:Idea
-
-idegym.plugins.server
-    ├─ tools         → idegym.plugins.defaults.server:ToolsPlugin
-    ├─ rewards       → idegym.plugins.defaults.server:RewardsPlugin
-    ├─ pycharm       → idegym.plugins.pycharm.server:PyCharmPlugin
-    └─ idea          → idegym.plugins.idea.server:IdeaPlugin
-
-idegym.plugins.client
-    ├─ pycharm       → idegym.plugins.pycharm.client:PycharmClientOperations
-    └─ idea          → idegym.plugins.idea.client:IdeaClientOperations
+```mermaid
+flowchart LR
+    img["idegym.plugins.image"]:::grp --> i1["base-system → BaseSystem"] & i2["user → User"] & i3["permissions → Permissions"] & i4["mcp-upstream → MCPUpstream"] & i5["project → Project"] & i6["idegym-server → IdeGYMServer"] & i7["pycharm → PyCharm"] & i8["idea → Idea"]
+    srv["idegym.plugins.server"]:::grp --> s1["tools → ToolsPlugin"] & s2["rewards → RewardsPlugin"] & s3["pycharm → PyCharmPlugin"] & s4["idea → IdeaPlugin"]
+    cli["idegym.plugins.client"]:::grp --> c1["pycharm → PycharmClientOperations"] & c2["idea → IdeaClientOperations"]
+    classDef grp fill:#6b57ff,stroke:#5b4bd2,color:#fff;
 ```

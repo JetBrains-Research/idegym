@@ -13,6 +13,17 @@ node_pool:
   taint_key: ${oc.env:IDEGYM_NODE_POOL_TAINT_KEY, "jetbrains.com/idegym"}
   preference_weight: ${oc.env:IDEGYM_NODE_POOL_PREFERENCE_WEIGHT, 100}
 
+build:
+  backend: ${oc.env:IDEGYM_BUILD_BACKEND, "kaniko"}
+  cloudbuild_gke:
+    project_id: ${oc.env:IDEGYM_CLOUDBUILD_PROJECT_ID, null}
+    region: ${oc.env:IDEGYM_CLOUDBUILD_REGION, null}
+    staging_bucket: ${oc.env:IDEGYM_CLOUDBUILD_STAGING_BUCKET, null}
+    machine_type: ${oc.env:IDEGYM_CLOUDBUILD_MACHINE_TYPE, null}
+    disk_size_gb: ${oc.env:IDEGYM_CLOUDBUILD_DISK_SIZE_GB, null}
+    timeout_seconds: ${oc.env:IDEGYM_CLOUDBUILD_TIMEOUT_SECONDS, 2400}
+    skip_existing: ${oc.env:IDEGYM_CLOUDBUILD_SKIP_EXISTING, "False"}
+
 database:
   host: ${oc.env:POSTGRES_HOST, "localhost"}
   port: ${oc.env:POSTGRES_PORT, "5432"}
