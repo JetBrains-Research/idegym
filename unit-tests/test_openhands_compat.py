@@ -79,3 +79,39 @@ async def test_openhands_subprocess_terminal_state(tmp_path):
     result = await manager.execute(descriptor.terminal_id, "echo V=$OHVAR at $(pwd)")
     assert "V=42" in result.output and "/sub" in result.output
     await manager.reset_all()
+
+
+async def test_openhands_terminal_interrupt_then_usable(tmp_path):
+    """Interrupting a foreground command leaves the OpenHands terminal ready for the next command.
+
+    Uses the tmux backend: OpenHands' subprocess terminal has an unreliable interrupt (it warns to
+    install tmux for stability), so a reliable interrupt requires the tmux-backed session.
+    """
+    import shutil
+
+    import pytest
+
+    if shutil.which("tmux") is None:
+        pytest.skip("tmux is required for a reliable OpenHands terminal interrupt")
+
+    from idegym.plugins.openhands.api.models import TerminalBackend, TerminalCreateRequest
+    from idegym.plugins.openhands.runtime.config import RuntimeConfig
+    from idegym.plugins.openhands.runtime.terminal.manager import TerminalSessionManager
+
+    config = RuntimeConfig(
+        workspace_root=str(tmp_path),
+        default_terminal_backend=TerminalBackend.TMUX,
+        allowed_terminal_backends=[TerminalBackend.TMUX],
+        no_change_timeout_seconds=2.0,
+    )
+    manager = TerminalSessionManager(config, lambda: "env")
+    manager.probe_backends()
+    descriptor = await manager.create(TerminalCreateRequest(backend=TerminalBackend.TMUX))
+
+    running = await manager.execute(descriptor.terminal_id, "sleep 30", timeout=2.0)
+    assert running.running
+    await manager.interrupt(descriptor.terminal_id)
+    # The foreground command is cleared, so the next command runs instead of raising terminal_busy.
+    recovered = await manager.execute(descriptor.terminal_id, "echo recovered")
+    assert recovered.status.value == "completed" and "recovered" in recovered.output
+    await manager.reset_all()

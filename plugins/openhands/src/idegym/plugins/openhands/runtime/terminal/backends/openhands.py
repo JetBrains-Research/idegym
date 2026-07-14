@@ -96,6 +96,10 @@ class OpenHandsTerminalSession(TerminalBackendSession):
     async def interrupt(self) -> None:
         if self._alive and self._session is not None:
             await asyncio.to_thread(self._session.interrupt)
+            # OpenHands' interrupt blocks until the foreground command is signalled; the handle is
+            # now ready for a new command. Clear our derived flag so an idle empty-poll (which reads
+            # as exit_code < 0) can't leave the terminal wedged as busy.
+            self._running = False
 
     async def capture(self) -> str:
         return ""
@@ -117,4 +121,15 @@ class OpenHandsTerminalSession(TerminalBackendSession):
 
     @property
     def has_foreground_command(self) -> bool:
+        # Prefer OpenHands' authoritative view of the session; our derived flag is a fallback for
+        # versions that do not expose is_running(). This keeps the "is a command in the foreground?"
+        # gate correct after an interrupt, when an idle poll would otherwise look like a live command.
+        is_running = getattr(self._session, "is_running", None)
+        if callable(is_running):
+            try:
+                return bool(is_running())
+            except Exception:
+                return self._running
+        if isinstance(is_running, bool):
+            return is_running
         return self._running

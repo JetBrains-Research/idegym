@@ -3,7 +3,7 @@
 Builds an IdeGYM image with the OpenHands plugin, deploys a server, and exercises all three surfaces
 against the running container: the typed client (``server.openhands``), REST via the generic
 ``server.forward``, and MCP through IdeGYM's ``/mcp`` gateway. Covers discovery, stateful terminals
-(cwd/env/virtualenv/REPL/interrupt/reset/isolation), the file and search tools, cross-surface state
+(cwd/env/foreground input/interrupt/reset/isolation), the file and search tools, cross-surface state
 sharing, and environment reset.
 
 Runs in CI on the minikube runner. Locally it needs the full e2e setup (minikube addons, tunnel, and
@@ -43,13 +43,15 @@ def _build_image(test_id: str) -> str:
         # openhands plugin code) — it runs as root, so it must come before OpenHands (whose render
         # ends as the project user). It also creates /etc/idegym owned by the project user.
         .with_plugin(IdeGYMServer.from_local(root=from_root()))
-        # Subprocess backend keeps the deployed build deterministic; tmux is covered by the image
-        # build-time smoke check. The OpenHands runtime installs into its own in-container venv, and
-        # this plugin sets the final USER back to the project user.
+        # tmux is OpenHands' recommended, reliable terminal (its subprocess terminal has an
+        # unreliable interrupt), so the deployed image exercises the real "reuse OpenHands" path:
+        # the plugin apt-installs tmux when the tmux backend is allowed. The OpenHands runtime
+        # installs into its own in-container venv, and this plugin sets the final USER back to the
+        # project user.
         .with_plugin(
             OpenHands(
-                default_terminal_backend=TerminalBackend.SUBPROCESS,
-                allowed_terminal_backends=(TerminalBackend.SUBPROCESS,),
+                default_terminal_backend=TerminalBackend.TMUX,
+                allowed_terminal_backends=(TerminalBackend.TMUX,),
             )
         )
         # Enable the openhands server plugin. IdeGYMServer wrote plugins.json before OpenHands.apply()
@@ -117,7 +119,7 @@ async def test_openhands_discovery_and_surfaces(test_id):
         assert {t["name"] for t in rest_tools} == tools  # REST and client see the same catalog
 
         # --- cross-surface state sharing: create over the typed client, read back over REST by id ---
-        term = await server.openhands.terminal(name="cross", backend="subprocess")
+        term = await server.openhands.terminal(name="cross", backend="tmux")
         await term.execute("export CROSS=shared")
         rest_exec = await server.forward(
             "POST", f"openhands/terminals/{term.id}/execute", body=TerminalExecuteRequest(command="echo V=$CROSS")
@@ -137,13 +139,13 @@ async def test_openhands_discovery_and_surfaces(test_id):
 
 
 async def test_openhands_stateful_terminals(test_id):
-    """Stateful terminals exercised many ways: cwd, env, virtualenv, REPL, interrupt, reset, isolation."""
+    """Stateful terminals exercised many ways: cwd, env, foreground input, interrupt, reset, isolation."""
     async with _server(test_id, "term") as server:
         oh = server.openhands
         terminals = oh.terminals
 
         # --- cwd + environment persist across calls on one handle ---
-        shell = await terminals.create(name="shell", backend="subprocess")
+        shell = await terminals.create(name="shell", backend="tmux")
         await terminals.execute(shell.terminal_id, f"cd {_WORK}")
         await terminals.execute(shell.terminal_id, "export PROJECT_MODE=dev")
         state = await terminals.execute(shell.terminal_id, "echo MODE=$PROJECT_MODE DIR=$(pwd)")
@@ -158,7 +160,7 @@ async def test_openhands_stateful_terminals(test_id):
         # --- foreground interactive process: running on soft timeout, input, output, EOF ---
         # `cat` is a universal line-echoing foreground reader (no interpreter assumptions about the
         # image); it soft-times-out as running, echoes each input line, and exits on C-d.
-        repl = await terminals.create(name="repl", backend="subprocess")
+        repl = await terminals.create(name="repl", backend="tmux")
         started = await terminals.execute(repl.terminal_id, "cat", timeout=3)
         assert started.running and started.status.value == "running"
         echoed = await terminals.input(repl.terminal_id, "foreground-input-123")
@@ -167,7 +169,7 @@ async def test_openhands_stateful_terminals(test_id):
         assert not closed.running and closed.status.value == "completed"
 
         # --- long process: interrupt, then the shell is usable again ---
-        run = await terminals.create(name="long", backend="subprocess")
+        run = await terminals.create(name="long", backend="tmux")
         running = await terminals.execute(run.terminal_id, "sleep 120", timeout=2)
         assert running.running
         await terminals.interrupt(run.terminal_id)
@@ -177,13 +179,13 @@ async def test_openhands_stateful_terminals(test_id):
         # --- reset clears shell state but keeps the same backend, bumping generation ---
         await terminals.execute(run.terminal_id, "export EPHEMERAL=1")
         reset_desc = await terminals.reset(run.terminal_id)
-        assert reset_desc.generation == 2 and reset_desc.backend.value == "subprocess"
+        assert reset_desc.generation == 2 and reset_desc.backend.value == "tmux"
         gone = await terminals.execute(run.terminal_id, "echo E=[${EPHEMERAL:-empty}]")
         assert "E=[empty]" in gone.output
 
         # --- two handles are isolated but share the filesystem ---
-        first = await terminals.create(name="iso-a", backend="subprocess", cwd=_WORK)
-        second = await terminals.create(name="iso-b", backend="subprocess", cwd=_WORK)
+        first = await terminals.create(name="iso-a", backend="tmux", cwd=_WORK)
+        second = await terminals.create(name="iso-b", backend="tmux", cwd=_WORK)
         await terminals.execute(first.terminal_id, "export ONLY_FIRST=yes")
         cross_env = await terminals.execute(second.terminal_id, "echo GOT=[${ONLY_FIRST:-none}]")
         assert "GOT=[none]" in cross_env.output  # env is isolated
@@ -194,7 +196,7 @@ async def test_openhands_stateful_terminals(test_id):
         # every handle is listed and reports its backend
         listed = await terminals.list()
         assert len({t.terminal_id for t in listed}) >= 4
-        assert all(t.backend.value == "subprocess" for t in listed)
+        assert all(t.backend.value == "tmux" for t in listed)
 
 
 async def test_openhands_file_and_search_tools(test_id):
@@ -242,8 +244,8 @@ async def test_openhands_file_and_search_tools(test_id):
 async def test_openhands_reset_clears_all_terminals(test_id):
     """Environment reset terminates every terminal and invalidates its id across surfaces."""
     async with _server(test_id, "reset") as server:
-        a = await server.openhands.terminals.create(name="a", backend="subprocess")
-        b = await server.openhands.terminals.create(name="b", backend="subprocess")
+        a = await server.openhands.terminals.create(name="a", backend="tmux")
+        b = await server.openhands.terminals.create(name="b", backend="tmux")
         await server.openhands.terminals.execute(a.terminal_id, "export GONE=1")
 
         reset = await server.openhands.reset()
