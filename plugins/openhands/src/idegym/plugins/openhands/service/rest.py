@@ -142,7 +142,7 @@ def build_rest_router(runtime: ToolRuntime) -> APIRouter:
     @router.post("/terminals/{terminal_id}/input", response_model=TerminalResult, tags=["terminals"])
     async def terminal_input(terminal_id: str, request: TerminalInputRequest) -> Any:
         try:
-            return await runtime.terminals.input(terminal_id, request.text)
+            return await runtime.terminals.input(terminal_id, request.text, timeout=request.timeout)
         except ServiceError as exc:
             return _error_response(exc)
 

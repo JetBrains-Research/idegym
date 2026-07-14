@@ -297,6 +297,7 @@ class TerminalInputRequest(_Strict):
     """Body for ``.../input``: text or a special key (e.g. ``C-c``, ``C-d``)."""
 
     text: str
+    timeout: Optional[float] = None
     request_id: Optional[str] = None
 
 

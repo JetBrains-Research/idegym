@@ -162,8 +162,8 @@ class _Terminals:
         body = TerminalExecuteRequest(command=command, timeout=timeout, is_input=is_input, reset=reset)
         return TerminalResult.model_validate(await self._ops._json("POST", f"terminals/{terminal_id}/execute", body))
 
-    async def input(self, terminal_id: str, text: str) -> TerminalResult:
-        body = TerminalInputRequest(text=text)
+    async def input(self, terminal_id: str, text: str, *, timeout: Optional[float] = None) -> TerminalResult:
+        body = TerminalInputRequest(text=text, timeout=timeout)
         return TerminalResult.model_validate(await self._ops._json("POST", f"terminals/{terminal_id}/input", body))
 
     async def poll(self, terminal_id: str, *, timeout: Optional[float] = None) -> TerminalResult:
@@ -193,8 +193,8 @@ class BoundTerminal:
     async def execute(self, command: str, **kwargs: Any) -> TerminalResult:
         return await self._ops.terminals.execute(self.id, command, **kwargs)
 
-    async def input(self, text: str) -> TerminalResult:
-        return await self._ops.terminals.input(self.id, text)
+    async def input(self, text: str, *, timeout: Optional[float] = None) -> TerminalResult:
+        return await self._ops.terminals.input(self.id, text, timeout=timeout)
 
     async def poll(self, *, timeout: Optional[float] = None) -> TerminalResult:
         return await self._ops.terminals.poll(self.id, timeout=timeout)
