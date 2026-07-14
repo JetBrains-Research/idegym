@@ -23,7 +23,7 @@ flowchart TB
             graf["Grafana"]
             tempo["Tempo (traces)"]
         end
-        builds["Kaniko build Jobs"]
+        builds["Image build<br/>(Kaniko Job, default)"]
         pods["Sandboxed server pods<br/>(gVisor runtime class)"]
     end
     reg[("Container registry<br/>(GHCR / in-cluster / yours)")]
@@ -79,6 +79,23 @@ Built images need somewhere to live. Three common setups:
   (`registry.kube-system.svc.cluster.local`), used by the e2e suite and local builds.
 - **Your registry** — set `DOCKER_REGISTRY` (and `KANIKO_INSECURE_REGISTRY=true` for HTTP)
   on the orchestrator; mount Kaniko push credentials as a secret.
+- **Artifact Registry** — for the GKE Cloud Build backend, point `DOCKER_REGISTRY` at an
+  Artifact Registry repo (`<region>-docker.pkg.dev/<project>/<repo>`).
+
+## Image build backends
+
+Image builds go through a **pluggable backend**, selected with `IDEGYM_BUILD_BACKEND` and
+**defaulting to `kaniko`** so existing clusters are unchanged:
+
+- **`kaniko`** (default) — an in-cluster Job builds from the generated Dockerfile and pushes
+  to the registry. No Docker daemon on the nodes; works on any Kubernetes cluster.
+- **`cloudbuild_gke`** — offloads the build to [GCP Cloud Build](https://cloud.google.com/build)
+  and pushes to Artifact Registry, authenticating with the orchestrator pod's Workload
+  Identity service account. Requires `IDEGYM_CLOUDBUILD_PROJECT_ID`, `IDEGYM_CLOUDBUILD_REGION`,
+  and `IDEGYM_CLOUDBUILD_STAGING_BUCKET`.
+
+See the [image-builder reference — build backends](/reference/image_builder#build-backends)
+for the full configuration and required GCP IAM roles.
 
 ## Observability
 
@@ -107,5 +124,5 @@ the `Mcp-Session-Id` header and run one worker per pod.
 | Guide | For |
 |---|---|
 | [Getting Started](/reference/getting_started) | Local dev setup + running tests |
-| [Local Deployment](/reference/local_deployment) | Full stack on Minikube (GHCR or local builds) |
+| [Local Deployment](/reference/local_deployment) | Full stack on Minikube — macOS or Linux (GHCR or local builds) |
 | [Remote Deployment](/reference/remote_deployment) | Production Kubernetes, secrets, node pools, snapshots |

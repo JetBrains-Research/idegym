@@ -66,16 +66,18 @@ Dockerfile fragment. Calling `image.to_spec()` compiles the whole thing into an
 ## 2 · Build the image
 
 The image definition is serialized to YAML and submitted to the orchestrator, which runs
-a **Kaniko** build job inside the cluster and pushes the result to a registry — no Docker
-daemon required on the nodes.
+the build through a **pluggable backend** — Kaniko in-cluster by default (no Docker daemon
+on the nodes), or GKE Cloud Build — and pushes the result to a registry.
 
 ```python
 summary = await client.jobs.build_and_push_images(path=yaml_path, namespace="idegym", timeout=600)
 image_tag = summary.jobs_results[0].tag
 ```
 
-The orchestrator passes download credentials (for private project repos) as Kaniko
-`--build-arg` values and polls the job to completion. → [Image builder](/architecture/image-builder)
+A shared `ImageBuildService` forwards download credentials (for private project repos) to
+the backend and polls the build to completion. Plugins that `COPY` bundled files (e.g. the
+IDE plugins) ship those assets themselves, so a build needs no checkout of the idegym repo.
+→ [Image builder](/architecture/image-builder)
 
 ## 3 · Provision a sandboxed environment
 

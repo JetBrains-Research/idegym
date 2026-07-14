@@ -1,6 +1,6 @@
 ---
 title: Orchestrator
-description: The FastAPI control plane — lifecycle management, async operations, PostgreSQL, request forwarding, and Kaniko build submission.
+description: The FastAPI control plane — lifecycle management, async operations, PostgreSQL, request forwarding, and pluggable image-build submission.
 ---
 
 # Orchestrator
@@ -32,7 +32,7 @@ flowchart TB
     pods[["<b>Server pods</b>"]]:::pod
 
     routers --> pg
-    rb -->|"Kaniko Job"| kapi
+    rb -->|"build backend"| kapi
     rs -->|"Deployment"| kapi --> pods
     rf -->|"forward"| pods
     mcp -.->|"same handlers as REST"| routers
@@ -58,8 +58,9 @@ flowchart TB
   heartbeats, and on stop/finish tear down or release its servers.
 - **Server lifecycle** — start (or **reuse** a matching finished server), stop, finish
   (release for reuse), and restart environment pods, waiting for readiness.
-- **Image builds** — accept image-builder YAML, compile each `Image` to a spec, and
-  submit Kaniko jobs to the cluster (see [image builder](/architecture/image-builder)).
+- **Image builds** — accept image-builder YAML, compile each `Image` to a spec, and submit
+  it through a **pluggable build backend** (Kaniko by default, or GKE Cloud Build) driven by
+  a shared `ImageBuildService` (see [image builder](/architecture/image-builder#build-backends)).
 - **Forwarding** — proxy HTTP, MCP, and WebSocket requests from clients into the right
   server pod, and **persist** every request/response for offline reward computation.
 - **Async operations** — long-running calls return an operation ID the client polls to
@@ -74,7 +75,8 @@ flowchart TB
 | MCP server | [`mcp.py`](https://github.com/JetBrains-Research/idegym/blob/main/orchestrator/src/idegym/orchestrator/mcp.py) | A thin FastMCP layer over the **same** handlers as REST — no separate state |
 | Routers | [`router/`](https://github.com/JetBrains-Research/idegym/tree/main/orchestrator/src/idegym/orchestrator/router) | One module per concern: `client`, `server`, `build_images`, `forwarding`, `async_operation`, `snapshot`, `dashboard`, `diagnostics` |
 | State | [`database/`](https://github.com/JetBrains-Research/idegym/tree/main/orchestrator/src/idegym/orchestrator/database) | Async SQLAlchemy + asyncpg; Alembic migrations run on startup |
-| Kaniko submit | [`kubernetes_client.py`](https://github.com/JetBrains-Research/idegym/blob/main/backend-utils/src/idegym/backend/utils/kubernetes_client.py) | Creates Kaniko Jobs and server Deployments via the K8s API |
+| Image build | [`image_build_service.py`](https://github.com/JetBrains-Research/idegym/blob/main/orchestrator/src/idegym/orchestrator/image_build_service.py) | Backend-agnostic `ImageBuildService` drives a pluggable [`ImageBuilder`](https://github.com/JetBrains-Research/idegym/tree/main/backend-utils/src/idegym/backend/utils/image_builder) (Kaniko / GKE Cloud Build) |
+| K8s resources | [`kubernetes_client.py`](https://github.com/JetBrains-Research/idegym/blob/main/backend-utils/src/idegym/backend/utils/kubernetes_client.py) | Creates Kaniko Jobs (Kaniko backend) and server Deployments via the K8s API |
 
 ## Persistence model
 

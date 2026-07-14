@@ -93,12 +93,18 @@ else
     echo ">>> Launching PyCharm with open-project AppStarter (project: ${PROJECT})"
 fi
 
+# -Dmcp.steroid.review.mode=NEVER: run mcp-steroid's steroid_execute_code without the manual
+# code-review gate. Its default (ALWAYS) opens a review.kts and waits for a human to approve every
+# execution; in this automated run there is no reviewer, so each call hangs until
+# mcp.steroid.review.timeout (600s). NEVER auto-approves all executions — required for autonomous
+# use (harmless when mcp-steroid is absent, e.g. the default MCP_STEROID=false mode).
 "${PYCHARM_DIR}/bin/pycharm.sh" \
     -Didea.trust.all.projects=true \
     -Didea.system.path="${IDE_SYSTEM_PATH}" \
     -Didea.config.path="${IDE_CONFIG_PATH}" \
     -Didea.plugins.path="${PYCHARM_DIR}/plugins" \
     -Dide.no.platform.update=true \
+    -Dmcp.steroid.review.mode=NEVER \
     -Dide.show.tips.on.startup.default.value=false \
     -Djb.consents.confirmation.enabled=false \
     "${OPEN_ARGS[@]+"${OPEN_ARGS[@]}"}" > "${LOG_FILE}" 2>&1 &
