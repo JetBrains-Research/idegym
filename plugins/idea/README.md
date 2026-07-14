@@ -12,10 +12,12 @@ Starting with 2026.1.1, the MCP server plugin is bundled in IDEA.
 
 When added to an IdeGYM image pipeline, the `Idea` plugin:
 
-1. Installs system dependencies (socat, X11/font libs for the JVM).
+1. Installs system dependencies (socat, X11/font libs for the JVM; also Xvfb +
+   xdotool when `headless=False`).
 2. Downloads and verifies IntelliJ IDEA from JetBrains CDN (sha256-checked).
-3. Adds headless and startup-suppression flags to `idea64.vmoptions` so the IDE
-   starts without a display server and without first-run wizards.
+3. Adds startup-suppression flags to `idea64.vmoptions` (plus
+   `-Djava.awt.headless=true` when `headless=True`, the default) so the IDE starts
+   without first-run wizards.
 4. Pre-writes IDE settings to `/tmp/ide-config` (MCP auto-start, EUA acceptance,
    project trust, suppressed first-run dialogs).
 5. Optionally installs the **open-project** plugin and registers a supervisord
@@ -24,9 +26,10 @@ When added to an IdeGYM image pipeline, the `Idea` plugin:
 At runtime supervisord calls the `start-idea.sh` script (installed as
 `/usr/local/bin/start-idea`), which:
 
-1. Exports `JAVA_TOOL_OPTIONS="-Djava.awt.headless=true"` so the JVM reads the flag
-   before any application code runs — IDEA supports true headless mode and
-   does not require Xvfb.
+1. In the default headless mode, exports `JAVA_TOOL_OPTIONS="-Djava.awt.headless=true"`
+   so the JVM reads the flag before any application code runs — IDEA supports true
+   headless mode and does not require Xvfb. When `headless=False`, it instead starts
+   Xvfb on `:99` and launches the IDE against that virtual display (like PyCharm).
 2. Launches IDEA with `-Didea.config.path=/tmp/ide-config` and
    `-Didea.system.path=/tmp/ide-system` so all paths are predictable inside the
    container.
@@ -118,6 +121,7 @@ xml_output = await server.execute_bash("cat /tmp/inspect-out/*.xml")
 | Attribute | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `version` | `str` | `"2026.1.1"` | IDEA version (`YYYY.N` or `YYYY.N.N`); must be 2026.1.1+, older versions not supported |
+| `headless` | `bool` | `True` | Run headless (`-Djava.awt.headless=true`). Set `False` to install Xvfb and run against a virtual display on `:99`, the same way PyCharm runs |
 | `open_project` | `bool` | `True` | Install the open-project plugin and supervisord service when a `Project` plugin is in the pipeline |
 | `user` | `Optional[str]` | `ctx.current_user` | Linux user to switch back to after installation |
 
@@ -137,10 +141,13 @@ the plugin automatically enables MCP auto-start by writing
 
 ## Architecture notes
 
-**Why no Xvfb?** IntelliJ IDEA supports `java.awt.headless=true` natively.
-The PyCharm plugin requires Xvfb because PyCharm does not have this support.
-Running headless eliminates an entire process, reduces startup time, and lowers memory
-usage.
+**Why headless by default (and how to opt out)?** IntelliJ IDEA supports
+`java.awt.headless=true` natively, unlike PyCharm which always needs Xvfb. Running
+headless eliminates an entire process, reduces startup time, and lowers memory usage,
+so it is the default. Set `headless=False` for workloads that need a real AWT toolkit
+(Swing UI rendering, plugins that break under headless AWT): the image then installs
+Xvfb + xdotool and `start-idea.sh` launches the IDE against a virtual display on `:99`,
+exactly as the PyCharm plugin does.
 
 **Why `JAVA_TOOL_OPTIONS`?** Setting `-Djava.awt.headless=true` only via JVM CLI
 arguments can be overridden by `idea.sh`'s own argument processing. Exporting it

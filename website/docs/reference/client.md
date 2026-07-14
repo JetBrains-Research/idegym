@@ -343,7 +343,9 @@ result = await server.idea.inspect(
 )
 ```
 
-IntelliJ IDEA supports true headless mode (`java.awt.headless=true`) — no Xvfb is needed.
+IntelliJ IDEA supports true headless mode (`java.awt.headless=true`) — no Xvfb is needed by
+default. Pass `Idea(headless=False)` to run the IDE against a virtual display (Xvfb on `:99`),
+the same way PyCharm runs, for workloads that need a real AWT toolkit.
 
 ### Checking for a plugin at runtime
 
