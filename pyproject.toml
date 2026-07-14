@@ -96,6 +96,11 @@ markers = [
     "unit: marks unit test suite",
     "docker: marks tests that should be run inside a Docker container",
     "ide_integrations: marks tests that build and run a full IDE image (5-10 min); excluded from CI, run manually with -m 'e2e and ide_integrations'",
+    "idea: e2e group — IntelliJ IDEA image tests (auto-applied by conftest to test_idea*)",
+    "pycharm: e2e group — PyCharm image tests (auto-applied by conftest to test_pycharm*)",
+    "openhands: e2e group — OpenHands tools plugin tests (auto-applied by conftest to test_openhands*)",
+    "kaniko: e2e group — in-cluster image build tests (auto-applied to test_kaniko_build/test_python_api_build)",
+    "mcp: e2e group — MCP gateway/proxy tests (auto-applied to test_mcp_plugin/test_orchestrator_mcp/test_server_mcp_proxy)",
 ]
 
 [tool.ruff]
