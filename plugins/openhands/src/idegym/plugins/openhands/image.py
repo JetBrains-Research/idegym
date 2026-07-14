@@ -21,6 +21,9 @@ from pydantic import field_validator
 # build driver (get_context_files) and the Kaniko git-context path resolve the same paths.
 _START_SCRIPT_DEST = "plugins/openhands/scripts/start-openhands-service.sh"
 _SUPERVISOR_DEST = "plugins/openhands/scripts/supervisord-openhands.conf"
+# Where the local ``plugins/`` source is copied so the dedicated venv can install idegym-plugins
+# (which is not published to PyPI) from source.
+_PLUGINS_SRC_DEST = "/opt/idegym-openhands-plugins-src"
 
 
 @image_plugin(PLUGIN_NAME)
@@ -66,9 +69,10 @@ class OpenHands(PluginBase):
     # Install the OpenHands runtime dependencies into the dedicated venv. Disable to build a
     # structural-only image (fast tests that do not need the heavy OpenHands stack).
     install_openhands: bool = True
-    # pip requirement that installs this plugin's code into the dedicated venv. Override to point at
-    # a local wheel or a private index when the published distribution is not the target version.
-    package_spec: str = "idegym-plugins"
+    # How to install this plugin's code (idegym-plugins) into the dedicated venv. ``None`` copies the
+    # local ``plugins/`` source from the build context and installs it (idegym-plugins is not on
+    # PyPI); set a pip requirement (e.g. a pinned published version or a wheel path) to override.
+    package_spec: Optional[str] = None
     # Run the build-time smoke check (imports adapters, exercises a subprocess terminal, checks tmux).
     build_smoke_test: bool = True
 
@@ -136,10 +140,17 @@ class OpenHands(PluginBase):
                 '"mcp"',
                 '"uvicorn"',
                 '"httpx"',
-                f'"{self.package_spec}"',
             ]
+            if self.package_spec:
+                # Explicit override (e.g. a pinned published version or a wheel path).
+                pip_targets.append(f'"{self.package_spec}"')
+                parts += [""]
+            else:
+                # idegym-plugins is not published; install this exact source from the build context.
+                # Its idegym-api/idegym-common-utils deps resolve from PyPI.
+                pip_targets.append(_PLUGINS_SRC_DEST)
+                parts += ["", f"COPY plugins {_PLUGINS_SRC_DEST}"]
             parts += [
-                "",
                 "RUN set -eux; \\",
                 f"    uv venv --python 3.12 {self.venv_dir}; \\",
                 f"    uv pip install --python {self.venv_dir}/bin/python --no-cache-dir {' '.join(pip_targets)}",
