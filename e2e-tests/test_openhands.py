@@ -39,17 +39,25 @@ def _build_image(test_id: str) -> str:
         .named(f"openhands-e2e-{test_id}")
         .with_plugin(User(username="appuser", uid=1000, gid=1000, sudo=True))
         .with_plugin(Project.from_local("e2e-tests/test_projects/python-project", target=_WORK))
+        # IdeGYMServer reinstalls the current workspace source (so the base image gets THIS branch's
+        # openhands plugin code) — it runs as root, so it must come before OpenHands (whose render
+        # ends as the project user). It also creates /etc/idegym owned by the project user.
+        .with_plugin(IdeGYMServer.from_local(root=from_root()))
         # Subprocess backend keeps the deployed build deterministic; tmux is covered by the image
-        # build-time smoke check. The OpenHands runtime installs into its own in-container venv.
+        # build-time smoke check. The OpenHands runtime installs into its own in-container venv, and
+        # this plugin sets the final USER back to the project user.
         .with_plugin(
             OpenHands(
                 default_terminal_backend=TerminalBackend.SUBPROCESS,
                 allowed_terminal_backends=(TerminalBackend.SUBPROCESS,),
             )
         )
-        # IdeGYMServer is last so it writes /etc/idegym/plugins.json including the "openhands"
-        # server plugin that OpenHands.apply() enabled.
-        .with_plugin(IdeGYMServer.from_local(root=from_root()))
+        # Enable the openhands server plugin. IdeGYMServer wrote plugins.json before OpenHands.apply()
+        # ran (apply/render are interleaved), so add "openhands" explicitly here.
+        .run_commands(
+            "mkdir -p /etc/idegym && "
+            'printf \'%s\\n\' \'{"server":["tools","rewards","openhands"]}\' > /etc/idegym/plugins.json'
+        )
     )
     built = IdeGYMDockerAPI().build_image(image)
     image_tag = str(built.repo_tags[0])
