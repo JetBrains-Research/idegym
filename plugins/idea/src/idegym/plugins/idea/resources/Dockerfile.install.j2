@@ -1,12 +1,17 @@
 # Install IntelliJ IDEA Community {{ version }}
 # https://www.jetbrains.com/idea/download/other.html
+#
+# IDEA supports -Djava.awt.headless=true natively and runs headless by default.
+# When headless=False the image also installs Xvfb (+ xdotool) and start-idea.sh
+# launches the IDE against a virtual X11 display on :99, mirroring PyCharm.
 USER root
 RUN set -eux; \
     apt-get update -qq; \
     apt-get install -y --no-install-recommends \
         ca-certificates curl unzip procps socat \
         libx11-6 libxext6 libxrender1 libxtst6 libxi6 libxrandr2 \
-        libfreetype6 libfontconfig1; \
+        libfreetype6 libfontconfig1{% if not headless %} \
+        xvfb xdotool{% endif %}; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
 
@@ -31,9 +36,14 @@ RUN set -eux; \
 
 ENV JAVA_HOME="${IDE_DIR}/jbr"
 ENV PATH="${JAVA_HOME}/bin:${IDE_DIR}/bin:${PATH}"
-
-# Headless + startup-suppression flags in vmoptions (applies without CLI args).
-# IDEA CE supports java.awt.headless=true natively; no Xvfb required.
+# start-idea.sh reads IDEA_HEADLESS to pick true headless mode vs a virtual
+# display (Xvfb). DISPLAY is baked in only for the virtual-display build.
+ENV IDEA_HEADLESS="{{ 'true' if headless else 'false' }}"
+{% if not headless %}ENV DISPLAY=":99"
+{% endif %}
+# Startup-suppression flags in vmoptions (applies without CLI args).
+# -Djava.awt.headless=true is added only for headless builds; a virtual-display
+# build must NOT force headless or the IDE would ignore the Xvfb DISPLAY.
 RUN for f in "${IDE_DIR}/bin/idea64.vmoptions" "${IDE_DIR}/bin/idea.vmoptions"; do \
-        [ -f "$f" ] && printf '\n-Djava.awt.headless=true\n-Didea.trust.all.projects=true\n-Djb.consents.confirmation.enabled=false\n-Dide.show.tips.on.startup.default.value=false\n-Dide.no.platform.update=true\n-Dide.browser.jcef.enabled=false\n-XX:-UsePerfData\n-XX:+PerfDisableSharedMem\n-XX:+UseContainerSupport\n-XX:ErrorFile=/tmp/jvm-crash.log\n' >> "$f" || true; \
+        [ -f "$f" ] && printf '\n{% if headless %}-Djava.awt.headless=true\n{% endif %}-Didea.trust.all.projects=true\n-Djb.consents.confirmation.enabled=false\n-Dide.show.tips.on.startup.default.value=false\n-Dide.no.platform.update=true\n-Dide.browser.jcef.enabled=false\n-XX:-UsePerfData\n-XX:+PerfDisableSharedMem\n-XX:+UseContainerSupport\n-XX:ErrorFile=/tmp/jvm-crash.log\n' >> "$f" || true; \
     done

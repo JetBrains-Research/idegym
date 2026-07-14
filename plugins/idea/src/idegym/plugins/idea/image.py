@@ -35,8 +35,12 @@ class Idea(PluginBase):
 
     Requires IDEA 2026.1.1 or newer. Older versions are not supported.
 
-    IDEA supports ``-Djava.awt.headless=true`` natively, so no display
-    server is needed — it starts faster and uses less memory than PyCharm.
+    IDEA supports ``-Djava.awt.headless=true`` natively, so by default no display
+    server is needed — it starts faster and uses less memory than PyCharm. Set
+    ``headless=False`` to instead run the IDE against a virtual X11 display: the
+    image installs Xvfb (+ xdotool) and ``start-idea.sh`` launches the IDE on
+    ``:99`` exactly like PyCharm, for cases that require a real AWT toolkit (e.g.
+    Swing UI rendering or plugins that break under headless AWT).
 
     **MCP server**: the JetBrains MCP plugin is bundled in 2026.1.1+ and binds to
     ``127.0.0.1:64342`` (loopback only). Plugin versions are listed at
@@ -74,6 +78,9 @@ class Idea(PluginBase):
     Attributes:
         version: IDEA version in ``YYYY.N`` or ``YYYY.N.N`` format. Must be 2026.1.1
             or newer; older versions are not supported.
+        headless: Run the IDE in true headless mode (``-Djava.awt.headless=true``,
+            the default). When ``False``, install Xvfb and start the IDE against a
+            virtual X11 display on ``:99`` (the same way PyCharm always runs).
         open_project: Install the open-project plugin and supervisord entry when a
             ``Project`` plugin precedes this one in the pipeline.
         mcp_steroid: Download and install the mcp-steroid plugin at build time.
@@ -91,6 +98,7 @@ class Idea(PluginBase):
     """
 
     version: str = "2026.1.1"
+    headless: bool = True
     open_project: bool = True
     mcp_steroid: bool = False
     mcp_steroid_version: str = "0.94.0-8682a5ce"
@@ -153,7 +161,7 @@ class Idea(PluginBase):
         has_project = ctx.get_extra("idegym.has_project", False)
         install_plugin = has_project and self.open_project
 
-        parts = [_render("Dockerfile.install.j2", version=self.version, config_dir=_CONFIG_DIR)]
+        parts = [_render("Dockerfile.install.j2", version=self.version, config_dir=_CONFIG_DIR, headless=self.headless)]
 
         if install_plugin:
             parts.append(_render("Dockerfile.mcp.j2", config_dir=_CONFIG_DIR))

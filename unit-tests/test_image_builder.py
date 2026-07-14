@@ -933,6 +933,29 @@ def test_idea_render_root_only_container():
     assert fragment.strip().endswith("USER root")
 
 
+def test_idea_headless_by_default():
+    plugin = Idea()
+    assert plugin.headless is True
+    fragment = plugin.render(BuildContext(base="debian:bookworm-slim"))
+    assert 'IDEA_HEADLESS="true"' in fragment
+    # vmoptions force headless AWT so no display server is needed.
+    assert "-Djava.awt.headless=true\\n-Didea.trust.all.projects=true" in fragment
+    # No virtual-display machinery in the default (headless) build.
+    assert "xvfb xdotool" not in fragment
+    assert 'DISPLAY=":99"' not in fragment
+
+
+def test_idea_render_virtual_display_installs_xvfb():
+    plugin = Idea(headless=False)
+    fragment = plugin.render(BuildContext(base="debian:bookworm-slim"))
+    assert 'IDEA_HEADLESS="false"' in fragment
+    # Xvfb + xdotool are installed and DISPLAY is baked in, mirroring PyCharm.
+    assert "xvfb xdotool" in fragment
+    assert 'ENV DISPLAY=":99"' in fragment
+    # vmoptions must NOT force headless or the IDE would ignore the Xvfb display.
+    assert "-Djava.awt.headless=true\\n-Didea.trust.all.projects=true" not in fragment
+
+
 def test_pycharm_render_includes_mcp_config_when_project_present():
     plugin = PyCharm()
     ctx = BuildContext(base="debian:bookworm-slim").with_extra("idegym.has_project", True)
