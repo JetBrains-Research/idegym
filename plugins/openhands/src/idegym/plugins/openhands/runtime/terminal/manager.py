@@ -119,18 +119,26 @@ class TerminalSessionManager:
             )
         return backend
 
-    def _make_session(self, backend: TerminalBackend, cwd: str, env: dict[str, str]) -> TerminalBackendSession:
-        no_change = int(self._config.no_change_timeout_seconds)
-        if backend == TerminalBackend.TMUX:
+    def _make_session(
+        self,
+        backend: TerminalBackend,
+        cwd: str,
+        env: dict[str, str],
+        *,
+        no_change_timeout: float,
+        cols: Optional[int],
+        rows: Optional[int],
+    ) -> TerminalBackendSession:
+        no_change = int(no_change_timeout)
+        if backend == TerminalBackend.TMUX or compat.openhands_available():
+            # OpenHands' retained session (pinned tmux pane, or its subprocess terminal when present).
             return OpenHandsTerminalSession(
                 backend=backend, work_dir=cwd, username=None, env=env, no_change_timeout_seconds=no_change
             )
-        # subprocess: prefer OpenHands' retained subprocess terminal; fall back to the native shell.
-        if compat.openhands_available():
-            return OpenHandsTerminalSession(
-                backend=backend, work_dir=cwd, username=None, env=env, no_change_timeout_seconds=no_change
-            )
-        return SubprocessBackendSession(shell=self._config.subprocess_shell, cwd=cwd, env=env)
+        # Native retained-shell fallback (subprocess only, when OpenHands is not installed).
+        return SubprocessBackendSession(
+            shell=self._config.subprocess_shell, cwd=cwd, env=env, cols=cols or 120, rows=rows or 40
+        )
 
     def _filter_env(self, env: dict[str, str]) -> dict[str, str]:
         """Apply the caller-env allowlist."""
@@ -148,11 +156,14 @@ class TerminalSessionManager:
         backend = self._resolve_backend(request.backend)
         cwd = self._config.resolve_cwd(request.cwd)
         env = self._filter_env(request.env)
+        no_change_timeout = request.no_change_timeout or self._config.no_change_timeout_seconds
         async with self._registry_lock:
             if len(self._handles) >= self._config.max_terminals:
                 raise ServiceError(ErrorCode.QUOTA_EXCEEDED, f"Terminal quota exceeded ({self._config.max_terminals})")
             tid = terminal_id or TerminalHandle.new_id()
-            session = self._make_session(backend, cwd, env)
+            session = self._make_session(
+                backend, cwd, env, no_change_timeout=no_change_timeout, cols=request.cols, rows=request.rows
+            )
             handle = TerminalHandle(
                 terminal_id=tid,
                 backend=backend,
@@ -163,6 +174,9 @@ class TerminalSessionManager:
                 session=session,
                 name=request.name,
                 is_default=(tid == _DEFAULT_ID),
+                no_change_timeout=no_change_timeout,
+                cols=request.cols,
+                rows=request.rows,
             )
             self._handles[tid] = handle
             self._locks[tid] = asyncio.Lock()
@@ -251,7 +265,7 @@ class TerminalSessionManager:
         if reset:
             await self.reset(terminal_id)
             handle = self._require(terminal_id)
-        timeout = self._config.no_change_timeout_seconds if timeout is None else timeout
+        timeout = self._default_timeout(handle) if timeout is None else timeout
         async with self._locks[terminal_id]:
             if is_input:
                 res = await handle.session.input(command, timeout)
@@ -270,10 +284,13 @@ class TerminalSessionManager:
         self, terminal_id: str, text: str, *, timeout: Optional[float] = None, call_id: str = ""
     ) -> TerminalResult:
         handle = self._require(terminal_id)
-        timeout = self._config.no_change_timeout_seconds if timeout is None else timeout
+        timeout = self._default_timeout(handle) if timeout is None else timeout
         async with self._locks[terminal_id]:
             res = await handle.session.input(text, timeout)
             return self._apply(handle, res, call_id=call_id)
+
+    def _default_timeout(self, handle: TerminalHandle) -> float:
+        return handle.no_change_timeout or self._config.no_change_timeout_seconds
 
     async def poll(self, terminal_id: str, *, timeout: Optional[float] = None, call_id: str = "") -> TerminalResult:
         handle = self._require(terminal_id)
@@ -320,7 +337,14 @@ class TerminalSessionManager:
         async with self._locks[terminal_id]:
             handle.state = TerminalState.CLOSING
             await handle.session.close()
-            new_session = self._make_session(handle.backend, handle.initial_cwd, handle.initial_env)
+            new_session = self._make_session(
+                handle.backend,
+                handle.initial_cwd,
+                handle.initial_env,
+                no_change_timeout=self._default_timeout(handle),
+                cols=handle.cols,
+                rows=handle.rows,
+            )
             handle.session = new_session
             handle.generation += 1
             handle.state = TerminalState.READY

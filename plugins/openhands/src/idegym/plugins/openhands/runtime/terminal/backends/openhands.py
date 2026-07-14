@@ -23,7 +23,9 @@ from idegym.plugins.openhands.runtime.terminal.backend import BackendExec, Backe
 class OpenHandsTerminalSession(TerminalBackendSession):
     """Adapts a retained OpenHands terminal session to the backend contract."""
 
-    capture_supported = True
+    # OpenHands terminal sessions do not expose a pane/buffer capture, so the descriptor advertises
+    # capture as unsupported for this backend (callers read output from execute/poll instead).
+    capture_supported = False
 
     def __init__(
         self,

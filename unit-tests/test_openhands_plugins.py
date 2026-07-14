@@ -54,12 +54,17 @@ def test_image_render_subprocess_only_omits_tmux():
         allowed_terminal_backends=(TerminalBackend.SUBPROCESS,),
         default_terminal_backend=TerminalBackend.SUBPROCESS,
     ).render(_ctx())
-    assert "tmux -V" not in frag and "tmux" not in frag.split("pip install")[0]
+    assert "tmux -V" not in frag and "tmux" not in frag.split("uv pip install")[0]
     assert "USER devuser" in frag
     assert "openhands-tools==" in frag
     assert "/etc/supervisor/conf.d/openhands.conf" in frag
     assert "idegym.plugins.openhands.service.smoke" in frag
     assert "IDEGYM_OPENHANDS_WORKSPACE_ROOT=/home/devuser/work" in frag
+    # the dedicated venv uses uv (Python 3.12+), not the distro's apt python3-venv
+    assert "uv venv --python 3.12" in frag and "python3-venv" not in frag
+    # the start script installs to the bare command name (no .sh) so it needs no rename pass
+    assert "/usr/local/bin/start-openhands-service.sh" not in frag
+    assert "/usr/local/bin/start-openhands-service" in frag
 
 
 def test_image_render_default_installs_tmux():

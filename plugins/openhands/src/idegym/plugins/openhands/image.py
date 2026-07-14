@@ -107,7 +107,7 @@ class OpenHands(PluginBase):
         tmux_enabled = TerminalBackend.TMUX in self.allowed_terminal_backends
         venv_python = f"{self.venv_dir}/bin/python"
 
-        system_pkgs = ["ca-certificates", "curl", "git", "python3-venv"]
+        system_pkgs = ["ca-certificates", "curl", "git"]
         if tmux_enabled:
             system_pkgs.append("tmux")
 
@@ -125,7 +125,9 @@ class OpenHands(PluginBase):
         ]
 
         if self.install_openhands:
-            # A dedicated venv keeps OpenHands' dependency tree out of the IdeGYM server env.
+            # A dedicated venv keeps OpenHands' dependency tree out of the IdeGYM server env. It is
+            # created with uv (already on the base image at /bin/uv) so it uses the same Python 3.12+
+            # the server runs, not the distro's system python3.
             pip_targets = [
                 f'"openhands-sdk=={self.openhands_sdk_version}"',
                 f'"openhands-tools=={self.openhands_tools_version}"',
@@ -139,9 +141,8 @@ class OpenHands(PluginBase):
             parts += [
                 "",
                 "RUN set -eux; \\",
-                f"    python3 -m venv {self.venv_dir}; \\",
-                f"    {self.venv_dir}/bin/pip install --no-cache-dir --upgrade pip; \\",
-                f"    {self.venv_dir}/bin/pip install --no-cache-dir {' '.join(pip_targets)}",
+                f"    uv venv --python 3.12 {self.venv_dir}; \\",
+                f"    uv pip install --python {self.venv_dir}/bin/python --no-cache-dir {' '.join(pip_targets)}",
             ]
 
         chown_targets = f"{dirs} {self.venv_dir}" if self.install_openhands else dirs
@@ -151,9 +152,11 @@ class OpenHands(PluginBase):
             f"    mkdir -p {dirs}; \\",
             f"    chown -R {user}:{user} {chown_targets}",
             "",
-            f"COPY {_START_SCRIPT_DEST} /usr/local/bin/start-openhands-service.sh",
+            # Install to the bare command name (not .sh) so the supervisor command is valid even in
+            # images that do not run IdeGYMServer's /usr/local/bin/*.{py,sh} -> bare rename pass.
+            f"COPY {_START_SCRIPT_DEST} /usr/local/bin/start-openhands-service",
             f"COPY {_SUPERVISOR_DEST} /etc/supervisor/conf.d/openhands.conf",
-            "RUN chmod +x /usr/local/bin/start-openhands-service.sh",
+            "RUN chmod +x /usr/local/bin/start-openhands-service",
             "",
             env_lines,
         ]

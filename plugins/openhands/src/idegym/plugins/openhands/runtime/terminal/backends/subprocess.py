@@ -80,6 +80,9 @@ class SubprocessBackendSession(TerminalBackendSession):
 
         self._pending_token: Optional[str] = None
         self._sentinel: Optional[re.Pattern[str]] = None
+        # Set by interrupt(): a SIGINT'd command's trailing sentinel may never print (bash aborts the
+        # command list on some platforms), so a pending drain must return promptly instead of hanging.
+        self._interrupt_flag = False
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -175,10 +178,36 @@ class SubprocessBackendSession(TerminalBackendSession):
         lines = [ln for ln in text.split("\n") if "__IDEGYM_OH_END__" not in ln]
         return "\n".join(lines).replace("\r", "")
 
+    async def _resync(self) -> BackendExec:
+        """Recover the prompt after an interrupt.
+
+        The interrupted command's trailing sentinel may never print (bash aborts the command list on
+        SIGINT on some platforms), so inject a fresh sentinel that runs as soon as the shell is idle,
+        discard everything emitted before it, and clear the pending command.
+        """
+        token = new_token()
+        sentinel = sentinel_regex(token)
+        self._write(build_command_line("true", token).encode())
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            _before, rc, cwd, done = self._take(sentinel)  # discard residual output from the abort
+            if done:
+                self._pending_token = None
+                self._sentinel = None
+                return BackendExec(output="", running=False, exit_code=130, cwd=cwd, interrupted=True)
+            if self._dead:
+                return BackendExec(running=False, lost=True)
+            await asyncio.sleep(_POLL_INTERVAL)
+        # The command ignored the signal and is still running; leave the handle marked running.
+        return BackendExec(running=True, interrupted=True)
+
     async def _drain(self, sentinel: re.Pattern[str], timeout: float) -> BackendExec:
         deadline = time.monotonic() + max(0.0, timeout)
         collected: list[str] = []
         while True:
+            if self._interrupt_flag:
+                self._interrupt_flag = False
+                return await self._resync()
             before, rc, cwd, done = self._take(sentinel)
             if before:
                 collected.append(before)
@@ -194,6 +223,14 @@ class SubprocessBackendSession(TerminalBackendSession):
         deadline = time.monotonic() + max(0.0, timeout)
         collected: list[str] = []
         while time.monotonic() < deadline:
+            if self._interrupt_flag:
+                self._interrupt_flag = False
+                with self._lock:
+                    pending = self._text[self._consumed :]
+                    self._consumed = len(self._text)
+                if pending:
+                    collected.append(self._clean(pending))
+                return BackendExec(output="".join(collected), running=False, exit_code=130, interrupted=True)
             with self._lock:
                 pending = self._text[self._consumed :]
                 self._consumed = len(self._text)
@@ -209,6 +246,7 @@ class SubprocessBackendSession(TerminalBackendSession):
     async def execute(self, command: str, timeout: float) -> BackendExec:
         if self._dead:
             return BackendExec(lost=True)
+        self._interrupt_flag = False
         token = new_token()
         self._pending_token = token
         self._sentinel = sentinel_regex(token)
@@ -249,7 +287,14 @@ class SubprocessBackendSession(TerminalBackendSession):
     async def interrupt(self) -> None:
         if self._dead or self._master_fd < 0:
             return
-        # Signal only the terminal's foreground process group so the shell itself survives.
+        await asyncio.to_thread(self._interrupt_blocking)
+
+    def _interrupt_blocking(self) -> None:
+        # Mark the foreground command interrupted so a pending drain returns promptly: on some
+        # platforms bash aborts the command list on SIGINT, so its trailing sentinel never prints.
+        self._interrupt_flag = True
+        # Preferred path: when job control is active the foreground command has its own process
+        # group; signal only it so the shell survives. This is what happens on macOS.
         try:
             fg = os.tcgetpgrp(self._master_fd)
         except OSError:
@@ -257,8 +302,37 @@ class SubprocessBackendSession(TerminalBackendSession):
         if fg > 0 and fg != self._pgid:
             with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
                 os.killpg(fg, signal.SIGINT)
-        else:
-            self._write(b"\x03")
+            return
+        # Fallback (e.g. Linux, where non-interactive job control may not isolate the command):
+        # SIGINT the shell's descendant processes directly, leaving the shell itself running.
+        self._signal_shell_children(signal.SIGINT)
+
+    def _signal_shell_children(self, sig: int) -> bool:
+        """Send ``sig`` to the shell's direct child processes (not the shell). Returns True if any."""
+        if self._proc is None:
+            return False
+        signalled = False
+        for pid in self._shell_children():
+            # Signal the child PID directly, never its process group: when job control is not
+            # isolating the command, the child shares the shell's group and killpg would take the
+            # shell down too.
+            with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
+                os.kill(pid, sig)
+                signalled = True
+        return signalled
+
+    def _shell_children(self) -> list[int]:
+        pid = self._proc.pid
+        # Prefer /proc (Linux, no extra packages); fall back to pgrep where /proc is unavailable.
+        try:
+            with open(f"/proc/{pid}/task/{pid}/children") as handle:
+                return [int(p) for p in handle.read().split() if p.isdigit()]
+        except OSError:
+            pass
+        with contextlib.suppress(OSError, subprocess.SubprocessError):
+            out = subprocess.run(["pgrep", "-P", str(pid)], capture_output=True, text=True, timeout=2)
+            return [int(p) for p in out.stdout.split() if p.strip().isdigit()]
+        return []
 
     async def capture(self) -> str:
         with self._lock:

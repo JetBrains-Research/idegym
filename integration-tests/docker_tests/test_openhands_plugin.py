@@ -84,7 +84,7 @@ def _run(tag: str, script: str) -> str:
 def test_service_assets_are_present():
     check = (
         "test -f /etc/supervisor/conf.d/openhands.conf && "
-        "test -f /usr/local/bin/start-openhands-service.sh && "
+        "test -x /usr/local/bin/start-openhands-service && "
         "test -d /var/lib/idegym-openhands/state && "
         "test -d /var/lib/idegym-openhands/artifacts && "
         "test -f /etc/idegym/mcp-upstreams.d/openhands.json && "

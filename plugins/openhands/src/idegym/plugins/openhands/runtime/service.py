@@ -234,7 +234,7 @@ class ToolRuntime:
             "workspace": workspace_ok,
             "default_backend": backend_ok,
             "catalog": len(self.catalog.entries()) > 0,
-            "artifacts_dir": Path(self.config.output_dir).is_dir() or True,
+            "artifacts_dir": Path(self.config.output_dir).is_dir(),
         }
         ready = self._ready and all(checks.values())
         return HealthResponse(

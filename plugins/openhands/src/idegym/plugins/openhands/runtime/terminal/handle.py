@@ -32,6 +32,10 @@ class TerminalHandle:
     last_activity_at: datetime = field(default_factory=_now)
     last_exit_code: Optional[int] = None
     last_working_dir: Optional[str] = None
+    # Per-terminal creation options (applied on create and re-applied on reset).
+    no_change_timeout: Optional[float] = None
+    cols: Optional[int] = None
+    rows: Optional[int] = None
 
     @staticmethod
     def new_id() -> str:
