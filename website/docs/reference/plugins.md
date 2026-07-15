@@ -639,11 +639,14 @@ flowchart TB
 ```
 
 The service runs in its **own in-container virtualenv**: `openhands-sdk` transitively pins an older
-`opentelemetry-api` than IdeGYM, so the two cannot share one environment. IdeGYM only proxies to it
-over loopback. Terminals are backed by OpenHands' `create_terminal_session` (one retained pinned
-pane or process per handle); the backend (`tmux`/`subprocess`) is fixed per terminal and never
-silently switched. Agent-dependent families (`task`, `workflow`, `tom_consult`) are reported as
-unsupported with a reason rather than faked.
+`opentelemetry-api` than IdeGYM, so the two cannot share one environment. The venv installs the
+plugin runtime from the `idegym-plugins` source the base image already provides (the same
+distribution the pycharm/idea plugins come from) — nothing is fetched or copied a second time — and
+IdeGYM only proxies to the service over loopback. Terminals are backed by OpenHands'
+`create_terminal_session` (one retained pinned pane or process per handle); the backend
+(`tmux`/`subprocess`) is fixed per terminal and never silently switched, and **tmux is the reliable
+choice** (OpenHands' subprocess terminal has an unreliable interrupt). Agent-dependent families
+(`task`, `workflow`, `tom_consult`) are reported as unsupported with a reason rather than faked.
 
 ---
 

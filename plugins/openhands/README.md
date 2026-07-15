@@ -68,15 +68,19 @@ Entry points are declared in `plugins/pyproject.toml` under `idegym.plugins.{ima
 `tmux` and `subprocess` are both created via OpenHands' `create_terminal_session` — one retained
 session per handle (a pinned pane or a retained process, never a pool checkout). The backend is
 chosen per terminal, reported in every result, and fixed for the handle's lifetime; a disabled or
-unavailable backend errors explicitly, never falls back. A native retained-PTY subprocess shell is
-used only when `openhands-tools` is absent (dev/CI) so the service still runs and is testable.
+unavailable backend errors explicitly, never falls back. **tmux is the reliable backend**: OpenHands'
+subprocess terminal has an unreliable interrupt (upstream recommends installing tmux), so use tmux
+when you need to interrupt long-running commands. A native retained-PTY subprocess shell is used only
+when `openhands-tools` is absent (dev/CI) so the service still runs and is testable.
 
 ## Usage
 
 ```python
-# image build
+# image build — add on a base image that already includes the IdeGYM server (which provides
+# idegym-plugins), the same way the pycharm/idea plugins are used. The dedicated venv installs the
+# plugin runtime from that in-image source; no extra copy of the plugin source is needed.
 from idegym.plugins.openhands.image import OpenHands
-image = image.with_plugin(OpenHands())  # place before IdeGYMServer
+image = image.with_plugin(OpenHands())
 
 # typed client
 await server.openhands.health()

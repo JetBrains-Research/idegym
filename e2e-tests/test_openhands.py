@@ -12,11 +12,10 @@ Runs in CI on the minikube runner. Locally it needs the full e2e setup (minikube
 
 from contextlib import asynccontextmanager
 
-from from_root import from_root
 from idegym.api.resources import KubernetesResources, ResourceQuantities
 from idegym.image.builder import Image
 from idegym.image.docker_api import IdeGYMDockerAPI
-from idegym.plugins.defaults.image import IdeGYMServer, Project, User
+from idegym.plugins.defaults.image import Project, User
 from idegym.plugins.openhands.api.models import TerminalBackend, TerminalExecuteRequest
 from idegym.plugins.openhands.image import OpenHands
 from utils.build_images import minikube_load_image
@@ -39,23 +38,23 @@ def _build_image(test_id: str) -> str:
         .named(f"openhands-e2e-{test_id}")
         .with_plugin(User(username="appuser", uid=1000, gid=1000, sudo=True))
         .with_plugin(Project.from_local("e2e-tests/test_projects/python-project", target=_WORK))
-        # IdeGYMServer reinstalls the current workspace source (so the base image gets THIS branch's
-        # openhands plugin code) — it runs as root, so it must come before OpenHands (whose render
-        # ends as the project user). It also creates /etc/idegym owned by the project user.
-        .with_plugin(IdeGYMServer.from_local(root=from_root()))
-        # tmux is OpenHands' recommended, reliable terminal (its subprocess terminal has an
-        # unreliable interrupt), so the deployed image exercises the real "reuse OpenHands" path:
-        # the plugin apt-installs tmux when the tmux backend is allowed. The OpenHands runtime
-        # installs into its own in-container venv, and this plugin sets the final USER back to the
-        # project user.
+        # The e2e base image is the full IdeGYM server built locally from this branch, so it already
+        # carries this branch's idegym-plugins (the openhands server plugin + the plugin source at
+        # $IDEGYM_PATH/plugins) — no reinstall needed. We just add OpenHands on top, exactly how the
+        # idea/pycharm e2e build on the same base.
+        #
+        # tmux is OpenHands' recommended, reliable terminal (its subprocess terminal has an unreliable
+        # interrupt), so the deployed image exercises the real "reuse OpenHands" path: the plugin
+        # apt-installs tmux when the tmux backend is allowed, provisions its own in-container venv from
+        # the in-image plugin source, and sets the final USER back to the project user.
         .with_plugin(
             OpenHands(
                 default_terminal_backend=TerminalBackend.TMUX,
                 allowed_terminal_backends=(TerminalBackend.TMUX,),
             )
         )
-        # Enable the openhands server plugin. IdeGYMServer wrote plugins.json before OpenHands.apply()
-        # ran (apply/render are interleaved), so add "openhands" explicitly here.
+        # The base image's plugins.json enables only tools+rewards (its build did not include
+        # OpenHands in the pipeline), so enable the openhands server plugin explicitly here.
         .run_commands(
             "mkdir -p /etc/idegym && "
             'printf \'%s\\n\' \'{"server":["tools","rewards","openhands"]}\' > /etc/idegym/plugins.json'

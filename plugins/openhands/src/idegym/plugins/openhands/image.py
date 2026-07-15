@@ -21,9 +21,10 @@ from pydantic import field_validator
 # build driver (get_context_files) and the Kaniko git-context path resolve the same paths.
 _START_SCRIPT_DEST = "plugins/openhands/scripts/start-openhands-service.sh"
 _SUPERVISOR_DEST = "plugins/openhands/scripts/supervisord-openhands.conf"
-# Where the local ``plugins/`` source is copied so the dedicated venv can install idegym-plugins
-# (which is not published to PyPI) from source.
-_PLUGINS_SRC_DEST = "/opt/idegym-openhands-plugins-src"
+# The IdeGYM server base image already bakes the plugin source in at ``$IDEGYM_PATH/plugins`` (the
+# server Dockerfile COPYs the workspace there and installs it). The dedicated venv installs
+# idegym-plugins from that same in-image source, so nothing is fetched or copied a second time.
+_IN_IMAGE_PLUGINS_SRC = "$IDEGYM_PATH/plugins"
 
 
 @image_plugin(PLUGIN_NAME)
@@ -36,7 +37,11 @@ class OpenHands(PluginBase):
         enabled_tools / disabled_tools: Explicit allow/deny for the ``custom`` profile.
         default_terminal_backend / allowed_terminal_backends: Terminal backend policy.
         openhands_sdk_version / openhands_tools_version: Pinned upstream versions.
-        package_spec: pip requirement used to install this plugin's runtime in the image.
+        package_spec: Optional override for how the dedicated venv installs this plugin's runtime.
+            When unset, the venv installs idegym-plugins from the source the base image already bakes
+            in at ``$IDEGYM_PATH/plugins`` (like the idea/pycharm plugins, whose code the base image
+            provides). Set it to a published requirement (e.g. ``"idegym-plugins==X.Y"``) or a wheel
+            path to install from PyPI instead once idegym-plugins is published there.
     """
 
     service_port: int = 8900
@@ -142,15 +147,14 @@ class OpenHands(PluginBase):
                 '"httpx"',
             ]
             if self.package_spec:
-                # Explicit override (e.g. a pinned published version or a wheel path).
+                # Explicit override: a published requirement (e.g. "idegym-plugins==X.Y") or a wheel.
                 pip_targets.append(f'"{self.package_spec}"')
-                parts += [""]
             else:
-                # idegym-plugins is not published; install this exact source from the build context.
-                # Its idegym-api/idegym-common-utils deps resolve from PyPI.
-                pip_targets.append(_PLUGINS_SRC_DEST)
-                parts += ["", f"COPY plugins {_PLUGINS_SRC_DEST}"]
+                # Reuse the plugin source the base image already baked in, rather than copying it
+                # again. Its idegym-api/idegym-common-utils deps resolve from PyPI.
+                pip_targets.append(f'"{_IN_IMAGE_PLUGINS_SRC}"')
             parts += [
+                "",
                 "RUN set -eux; \\",
                 f"    uv venv --python 3.12 {self.venv_dir}; \\",
                 f"    uv pip install --python {self.venv_dir}/bin/python --no-cache-dir {' '.join(pip_targets)}",
