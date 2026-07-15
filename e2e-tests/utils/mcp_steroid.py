@@ -18,7 +18,7 @@ from typing import Optional
 
 import resources as e2e_resources
 from idegym.utils.logging import get_logger
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
 logger = get_logger(__name__)
@@ -46,7 +46,7 @@ class IdeWindow(BaseModel):
 
 
 class McpWindowsResult(BaseModel):
-    windows: list[IdeWindow] = []
+    windows: list[IdeWindow] = Field(default_factory=list)
     raw_text: str = ""
 
 

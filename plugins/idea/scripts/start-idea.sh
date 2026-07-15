@@ -96,10 +96,18 @@ XVFB_PID=""
 HEADLESS_ARGS=()
 if [ "${IDEA_HEADLESS}" = "true" ]; then
     # JAVA_TOOL_OPTIONS is read by the JVM before application startup code, making
-    # it the most reliable way to set java.awt.headless=true.
-    export JAVA_TOOL_OPTIONS="-Djava.awt.headless=true"
+    # it the most reliable way to set java.awt.headless=true. Append (don't clobber)
+    # so any flags the runtime already exported (proxy, TLS, ...) are preserved.
+    export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:+${JAVA_TOOL_OPTIONS} }-Djava.awt.headless=true"
     HEADLESS_ARGS=("-Djava.awt.headless=true")
 else
+    # Xvfb is only installed when the image was built with Idea(headless=False). Fail
+    # early with a clear message if IDEA_HEADLESS was flipped to false on a headless image.
+    if ! command -v Xvfb >/dev/null 2>&1; then
+        echo "ERROR: IDEA_HEADLESS=false but Xvfb is not installed in this image." >&2
+        echo "       Rebuild with Idea(headless=False) to bundle Xvfb, or leave IDEA_HEADLESS=true." >&2
+        exit 1
+    fi
     pkill -x Xvfb 2>/dev/null || true
     sleep 0.2
     rm -f /tmp/.X99-lock /tmp/.X11-unix/X99 2>/dev/null || true
