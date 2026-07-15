@@ -39,11 +39,46 @@ ENV PATH="${JAVA_HOME}/bin:${IDE_DIR}/bin:${PATH}"
 # start-idea.sh reads IDEA_HEADLESS to pick true headless mode vs a virtual
 # display (Xvfb). DISPLAY is baked in only for the virtual-display build.
 ENV IDEA_HEADLESS="{{ 'true' if headless else 'false' }}"
-{% if not headless %}ENV DISPLAY=":99"
+{% if not headless %}
+ENV DISPLAY=":99"
+
+# Non-headless startup suppression (mirrors the PyCharm plugin). With a display the
+# IDE starts native/OS components that headless mode never touches — notably the
+# "JetBrains OS Integration" daemon (com.intellij.platform.daemon / jetbrainsd), which
+# refuses to run as root without de-elevation and takes the whole IDE down. Disable it
+# plus the cloud/marketplace plugins unwanted in an automated container, pre-accept the
+# data-sharing consent, and suppress the What's New editor so nothing blocks startup.
+RUN set -eux; \
+    mkdir -p "{{ config_dir }}/options"; \
+    mkdir -p /root/.local/share/JetBrains/consentOptions; \
+    printf '%s\n' 'rsch.send.usage.stat:1.1:1:1700000000000' \
+        > /root/.local/share/JetBrains/consentOptions/accepted; \
+    printf '%s\n' \
+        'com.intellij.marketplace' \
+        'com.intellij.settingsSync' \
+        'com.jetbrains.codeWithMe' \
+        'com.intellij.platform.daemon' \
+        > "{{ config_dir }}/disabled_plugins.txt"; \
+    printf '%s\n' \
+        '<application>' \
+        '  <component name="UpdatesConfigurable">' \
+        '    <option name="SHOW_WHATS_NEW_EDITOR" value="false" />' \
+        '  </component>' \
+        '</application>' \
+        > "{{ config_dir }}/options/updates.xml"; \
+    printf '%s\n' \
+        '<application>' \
+        '  <component name="PropertyService"><![CDATA[{' \
+        '  "keyToString": {' \
+        '    "whats.new.last.shown.version": "9999-9.9-99999"' \
+        '  }' \
+        '}]]></component>' \
+        '</application>' \
+        > "{{ config_dir }}/options/other.xml"
 {% endif %}
-# Startup-suppression flags in vmoptions (applies without CLI args).
-# -Djava.awt.headless=true is added only for headless builds; a virtual-display
-# build must NOT force headless or the IDE would ignore the Xvfb DISPLAY.
+# Startup-suppression flags in vmoptions (applies without CLI args). Headless builds
+# force -Djava.awt.headless=true; virtual-display builds must NOT (they would ignore the
+# Xvfb DISPLAY) and instead suppress the EUA / first-run dialogs, exactly like PyCharm.
 RUN for f in "${IDE_DIR}/bin/idea64.vmoptions" "${IDE_DIR}/bin/idea.vmoptions"; do \
-        [ -f "$f" ] && printf '\n{% if headless %}-Djava.awt.headless=true\n{% endif %}-Didea.trust.all.projects=true\n-Djb.consents.confirmation.enabled=false\n-Dide.show.tips.on.startup.default.value=false\n-Dide.no.platform.update=true\n-Dide.browser.jcef.enabled=false\n-XX:-UsePerfData\n-XX:+PerfDisableSharedMem\n-XX:+UseContainerSupport\n-XX:ErrorFile=/tmp/jvm-crash.log\n' >> "$f" || true; \
+        [ -f "$f" ] && printf '\n{% if headless %}-Djava.awt.headless=true\n{% else %}-Djb.privacy.policy.text=<!--999.999-->\n-Dide.firstStartup=false\n{% endif %}-Didea.trust.all.projects=true\n-Djb.consents.confirmation.enabled=false\n-Dide.show.tips.on.startup.default.value=false\n-Dide.no.platform.update=true\n-Dide.browser.jcef.enabled=false\n-XX:-UsePerfData\n-XX:+PerfDisableSharedMem\n-XX:+UseContainerSupport\n-XX:ErrorFile=/tmp/jvm-crash.log\n' >> "$f" || true; \
     done

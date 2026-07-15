@@ -38,7 +38,7 @@
 #   IDE_DIR          – IDEA installation directory                  (default: /opt/idea)
 #   IDE_SYSTEM_PATH  – IDEA system/cache/log directory             (default: /tmp/ide-system)
 #   IDE_CONFIG_PATH  – IDEA config directory                       (default: /tmp/ide-config)
-#   WAIT_SECONDS     – max seconds to wait for MCP endpoint         (default: 120)
+#   WAIT_SECONDS     – max seconds to wait for MCP endpoint         (default: 300)
 #
 # Standard-mode variables:
 #   IDEGYM_PROJECT_ROOT  – project to open                         (default: /root/work)
@@ -56,7 +56,9 @@ IDEA_HEADLESS="${IDEA_HEADLESS:-true}"
 IDE_DIR="${IDE_DIR:-/opt/idea}"
 IDE_SYSTEM_PATH="${IDE_SYSTEM_PATH:-/tmp/ide-system}"
 IDE_CONFIG_PATH="${IDE_CONFIG_PATH:-/tmp/ide-config}"
-WAIT_SECONDS="${WAIT_SECONDS:-120}"
+# Non-headless (Xvfb) startup + indexing is slower than headless, so allow the same
+# generous MCP-endpoint budget PyCharm uses. Headless still breaks out early on success.
+WAIT_SECONDS="${WAIT_SECONDS:-300}"
 LOG_FILE="/tmp/idea.log"
 IDEA_LOG="${IDE_SYSTEM_PATH}/log/idea.log"
 

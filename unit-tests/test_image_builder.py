@@ -943,6 +943,9 @@ def test_idea_headless_by_default():
     # No virtual-display machinery in the default (headless) build.
     assert "xvfb xdotool" not in fragment
     assert 'DISPLAY=":99"' not in fragment
+    # Headless never launches the OS-integration daemon, so no plugin-disable needed.
+    assert "disabled_plugins.txt" not in fragment
+    assert "com.intellij.platform.daemon" not in fragment
 
 
 def test_idea_render_virtual_display_installs_xvfb():
@@ -954,6 +957,12 @@ def test_idea_render_virtual_display_installs_xvfb():
     assert 'ENV DISPLAY=":99"' in fragment
     # vmoptions must NOT force headless or the IDE would ignore the Xvfb display.
     assert "-Djava.awt.headless=true\\n-Didea.trust.all.projects=true" not in fragment
+    # The OS-integration daemon crashes as root under a display, so it (and other
+    # cloud plugins) must be disabled, and EUA/first-run dialogs suppressed.
+    assert "disabled_plugins.txt" in fragment
+    assert "com.intellij.platform.daemon" in fragment
+    assert "-Djb.privacy.policy.text=<!--999.999-->" in fragment
+    assert "-Dide.firstStartup=false" in fragment
 
 
 def test_pycharm_render_includes_mcp_config_when_project_present():
