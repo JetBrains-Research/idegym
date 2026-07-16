@@ -75,6 +75,8 @@ class RuntimeConfig(BaseModel):
     # Artifact retention.
     max_artifacts: int = 256
     max_artifact_bytes: int = 512_000_000
+    # Hard cap on a single artifact so one result cannot consume unbounded memory/disk.
+    max_single_artifact_bytes: int = 33_554_432  # 32 MiB
 
     # Deduplication cache size per environment.
     dedup_cache_size: int = 512
@@ -123,6 +125,9 @@ class RuntimeConfig(BaseModel):
             initial_environment_allowlist=_env_list("INITIAL_ENVIRONMENT_ALLOWLIST", []),
             enforce_workspace_boundary=_env_bool("ENFORCE_WORKSPACE_BOUNDARY", True),
             browser_enabled=_env_bool("BROWSER_ENABLED", False),
+            max_artifacts=int(_env("MAX_ARTIFACTS", "256")),
+            max_artifact_bytes=int(_env("MAX_ARTIFACT_BYTES", "512000000")),
+            max_single_artifact_bytes=int(_env("MAX_SINGLE_ARTIFACT_BYTES", "33554432")),
         )
 
     def ensure_directories(self) -> None:

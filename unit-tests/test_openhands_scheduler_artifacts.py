@@ -197,6 +197,25 @@ def test_artifacts_purged_across_restart(tmp_path):
         b.read(desc.artifact_id)
 
 
+def test_artifact_hard_per_artifact_cap(tmp_path):
+    # OH-12: a single artifact must be capped so one result cannot consume unbounded memory/disk.
+    store = ArtifactStore(str(tmp_path / "art"), max_single_bytes=10)
+    desc = store.save_text("x" * 100)
+    assert desc.size_bytes == 10
+    data, _ = store.read(desc.artifact_id)
+    assert len(data) == 10
+
+
+def test_artifact_get_path_enables_streaming(tmp_path):
+    # OH-12: get_path exposes the on-disk file so downloads stream instead of buffering.
+    store = ArtifactStore(str(tmp_path / "art"))
+    desc = store.save_text("hello stream")
+    path, meta = store.get_path(desc.artifact_id)
+    assert path.exists() and path.read_bytes() == b"hello stream" and meta.artifact_id == desc.artifact_id
+    with pytest.raises(ServiceError):
+        store.get_path("nope")
+
+
 def test_artifact_larger_than_total_budget_is_still_retrievable(tmp_path):
     # A single artifact exceeding max_total_bytes must not be evicted right after it is saved.
     store = ArtifactStore(str(tmp_path / "art"), max_total_bytes=4)

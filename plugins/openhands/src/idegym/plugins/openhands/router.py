@@ -49,7 +49,8 @@ def build_openhands_router(proxy: Optional[LoopbackProxy] = None) -> APIRouter:
 
     @router.get("/artifacts/{artifact_id}")
     async def artifact(artifact_id: str) -> Any:
-        return await proxy.forward("GET", f"/artifacts/{artifact_id}")
+        # Stream the download instead of buffering the whole artifact in the proxy.
+        return await proxy.stream("GET", f"/artifacts/{artifact_id}")
 
     # -- tool call (generic + per-tool) ------------------------------------
 

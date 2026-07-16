@@ -7,8 +7,8 @@ runtime; none owns an executor or terminal.
 
 from typing import Any
 
-from fastapi import APIRouter, Response
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter
+from fastapi.responses import FileResponse, JSONResponse
 from idegym.plugins.openhands.api.errors import ServiceError
 from idegym.plugins.openhands.api.models import (
     CapabilityResponse,
@@ -60,10 +60,12 @@ def build_rest_router(runtime: ToolRuntime) -> APIRouter:
     @router.get("/artifacts/{artifact_id}", tags=["artifacts"])
     async def get_artifact(artifact_id: str) -> Any:
         try:
-            data, descriptor = runtime.artifacts.read(artifact_id)
+            path, descriptor = runtime.artifacts.get_path(artifact_id)
         except ServiceError as exc:
             return _error_response(exc)
-        return Response(content=data, media_type=descriptor.media_type)
+        # Stream from disk (FileResponse sends in chunks) rather than reading the whole file into
+        # memory.
+        return FileResponse(path, media_type=descriptor.media_type, filename=descriptor.filename)
 
     # -- generic + per-tool call routes -----------------
 

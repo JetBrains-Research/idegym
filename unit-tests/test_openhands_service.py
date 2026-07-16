@@ -84,6 +84,44 @@ def test_reset_route(client):
     assert client.post("/v1/reset").json()["environment_generation"] >= 1
 
 
+def test_artifact_download_streams_from_disk(tmp_path):
+    """OH-12: the REST artifact route serves the file (FileResponse) without buffering via read()."""
+    cfg = _config(tmp_path)
+    rt = ToolRuntime(cfg)
+    rt.prepare()
+    desc = rt.artifacts.save_text("streamed-content", filename="out.txt")
+    app = build_app(cfg, rt)
+    with TestClient(app) as c:
+        r = c.get(f"/v1/artifacts/{desc.artifact_id}")
+        assert r.status_code == 200
+        assert r.content == b"streamed-content"
+
+
+async def test_proxy_streams_download_without_buffering(tmp_path):
+    """OH-12: the loopback proxy streams a large download instead of loading it all into memory."""
+    import httpx
+    from fastapi import FastAPI
+    from fastapi.responses import Response as RawResponse
+    from idegym.plugins.openhands.proxy import LoopbackProxy
+
+    payload = b"BIG" * 100_000
+    upstream = FastAPI()
+
+    @upstream.get("/v1/artifacts/{artifact_id}")
+    async def _artifact(artifact_id: str) -> RawResponse:
+        return RawResponse(content=payload, media_type="application/octet-stream")
+
+    proxy = LoopbackProxy(base_url="http://svc/v1")
+    proxy._client = httpx.AsyncClient(transport=httpx.ASGITransport(app=upstream), base_url="http://svc/v1")
+    try:
+        resp = await proxy.stream("GET", "/artifacts/abc")
+        body = b"".join([chunk async for chunk in resp.body_iterator])
+        assert body == payload
+        assert resp.status_code == 200
+    finally:
+        await proxy.aclose()
+
+
 def test_disabled_terminal_hides_rest_routes(tmp_path):
     """OH-01: with the terminal disabled, no terminal route is registered and /call rejects it."""
     app = build_app(_config(tmp_path, disabled_tools=["terminal"]))

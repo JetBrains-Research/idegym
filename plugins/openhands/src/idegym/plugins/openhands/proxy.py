@@ -5,12 +5,14 @@ service to 503 and other transport failures to 502; never forwards external auth
 loopback service.
 """
 
+import json
 from typing import Any, Optional
 
 import httpx
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from idegym.plugins.openhands.api.names import INTERNAL_PREFIX
 from idegym.plugins.openhands.runtime.config import RuntimeConfig
+from starlette.background import BackgroundTask
 
 
 class LoopbackProxy:
@@ -51,6 +53,40 @@ class LoopbackProxy:
         if content_type.startswith("application/json"):
             return JSONResponse(status_code=resp.status_code, content=resp.json())
         return Response(content=resp.content, status_code=resp.status_code, media_type=content_type or None)
+
+    async def stream(self, method: str, subpath: str, *, params: Optional[dict[str, Any]] = None) -> Response:
+        """Forward a (potentially large) download without buffering the whole body in memory.
+
+        The upstream response is streamed straight through (httpx stream -> StreamingResponse), so an
+        artifact download does not load the entire file into either process. Errors are still read
+        eagerly (they are small) and mapped like ``forward``.
+        """
+        try:
+            request = self._client.build_request(method, subpath, params=params)
+            resp = await self._client.send(request, stream=True)
+        except httpx.ConnectError:
+            return JSONResponse(
+                status_code=503,
+                content={"error": "service_unavailable", "message": "OpenHands Tools Service is unreachable"},
+            )
+        except httpx.HTTPError as exc:
+            return JSONResponse(
+                status_code=502,
+                content={"error": "internal_error", "message": f"OpenHands Tools Service proxy error: {exc}"},
+            )
+        content_type = resp.headers.get("content-type", "")
+        if resp.status_code >= 400:
+            body = await resp.aread()
+            await resp.aclose()
+            if content_type.startswith("application/json"):
+                return JSONResponse(status_code=resp.status_code, content=json.loads(body or b"{}"))
+            return Response(content=body, status_code=resp.status_code, media_type=content_type or None)
+        return StreamingResponse(
+            resp.aiter_bytes(),
+            status_code=resp.status_code,
+            media_type=content_type or None,
+            background=BackgroundTask(resp.aclose),
+        )
 
     async def aclose(self) -> None:
         await self._client.aclose()

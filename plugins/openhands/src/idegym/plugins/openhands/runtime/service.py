@@ -5,6 +5,8 @@ scheduler, the artifact store, the deduplication cache, and the environment gene
 are thin projections over this single object; neither builds its own executors or terminals.
 """
 
+import base64
+import json
 import os
 import uuid
 from datetime import datetime, timezone
@@ -13,10 +15,10 @@ from typing import Any, Optional
 
 from idegym.plugins.openhands.api.errors import ErrorCode, ServiceError
 from idegym.plugins.openhands.api.models import (
-    ArtifactDescriptor,
     CallStatus,
     CapabilityResponse,
     ContentBlock,
+    ContentType,
     Diagnostics,
     HealthResponse,
     Profile,
@@ -63,7 +65,10 @@ class ToolRuntime:
         self.catalog = ToolCatalog(config.profile, config.enabled_tools, config.disabled_tools)
         self.scheduler = ResourceScheduler()
         self.artifacts = ArtifactStore(
-            config.output_dir, max_artifacts=config.max_artifacts, max_total_bytes=config.max_artifact_bytes
+            config.output_dir,
+            max_artifacts=config.max_artifacts,
+            max_total_bytes=config.max_artifact_bytes,
+            max_single_bytes=config.max_single_artifact_bytes,
         )
         self._environment_generation = 0
         self._environment_id = uuid.uuid4().hex
@@ -411,8 +416,12 @@ class ToolRuntime:
 
         async def _dispatch() -> ToolCallResult:
             if entry.is_terminal:
-                return await self._call_terminal_tool(arguments, terminal_id)
-            return await self._call_adapter_tool(entry, arguments)
+                result = await self._call_terminal_tool(arguments, terminal_id)
+            else:
+                result = await self._call_adapter_tool(entry, arguments)
+            # One total response budget across content text, images, and structured data — applied to
+            # every path (terminal included), so no result can hold hundreds of MB in memory.
+            return self._bound_result(result)
 
         if not request_id:
             return await _dispatch()
@@ -445,13 +454,18 @@ class ToolRuntime:
             reset=bool(arguments.get("reset", False)),
             call_id=call_id,
         )
+        # Strip the fields that duplicate the (bounded) content blocks so the structured payload does
+        # not carry a second, unbounded copy of the terminal output.
+        structured = term.model_dump(mode="json")
+        structured.pop("output", None)
+        structured.pop("content", None)
         return ToolCallResult(
             call_id=call_id,
             tool=ToolName.TERMINAL,
             status=term.status,
             is_error=term.is_error,
             content=term.content,
-            structured=term.model_dump(mode="json"),
+            structured=structured,
             metadata=term.metadata,
             started_at=term.started_at,
             finished_at=term.finished_at,
@@ -472,16 +486,15 @@ class ToolRuntime:
         started = _now()
         async with self.scheduler.acquire(self._lock_requests(entry, arguments)):
             run = await adapter.run(arguments)
-        content, artifacts = self._bound_output(run.content)
+        # Content/structured bounding is applied uniformly by _bound_result in _dispatch.
         return ToolCallResult(
             call_id=call_id,
             tool=entry.name,
             status=CallStatus.COMPLETED if not run.is_error else CallStatus.FAILED,
             is_error=run.is_error,
-            content=content,
+            content=run.content,
             structured=run.structured,
             metadata={"family": entry.family.value},
-            artifacts=artifacts,
             started_at=started,
             finished_at=_now(),
         )
@@ -493,21 +506,63 @@ class ToolRuntime:
             raise ServiceError(ErrorCode.TOOL_DISABLED, f"Tool {entry.name} is missing a runtime dependency")
         raise ServiceError(ErrorCode.TOOL_DISABLED, f"Tool {entry.name} is not enabled ({status.value})")
 
-    def _bound_output(self, content: list[ContentBlock]) -> tuple[list[ContentBlock], list[ArtifactDescriptor]]:
-        """Bound text content; overflow is saved to the artifact store."""
-        artifacts: list[ArtifactDescriptor] = []
+    def _bound_result(self, result: ToolCallResult) -> ToolCallResult:
+        """Enforce one total response budget across content text, images, and structured data.
+
+        Overflow is spilled to the artifact store (disk) and replaced with a truncation notice or a
+        resource link, so a single result cannot hold hundreds of MB in memory or in the response
+        body. The artifact store separately caps each artifact's size.
+        """
+        budget = self.config.max_output_bytes
+        used = 0
         bounded: list[ContentBlock] = []
-        for block in content:
-            if block.type == "text" and block.text and len(block.text.encode("utf-8")) > self.config.max_output_bytes:
-                descriptor = self.artifacts.save_text(block.text, filename="output.txt")
-                artifacts.append(descriptor)
-                truncated = block.text.encode("utf-8")[: self.config.max_output_bytes].decode("utf-8", "ignore")
-                bounded.append(
-                    ContentBlock.of_text(truncated + "\n\n[output truncated; full output saved as artifact]")
-                )
+        for block in result.content:
+            if block.type == ContentType.TEXT and block.text:
+                raw = block.text.encode("utf-8")
+                remaining = budget - used
+                if remaining <= 0:
+                    result.artifacts.append(self.artifacts.save_text(block.text, filename="output.txt"))
+                    bounded.append(ContentBlock.of_text("[output omitted; saved as artifact]"))
+                    continue
+                if len(raw) > remaining:
+                    result.artifacts.append(self.artifacts.save_text(block.text, filename="output.txt"))
+                    bounded.append(
+                        ContentBlock.of_text(
+                            raw[:remaining].decode("utf-8", "ignore")
+                            + "\n\n[output truncated; full output saved as artifact]"
+                        )
+                    )
+                    used = budget
+                    continue
+                used += len(raw)
+                bounded.append(block)
+            elif block.type == ContentType.IMAGE and block.data:
+                size = len(block.data)
+                if used + size > budget:
+                    try:
+                        raw = base64.b64decode(block.data)
+                    except Exception:
+                        raw = block.data.encode("utf-8")
+                    descriptor = self.artifacts.save(raw, media_type=block.mime_type or "image/png", filename="image")
+                    result.artifacts.append(descriptor)
+                    bounded.append(
+                        ContentBlock(type=ContentType.RESOURCE_LINK, uri=descriptor.url, mime_type=block.mime_type)
+                    )
+                else:
+                    used += size
+                    bounded.append(block)
             else:
                 bounded.append(block)
-        return bounded, artifacts
+        result.content = bounded
+        # Structured payloads can duplicate large content (e.g. full old/new file text); spill the
+        # whole payload to an artifact if it exceeds the budget rather than returning it inline.
+        if result.structured:
+            blob = json.dumps(result.structured, default=str)
+            if len(blob.encode("utf-8")) > budget:
+                descriptor = self.artifacts.save_text(blob, filename="structured.json")
+                result.artifacts.append(descriptor)
+                result.structured = {"_truncated": True, "artifact_id": descriptor.artifact_id, "url": descriptor.url}
+        return result
 
     # -- terminal lifecycle facade (policy-checked) -------
     # REST and MCP call these instead of ``self.terminals`` directly so a disabled terminal

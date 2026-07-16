@@ -1,5 +1,7 @@
 """Unit tests for the ToolRuntime dispatch, dedup, path policy, and reset."""
 
+import json
+
 import pytest
 from idegym.plugins.openhands.api.errors import ErrorCode, ServiceError
 from idegym.plugins.openhands.api.models import (
@@ -62,6 +64,16 @@ async def test_terminal_tool_runs_and_persists_state(runtime):
     assert r1.status == CallStatus.COMPLETED
     r2 = await runtime.call_tool("terminal", {"command": "echo K=$K at $(pwd)"})
     assert "K=9" in r2.text() and "/tmp" in r2.text()
+
+
+async def test_terminal_output_respects_response_budget(runtime):
+    """OH-12: terminal output must be bounded by the total budget and spilled to an artifact."""
+    # _config sets max_output_bytes=200; produce far more output than that.
+    res = await runtime.call_tool("terminal", {"command": "for i in $(seq 1 500); do echo LINE$i; done"})
+    assert len(res.text().encode("utf-8")) <= 200 + 200  # bounded to the budget (+ a short notice)
+    assert res.artifacts  # overflow spilled to the artifact store
+    # the structured payload must not carry a second, unbounded copy of the output
+    assert "LINE500" not in json.dumps(res.structured)
 
 
 async def test_unknown_tool(runtime):

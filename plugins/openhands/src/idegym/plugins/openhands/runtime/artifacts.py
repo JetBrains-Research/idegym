@@ -24,10 +24,18 @@ class _Entry:
 
 
 class ArtifactStore:
-    def __init__(self, output_dir: str, *, max_artifacts: int = 256, max_total_bytes: int = 512_000_000) -> None:
+    def __init__(
+        self,
+        output_dir: str,
+        *,
+        max_artifacts: int = 256,
+        max_total_bytes: int = 512_000_000,
+        max_single_bytes: int = 33_554_432,
+    ) -> None:
         self._dir = Path(output_dir)
         self._max_artifacts = max_artifacts
         self._max_total_bytes = max_total_bytes
+        self._max_single_bytes = max_single_bytes
         self._entries: "OrderedDict[str, _Entry]" = OrderedDict()
         self._total_bytes = 0
 
@@ -37,6 +45,9 @@ class ArtifactStore:
     def save(
         self, content: bytes, *, media_type: str = "text/plain", filename: Optional[str] = None
     ) -> ArtifactDescriptor:
+        # Hard per-artifact cap: bound memory/disk so a single result cannot store hundreds of MB.
+        if len(content) > self._max_single_bytes:
+            content = content[: self._max_single_bytes]
         self._dir.mkdir(parents=True, exist_ok=True)
         artifact_id = uuid.uuid4().hex
         path = self._dir / artifact_id
@@ -79,6 +90,13 @@ class ArtifactStore:
         if entry is None or not entry.path.exists():
             raise ServiceError(ErrorCode.UNKNOWN_ARTIFACT, f"Unknown artifact: {artifact_id}")
         return entry.path.read_bytes(), entry.descriptor
+
+    def get_path(self, artifact_id: str) -> tuple[Path, ArtifactDescriptor]:
+        """Return the on-disk path + descriptor so callers can stream the file instead of buffering."""
+        entry = self._entries.get(artifact_id)
+        if entry is None or not entry.path.exists():
+            raise ServiceError(ErrorCode.UNKNOWN_ARTIFACT, f"Unknown artifact: {artifact_id}")
+        return entry.path, entry.descriptor
 
     def clear(self) -> int:
         count = len(self._entries)
