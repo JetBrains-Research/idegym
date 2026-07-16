@@ -7,6 +7,8 @@ backend-unavailable error and no silent fallback.
 
 import asyncio
 import os
+import re
+import time
 
 import pytest
 from idegym.plugins.openhands.api.errors import ErrorCode, ServiceError
@@ -42,6 +44,16 @@ async def manager(tmp_path):
 
 async def _new(manager, **kw):
     return await manager.create(TerminalCreateRequest(backend=SUB, **kw))
+
+
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
 
 
 async def test_descriptor_reports_backend(manager):
@@ -112,6 +124,22 @@ async def test_idle_input_rejected_and_shell_stays_usable(manager):
     # the shell is uncorrupted: the next real command runs normally
     res = await manager.execute(d.terminal_id, "echo alive")
     assert res.status == CallStatus.COMPLETED and "alive" in res.output
+
+
+async def test_native_close_terminates_background_descendants(manager):
+    # OH-08: a detached/backgrounded child (its own process group under job control) must be killed
+    # on close, not leaked into a later environment.
+    d = await _new(manager)
+    res = await manager.execute(d.terminal_id, "nohup sleep 60 >/dev/null 2>&1 & echo PID=$!")
+    m = re.search(r"PID=(\d+)", res.output)
+    assert m, res.output
+    pid = int(m.group(1))
+    assert _alive(pid)
+    await manager.close(d.terminal_id)
+    deadline = time.monotonic() + 3.0
+    while time.monotonic() < deadline and _alive(pid):
+        time.sleep(0.05)
+    assert not _alive(pid), f"background pid {pid} survived terminal close"
 
 
 async def test_native_output_history_is_bounded(tmp_path):

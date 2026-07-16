@@ -339,7 +339,10 @@ class SubprocessBackendSession(TerminalBackendSession):
         return signalled
 
     def _shell_children(self) -> list[int]:
-        pid = self._proc.pid
+        return self._children_of(self._proc.pid) if self._proc else []
+
+    @staticmethod
+    def _children_of(pid: int) -> list[int]:
         # Prefer /proc (Linux, no extra packages); fall back to pgrep where /proc is unavailable.
         try:
             with open(f"/proc/{pid}/task/{pid}/children") as handle:
@@ -350,6 +353,53 @@ class SubprocessBackendSession(TerminalBackendSession):
             out = subprocess.run(["pgrep", "-P", str(pid)], capture_output=True, text=True, timeout=2)
             return [int(p) for p in out.stdout.split() if p.strip().isdigit()]
         return []
+
+    def _descendant_tree(self, root: int) -> set[int]:
+        """All transitive descendants of ``root`` (used where /proc session listing is absent)."""
+        seen: set[int] = set()
+        stack = [root]
+        while stack:
+            for child in self._children_of(stack.pop()):
+                if child not in seen:
+                    seen.add(child)
+                    stack.append(child)
+        return seen
+
+    def _session_pids(self) -> set[int]:
+        """Every live PID owned by this shell's session — descendants included.
+
+        The shell is a session leader (``setsid``), so its PID is the session id. Job control puts
+        each backgrounded job in its own process group, so ``killpg(shell_pgid)`` alone misses them;
+        enumerating by session (or the descendant tree) catches ``nohup … &`` children too.
+        """
+        if self._proc is None:
+            return set()
+        shell = self._proc.pid
+        if os.path.isdir("/proc"):
+            pids: set[int] = set()
+            for entry in os.listdir("/proc"):
+                if not entry.isdigit():
+                    continue
+                pid = int(entry)
+                with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
+                    if os.getsid(pid) == shell:
+                        pids.add(pid)
+            return pids
+        # No /proc (macOS/BSD): fall back to the descendant tree.
+        return self._descendant_tree(shell) | {shell}
+
+    def _signal_targets(self, pids: set[int], sig: int) -> None:
+        """Signal every distinct process group among ``pids``, then each PID directly as a backstop."""
+        pgids: set[int] = set()
+        for pid in pids:
+            with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
+                pgids.add(os.getpgid(pid))
+        for pgid in pgids:
+            with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
+                os.killpg(pgid, sig)
+        for pid in pids:
+            with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
+                os.kill(pid, sig)
 
     async def capture(self) -> str:
         with self._lock:
@@ -368,21 +418,32 @@ class SubprocessBackendSession(TerminalBackendSession):
         proc = self._proc
         if proc is None:
             return
-        # Terminate the whole owned process group.
-        with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
-            os.killpg(self._pgid, signal.SIGTERM)
-        try:
-            await asyncio.to_thread(proc.wait, 2.0)
-        except subprocess.TimeoutExpired:
-            with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
-                os.killpg(self._pgid, signal.SIGKILL)
-            with contextlib.suppress(Exception):
-                await asyncio.to_thread(proc.wait, 2.0)
+        await asyncio.to_thread(self._close_blocking)
         self._dead = True
         if self._master_fd >= 0:
             with contextlib.suppress(OSError):
                 os.close(self._master_fd)
             self._master_fd = -1
+
+    def _close_blocking(self) -> None:
+        # Snapshot the whole session BEFORE signalling so backgrounded jobs (their own process
+        # group) are terminated too, not just the shell's group.
+        targets = self._session_pids()
+        self._signal_targets(targets, signal.SIGTERM)
+        with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
+            os.killpg(self._pgid, signal.SIGTERM)
+        with contextlib.suppress(Exception):
+            self._proc.wait(2.0)
+        # Verification pass: SIGKILL any survivor still in the session (a re-snapshot, since a
+        # descendant may have forked further children after the first pass).
+        time.sleep(0.1)
+        survivors = self._session_pids()
+        if survivors:
+            self._signal_targets(survivors, signal.SIGKILL)
+            with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
+                os.killpg(self._pgid, signal.SIGKILL)
+            with contextlib.suppress(Exception):
+                self._proc.wait(2.0)
 
     @property
     def alive(self) -> bool:
