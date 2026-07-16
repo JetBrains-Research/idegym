@@ -25,6 +25,7 @@ import threading
 import time
 from typing import Optional
 
+from idegym.plugins.openhands.api.errors import ErrorCode, ServiceError
 from idegym.plugins.openhands.api.models import TerminalBackend
 from idegym.plugins.openhands.runtime.terminal.backend import (
     SPECIAL_KEYS,
@@ -259,6 +260,13 @@ class SubprocessBackendSession(TerminalBackendSession):
     async def input(self, text: str, timeout: float) -> BackendExec:
         if self._dead:
             return BackendExec(lost=True)
+        # Defense in depth: never write text to an idle shell (it would start an untracked command
+        # with no sentinel and corrupt protocol state). The manager rejects this first.
+        if not self.has_foreground_command:
+            raise ServiceError(
+                ErrorCode.TERMINAL_NOT_RUNNING,
+                "No foreground command is active; terminal input requires a running command",
+            )
         if text == "C-c":
             await self.interrupt()
         elif text in SPECIAL_KEYS:

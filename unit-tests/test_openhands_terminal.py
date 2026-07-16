@@ -97,6 +97,22 @@ async def test_concurrent_interrupt_leaves_terminal_usable(manager):
     assert after.status == CallStatus.COMPLETED and "recovered" in after.output
 
 
+async def test_idle_input_rejected_and_shell_stays_usable(manager):
+    # OH-07: text sent when no foreground command is active must be rejected (not started as an
+    # untracked command), and a subsequent execute must run normally.
+    d = await _new(manager)
+    with pytest.raises(ServiceError) as exc:
+        await manager.input(d.terminal_id, "cat")
+    assert exc.value.code == ErrorCode.TERMINAL_NOT_RUNNING
+    # is_input via execute is rejected the same way
+    with pytest.raises(ServiceError) as exc2:
+        await manager.execute(d.terminal_id, "cat", is_input=True)
+    assert exc2.value.code == ErrorCode.TERMINAL_NOT_RUNNING
+    # the shell is uncorrupted: the next real command runs normally
+    res = await manager.execute(d.terminal_id, "echo alive")
+    assert res.status == CallStatus.COMPLETED and "alive" in res.output
+
+
 async def test_result_has_call_id(manager):
     d = await _new(manager)
     res = await manager.execute(d.terminal_id, "echo x")

@@ -15,6 +15,7 @@ is still running (no-change timeout), and ``>= 0`` once it completes. All upstre
 import asyncio
 from typing import Any, Optional
 
+from idegym.plugins.openhands.api.errors import ErrorCode, ServiceError
 from idegym.plugins.openhands.api.models import TerminalBackend
 from idegym.plugins.openhands.runtime import compat
 from idegym.plugins.openhands.runtime.terminal.backend import BackendExec, BackendHealth, TerminalBackendSession
@@ -87,6 +88,13 @@ class OpenHandsTerminalSession(TerminalBackendSession):
         return await self._run(command, is_input=False, timeout=timeout)
 
     async def input(self, text: str, timeout: float) -> BackendExec:
+        # Defense in depth: reject input to an idle session (the manager rejects it first). ``poll``
+        # uses ``_run`` directly, so this guard does not affect idle polling.
+        if not self.has_foreground_command:
+            raise ServiceError(
+                ErrorCode.TERMINAL_NOT_RUNNING,
+                "No foreground command is active; terminal input requires a running command",
+            )
         return await self._run(text, is_input=True, timeout=timeout)
 
     async def poll(self, timeout: float) -> BackendExec:

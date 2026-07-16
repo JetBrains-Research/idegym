@@ -268,6 +268,7 @@ class TerminalSessionManager:
         timeout = self._default_timeout(handle) if timeout is None else timeout
         async with self._locks[terminal_id]:
             if is_input:
+                self._require_foreground(handle, terminal_id)
                 res = await handle.session.input(command, timeout)
             else:
                 # Reject a new command while a foreground command is still active.
@@ -286,8 +287,24 @@ class TerminalSessionManager:
         handle = self._require(terminal_id)
         timeout = self._default_timeout(handle) if timeout is None else timeout
         async with self._locks[terminal_id]:
+            self._require_foreground(handle, terminal_id)
             res = await handle.session.input(text, timeout)
             return self._apply(handle, res, call_id=call_id)
+
+    def _require_foreground(self, handle: TerminalHandle, terminal_id: str) -> None:
+        """Reject input when no foreground command is active.
+
+        Writing ordinary text to an idle shell would start it as a new (untracked) command with no
+        completion sentinel — corrupting protocol state so the next execute is consumed by it. Input
+        is only meaningful while a tracked foreground command is running; interrupt/poll/reset are
+        the idle-terminal operations.
+        """
+        if not handle.session.has_foreground_command:
+            raise ServiceError(
+                ErrorCode.TERMINAL_NOT_RUNNING,
+                "No foreground command is active; terminal input is only accepted while a command runs",
+                {"terminal_id": terminal_id},
+            )
 
     def _default_timeout(self, handle: TerminalHandle) -> float:
         return handle.no_change_timeout or self._config.no_change_timeout_seconds

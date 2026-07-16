@@ -23,6 +23,7 @@ class ErrorCode(StrEnum):
     PATH_OUTSIDE_WORKSPACE = "path_outside_workspace"
     DUPLICATE_REQUEST_ID = "duplicate_request_id"
     TERMINAL_BUSY = "terminal_busy"
+    TERMINAL_NOT_RUNNING = "terminal_not_running"
     TERMINAL_LOST = "terminal_lost"
     TERMINAL_BACKEND_UNAVAILABLE = "terminal_backend_unavailable"
     TERMINAL_BACKEND_DISABLED = "terminal_backend_disabled"
@@ -45,6 +46,7 @@ _HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.PATH_OUTSIDE_WORKSPACE: 403,
     ErrorCode.DUPLICATE_REQUEST_ID: 409,
     ErrorCode.TERMINAL_BUSY: 409,
+    ErrorCode.TERMINAL_NOT_RUNNING: 409,
     ErrorCode.TERMINAL_LOST: 409,
     ErrorCode.TERMINAL_BACKEND_UNAVAILABLE: 422,
     ErrorCode.TERMINAL_BACKEND_DISABLED: 422,
