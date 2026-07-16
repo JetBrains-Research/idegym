@@ -133,6 +133,27 @@ def test_path_boundary_rejects_escape(tmp_path):
     assert exc.value.code == ErrorCode.PATH_OUTSIDE_WORKSPACE
 
 
+def test_lock_requests_reflect_tool_resources(tmp_path):
+    """OH-10: lock requests must model real resources (workspace mutation vs contained file ops)."""
+    rt = ToolRuntime(_config(tmp_path))
+    ws = f"workspace:{rt.config.workspace_root}"
+
+    def reqs(name, args=None):
+        return set(rt._lock_requests(rt.catalog.get(name), args or {}))
+
+    file_a = f"file:{rt._normalize_path('a.txt')}"
+    # apply_patch mutates the workspace -> exclusive workspace lock (conflicts with all file ops)
+    assert reqs("apply_patch") == {(ws, True)}
+    # a file write: shared workspace lease + exclusive per-file lock
+    assert reqs("write_file", {"file_path": "a.txt"}) == {(ws, False), (file_a, True)}
+    # read_file declares the same file resource, so it conflicts with a write to that file
+    assert reqs("read_file", {"path": "a.txt"}) == {(ws, False), (file_a, True)}
+    # grep is a parallel-safe read: shared workspace only
+    assert reqs("grep", {"pattern": "x"}) == {(ws, False)}
+    # glob's Python fallback uses process-global chdir -> tool-wide exclusive lock
+    assert reqs("glob", {"pattern": "**/*.py"}) == {(ws, False), ("tool:glob", True)}
+
+
 def test_read_search_tools_enforce_workspace_boundary(tmp_path):
     """OH-02: workspace boundary must apply to read/search tools (LockScope.NONE), not just writes."""
     rt = ToolRuntime(_config(tmp_path))

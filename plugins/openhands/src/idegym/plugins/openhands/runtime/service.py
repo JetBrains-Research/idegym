@@ -39,7 +39,7 @@ from idegym.plugins.openhands.runtime.config import RuntimeConfig
 from idegym.plugins.openhands.runtime.scheduler import ResourceScheduler
 from idegym.plugins.openhands.runtime.terminal.manager import TerminalSessionManager
 
-_PATH_KEYS = ("path", "file_path", "file", "abs_path")
+_PATH_KEYS = ("path", "file_path", "file", "abs_path", "absolute_path")
 # Every caller-controlled filesystem path key across the file/search tools. Validated + canonicalized
 # for any tool flagged ``filesystem`` in the catalog, independent of lock policy.
 _FS_PATH_KEYS = ("path", "file_path", "file", "abs_path", "dir_path", "directory")
@@ -285,16 +285,35 @@ class ToolRuntime:
         """Raise unless the terminal tool is enabled. Guards every terminal lifecycle path."""
         self._ensure_enabled(self.catalog.get(ToolName.TERMINAL))
 
-    def _lock_keys(self, entry: CatalogEntry, arguments: dict[str, Any]) -> list[str]:
+    def _lock_requests(self, entry: CatalogEntry, arguments: dict[str, Any]) -> list[tuple[str, bool]]:
+        """Map a tool call to reader/writer lock requests reflecting the resources it touches.
+
+        Hierarchy: a workspace mutation (apply_patch) takes the workspace key *exclusively* so it
+        conflicts with every contained file operation; file operations take the workspace *shared*
+        plus an exclusive per-file lock, so same-file read/write serialize while unrelated file
+        operations run in parallel. glob's fallback uses process-global ``os.chdir`` and is not
+        parallel-safe, so it takes a tool-wide exclusive lock.
+        """
+        ws = f"workspace:{self.config.workspace_root}"
         scope = entry.lock_scope
-        if scope == LockScope.NONE:
-            return []
         if scope == LockScope.WORKSPACE:
-            return [f"workspace:{self.config.workspace_root}"]
+            return [(ws, True)]
         if scope == LockScope.PATH:
             path = self._extract_path(arguments)
-            return [f"file:{path}"] if path else [f"tool:{entry.name}"]
-        return [f"tool:{entry.name}"]
+            file_key = f"file:{path}" if path else f"tool:{entry.name}"
+            return [(ws, False), (file_key, True)]
+        if scope == LockScope.NONE:
+            # Read/search tools: a shared workspace lease so a mutation still excludes them.
+            reqs: list[tuple[str, bool]] = [(ws, False)]
+            if entry.name == ToolName.READ_FILE:
+                # read_file declares a file resource: a read must not overlap a write to that file.
+                path = self._extract_path(arguments)
+                if path:
+                    reqs.append((f"file:{path}", True))
+            elif entry.name == ToolName.GLOB:
+                reqs.append((f"tool:{entry.name}", True))
+            return reqs
+        return [(f"tool:{entry.name}", True)]
 
     def _extract_path(self, arguments: dict[str, Any]) -> Optional[str]:
         for key in _PATH_KEYS:
@@ -440,7 +459,7 @@ class ToolRuntime:
         arguments = self._validate_action_paths(entry, arguments)
         call_id = _new_call_id()
         started = _now()
-        async with self.scheduler.acquire(self._lock_keys(entry, arguments)):
+        async with self.scheduler.acquire(self._lock_requests(entry, arguments)):
             run = await adapter.run(arguments)
         content, artifacts = self._bound_output(run.content)
         return ToolCallResult(
