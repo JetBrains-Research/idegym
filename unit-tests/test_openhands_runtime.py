@@ -1,5 +1,6 @@
 """Unit tests for the ToolRuntime dispatch, dedup, path policy, and reset."""
 
+import asyncio
 import json
 
 import pytest
@@ -118,6 +119,38 @@ async def test_dedup_validates_before_cache_lookup(runtime):
     # the original cached result is intact and replays for a matching request
     again = await runtime.call_tool("terminal", {"command": "echo one"}, request_id="rid")
     assert again.call_id == first.call_id
+
+
+async def test_reset_is_exclusive_with_inflight_operations(tmp_path, monkeypatch):
+    """OH-11: reset must drain in-flight work before changing the generation."""
+    rt = ToolRuntime(_config(tmp_path))
+    await rt.start()
+    try:
+        gate = asyncio.Event()
+        order: list[str] = []
+        real_execute = rt.terminals.execute
+
+        async def blocking_execute(*args, **kwargs):
+            order.append("op-start")
+            await gate.wait()
+            res = await real_execute(*args, **kwargs)
+            order.append("op-end")
+            return res
+
+        monkeypatch.setattr(rt.terminals, "execute", blocking_execute)
+        op = asyncio.create_task(rt.call_tool("terminal", {"command": "echo hi"}))
+        await asyncio.sleep(0.1)  # op reaches the blocked execute while holding the shared lease
+        assert order == ["op-start"]
+        reset = asyncio.create_task(rt.reset_environment("t"))
+        await asyncio.sleep(0.05)
+        assert not reset.done()  # reset (exclusive) waits for the in-flight op to drain
+        gate.set()
+        await op
+        resp = await reset
+        assert order == ["op-start", "op-end"]  # the op finished before reset completed
+        assert resp.environment_generation >= 1
+    finally:
+        await rt.stop()
 
 
 async def test_reset_bumps_generation_and_terminates(runtime):

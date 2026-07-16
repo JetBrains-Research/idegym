@@ -38,6 +38,7 @@ from idegym.plugins.openhands.runtime.artifacts import ArtifactStore
 from idegym.plugins.openhands.runtime.catalog import ADAPTER_FAMILIES, CatalogEntry, LockScope, ToolCatalog
 from idegym.plugins.openhands.runtime.config import RuntimeConfig
 from idegym.plugins.openhands.runtime.dedup import RequestDeduplicator, canonical_hash
+from idegym.plugins.openhands.runtime.rwlock import RWLock
 from idegym.plugins.openhands.runtime.scheduler import ResourceScheduler
 from idegym.plugins.openhands.runtime.terminal.manager import TerminalSessionManager
 
@@ -76,6 +77,9 @@ class ToolRuntime:
         self._adapters: dict[str, OpenHandsToolAdapter] = {}
         self._adapter_errors: dict[str, str] = {}
         self._dedup = RequestDeduplicator(config.dedup_cache_size)
+        # Environment lease: tool calls / terminal operations hold it shared; reset/stop hold it
+        # exclusively so they drain in-flight work and block new work until the reset completes.
+        self._env_gate = RWLock()
         self._prepared = False
         self._ready = False
 
@@ -108,8 +112,10 @@ class ToolRuntime:
         self._ready = True
 
     async def stop(self) -> None:
-        self._ready = False
-        await self.terminals.reset_all()
+        # Exclusive lease so shutdown drains in-flight operations before tearing terminals down.
+        async with self._env_gate.exclusive():
+            self._ready = False
+            await self.terminals.reset_all()
 
     def _build_adapters(self) -> None:
         self._adapters.clear()
@@ -406,37 +412,40 @@ class ToolRuntime:
         terminal_id: Optional[str] = None,
         request_id: Optional[str] = None,
     ) -> ToolCallResult:
-        # Validate the operation (tool exists + enabled) BEFORE consulting the dedup cache, so a
-        # reused id can never bypass validation or return another tool's cached result.
-        try:
-            entry = self.catalog.get(name)
-        except KeyError:
-            raise ServiceError(ErrorCode.UNKNOWN_TOOL, f"Unknown tool: {name}")
-        self._ensure_enabled(entry)
+        # Hold the environment lease (shared) for the whole call so a concurrent reset/stop drains
+        # this operation before changing the generation.
+        async with self._env_gate.shared():
+            # Validate the operation (tool exists + enabled) BEFORE consulting the dedup cache, so a
+            # reused id can never bypass validation or return another tool's cached result.
+            try:
+                entry = self.catalog.get(name)
+            except KeyError:
+                raise ServiceError(ErrorCode.UNKNOWN_TOOL, f"Unknown tool: {name}")
+            self._ensure_enabled(entry)
 
-        async def _dispatch() -> ToolCallResult:
-            if entry.is_terminal:
-                result = await self._call_terminal_tool(arguments, terminal_id)
-            else:
-                result = await self._call_adapter_tool(entry, arguments)
-            # One total response budget across content text, images, and structured data — applied to
-            # every path (terminal included), so no result can hold hundreds of MB in memory.
-            return self._bound_result(result)
+            async def _dispatch() -> ToolCallResult:
+                if entry.is_terminal:
+                    result = await self._call_terminal_tool(arguments, terminal_id)
+                else:
+                    result = await self._call_adapter_tool(entry, arguments)
+                # One total response budget across content text, images, and structured data —
+                # applied to every path (terminal included), so no result holds hundreds of MB.
+                return self._bound_result(result)
 
-        if not request_id:
-            return await _dispatch()
+            if not request_id:
+                return await _dispatch()
 
-        # Canonical dedup key: operation kind + tool + terminal + environment generation + args.
-        body_hash = canonical_hash(
-            {
-                "kind": "call_tool",
-                "tool": name,
-                "terminal_id": terminal_id,
-                "generation": self._environment_generation,
-                "arguments": arguments,
-            }
-        )
-        return await self._dedup.run(request_id, body_hash, _dispatch)
+            # Canonical dedup key: operation kind + tool + terminal + environment generation + args.
+            body_hash = canonical_hash(
+                {
+                    "kind": "call_tool",
+                    "tool": name,
+                    "terminal_id": terminal_id,
+                    "generation": self._environment_generation,
+                    "arguments": arguments,
+                }
+            )
+            return await self._dedup.run(request_id, body_hash, _dispatch)
 
     async def _call_terminal_tool(self, arguments: dict[str, Any], terminal_id: Optional[str]) -> ToolCallResult:
         command = arguments.get("command")
@@ -571,7 +580,8 @@ class ToolRuntime:
 
     async def terminal_create(self, request: TerminalCreateRequest) -> TerminalDescriptor:
         self.ensure_terminal_enabled()
-        return await self.terminals.create(request)
+        async with self._env_gate.shared():
+            return await self.terminals.create(request)
 
     def terminal_list(self) -> list[TerminalDescriptor]:
         self.ensure_terminal_enabled()
@@ -592,58 +602,75 @@ class ToolRuntime:
         call_id: str = "",
     ) -> TerminalResult:
         self.ensure_terminal_enabled()
-        return await self.terminals.execute(
-            terminal_id, command, timeout=timeout, is_input=is_input, reset=reset, call_id=call_id
-        )
+        async with self._env_gate.shared():
+            return await self.terminals.execute(
+                terminal_id, command, timeout=timeout, is_input=is_input, reset=reset, call_id=call_id
+            )
 
     async def terminal_input(
         self, terminal_id: str, text: str, *, timeout: Optional[float] = None, call_id: str = ""
     ) -> TerminalResult:
         self.ensure_terminal_enabled()
-        return await self.terminals.input(terminal_id, text, timeout=timeout, call_id=call_id)
+        async with self._env_gate.shared():
+            return await self.terminals.input(terminal_id, text, timeout=timeout, call_id=call_id)
 
     async def terminal_poll(
         self, terminal_id: str, *, timeout: Optional[float] = None, call_id: str = ""
     ) -> TerminalResult:
         self.ensure_terminal_enabled()
-        return await self.terminals.poll(terminal_id, timeout=timeout, call_id=call_id)
+        async with self._env_gate.shared():
+            return await self.terminals.poll(terminal_id, timeout=timeout, call_id=call_id)
 
     async def terminal_interrupt(self, terminal_id: str, *, call_id: str = "") -> TerminalResult:
         self.ensure_terminal_enabled()
-        return await self.terminals.interrupt(terminal_id, call_id=call_id)
+        async with self._env_gate.shared():
+            return await self.terminals.interrupt(terminal_id, call_id=call_id)
 
     async def terminal_reset(self, terminal_id: str) -> TerminalDescriptor:
         self.ensure_terminal_enabled()
-        return await self.terminals.reset(terminal_id)
+        async with self._env_gate.shared():
+            return await self.terminals.reset(terminal_id)
 
     async def terminal_close(self, terminal_id: str) -> None:
         self.ensure_terminal_enabled()
-        await self.terminals.close(terminal_id)
+        async with self._env_gate.shared():
+            await self.terminals.close(terminal_id)
 
     async def terminal_reset_all(self) -> int:
         self.ensure_terminal_enabled()
-        return await self.terminals.reset_all()
+        async with self._env_gate.shared():
+            return await self.terminals.reset_all()
 
     async def terminal_capture(self, terminal_id: str) -> str:
         self.ensure_terminal_enabled()
-        return await self.terminals.capture(terminal_id)
+        async with self._env_gate.shared():
+            return await self.terminals.capture(terminal_id)
 
     # -- reset --------------------------------------------
 
     async def reset_environment(self, reason: str = "") -> ResetResponse:
-        terminated = await self.terminals.reset_all()
-        self._dedup.clear()
-        self.artifacts.clear()
-        self._environment_generation += 1
-        self._environment_id = uuid.uuid4().hex
-        if self.config.auto_create_default_terminal and self.terminals.default_backend_ready():
-            await self.terminals.ensure_default()
-        return ResetResponse(
-            reset=True,
-            reason=reason,
-            environment_generation=self._environment_generation,
-            terminated_terminals=terminated,
-        )
+        # Exclusive lease: wait for every in-flight tool call / terminal operation to drain, then
+        # tear down and bump the generation, blocking new work until it completes. This prevents a
+        # pre-reset op from mutating state after the generation changes, a stale request id from
+        # landing in the fresh dedup cache, or a terminal created mid-reset from surviving it.
+        async with self._env_gate.exclusive():
+            terminated = await self.terminals.reset_all()
+            self._dedup.clear()
+            self.artifacts.clear()
+            self._environment_generation += 1
+            self._environment_id = uuid.uuid4().hex
+            if (
+                self.terminal_enabled()
+                and self.config.auto_create_default_terminal
+                and self.terminals.default_backend_ready()
+            ):
+                await self.terminals.ensure_default()
+            return ResetResponse(
+                reset=True,
+                reason=reason,
+                environment_generation=self._environment_generation,
+                terminated_terminals=terminated,
+            )
 
 
 def _plugin_version() -> str:
