@@ -7,7 +7,6 @@ are thin projections over this single object; neither builds its own executors o
 
 import os
 import uuid
-from collections import OrderedDict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -36,6 +35,7 @@ from idegym.plugins.openhands.runtime.adapters.openhands import OpenHandsToolAda
 from idegym.plugins.openhands.runtime.artifacts import ArtifactStore
 from idegym.plugins.openhands.runtime.catalog import ADAPTER_FAMILIES, CatalogEntry, LockScope, ToolCatalog
 from idegym.plugins.openhands.runtime.config import RuntimeConfig
+from idegym.plugins.openhands.runtime.dedup import RequestDeduplicator, canonical_hash
 from idegym.plugins.openhands.runtime.scheduler import ResourceScheduler
 from idegym.plugins.openhands.runtime.terminal.manager import TerminalSessionManager
 
@@ -70,7 +70,7 @@ class ToolRuntime:
         self.terminals = TerminalSessionManager(config, lambda: self._environment_id)
         self._adapters: dict[str, OpenHandsToolAdapter] = {}
         self._adapter_errors: dict[str, str] = {}
-        self._dedup: "OrderedDict[str, tuple[str, ToolCallResult]]" = OrderedDict()
+        self._dedup = RequestDeduplicator(config.dedup_cache_size)
         self._prepared = False
         self._ready = False
 
@@ -393,27 +393,6 @@ class ToolRuntime:
         if base:
             self._normalize_path(base)
 
-    def _dedup_get(self, request_id: Optional[str], body_hash: str) -> Optional[ToolCallResult]:
-        if not request_id:
-            return None
-        cached = self._dedup.get(request_id)
-        if cached is None:
-            return None
-        prev_hash, result = cached
-        if prev_hash != body_hash:
-            raise ServiceError(
-                ErrorCode.DUPLICATE_REQUEST_ID,
-                f"request_id {request_id!r} was already used with a different body",
-            )
-        return result
-
-    def _dedup_put(self, request_id: Optional[str], body_hash: str, result: ToolCallResult) -> None:
-        if not request_id:
-            return
-        self._dedup[request_id] = (body_hash, result)
-        while len(self._dedup) > self.config.dedup_cache_size:
-            self._dedup.popitem(last=False)
-
     async def call_tool(
         self,
         name: str,
@@ -422,27 +401,33 @@ class ToolRuntime:
         terminal_id: Optional[str] = None,
         request_id: Optional[str] = None,
     ) -> ToolCallResult:
-        body_hash = repr(sorted(arguments.items())) + f"|{terminal_id}"
-        cached = self._dedup_get(request_id, body_hash)
-        if cached is not None:
-            return cached
-
+        # Validate the operation (tool exists + enabled) BEFORE consulting the dedup cache, so a
+        # reused id can never bypass validation or return another tool's cached result.
         try:
             entry = self.catalog.get(name)
         except KeyError:
             raise ServiceError(ErrorCode.UNKNOWN_TOOL, f"Unknown tool: {name}")
-
-        # Enforce catalog status before *any* dispatch, terminal included: a disabled tool
-        # (``disabled_tools`` / a custom profile used as an execution policy) must never run.
         self._ensure_enabled(entry)
 
-        if entry.is_terminal:
-            result = await self._call_terminal_tool(arguments, terminal_id)
-        else:
-            result = await self._call_adapter_tool(entry, arguments)
+        async def _dispatch() -> ToolCallResult:
+            if entry.is_terminal:
+                return await self._call_terminal_tool(arguments, terminal_id)
+            return await self._call_adapter_tool(entry, arguments)
 
-        self._dedup_put(request_id, body_hash, result)
-        return result
+        if not request_id:
+            return await _dispatch()
+
+        # Canonical dedup key: operation kind + tool + terminal + environment generation + args.
+        body_hash = canonical_hash(
+            {
+                "kind": "call_tool",
+                "tool": name,
+                "terminal_id": terminal_id,
+                "generation": self._environment_generation,
+                "arguments": arguments,
+            }
+        )
+        return await self._dedup.run(request_id, body_hash, _dispatch)
 
     async def _call_terminal_tool(self, arguments: dict[str, Any], terminal_id: Optional[str]) -> ToolCallResult:
         command = arguments.get("command")

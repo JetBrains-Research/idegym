@@ -292,7 +292,6 @@ class TerminalExecuteRequest(_Strict):
     is_input: bool = False
     # When true, destroy and recreate the backend before running the command.
     reset: bool = False
-    request_id: Optional[str] = None
 
 
 class TerminalInputRequest(_Strict):
@@ -300,7 +299,6 @@ class TerminalInputRequest(_Strict):
 
     text: str
     timeout: Optional[float] = None
-    request_id: Optional[str] = None
 
 
 class TerminalPollRequest(_Strict):

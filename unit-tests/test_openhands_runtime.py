@@ -96,6 +96,18 @@ async def test_dedup_same_and_conflict(runtime):
     assert exc.value.code == ErrorCode.DUPLICATE_REQUEST_ID
 
 
+async def test_dedup_validates_before_cache_lookup(runtime):
+    """OH-09: a reused id must not bypass validation or return another operation's result."""
+    first = await runtime.call_tool("terminal", {"command": "echo one"}, request_id="rid")
+    # reusing the id for an unknown tool is validated first -> UNKNOWN_TOOL, not the cached result
+    with pytest.raises(ServiceError) as exc:
+        await runtime.call_tool("does-not-exist", {"command": "echo one"}, request_id="rid")
+    assert exc.value.code == ErrorCode.UNKNOWN_TOOL
+    # the original cached result is intact and replays for a matching request
+    again = await runtime.call_tool("terminal", {"command": "echo one"}, request_id="rid")
+    assert again.call_id == first.call_id
+
+
 async def test_reset_bumps_generation_and_terminates(runtime):
     await runtime.terminals.ensure_default()
     before = runtime.health().environment_generation
