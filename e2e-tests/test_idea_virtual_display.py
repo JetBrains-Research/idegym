@@ -3,7 +3,7 @@
 Requires IDEA 2026.1.1+. Older versions are not supported.
 
 Unlike the default headless build (see ``test_idea.py`` / ``test_idea_mcp_steroid.py``),
-``Idea(headless=False)`` installs Xvfb (+ xdotool) and ``start-idea.sh`` launches the
+``Idea(headless=False)`` installs Xvfb (+ xdotool) and the ``start-ide`` entrypoint launches the
 IDE against a virtual X11 display on ``:99`` — the same way PyCharm always runs. This
 enables the GUI-only mcp-steroid tools (``steroid_list_windows``, ``steroid_take_screenshot``)
 that return nothing in true headless mode.
@@ -14,7 +14,7 @@ checks that are specific to the virtual-display feature (Xvfb alive, ``DISPLAY=:
 
 ``test_idea_virtual_display_windows``
     Builds IDEA + mcp-steroid with ``headless=False``. Runtime sequence
-    (via supervisord → start-idea.sh):
+    (via supervisord → the start-ide entrypoint):
     1. Xvfb starts on :99 and IDEA launches with a real AWT toolkit (not headless).
     2. mcp-steroid loads and binds on 127.0.0.1:6315; socat bridges 0.0.0.0:6316.
     The test verifies mcp-steroid is ready, the IDE genuinely runs under the virtual
@@ -74,7 +74,7 @@ _OPEN_PROJECT_SCRIPT = f"PROJECT_PATH={_PROJECT_PATH}\n" + files(e2e_resources).
 ).read_text(encoding="utf-8")
 
 # Verifies the IDE is running under the virtual display rather than headless. The image
-# bakes DISPLAY / IDEA_HEADLESS as ENV, and start-idea.sh spawns Xvfb — all visible to
+# bakes DISPLAY / IDEA_HEADLESS as ENV, and the start-ide entrypoint spawns Xvfb — all visible to
 # execute_bash, which inherits the server process environment (cleanenv keeps them).
 _VIRTUAL_DISPLAY_CHECK = r"""
 set -eu
@@ -95,7 +95,7 @@ async def test_idea_virtual_display_windows(test_id):
     Build pipeline:
       Project.from_local("e2e-tests/test_projects/java-project", target="/root/work")
       → Idea(headless=False, open_project=False, mcp_steroid=True)
-      → Installs Xvfb + xdotool, downloads mcp-steroid, copies start-idea.sh (waits for 6315)
+      → Installs Xvfb + xdotool, downloads mcp-steroid, copies the start-ide entrypoint (waits for 6315)
 
     The test verifies:
       - mcp-steroid becomes ready on /mcp

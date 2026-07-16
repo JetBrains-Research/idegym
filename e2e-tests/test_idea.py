@@ -16,7 +16,7 @@ for any of the tests in this module — including ``inspect()``.
 
 ``test_idea_mcp_server_starts``
     Builds the full IDEA + MCP image.  Runtime sequence
-    (via supervisord → start-idea.sh):
+    (via supervisord → the start-ide entrypoint):
     1. IDEA launches in true headless mode.
     2. The open-project plugin opens ``IDEGYM_PROJECT_ROOT`` via an AppStarter
        "open" command.
@@ -47,7 +47,7 @@ _LOCAL_BASE_IMAGE = "ghcr.io/jetbrains-research/idegym/server-debian-bookworm-20
 # IDEA 2026.1.1+ is required. Older versions are not supported.
 _IDEA_VERSION = "2026.1.1"
 
-# IDEA internal log — IDE_SYSTEM_PATH defaults to /tmp/ide-system in start-idea.sh.
+# IDEA internal log — IDE_SYSTEM_PATH defaults to /tmp/ide-system in the start-ide entrypoint.
 _IDEA_LOG = "/tmp/ide-system/log/idea.log"
 
 # IDEA is more resource-efficient than PyCharm (headless mode, no Xvfb).
@@ -165,7 +165,7 @@ async def test_idea_mcp_server_starts(test_id):
     - JetBrains MCP plugin is bundled in 2026.1.1+ (no separate installation needed)
     - open-project plugin auto-opens IDEGYM_PROJECT_ROOT on startup
     - IDEA runs in true headless mode (no Xvfb required)
-    - start-idea.sh waits for MCP (port 64342) then starts socat bridge
+    - the start-ide entrypoint waits for MCP (port 64342) then starts socat bridge
     - MCP SSE endpoint returns HTTP 200 (confirming IDE + MCP are up)
     """
     from utils.idegym_utils import create_http_client

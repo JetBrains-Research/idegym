@@ -19,8 +19,8 @@ When added to an IdeGYM image pipeline, the `PyCharm` plugin:
 4. Optionally installs the **open-project** plugin and registers a supervisord
    service that opens the project directory on container start.
 
-At runtime supervisord calls the `start-pycharm.sh` script (installed as
-`/usr/local/bin/start-pycharm`), which:
+At runtime supervisord calls the shared `start-ide` entrypoint (installed as
+`/usr/local/bin/start-ide`; IDE-specific config is baked in as env vars), which:
 
 1. Starts **Xvfb** on `:99` — PyCharm requires a display; `java.awt.headless=true`
    is not supported.

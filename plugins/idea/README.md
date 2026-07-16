@@ -23,8 +23,8 @@ When added to an IdeGYM image pipeline, the `Idea` plugin:
 5. Optionally installs the **open-project** plugin and registers a supervisord
    service that opens the project directory on container start.
 
-At runtime supervisord calls the `start-idea.sh` script (installed as
-`/usr/local/bin/start-idea`), which:
+At runtime supervisord calls the shared `start-ide` entrypoint (installed as
+`/usr/local/bin/start-ide`; IDE-specific config is baked in as env vars), which:
 
 1. In the default headless mode, exports `JAVA_TOOL_OPTIONS="-Djava.awt.headless=true"`
    so the JVM reads the flag before any application code runs — IDEA supports true
@@ -146,7 +146,7 @@ the plugin automatically enables MCP auto-start by writing
 headless eliminates an entire process, reduces startup time, and lowers memory usage,
 so it is the default. Set `headless=False` for workloads that need a real AWT toolkit
 (Swing UI rendering, plugins that break under headless AWT): the image then installs
-Xvfb + xdotool and `start-idea.sh` launches the IDE against a virtual display on `:99`,
+Xvfb + xdotool and the `start-ide` entrypoint launches the IDE against a virtual display on `:99`,
 exactly as the PyCharm plugin does.
 
 **Why `JAVA_TOOL_OPTIONS`?** Setting `-Djava.awt.headless=true` only via JVM CLI
