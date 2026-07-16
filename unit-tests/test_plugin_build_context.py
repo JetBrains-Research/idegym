@@ -35,11 +35,12 @@ def _copy_sources(dockerfile: str) -> set[str]:
 @pytest.mark.parametrize(
     "package, parts",
     [
-        ("idegym.plugins.idea", ("scripts", "start-idea.sh")),
-        ("idegym.plugins.idea", ("scripts", "check-mcp.sh")),
-        ("idegym.plugins.idea", ("scripts", "supervisord-idea.conf")),
+        # The whole entrypoint (check-mcp, start-ide, supervisord) is shared and ships in plugin-utils.
+        ("idegym.plugins.plugin_utils", ("scripts", "start-ide.sh")),
+        ("idegym.plugins.plugin_utils", ("scripts", "check-mcp.sh")),
+        ("idegym.plugins.plugin_utils", ("scripts", "supervisord-ide.conf")),
+        # Only the prebuilt open-project zip is per-IDE.
         ("idegym.plugins.idea", ("project-opener", "project-opener.zip")),
-        ("idegym.plugins.pycharm", ("scripts", "start-pycharm.sh")),
         ("idegym.plugins.pycharm", ("project-opener", "project-opener.zip")),
     ],
 )
@@ -87,9 +88,9 @@ def test_context_files_keys_match_copy_directives(plugin, ctx_factory):
 def test_to_spec_collects_asset_bytes_for_idea():
     spec = Image.from_base("debian:bookworm-slim").with_plugin(Idea(mcp_steroid=True)).to_spec()
     assert set(spec.context_files) == {
-        "plugins/idea/scripts/check-mcp.sh",
-        "plugins/idea/scripts/start-idea.sh",
-        "plugins/idea/scripts/supervisord-idea.conf",
+        "plugins/plugin-utils/scripts/check-mcp.sh",
+        "plugins/plugin-utils/scripts/start-ide.sh",
+        "plugins/plugin-utils/scripts/supervisord-ide.conf",
     }
     assert all(len(data) > 0 for data in spec.context_files.values())
 

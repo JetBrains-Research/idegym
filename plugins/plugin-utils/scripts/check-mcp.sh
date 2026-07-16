@@ -39,7 +39,7 @@ check_mcp_endpoint() {
         # `initialize` that returns a result. Do NOT gate on a GET "fast probe": some mcp-steroid
         # builds answer a plain GET with a bare server-info object (e.g.
         # {"name":"mcp-steroid","status":"available"}) that has no "jsonrpc" field, so the old probe
-        # reported not-ready forever — start-idea.sh then hit its WAIT_SECONDS timeout and killed the IDE.
+        # reported not-ready forever — start-ide then hit its WAIT_SECONDS timeout and killed the IDE.
         local init_resp=$(curl -s --max-time 3 "${url}" \
             -H "Content-Type: application/json" \
             -H "Accept: application/json, text/event-stream" \
