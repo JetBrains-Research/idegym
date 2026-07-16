@@ -133,6 +133,43 @@ def test_path_boundary_rejects_escape(tmp_path):
     assert exc.value.code == ErrorCode.PATH_OUTSIDE_WORKSPACE
 
 
+def test_read_search_tools_enforce_workspace_boundary(tmp_path):
+    """OH-02: workspace boundary must apply to read/search tools (LockScope.NONE), not just writes."""
+    rt = ToolRuntime(_config(tmp_path))
+    grep = rt.catalog.get("grep")
+    glob = rt.catalog.get("glob")
+    read_file = rt.catalog.get("read_file")
+    ls = rt.catalog.get("list_directory")
+
+    # sibling / absolute / traversal / dir_path escapes rejected for every filesystem tool
+    escapes = [
+        (grep, {"pattern": "x", "path": "/etc"}),
+        (read_file, {"path": "/etc/passwd"}),
+        (read_file, {"path": "../../etc/passwd"}),
+        (ls, {"dir_path": "/etc"}),
+    ]
+    for entry, args in escapes:
+        with pytest.raises(ServiceError) as exc:
+            rt._validate_action_paths(entry, args)
+        assert exc.value.code == ErrorCode.PATH_OUTSIDE_WORKSPACE
+
+    # absolute and traversal glob patterns rejected (search root parsed out of the pattern)
+    for pattern in ("/etc/*.conf", "../../*.py"):
+        with pytest.raises(ServiceError):
+            rt._validate_action_paths(glob, {"pattern": pattern})
+
+    # symlink escape is caught at canonicalization (Path.resolve follows the link)
+    (tmp_path / "escape").symlink_to("/etc")
+    with pytest.raises(ServiceError):
+        rt._validate_action_paths(read_file, {"path": "escape/passwd"})
+
+    # in-workspace paths are accepted and canonicalized to absolute
+    (tmp_path / "sub").mkdir()
+    out = rt._validate_action_paths(read_file, {"path": "sub"})
+    assert out["path"] == str((tmp_path / "sub").resolve())
+    rt._validate_action_paths(glob, {"pattern": "sub/**/*.py"})  # relative pattern within workspace is fine
+
+
 def test_list_tools_reflects_openhands_availability(tmp_path):
     rt = ToolRuntime(_config(tmp_path))
     rt.prepare()

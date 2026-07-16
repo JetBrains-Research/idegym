@@ -40,6 +40,12 @@ from idegym.plugins.openhands.runtime.scheduler import ResourceScheduler
 from idegym.plugins.openhands.runtime.terminal.manager import TerminalSessionManager
 
 _PATH_KEYS = ("path", "file_path", "file", "abs_path")
+# Every caller-controlled filesystem path key across the file/search tools. Validated + canonicalized
+# for any tool flagged ``filesystem`` in the catalog, independent of lock policy.
+_FS_PATH_KEYS = ("path", "file_path", "file", "abs_path", "dir_path", "directory")
+# Glob metacharacters that begin the variable part of a pattern; the leading non-magic prefix is a
+# real path whose search root must be inside the workspace.
+_GLOB_MAGIC = ("*", "?", "[")
 
 
 def _now() -> datetime:
@@ -309,6 +315,39 @@ class ToolRuntime:
             )
         return str(resolved)
 
+    def _validate_action_paths(self, entry: CatalogEntry, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Enforce the workspace boundary for every filesystem path an action carries.
+
+        Runs for any ``filesystem`` tool regardless of lock policy — a read/search tool with
+        ``LockScope.NONE`` (grep/glob/read_file/list_directory) must still be confined. Each path
+        field is canonicalized (``Path.resolve`` resolves symlinks, so a symlink escape is rejected)
+        and the sanitized canonical paths are what reach the executor.
+        """
+        if not entry.filesystem or not self.config.enforce_workspace_boundary:
+            return arguments
+        sanitized = dict(arguments)
+        for key in _FS_PATH_KEYS:
+            value = sanitized.get(key)
+            if isinstance(value, str) and value:
+                sanitized[key] = self._normalize_path(value)
+        if entry.name == ToolName.GLOB:
+            pattern = sanitized.get("pattern")
+            if isinstance(pattern, str) and pattern:
+                self._validate_glob_pattern(pattern)
+        return sanitized
+
+    def _validate_glob_pattern(self, pattern: str) -> None:
+        """Reject a glob whose non-magic search root escapes the workspace (abs or ``../``)."""
+        cut = len(pattern)
+        for i, ch in enumerate(pattern):
+            if ch in _GLOB_MAGIC:
+                cut = i
+                break
+        prefix = pattern[:cut]
+        base = prefix if prefix.endswith("/") else os.path.dirname(prefix)
+        if base:
+            self._normalize_path(base)
+
     def _dedup_get(self, request_id: Optional[str], body_hash: str) -> Optional[ToolCallResult]:
         if not request_id:
             return None
@@ -396,9 +435,9 @@ class ToolRuntime:
                 ErrorCode.TOOL_DISABLED,
                 f"Tool {entry.name} is not currently callable (openhands-tools not installed)",
             )
-        # Path policy for file tools: normalize + reject workspace escapes.
-        if entry.lock_scope == LockScope.PATH:
-            self._extract_path(arguments)
+        # Workspace-boundary policy for every filesystem field (independent of lock policy), then
+        # pass only the validated canonical paths to the executor.
+        arguments = self._validate_action_paths(entry, arguments)
         call_id = _new_call_id()
         started = _now()
         async with self.scheduler.acquire(self._lock_keys(entry, arguments)):

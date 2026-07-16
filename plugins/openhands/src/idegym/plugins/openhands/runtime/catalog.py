@@ -41,6 +41,10 @@ class CatalogEntry:
     lock_scope: LockScope = LockScope.TOOL
     # True when this canonical tool is dispatched by the terminal manager rather than an adapter.
     is_terminal: bool = False
+    # True when this tool takes caller-controlled filesystem path(s). Path/workspace-boundary
+    # policy is enforced for these regardless of lock_scope (a read/search tool with LockScope.NONE
+    # must still be confined to the workspace).
+    filesystem: bool = False
 
     @property
     def rest_route(self) -> str:
@@ -79,6 +83,7 @@ CATALOG: tuple[CatalogEntry, ...] = (
         state_scope="workspace-file",
         destructive=True,
         lock_scope=LockScope.PATH,
+        filesystem=True,
     ),
     CatalogEntry(
         name=ToolName.APPLY_PATCH,
@@ -97,6 +102,7 @@ CATALOG: tuple[CatalogEntry, ...] = (
         read_only=True,
         idempotent=True,
         lock_scope=LockScope.NONE,
+        filesystem=True,
     ),
     CatalogEntry(
         name=ToolName.GLOB,
@@ -106,6 +112,7 @@ CATALOG: tuple[CatalogEntry, ...] = (
         read_only=True,
         idempotent=True,
         lock_scope=LockScope.NONE,
+        filesystem=True,
     ),
     CatalogEntry(
         name=ToolName.PLANNING_FILE_EDITOR,
@@ -133,6 +140,7 @@ CATALOG: tuple[CatalogEntry, ...] = (
         read_only=True,
         idempotent=True,
         lock_scope=LockScope.NONE,
+        filesystem=True,
     ),
     CatalogEntry(
         name=ToolName.WRITE_FILE,
@@ -142,6 +150,7 @@ CATALOG: tuple[CatalogEntry, ...] = (
         state_scope="workspace-file",
         destructive=True,
         lock_scope=LockScope.PATH,
+        filesystem=True,
     ),
     CatalogEntry(
         name=ToolName.EDIT,
@@ -151,6 +160,7 @@ CATALOG: tuple[CatalogEntry, ...] = (
         state_scope="workspace-file",
         destructive=True,
         lock_scope=LockScope.PATH,
+        filesystem=True,
     ),
     CatalogEntry(
         name=ToolName.LIST_DIRECTORY,
@@ -160,6 +170,7 @@ CATALOG: tuple[CatalogEntry, ...] = (
         read_only=True,
         idempotent=True,
         lock_scope=LockScope.NONE,
+        filesystem=True,
     ),
     # Browser tools: enabled only in the full profile and only when browser deps are present.
     CatalogEntry(
