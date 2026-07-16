@@ -29,13 +29,35 @@ class _FakeSession(TerminalBackendSession):
     backend = SUB
     capture_supported = True
 
-    def __init__(self, *, fail_start: bool = False, gate: asyncio.Event = None, running: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        fail_start: bool = False,
+        gate: asyncio.Event = None,
+        running: bool = False,
+        slow: float = 0.0,
+        close_raises: bool = False,
+    ) -> None:
         self.started = False
         self.closed = False
+        self.close_attempted = False
         self._fail_start = fail_start
         self._gate = gate
         self._running = running
+        self._slow = slow
+        self._close_raises = close_raises
         self.calls: list[str] = []
+        # Shared in-flight counter across all backend methods, to detect the manager letting a close
+        # overlap an execute/input/poll on the same session.
+        self.inflight = 0
+        self.max_inflight = 0
+
+    def _enter(self) -> None:
+        self.inflight += 1
+        self.max_inflight = max(self.max_inflight, self.inflight)
+
+    def _exit(self) -> None:
+        self.inflight -= 1
 
     async def start(self) -> None:
         if self._gate is not None:
@@ -45,8 +67,14 @@ class _FakeSession(TerminalBackendSession):
         self.started = True
 
     async def execute(self, command: str, timeout: float) -> BackendExec:
-        self.calls.append("execute")
-        return BackendExec(output="ok", running=False, exit_code=0)
+        self._enter()
+        try:
+            self.calls.append("execute")
+            if self._slow:
+                await asyncio.sleep(self._slow)
+            return BackendExec(output="ok", running=False, exit_code=0)
+        finally:
+            self._exit()
 
     async def input(self, text: str, timeout: float) -> BackendExec:
         return BackendExec(output="ok", running=False, exit_code=0)
@@ -64,7 +92,16 @@ class _FakeSession(TerminalBackendSession):
         return BackendHealth(backend=self.backend, alive=self.started and not self.closed)
 
     async def close(self) -> None:
-        self.closed = True
+        self.close_attempted = True
+        self._enter()
+        try:
+            if self._slow:
+                await asyncio.sleep(self._slow)
+            if self._close_raises:
+                raise RuntimeError("close failed")
+            self.closed = True
+        finally:
+            self._exit()
 
     @property
     def alive(self) -> bool:
@@ -254,6 +291,41 @@ async def test_reset_failure_keeps_old_session_usable(tmp_path, monkeypatch):
     assert mgr.get(d.terminal_id).generation == 1  # unchanged; old session retained
     res = await mgr.execute(d.terminal_id, "echo x")  # old session still works
     assert res.status == CallStatus.COMPLETED
+
+
+async def test_close_serializes_with_inflight_operation(tmp_path, monkeypatch):
+    # OH-05: close must not run the backend's close concurrently with an in-flight execute, and must
+    # remove the handle only after cleanup completes.
+    mgr = await _fake_manager(tmp_path)
+    sess = _FakeSession(slow=0.05)
+    monkeypatch.setattr(mgr, "_make_session", lambda *a, **k: sess)
+    d = await mgr.create(TerminalCreateRequest(backend=SUB))
+    exec_task = asyncio.create_task(mgr.execute(d.terminal_id, "cmd"))
+    await asyncio.sleep(0)  # let the execute acquire the op lock
+    close_task = asyncio.create_task(mgr.close(d.terminal_id))
+    await asyncio.gather(exec_task, close_task, return_exceptions=True)
+    assert sess.max_inflight == 1  # execute and close never overlapped on the session
+    assert sess.closed
+    assert mgr.list() == []  # handle removed after cleanup, not before
+
+
+async def test_reset_all_closes_all_even_if_one_close_raises(tmp_path, monkeypatch):
+    # OH-05: one failing close() must not skip cleanup of the others.
+    mgr = await _fake_manager(tmp_path)
+    made: list = []
+
+    def make(*a, **k):
+        s = _FakeSession(close_raises=(len(made) == 0))  # first session raises on close
+        made.append(s)
+        return s
+
+    monkeypatch.setattr(mgr, "_make_session", make)
+    await mgr.create(TerminalCreateRequest(backend=SUB))
+    await mgr.create(TerminalCreateRequest(backend=SUB))
+    count = await mgr.reset_all()
+    assert count == 2
+    assert all(s.close_attempted for s in made)  # every session was closed despite the first raising
+    assert mgr.list() == []
 
 
 async def test_native_close_terminates_background_descendants(manager):

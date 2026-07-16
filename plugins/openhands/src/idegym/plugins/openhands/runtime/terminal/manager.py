@@ -63,7 +63,6 @@ class TerminalSessionManager:
         self._config = config
         self._environment_id = environment_id_getter
         self._handles: dict[str, TerminalHandle] = {}
-        self._locks: dict[str, asyncio.Lock] = {}
         self._creating: dict[str, _Reservation] = {}
         self._registry_lock = asyncio.Lock()
         self._backend_status: dict[TerminalBackend, TerminalBackendStatus] = {}
@@ -247,7 +246,6 @@ class TerminalSessionManager:
         handle.last_working_dir = cwd
         async with self._registry_lock:
             self._handles[tid] = handle
-            self._locks[tid] = asyncio.Lock()
             self._creating.pop(tid, None)
         reservation.resolve(handle)
         return handle.descriptor()
@@ -337,7 +335,8 @@ class TerminalSessionManager:
             await self.reset(terminal_id)
             handle = self._require(terminal_id)
         timeout = self._default_timeout(handle) if timeout is None else timeout
-        async with self._locks[terminal_id]:
+        async with handle.op_lock:
+            self._reject_if_closing(handle, terminal_id)
             if is_input:
                 self._require_foreground(handle, terminal_id)
                 res = await handle.session.input(command, timeout)
@@ -357,10 +356,16 @@ class TerminalSessionManager:
     ) -> TerminalResult:
         handle = self._require(terminal_id)
         timeout = self._default_timeout(handle) if timeout is None else timeout
-        async with self._locks[terminal_id]:
+        async with handle.op_lock:
+            self._reject_if_closing(handle, terminal_id)
             self._require_foreground(handle, terminal_id)
             res = await handle.session.input(text, timeout)
             return self._apply(handle, res, call_id=call_id)
+
+    def _reject_if_closing(self, handle: TerminalHandle, terminal_id: str) -> None:
+        """Reject an operation that acquired the op lock after close() marked the handle CLOSING."""
+        if handle.state in (TerminalState.CLOSING, TerminalState.CLOSED):
+            raise ServiceError(ErrorCode.UNKNOWN_TERMINAL, f"Unknown terminal: {terminal_id}")
 
     def _require_foreground(self, handle: TerminalHandle, terminal_id: str) -> None:
         """Reject input when no foreground command is active.
@@ -383,7 +388,8 @@ class TerminalSessionManager:
     async def poll(self, terminal_id: str, *, timeout: Optional[float] = None, call_id: str = "") -> TerminalResult:
         handle = self._require(terminal_id)
         timeout = 1.0 if timeout is None else timeout
-        async with self._locks[terminal_id]:
+        async with handle.op_lock:
+            self._reject_if_closing(handle, terminal_id)
             res = await handle.session.poll(timeout)
             return self._apply(handle, res, call_id=call_id)
 
@@ -392,7 +398,7 @@ class TerminalSessionManager:
         # lock. Send the signal first, unconditionally.
         handle = self._require(terminal_id)
         await handle.session.interrupt()
-        lock = self._locks[terminal_id]
+        lock = handle.op_lock
         if lock.locked():
             # An execute/input is in flight and holds the lock. It owns the backend's output buffer,
             # so we must NOT poll here (that would race it for the completion sentinel). The in-flight
@@ -422,7 +428,8 @@ class TerminalSessionManager:
 
     async def reset(self, terminal_id: str) -> TerminalDescriptor:
         handle = self._require(terminal_id)
-        async with self._locks[terminal_id]:
+        async with handle.op_lock:
+            self._reject_if_closing(handle, terminal_id)
             old_session = handle.session
             new_session = self._make_session(
                 handle.backend,
@@ -452,21 +459,34 @@ class TerminalSessionManager:
         return handle.descriptor()
 
     async def close(self, terminal_id: str) -> None:
+        # Mark CLOSING while still registered so a new op that races in observes it, then close under
+        # the handle's op lock so no backend method runs concurrently with the close.
         async with self._registry_lock:
-            handle = self._handles.pop(terminal_id, None)
-            self._locks.pop(terminal_id, None)
-        if handle is not None:
+            handle = self._handles.get(terminal_id)
+            if handle is None:
+                return
             handle.state = TerminalState.CLOSING
-            await handle.session.close()
+        async with handle.op_lock:
+            with contextlib.suppress(Exception):
+                await handle.session.close()
+            handle.state = TerminalState.CLOSED
+            async with self._registry_lock:
+                if self._handles.get(terminal_id) is handle:
+                    del self._handles[terminal_id]
+
+    async def _close_handle(self, handle: TerminalHandle) -> None:
+        async with handle.op_lock:
+            with contextlib.suppress(Exception):
+                await handle.session.close()
             handle.state = TerminalState.CLOSED
 
     async def reset_all(self) -> int:
+        # Snapshot + unregister atomically (blocks concurrent lookups from finding stale handles),
+        # then close each under its own op lock, gathering so one failure cannot skip the rest.
         async with self._registry_lock:
             handles = list(self._handles.values())
+            for handle in handles:
+                handle.state = TerminalState.CLOSING
             self._handles.clear()
-            self._locks.clear()
-        for handle in handles:
-            handle.state = TerminalState.CLOSING
-            await handle.session.close()
-            handle.state = TerminalState.CLOSED
+        await asyncio.gather(*(self._close_handle(h) for h in handles), return_exceptions=True)
         return len(handles)

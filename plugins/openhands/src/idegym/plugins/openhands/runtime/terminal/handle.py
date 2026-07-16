@@ -1,5 +1,6 @@
 """In-memory terminal handle: descriptor state plus the retained backend session and its lock."""
 
+import asyncio
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -36,6 +37,10 @@ class TerminalHandle:
     no_change_timeout: Optional[float] = None
     cols: Optional[int] = None
     rows: Optional[int] = None
+    # Serializes all operations (execute/input/poll/interrupt/reset/close) on this handle. It lives
+    # on the handle — not a side dict — so an operation captures it together with the handle and can
+    # never hit a KeyError if the handle is concurrently removed from the registry.
+    op_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     @staticmethod
     def new_id() -> str:
