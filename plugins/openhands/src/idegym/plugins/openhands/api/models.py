@@ -220,6 +220,8 @@ class Diagnostics(BaseModel):
     profile: Profile = Profile.CORE
     catalog_summary: dict[str, int] = Field(default_factory=dict)
     browser_available: bool = False
+    # Family -> error string for adapters that failed to construct (empty when all built).
+    adapter_errors: dict[str, str] = Field(default_factory=dict)
     workspace_root: str = ""
     state_dir: str = ""
     output_dir: str = ""

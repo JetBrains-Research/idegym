@@ -4,6 +4,7 @@ import pytest
 from idegym.plugins.openhands.api.errors import ErrorCode, ServiceError
 from idegym.plugins.openhands.api.models import (
     CallStatus,
+    Profile,
     SupportStatus,
     TerminalBackend,
     TerminalCreateRequest,
@@ -189,6 +190,31 @@ def test_read_search_tools_enforce_workspace_boundary(tmp_path):
     out = rt._validate_action_paths(read_file, {"path": "sub"})
     assert out["path"] == str((tmp_path / "sub").resolve())
     rt._validate_action_paths(glob, {"pattern": "sub/**/*.py"})  # relative pattern within workspace is fine
+
+
+async def test_capability_status_matches_callable_set(tmp_path, monkeypatch):
+    """OH-16: capability/tool-list/readiness must agree with the actually-callable set."""
+    # openhands reports available, but importing its tools fails -> every adapter build errors.
+    monkeypatch.setattr(compat, "openhands_available", lambda: True)
+    rt = ToolRuntime(_config(tmp_path, profile=Profile.FULL, browser_enabled=True))
+    await rt.start()
+    try:
+        caps = {c.name: c.status for c in rt.list_capabilities()}
+        # browser is in-profile but has no adapter/route/MCP tool -> never advertised callable
+        assert caps["browser_use"] != SupportStatus.ENABLED
+        # filesystem/search tools whose adapters failed to build are incompatible, not enabled
+        assert caps["read_file"] == SupportStatus.ADAPTER_INCOMPATIBLE
+        assert caps["grep"] == SupportStatus.ADAPTER_INCOMPATIBLE
+        # capabilities and the tool list agree exactly (only the terminal is callable here)
+        listed = {t.name for t in rt.list_tools()}
+        enabled = {n for n, s in caps.items() if s == SupportStatus.ENABLED}
+        assert enabled == listed == {"terminal"}
+        # an in-profile tool that could not be constructed fails readiness
+        assert rt.health().ready is False
+        # build errors are exposed in diagnostics
+        assert set(rt.diagnostics().adapter_errors) >= {"gemini", "grep"}
+    finally:
+        await rt.stop()
 
 
 def test_prepare_purges_orphaned_artifacts(tmp_path):

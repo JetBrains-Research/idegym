@@ -30,7 +30,7 @@ from idegym.plugins.openhands.api.models import (
     ToolDescriptor,
     ToolSchemaResponse,
 )
-from idegym.plugins.openhands.api.names import ToolName
+from idegym.plugins.openhands.api.names import ToolFamily, ToolName
 from idegym.plugins.openhands.runtime import compat
 from idegym.plugins.openhands.runtime.adapters.openhands import OpenHandsToolAdapter
 from idegym.plugins.openhands.runtime.artifacts import ArtifactStore
@@ -133,13 +133,40 @@ class ToolRuntime:
     def _browser_available(self) -> bool:
         return self.config.browser_enabled and self.config.profile == Profile.FULL
 
+    def _resolved_status(self, entry: CatalogEntry) -> SupportStatus:
+        """Resolve status from the actually-callable set, not just package/profile booleans.
+
+        A tool is only ENABLED if there is a real callable path: the terminal via its backend, an
+        adapter that actually built for a filesystem/search tool. Browser has no adapter/route/MCP
+        tool yet, so it is never advertised callable; an adapter that failed to build is reported
+        ADAPTER_INCOMPATIBLE rather than ENABLED.
+        """
+        status = self.catalog.effective_status(
+            entry,
+            openhands_available=compat.openhands_available(),
+            browser_available=self._browser_available(),
+        )
+        if status != SupportStatus.ENABLED:
+            return status
+        if entry.is_terminal:
+            return status
+        if entry.family == ToolFamily.BROWSER:
+            # No browser adapter, REST route, or MCP tool is implemented yet — keep it non-callable.
+            return SupportStatus.MISSING_DEPENDENCY
+        if entry.name not in self._adapters:
+            # openhands present and the tool is in-profile, but its adapter did not construct.
+            return SupportStatus.ADAPTER_INCOMPATIBLE
+        return SupportStatus.ENABLED
+
     def list_capabilities(self) -> list:
-        openhands = compat.openhands_available()
-        browser = self._browser_available()
         out = []
         for entry in self.catalog.entries():
-            status = self.catalog.effective_status(entry, openhands_available=openhands, browser_available=browser)
-            out.append(self.catalog.capability(entry, status))
+            status = self._resolved_status(entry)
+            cap = self.catalog.capability(entry, status)
+            if status == SupportStatus.ADAPTER_INCOMPATIBLE:
+                err = self._adapter_errors.get(entry.family.value)
+                cap.reason = f"Adapter failed to build: {err}" if err else "Tool adapter is unavailable in this build"
+            out.append(cap)
         return out
 
     def diagnostics(self) -> Diagnostics:
@@ -155,6 +182,7 @@ class ToolRuntime:
             profile=self.config.profile,
             catalog_summary=summary,
             browser_available=browser,
+            adapter_errors=dict(self._adapter_errors),
             workspace_root=self.config.workspace_root,
             state_dir=self.config.state_dir,
             output_dir=self.config.output_dir,
@@ -170,14 +198,7 @@ class ToolRuntime:
         )
 
     def _enabled_entries(self) -> list[CatalogEntry]:
-        openhands = compat.openhands_available()
-        browser = self._browser_available()
-        return [
-            e
-            for e in self.catalog.entries()
-            if self.catalog.effective_status(e, openhands_available=openhands, browser_available=browser)
-            == SupportStatus.ENABLED
-        ]
+        return [e for e in self.catalog.entries() if self._resolved_status(e) == SupportStatus.ENABLED]
 
     def list_tools(self) -> list[ToolDescriptor]:
         out: list[ToolDescriptor] = []
@@ -247,9 +268,15 @@ class ToolRuntime:
         workspace_ok = Path(self.config.workspace_root).is_dir()
         # Readiness must not require a terminal backend when the terminal tool is disabled.
         backend_ok = (not self.terminal_enabled()) or self.terminals.default_backend_ready()
+        # An in-profile tool whose adapter failed to construct fails readiness (the operator asked
+        # for it, but it is not callable).
+        adapters_ok = not any(
+            self._resolved_status(e) == SupportStatus.ADAPTER_INCOMPATIBLE for e in self.catalog.entries()
+        )
         checks = {
             "workspace": workspace_ok,
             "default_backend": backend_ok,
+            "adapters": adapters_ok,
             "catalog": len(self.catalog.entries()) > 0,
             "artifacts_dir": Path(self.config.output_dir).is_dir(),
         }
@@ -265,11 +292,7 @@ class ToolRuntime:
     # -- tool dispatch -----------------------------------
 
     def _status_for(self, entry: CatalogEntry) -> SupportStatus:
-        return self.catalog.effective_status(
-            entry,
-            openhands_available=compat.openhands_available(),
-            browser_available=self._browser_available(),
-        )
+        return self._resolved_status(entry)
 
     def _ensure_enabled(self, entry: CatalogEntry) -> None:
         status = self._status_for(entry)
