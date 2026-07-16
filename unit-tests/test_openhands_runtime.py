@@ -2,7 +2,12 @@
 
 import pytest
 from idegym.plugins.openhands.api.errors import ErrorCode, ServiceError
-from idegym.plugins.openhands.api.models import CallStatus, SupportStatus, TerminalBackend
+from idegym.plugins.openhands.api.models import (
+    CallStatus,
+    SupportStatus,
+    TerminalBackend,
+    TerminalCreateRequest,
+)
 from idegym.plugins.openhands.runtime import compat
 from idegym.plugins.openhands.runtime.config import RuntimeConfig
 from idegym.plugins.openhands.runtime.service import ToolRuntime
@@ -13,7 +18,7 @@ SUB = TerminalBackend.SUBPROCESS
 _OPENHANDS = compat.openhands_available()
 
 
-def _config(tmp_path):
+def _config(tmp_path, **overrides):
     return RuntimeConfig(
         workspace_root=str(tmp_path),
         state_dir=str(tmp_path / "state"),
@@ -23,6 +28,7 @@ def _config(tmp_path):
         allowed_terminal_backends=[SUB],
         no_change_timeout_seconds=1.5,
         max_output_bytes=200,
+        **overrides,
     )
 
 
@@ -95,6 +101,29 @@ async def test_reset_bumps_generation_and_terminates(runtime):
     resp = await runtime.reset_environment("test")
     assert resp.environment_generation == before + 1
     assert resp.terminated_terminals >= 1
+
+
+async def test_disabled_terminal_rejects_every_dispatch(tmp_path):
+    """OH-01: disabling the terminal tool must block generic dispatch and lifecycle mutations."""
+    rt = ToolRuntime(_config(tmp_path, disabled_tools=["terminal"]))
+    await rt.start()
+    try:
+        assert not rt.terminal_enabled()
+        # generic + canonical dispatch rejected before the command can run
+        with pytest.raises(ServiceError) as exc:
+            await rt.call_tool("terminal", {"command": "echo pwned"})
+        assert exc.value.code == ErrorCode.TOOL_DISABLED
+        # every lifecycle facade method rejects (direct runtime calls must also reject)
+        with pytest.raises(ServiceError):
+            await rt.terminal_create(TerminalCreateRequest(backend=SUB))
+        with pytest.raises(ServiceError):
+            await rt.terminal_execute("default", "echo pwned")
+        with pytest.raises(ServiceError):
+            await rt.terminal_reset_all()
+        # readiness must not require a terminal backend when the terminal is disabled
+        assert rt.health().ready
+    finally:
+        await rt.stop()
 
 
 def test_path_boundary_rejects_escape(tmp_path):

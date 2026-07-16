@@ -46,8 +46,16 @@ def build_mcp_server(runtime: ToolRuntime) -> FastMCP:
             continue  # exposed via the typed canonical + lifecycle tools below
         _register_tool(mcp, runtime, descriptor.name, descriptor.description, descriptor.input_schema)
 
-    # -- canonical terminal tool ------------------------
+    # -- canonical terminal tool + lifecycle tools ------
+    # Registered only when the terminal tool is enabled so the MCP tool list matches ``GET /tools``
+    # and a disabled terminal exposes no lifecycle mutations. The runtime facade re-checks policy.
+    if runtime.terminal_enabled():
+        _register_terminal_tools(mcp, runtime)
 
+    return mcp
+
+
+def _register_terminal_tools(mcp: FastMCP, runtime: ToolRuntime) -> None:
     @mcp.tool(
         name="terminal", description="Run a shell command in a stateful terminal (default unless terminal_id given)."
     )
@@ -66,54 +74,50 @@ def build_mcp_server(runtime: ToolRuntime) -> FastMCP:
             )
         )
 
-    # -- terminal lifecycle tools -----------------------
-
     @mcp.tool(name="terminal_create")
     async def terminal_create(
         backend: Optional[TerminalBackend] = None,
         name: Optional[str] = None,
         cwd: Optional[str] = None,
     ) -> TerminalDescriptor:
-        return await _run(runtime.terminals.create(TerminalCreateRequest(backend=backend, name=name, cwd=cwd)))
+        return await _run(runtime.terminal_create(TerminalCreateRequest(backend=backend, name=name, cwd=cwd)))
 
     @mcp.tool(name="terminal_list")
     async def terminal_list() -> list[TerminalDescriptor]:
-        return runtime.terminals.list()
+        return await _run_sync(runtime.terminal_list)
 
     @mcp.tool(name="terminal_get")
     async def terminal_get(terminal_id: str) -> TerminalDescriptor:
-        return await _run_sync(lambda: runtime.terminals.get(terminal_id))
+        return await _run_sync(lambda: runtime.terminal_get(terminal_id))
 
     @mcp.tool(name="terminal_execute")
     async def terminal_execute(terminal_id: str, command: str, timeout: Optional[float] = None) -> TerminalResult:
-        return await _run(runtime.terminals.execute(terminal_id, command, timeout=timeout))
+        return await _run(runtime.terminal_execute(terminal_id, command, timeout=timeout))
 
     @mcp.tool(name="terminal_input")
-    async def terminal_input(terminal_id: str, text: str) -> TerminalResult:
-        return await _run(runtime.terminals.input(terminal_id, text))
+    async def terminal_input(terminal_id: str, text: str, timeout: Optional[float] = None) -> TerminalResult:
+        return await _run(runtime.terminal_input(terminal_id, text, timeout=timeout))
 
     @mcp.tool(name="terminal_poll")
     async def terminal_poll(terminal_id: str, timeout: Optional[float] = None) -> TerminalResult:
-        return await _run(runtime.terminals.poll(terminal_id, timeout=timeout))
+        return await _run(runtime.terminal_poll(terminal_id, timeout=timeout))
 
     @mcp.tool(name="terminal_interrupt")
     async def terminal_interrupt(terminal_id: str) -> TerminalResult:
-        return await _run(runtime.terminals.interrupt(terminal_id))
+        return await _run(runtime.terminal_interrupt(terminal_id))
 
     @mcp.tool(name="terminal_reset")
     async def terminal_reset(terminal_id: str) -> TerminalDescriptor:
-        return await _run(runtime.terminals.reset(terminal_id))
+        return await _run(runtime.terminal_reset(terminal_id))
 
     @mcp.tool(name="terminal_close")
     async def terminal_close(terminal_id: str) -> dict:
-        await runtime.terminals.close(terminal_id)
+        await _run(runtime.terminal_close(terminal_id))
         return {"closed": terminal_id}
 
     @mcp.tool(name="terminal_reset_all")
     async def terminal_reset_all() -> dict:
-        return {"terminated": await runtime.terminals.reset_all()}
-
-    return mcp
+        return {"terminated": await _run(runtime.terminal_reset_all())}
 
 
 def _register_tool(

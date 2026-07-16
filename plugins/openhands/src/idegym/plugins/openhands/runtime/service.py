@@ -23,6 +23,9 @@ from idegym.plugins.openhands.api.models import (
     Profile,
     ResetResponse,
     SupportStatus,
+    TerminalCreateRequest,
+    TerminalDescriptor,
+    TerminalResult,
     ToolCallResult,
     ToolDescriptor,
     ToolSchemaResponse,
@@ -82,7 +85,11 @@ class ToolRuntime:
 
     async def start(self) -> None:
         self.prepare()
-        if self.config.auto_create_default_terminal and self.terminals.default_backend_ready():
+        if (
+            self.terminal_enabled()
+            and self.config.auto_create_default_terminal
+            and self.terminals.default_backend_ready()
+        ):
             await self.terminals.ensure_default()
         self._ready = True
 
@@ -229,7 +236,8 @@ class ToolRuntime:
 
     def health(self) -> HealthResponse:
         workspace_ok = Path(self.config.workspace_root).is_dir()
-        backend_ok = self.terminals.default_backend_ready()
+        # Readiness must not require a terminal backend when the terminal tool is disabled.
+        backend_ok = (not self.terminal_enabled()) or self.terminals.default_backend_ready()
         checks = {
             "workspace": workspace_ok,
             "default_backend": backend_ok,
@@ -246,6 +254,30 @@ class ToolRuntime:
         )
 
     # -- tool dispatch -----------------------------------
+
+    def _status_for(self, entry: CatalogEntry) -> SupportStatus:
+        return self.catalog.effective_status(
+            entry,
+            openhands_available=compat.openhands_available(),
+            browser_available=self._browser_available(),
+        )
+
+    def _ensure_enabled(self, entry: CatalogEntry) -> None:
+        status = self._status_for(entry)
+        if status != SupportStatus.ENABLED:
+            self._raise_for_status(entry, status)
+
+    def terminal_enabled(self) -> bool:
+        """True when the terminal tool is enabled by the active profile/overrides."""
+        try:
+            entry = self.catalog.get(ToolName.TERMINAL)
+        except KeyError:
+            return False
+        return self._status_for(entry) == SupportStatus.ENABLED
+
+    def ensure_terminal_enabled(self) -> None:
+        """Raise unless the terminal tool is enabled. Guards every terminal lifecycle path."""
+        self._ensure_enabled(self.catalog.get(ToolName.TERMINAL))
 
     def _lock_keys(self, entry: CatalogEntry, arguments: dict[str, Any]) -> list[str]:
         scope = entry.lock_scope
@@ -316,6 +348,10 @@ class ToolRuntime:
         except KeyError:
             raise ServiceError(ErrorCode.UNKNOWN_TOOL, f"Unknown tool: {name}")
 
+        # Enforce catalog status before *any* dispatch, terminal included: a disabled tool
+        # (``disabled_tools`` / a custom profile used as an execution policy) must never run.
+        self._ensure_enabled(entry)
+
         if entry.is_terminal:
             result = await self._call_terminal_tool(arguments, terminal_id)
         else:
@@ -353,12 +389,7 @@ class ToolRuntime:
         )
 
     async def _call_adapter_tool(self, entry: CatalogEntry, arguments: dict[str, Any]) -> ToolCallResult:
-        openhands = compat.openhands_available()
-        status = self.catalog.effective_status(
-            entry, openhands_available=openhands, browser_available=self._browser_available()
-        )
-        if status != SupportStatus.ENABLED:
-            self._raise_for_status(entry, status)
+        # Status was already enforced by call_tool; only the callable-adapter presence is checked here.
         adapter = self._adapters.get(entry.name)
         if adapter is None:
             raise ServiceError(
@@ -408,6 +439,70 @@ class ToolRuntime:
             else:
                 bounded.append(block)
         return bounded, artifacts
+
+    # -- terminal lifecycle facade (policy-checked) -------
+    # REST and MCP call these instead of ``self.terminals`` directly so a disabled terminal
+    # rejects lifecycle mutations as well as generic/per-tool calls. Internal cleanup (reset/stop)
+    # still calls ``self.terminals.reset_all()`` directly — teardown must run regardless of policy.
+
+    async def terminal_create(self, request: TerminalCreateRequest) -> TerminalDescriptor:
+        self.ensure_terminal_enabled()
+        return await self.terminals.create(request)
+
+    def terminal_list(self) -> list[TerminalDescriptor]:
+        self.ensure_terminal_enabled()
+        return self.terminals.list()
+
+    def terminal_get(self, terminal_id: str) -> TerminalDescriptor:
+        self.ensure_terminal_enabled()
+        return self.terminals.get(terminal_id)
+
+    async def terminal_execute(
+        self,
+        terminal_id: str,
+        command: str,
+        *,
+        timeout: Optional[float] = None,
+        is_input: bool = False,
+        reset: bool = False,
+        call_id: str = "",
+    ) -> TerminalResult:
+        self.ensure_terminal_enabled()
+        return await self.terminals.execute(
+            terminal_id, command, timeout=timeout, is_input=is_input, reset=reset, call_id=call_id
+        )
+
+    async def terminal_input(
+        self, terminal_id: str, text: str, *, timeout: Optional[float] = None, call_id: str = ""
+    ) -> TerminalResult:
+        self.ensure_terminal_enabled()
+        return await self.terminals.input(terminal_id, text, timeout=timeout, call_id=call_id)
+
+    async def terminal_poll(
+        self, terminal_id: str, *, timeout: Optional[float] = None, call_id: str = ""
+    ) -> TerminalResult:
+        self.ensure_terminal_enabled()
+        return await self.terminals.poll(terminal_id, timeout=timeout, call_id=call_id)
+
+    async def terminal_interrupt(self, terminal_id: str, *, call_id: str = "") -> TerminalResult:
+        self.ensure_terminal_enabled()
+        return await self.terminals.interrupt(terminal_id, call_id=call_id)
+
+    async def terminal_reset(self, terminal_id: str) -> TerminalDescriptor:
+        self.ensure_terminal_enabled()
+        return await self.terminals.reset(terminal_id)
+
+    async def terminal_close(self, terminal_id: str) -> None:
+        self.ensure_terminal_enabled()
+        await self.terminals.close(terminal_id)
+
+    async def terminal_reset_all(self) -> int:
+        self.ensure_terminal_enabled()
+        return await self.terminals.reset_all()
+
+    async def terminal_capture(self, terminal_id: str) -> str:
+        self.ensure_terminal_enabled()
+        return await self.terminals.capture(terminal_id)
 
     # -- reset --------------------------------------------
 

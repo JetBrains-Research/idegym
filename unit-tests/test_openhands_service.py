@@ -16,7 +16,7 @@ SUB = TerminalBackend.SUBPROCESS
 _OPENHANDS = compat.openhands_available()
 
 
-def _config(tmp_path):
+def _config(tmp_path, **overrides):
     return RuntimeConfig(
         workspace_root=str(tmp_path),
         state_dir=str(tmp_path / "state"),
@@ -25,6 +25,7 @@ def _config(tmp_path):
         default_terminal_backend=SUB,
         allowed_terminal_backends=[SUB],
         no_change_timeout_seconds=1.5,
+        **overrides,
     )
 
 
@@ -81,6 +82,32 @@ def test_error_mapping(client):
 
 def test_reset_route(client):
     assert client.post("/v1/reset").json()["environment_generation"] >= 1
+
+
+def test_disabled_terminal_hides_rest_routes(tmp_path):
+    """OH-01: with the terminal disabled, no terminal route is registered and /call rejects it."""
+    app = build_app(_config(tmp_path, disabled_tools=["terminal"]))
+    with TestClient(app) as c:
+        paths = c.get("/openapi.json").json()["paths"]
+        assert not any(p.startswith("/v1/terminals") for p in paths)
+        assert "/v1/tools/terminal" not in paths
+        # generic dispatch is rejected before any command runs
+        r = c.post("/v1/call", json={"tool": "terminal", "arguments": {"command": "echo pwned"}})
+        assert r.status_code == 422 and r.json()["error"] == "tool_disabled"
+        # the lifecycle create route is absent (404), not merely method-guarded
+        assert c.post("/v1/terminals", json={"backend": "subprocess"}).status_code == 404
+        # readiness holds without a terminal backend
+        assert c.get("/v1/health").json()["ready"] is True
+
+
+async def test_disabled_terminal_absent_from_mcp(tmp_path):
+    """OH-01: the MCP tool list must omit the terminal and every lifecycle tool when disabled."""
+    rt = ToolRuntime(_config(tmp_path, disabled_tools=["terminal"]))
+    rt.prepare()
+    server = build_mcp_server(rt)
+    async with Client(server) as mcp:
+        names = {t.name for t in await mcp.list_tools()}
+    assert not any(n == "terminal" or n.startswith("terminal_") for n in names)
 
 
 async def test_mcp_tool_list_matches_rest(tmp_path):
