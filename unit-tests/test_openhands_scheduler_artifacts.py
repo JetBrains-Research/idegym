@@ -59,7 +59,7 @@ async def test_scheduler_sorted_acquisition_is_deadlock_free():
 
 
 async def test_scheduler_workspace_mutation_excludes_file_ops():
-    # OH-10: a workspace mutation (workspace exclusive) must not overlap a contained file op
+    # A workspace mutation (workspace exclusive) must not overlap a contained file op
     # (workspace shared), even though the exact keys differ.
     sched = ResourceScheduler()
     order: list[str] = []
@@ -83,7 +83,7 @@ async def test_scheduler_workspace_mutation_excludes_file_ops():
 
 
 async def test_scheduler_shared_reads_run_parallel_but_same_file_serializes():
-    # OH-10: shared workspace reads run concurrently; a same-file exclusive lock serializes.
+    # Shared workspace reads run concurrently; a same-file exclusive lock serializes.
     sched = ResourceScheduler()
 
     async def measure(requests):
@@ -120,7 +120,7 @@ async def test_scheduler_shared_reads_run_parallel_but_same_file_serializes():
 
 
 async def test_scheduler_registry_is_bounded_and_correct():
-    # OH-15: acquiring/releasing many unique keys must not grow the registry without bound.
+    # Acquiring/releasing many unique keys must not grow the registry without bound.
     sched = ResourceScheduler()
     for i in range(10_000):
         async with sched.acquire([(f"file:/f{i}", True)]):
@@ -129,7 +129,7 @@ async def test_scheduler_registry_is_bounded_and_correct():
 
 
 async def test_scheduler_contended_key_retained_until_all_release():
-    # OH-15: a key stays registered while a holder or waiter references it, then is removed.
+    # A key stays registered while a holder or waiter references it, then is removed.
     sched = ResourceScheduler()
     release_holder = asyncio.Event()
 
@@ -183,7 +183,7 @@ def test_artifact_clear(tmp_path):
 
 
 def test_artifacts_purged_across_restart(tmp_path):
-    # OH-14: a new store on the same dir must not leave a previous run's files orphaned on disk.
+    # A new store on the same dir must not leave a previous run's files orphaned on disk.
     d = str(tmp_path / "art")
     a = ArtifactStore(d)
     desc = a.save_text("leaked across restart")
@@ -198,7 +198,7 @@ def test_artifacts_purged_across_restart(tmp_path):
 
 
 def test_artifact_hard_per_artifact_cap(tmp_path):
-    # OH-12: a single artifact must be capped so one result cannot consume unbounded memory/disk.
+    # A single artifact must be capped so one result cannot consume unbounded memory/disk.
     store = ArtifactStore(str(tmp_path / "art"), max_single_bytes=10)
     desc = store.save_text("x" * 100)
     assert desc.size_bytes == 10
@@ -207,7 +207,7 @@ def test_artifact_hard_per_artifact_cap(tmp_path):
 
 
 def test_artifact_get_path_enables_streaming(tmp_path):
-    # OH-12: get_path exposes the on-disk file so downloads stream instead of buffering.
+    # Get_path exposes the on-disk file so downloads stream instead of buffering.
     store = ArtifactStore(str(tmp_path / "art"))
     desc = store.save_text("hello stream")
     path, meta = store.get_path(desc.artifact_id)

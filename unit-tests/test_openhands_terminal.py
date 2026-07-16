@@ -202,7 +202,7 @@ async def test_concurrent_interrupt_leaves_terminal_usable(manager):
 
 
 async def test_idle_input_rejected_and_shell_stays_usable(manager):
-    # OH-07: text sent when no foreground command is active must be rejected (not started as an
+    # Text sent when no foreground command is active must be rejected (not started as an
     # untracked command), and a subsequent execute must run normally.
     d = await _new(manager)
     with pytest.raises(ServiceError) as exc:
@@ -224,7 +224,7 @@ async def _fake_manager(tmp_path):
 
 
 async def test_create_failure_leaves_no_handle_process_or_quota(tmp_path, monkeypatch):
-    # OH-04: a failed start() must leave no handle, no reservation, no leaked session, no quota use.
+    # A failed start() must leave no handle, no reservation, no leaked session, no quota use.
     mgr = await _fake_manager(tmp_path)
     made: list = []
 
@@ -242,7 +242,7 @@ async def test_create_failure_leaves_no_handle_process_or_quota(tmp_path, monkey
 
 
 async def test_handle_not_visible_until_started(tmp_path, monkeypatch):
-    # OH-04: a creating handle is not exposed as usable before start() completes.
+    # A creating handle is not exposed as usable before start() completes.
     mgr = await _fake_manager(tmp_path)
     gate = asyncio.Event()
     monkeypatch.setattr(mgr, "_make_session", lambda *a, **k: _FakeSession(gate=gate))
@@ -255,7 +255,7 @@ async def test_handle_not_visible_until_started(tmp_path, monkeypatch):
 
 
 async def test_concurrent_ensure_default_creates_exactly_one(tmp_path, monkeypatch):
-    # OH-04: two concurrent ensure_default() must create exactly one session (single-flight).
+    # Two concurrent ensure_default() must create exactly one session (single-flight).
     mgr = await _fake_manager(tmp_path)
     gate = asyncio.Event()
     made: list = []
@@ -277,7 +277,7 @@ async def test_concurrent_ensure_default_creates_exactly_one(tmp_path, monkeypat
 
 
 async def test_reset_failure_keeps_old_session_usable(tmp_path, monkeypatch):
-    # OH-04: if the replacement fails to start, the old session stays usable (no dead READY handle).
+    # If the replacement fails to start, the old session stays usable (no dead READY handle).
     mgr = await _fake_manager(tmp_path)
     n = {"count": 0}
 
@@ -295,7 +295,7 @@ async def test_reset_failure_keeps_old_session_usable(tmp_path, monkeypatch):
 
 
 async def test_close_serializes_with_inflight_operation(tmp_path, monkeypatch):
-    # OH-05: close must not run the backend's close concurrently with an in-flight execute, and must
+    # Close must not run the backend's close concurrently with an in-flight execute, and must
     # remove the handle only after cleanup completes.
     mgr = await _fake_manager(tmp_path)
     sess = _FakeSession(slow=0.05)
@@ -311,7 +311,7 @@ async def test_close_serializes_with_inflight_operation(tmp_path, monkeypatch):
 
 
 async def test_reset_all_closes_all_even_if_one_close_raises(tmp_path, monkeypatch):
-    # OH-05: one failing close() must not skip cleanup of the others.
+    # One failing close() must not skip cleanup of the others.
     mgr = await _fake_manager(tmp_path)
     made: list = []
 
@@ -330,7 +330,7 @@ async def test_reset_all_closes_all_even_if_one_close_raises(tmp_path, monkeypat
 
 
 async def test_openhands_backend_serializes_session_under_cancellation(monkeypatch):
-    # OH-06: cancelling a blocked execute must not let the next call enter the (non-thread-safe)
+    # Cancelling a blocked execute must not let the next call enter the (non-thread-safe)
     # OpenHands session concurrently — the single worker keeps max concurrency at one.
     from idegym.plugins.openhands.runtime import compat
     from idegym.plugins.openhands.runtime.terminal.backends.openhands import OpenHandsTerminalSession
@@ -377,7 +377,7 @@ async def test_openhands_backend_serializes_session_under_cancellation(monkeypat
 
 
 async def test_native_close_terminates_background_descendants(manager):
-    # OH-08: a detached/backgrounded child (its own process group under job control) must be killed
+    # A detached/backgrounded child (its own process group under job control) must be killed
     # on close, not leaked into a later environment.
     d = await _new(manager)
     res = await manager.execute(d.terminal_id, "nohup sleep 60 >/dev/null 2>&1 & echo PID=$!")
@@ -393,7 +393,7 @@ async def test_native_close_terminates_background_descendants(manager):
 
 
 async def test_native_output_history_is_bounded(tmp_path):
-    # OH-13: many MB of output over repeated commands must not accumulate in the parse buffer, while
+    # Many MB of output over repeated commands must not accumulate in the parse buffer, while
     # sentinel parsing and the bounded capture ring keep working.
     sess = SubprocessBackendSession(shell="/bin/bash", cwd=str(tmp_path), env={})
     await sess.start()

@@ -85,7 +85,7 @@ def test_reset_route(client):
 
 
 def test_artifact_download_streams_from_disk(tmp_path):
-    """OH-12: the REST artifact route serves the file (FileResponse) without buffering via read()."""
+    """The REST artifact route serves the file (FileResponse) without buffering via read()."""
     cfg = _config(tmp_path)
     rt = ToolRuntime(cfg)
     rt.prepare()
@@ -98,7 +98,7 @@ def test_artifact_download_streams_from_disk(tmp_path):
 
 
 async def test_proxy_streams_download_without_buffering(tmp_path):
-    """OH-12: the loopback proxy streams a large download instead of loading it all into memory."""
+    """The loopback proxy streams a large download instead of loading it all into memory."""
     import httpx
     from fastapi import FastAPI
     from fastapi.responses import Response as RawResponse
@@ -123,7 +123,7 @@ async def test_proxy_streams_download_without_buffering(tmp_path):
 
 
 def test_disabled_terminal_hides_rest_routes(tmp_path):
-    """OH-01: with the terminal disabled, no terminal route is registered and /call rejects it."""
+    """With the terminal disabled, no terminal route is registered and /call rejects it."""
     app = build_app(_config(tmp_path, disabled_tools=["terminal"]))
     with TestClient(app) as c:
         paths = c.get("/openapi.json").json()["paths"]
@@ -139,7 +139,7 @@ def test_disabled_terminal_hides_rest_routes(tmp_path):
 
 
 async def test_mcp_publishes_native_input_schema(tmp_path, monkeypatch):
-    """OH-03: MCP inputSchema must equal the native tool schema; dispatch uses flat native args."""
+    """MCP inputSchema must equal the native tool schema; dispatch uses flat native args."""
     rt = ToolRuntime(_config(tmp_path))
     rt.prepare()
 
@@ -171,7 +171,7 @@ async def test_mcp_publishes_native_input_schema(tmp_path, monkeypatch):
 
 
 async def test_disabled_terminal_absent_from_mcp(tmp_path):
-    """OH-01: the MCP tool list must omit the terminal and every lifecycle tool when disabled."""
+    """The MCP tool list must omit the terminal and every lifecycle tool when disabled."""
     rt = ToolRuntime(_config(tmp_path, disabled_tools=["terminal"]))
     rt.prepare()
     server = build_mcp_server(rt)

@@ -1,4 +1,4 @@
-"""Unit tests for the request deduplicator (OH-09)."""
+"""Unit tests for the request deduplicator."""
 
 import asyncio
 

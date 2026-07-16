@@ -68,7 +68,7 @@ async def test_terminal_tool_runs_and_persists_state(runtime):
 
 
 async def test_terminal_output_respects_response_budget(runtime):
-    """OH-12: terminal output must be bounded by the total budget and spilled to an artifact."""
+    """Terminal output must be bounded by the total budget and spilled to an artifact."""
     # _config sets max_output_bytes=200; produce far more output than that.
     res = await runtime.call_tool("terminal", {"command": "for i in $(seq 1 500); do echo LINE$i; done"})
     assert len(res.text().encode("utf-8")) <= 200 + 200  # bounded to the budget (+ a short notice)
@@ -110,7 +110,7 @@ async def test_dedup_same_and_conflict(runtime):
 
 
 async def test_dedup_validates_before_cache_lookup(runtime):
-    """OH-09: a reused id must not bypass validation or return another operation's result."""
+    """A reused id must not bypass validation or return another operation's result."""
     first = await runtime.call_tool("terminal", {"command": "echo one"}, request_id="rid")
     # reusing the id for an unknown tool is validated first -> UNKNOWN_TOOL, not the cached result
     with pytest.raises(ServiceError) as exc:
@@ -122,7 +122,7 @@ async def test_dedup_validates_before_cache_lookup(runtime):
 
 
 async def test_reset_is_exclusive_with_inflight_operations(tmp_path, monkeypatch):
-    """OH-11: reset must drain in-flight work before changing the generation."""
+    """Reset must drain in-flight work before changing the generation."""
     rt = ToolRuntime(_config(tmp_path))
     await rt.start()
     try:
@@ -162,7 +162,7 @@ async def test_reset_bumps_generation_and_terminates(runtime):
 
 
 async def test_disabled_terminal_rejects_every_dispatch(tmp_path):
-    """OH-01: disabling the terminal tool must block generic dispatch and lifecycle mutations."""
+    """Disabling the terminal tool must block generic dispatch and lifecycle mutations."""
     rt = ToolRuntime(_config(tmp_path, disabled_tools=["terminal"]))
     await rt.start()
     try:
@@ -192,7 +192,7 @@ def test_path_boundary_rejects_escape(tmp_path):
 
 
 def test_lock_requests_reflect_tool_resources(tmp_path):
-    """OH-10: lock requests must model real resources (workspace mutation vs contained file ops)."""
+    """Lock requests must model real resources (workspace mutation vs contained file ops)."""
     rt = ToolRuntime(_config(tmp_path))
     ws = f"workspace:{rt.config.workspace_root}"
 
@@ -213,7 +213,7 @@ def test_lock_requests_reflect_tool_resources(tmp_path):
 
 
 def test_read_search_tools_enforce_workspace_boundary(tmp_path):
-    """OH-02: workspace boundary must apply to read/search tools (LockScope.NONE), not just writes."""
+    """Workspace boundary must apply to read/search tools (LockScope.NONE), not just writes."""
     rt = ToolRuntime(_config(tmp_path))
     grep = rt.catalog.get("grep")
     glob = rt.catalog.get("glob")
@@ -250,7 +250,7 @@ def test_read_search_tools_enforce_workspace_boundary(tmp_path):
 
 
 async def test_capability_status_matches_callable_set(tmp_path, monkeypatch):
-    """OH-16: capability/tool-list/readiness must agree with the actually-callable set."""
+    """Capability/tool-list/readiness must agree with the actually-callable set."""
     # openhands reports available, but importing its tools fails -> every adapter build errors.
     monkeypatch.setattr(compat, "openhands_available", lambda: True)
     rt = ToolRuntime(_config(tmp_path, profile=Profile.FULL, browser_enabled=True))
@@ -275,7 +275,7 @@ async def test_capability_status_matches_callable_set(tmp_path, monkeypatch):
 
 
 def test_prepare_purges_orphaned_artifacts(tmp_path):
-    """OH-14: startup must discard artifact files left by a previous process."""
+    """Startup must discard artifact files left by a previous process."""
     from pathlib import Path
 
     cfg = _config(tmp_path)
