@@ -6,11 +6,11 @@ separate runtime, no transport-bound state. The IdeGYM MCP gateway mounts
 this endpoint under the ``openhands`` namespace.
 """
 
-import json
 from typing import Any, Optional
 
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
+from fastmcp.tools.tool import Tool, ToolResult
 from idegym.plugins.openhands.api.errors import ServiceError
 from idegym.plugins.openhands.api.models import (
     TerminalBackend,
@@ -18,9 +18,11 @@ from idegym.plugins.openhands.api.models import (
     TerminalDescriptor,
     TerminalResult,
     ToolCallResult,
+    ToolDescriptor,
 )
 from idegym.plugins.openhands.runtime.service import ToolRuntime
 from mcp.types import TextContent
+from pydantic import PrivateAttr
 
 
 def _result_content(result: ToolCallResult) -> list[TextContent]:
@@ -44,7 +46,7 @@ def build_mcp_server(runtime: ToolRuntime) -> FastMCP:
     for descriptor in runtime.list_tools():
         if descriptor.name == "terminal":
             continue  # exposed via the typed canonical + lifecycle tools below
-        _register_tool(mcp, runtime, descriptor.name, descriptor.description, descriptor.input_schema)
+        _register_tool(mcp, runtime, descriptor)
 
     # -- canonical terminal tool + lifecycle tools ------
     # Registered only when the terminal tool is enabled so the MCP tool list matches ``GET /tools``
@@ -79,8 +81,25 @@ def _register_terminal_tools(mcp: FastMCP, runtime: ToolRuntime) -> None:
         backend: Optional[TerminalBackend] = None,
         name: Optional[str] = None,
         cwd: Optional[str] = None,
+        env: Optional[dict[str, str]] = None,
+        no_change_timeout: Optional[float] = None,
+        cols: Optional[int] = None,
+        rows: Optional[int] = None,
     ) -> TerminalDescriptor:
-        return await _run(runtime.terminal_create(TerminalCreateRequest(backend=backend, name=name, cwd=cwd)))
+        # Field parity with TerminalCreateRequest so the MCP schema exposes env/dimensions/timeout.
+        return await _run(
+            runtime.terminal_create(
+                TerminalCreateRequest(
+                    backend=backend,
+                    name=name,
+                    cwd=cwd,
+                    env=env or {},
+                    no_change_timeout=no_change_timeout,
+                    cols=cols,
+                    rows=rows,
+                )
+            )
+        )
 
     @mcp.tool(name="terminal_list")
     async def terminal_list() -> list[TerminalDescriptor]:
@@ -120,15 +139,38 @@ def _register_terminal_tools(mcp: FastMCP, runtime: ToolRuntime) -> None:
         return {"terminated": await _run(runtime.terminal_reset_all())}
 
 
-def _register_tool(
-    mcp: FastMCP, runtime: ToolRuntime, name: str, description: str, input_schema: dict[str, Any]
-) -> None:
-    schema_hint = json.dumps(input_schema, indent=2) if input_schema else "{}"
-    full_desc = f"{description}\n\nArguments schema (pass as `arguments`):\n{schema_hint}"
+class _RuntimeMCPTool(Tool):
+    """A FastMCP tool that publishes the native OpenHands ``inputSchema`` and dispatches the flat
+    native arguments straight into the ToolRuntime.
 
-    @mcp.tool(name=name, description=full_desc)
-    async def _tool(arguments: dict[str, Any], terminal_id: Optional[str] = None) -> ToolCallResult:
-        return _guard(await runtime.call_tool(name, arguments, terminal_id=terminal_id))
+    FastMCP derives ``inputSchema`` from a registered function's signature, so wrapping a tool as
+    ``fn(arguments: dict, ...)`` would publish a top-level ``arguments`` object instead of the
+    tool's real fields (``pattern``/``path``/``file_path``/…). Setting ``parameters`` to the native
+    schema and dispatching the raw arguments keeps the MCP schema identical to REST/native and keeps
+    transport context out of the tool arguments.
+    """
+
+    _runtime: Any = PrivateAttr()
+    _tool_name: str = PrivateAttr()
+
+    async def run(self, arguments: dict[str, Any]) -> ToolResult:
+        try:
+            result = await self._runtime.call_tool(self._tool_name, arguments)
+        except ServiceError as exc:
+            raise ToolError(f"{exc.code.value}: {exc.message}") from exc
+        result = _guard(result)
+        return ToolResult(content=_result_content(result), structured_content=result.model_dump(mode="json"))
+
+
+def _register_tool(mcp: FastMCP, runtime: ToolRuntime, descriptor: ToolDescriptor) -> None:
+    tool = _RuntimeMCPTool(
+        name=descriptor.name,
+        description=descriptor.description,
+        parameters=descriptor.input_schema or {"type": "object", "properties": {}},
+    )
+    tool._runtime = runtime
+    tool._tool_name = descriptor.name
+    mcp.add_tool(tool)
 
 
 async def _run(coro: Any) -> Any:

@@ -3,7 +3,7 @@
 import pytest
 from fastapi.testclient import TestClient
 from fastmcp import Client
-from idegym.plugins.openhands.api.models import TerminalBackend
+from idegym.plugins.openhands.api.models import ContentBlock, TerminalBackend, ToolCallResult, ToolDescriptor
 from idegym.plugins.openhands.runtime import compat
 from idegym.plugins.openhands.runtime.config import RuntimeConfig
 from idegym.plugins.openhands.runtime.service import ToolRuntime
@@ -98,6 +98,38 @@ def test_disabled_terminal_hides_rest_routes(tmp_path):
         assert c.post("/v1/terminals", json={"backend": "subprocess"}).status_code == 404
         # readiness holds without a terminal backend
         assert c.get("/v1/health").json()["ready"] is True
+
+
+async def test_mcp_publishes_native_input_schema(tmp_path, monkeypatch):
+    """OH-03: MCP inputSchema must equal the native tool schema; dispatch uses flat native args."""
+    rt = ToolRuntime(_config(tmp_path))
+    rt.prepare()
+
+    native_schema = {
+        "type": "object",
+        "properties": {"pattern": {"type": "string"}, "path": {"type": "string"}},
+        "required": ["pattern"],
+    }
+    grep = ToolDescriptor(name="grep", family="grep", description="search", input_schema=native_schema)
+    monkeypatch.setattr(rt, "list_tools", lambda: [rt._terminal_descriptor(), grep])
+
+    seen: dict = {}
+
+    async def fake_call_tool(name, arguments, *, terminal_id=None, request_id=None):
+        seen["name"], seen["arguments"], seen["terminal_id"] = name, arguments, terminal_id
+        return ToolCallResult(call_id="x", tool=name, content=[ContentBlock.of_text("ok")])
+
+    monkeypatch.setattr(rt, "call_tool", fake_call_tool)
+
+    server = build_mcp_server(rt)
+    async with Client(server) as mcp:
+        tools = {t.name: t for t in await mcp.list_tools()}
+        # published schema is the native flat schema, not a wrapper {"arguments": ...}
+        assert tools["grep"].inputSchema == native_schema
+        assert "arguments" not in tools["grep"].inputSchema.get("properties", {})
+        await mcp.call_tool("grep", {"pattern": "x", "path": "sub"})
+    # dispatched flat native arguments, with transport context kept separate (no terminal_id leak)
+    assert seen == {"name": "grep", "arguments": {"pattern": "x", "path": "sub"}, "terminal_id": None}
 
 
 async def test_disabled_terminal_absent_from_mcp(tmp_path):
