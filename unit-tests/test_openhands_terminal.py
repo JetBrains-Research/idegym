@@ -12,6 +12,7 @@ import pytest
 from idegym.plugins.openhands.api.errors import ErrorCode, ServiceError
 from idegym.plugins.openhands.api.models import CallStatus, TerminalBackend, TerminalCreateRequest, TerminalState
 from idegym.plugins.openhands.runtime.config import RuntimeConfig
+from idegym.plugins.openhands.runtime.terminal.backends.subprocess import SubprocessBackendSession
 from idegym.plugins.openhands.runtime.terminal.manager import TerminalSessionManager
 
 pytestmark = pytest.mark.unit
@@ -111,6 +112,27 @@ async def test_idle_input_rejected_and_shell_stays_usable(manager):
     # the shell is uncorrupted: the next real command runs normally
     res = await manager.execute(d.terminal_id, "echo alive")
     assert res.status == CallStatus.COMPLETED and "alive" in res.output
+
+
+async def test_native_output_history_is_bounded(tmp_path):
+    # OH-13: many MB of output over repeated commands must not accumulate in the parse buffer, while
+    # sentinel parsing and the bounded capture ring keep working.
+    sess = SubprocessBackendSession(shell="/bin/bash", cwd=str(tmp_path), env={})
+    await sess.start()
+    try:
+        for _ in range(10):
+            res = await sess.execute("yes idegym | head -c 100000", timeout=10)
+            assert not res.running  # each command completes (sentinel parsed)
+        # consumed prefixes are dropped: the unread buffer holds only a small unparsed suffix,
+        # not the ~1MB of accumulated history.
+        assert len(sess._unread) < 20_000
+        # the capture ring is bounded regardless of total output
+        assert len(await sess.capture()) <= 8192
+        # sentinel parsing still works after all that output
+        final = await sess.execute("echo DONE-MARKER", timeout=10)
+        assert "DONE-MARKER" in final.output
+    finally:
+        await sess.close()
 
 
 async def test_result_has_call_id(manager):

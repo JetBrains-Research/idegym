@@ -73,8 +73,11 @@ class SubprocessBackendSession(TerminalBackendSession):
         self._pgid: int = -1
 
         self._decoder = codecs.getincrementaldecoder("utf-8")("replace")
-        self._text = ""
-        self._consumed = 0
+        # Unread parse buffer: holds only output not yet delivered to a caller. Consumed prefixes are
+        # dropped after every sentinel/whole-line read so long-lived terminals do not retain their
+        # entire history. A separately bounded capture ring backs capture().
+        self._unread = ""
+        self._capture = ""
         self._lock = threading.Lock()
         self._reader: Optional[threading.Thread] = None
         self._dead = False
@@ -93,7 +96,7 @@ class SubprocessBackendSession(TerminalBackendSession):
         self._write(_INIT.encode())
         await asyncio.sleep(0.05)
         with self._lock:
-            self._consumed = len(self._text)
+            self._unread = ""
 
     def _start_blocking(self) -> None:
         master_fd, slave_fd = os.openpty()
@@ -146,7 +149,9 @@ class SubprocessBackendSession(TerminalBackendSession):
             chunk = self._decoder.decode(raw)
             if chunk:
                 with self._lock:
-                    self._text += chunk
+                    self._unread += chunk
+                    # Bounded capture ring: retain only the recent tail regardless of history size.
+                    self._capture = (self._capture + chunk)[-_CAPTURE_CHARS:]
 
     def _write(self, data: bytes) -> None:
         if self._master_fd >= 0 and not self._dead:
@@ -156,21 +161,25 @@ class SubprocessBackendSession(TerminalBackendSession):
     # -- reading / sentinel parsing ----------------------------------------
 
     def _take(self, sentinel: re.Pattern[str]) -> tuple[str, Optional[int], Optional[str], bool]:
-        """Consume new output; if the sentinel is complete, also return exit code + cwd."""
+        """Consume new output; if the sentinel is complete, also return exit code + cwd.
+
+        Consumed output is dropped from the unread buffer (only the small unparsed suffix is kept),
+        so a long-lived terminal never accumulates its full history here.
+        """
         with self._lock:
-            pending = self._text[self._consumed :]
+            pending = self._unread
             m = sentinel.search(pending)
             if m:
                 before = pending[: m.start()]
-                self._consumed += m.end()
+                self._unread = pending[m.end() :]
                 return self._clean(before), int(m.group(1)), m.group(2).strip(), True
-            # No sentinel yet: emit whole lines only, retaining the trailing partial line so a
-            # sentinel that has not fully arrived is never split across two reads.
+            # No sentinel yet: emit whole lines only, retaining the trailing partial line (from the
+            # last newline on) so a sentinel that has not fully arrived is never split across reads.
             cut = pending.rfind("\n")
             if cut <= 0:
                 return "", None, None, False
             before = pending[:cut]
-            self._consumed += cut
+            self._unread = pending[cut:]
             return self._clean(before), None, None, False
 
     @staticmethod
@@ -227,14 +236,14 @@ class SubprocessBackendSession(TerminalBackendSession):
             if self._interrupt_flag:
                 self._interrupt_flag = False
                 with self._lock:
-                    pending = self._text[self._consumed :]
-                    self._consumed = len(self._text)
+                    pending = self._unread
+                    self._unread = ""
                 if pending:
                     collected.append(self._clean(pending))
                 return BackendExec(output="".join(collected), running=False, exit_code=130, interrupted=True)
             with self._lock:
-                pending = self._text[self._consumed :]
-                self._consumed = len(self._text)
+                pending = self._unread
+                self._unread = ""
             if pending:
                 collected.append(self._clean(pending))
             if self._dead:
@@ -344,7 +353,7 @@ class SubprocessBackendSession(TerminalBackendSession):
 
     async def capture(self) -> str:
         with self._lock:
-            tail = self._text[-_CAPTURE_CHARS:]
+            tail = self._capture
         return self._clean(tail)
 
     async def health(self) -> BackendHealth:
