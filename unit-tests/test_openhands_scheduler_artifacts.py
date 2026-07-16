@@ -118,6 +118,38 @@ async def test_scheduler_shared_reads_run_parallel_but_same_file_serializes():
     assert op2.peak == 1
 
 
+async def test_scheduler_registry_is_bounded_and_correct():
+    # OH-15: acquiring/releasing many unique keys must not grow the registry without bound.
+    sched = ResourceScheduler()
+    for i in range(10_000):
+        async with sched.acquire([(f"file:/f{i}", True)]):
+            pass
+    assert len(sched._locks) == 0  # every entry removed once unreferenced
+
+
+async def test_scheduler_contended_key_retained_until_all_release():
+    # OH-15: a key stays registered while a holder or waiter references it, then is removed.
+    sched = ResourceScheduler()
+    release_holder = asyncio.Event()
+
+    async def holder():
+        async with sched.acquire([("k", True)]):
+            await release_holder.wait()
+
+    async def waiter():
+        async with sched.acquire([("k", True)]):
+            pass
+
+    h = asyncio.create_task(holder())
+    await asyncio.sleep(0.02)
+    w = asyncio.create_task(waiter())
+    await asyncio.sleep(0.02)
+    assert "k" in sched._locks and sched._locks["k"].refs == 2  # holder + waiter
+    release_holder.set()
+    await asyncio.gather(h, w)
+    assert "k" not in sched._locks
+
+
 def test_artifact_save_read_and_url(tmp_path):
     store = ArtifactStore(str(tmp_path / "art"))
     desc = store.save_text("hello world", filename="out.txt")

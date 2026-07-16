@@ -53,25 +53,48 @@ class _RWLock:
             self._cond.notify_all()
 
 
+class _Entry:
+    """A registry entry: the lock plus a reference count of its holders and waiters."""
+
+    __slots__ = ("lock", "refs")
+
+    def __init__(self) -> None:
+        self.lock = _RWLock()
+        self.refs = 0
+
+
 class ResourceScheduler:
     def __init__(self) -> None:
-        self._locks: dict[str, _RWLock] = {}
+        self._locks: dict[str, _Entry] = {}
         self._guard = asyncio.Lock()
 
-    async def _lock_for(self, key: str) -> _RWLock:
+    async def _checkout(self, key: str) -> _Entry:
+        """Get-or-create the entry for ``key`` and count this holder/waiter under the guard."""
         async with self._guard:
-            lock = self._locks.get(key)
-            if lock is None:
-                lock = _RWLock()
-                self._locks[key] = lock
-            return lock
+            entry = self._locks.get(key)
+            if entry is None:
+                entry = _Entry()
+                self._locks[key] = entry
+            entry.refs += 1
+            return entry
+
+    async def _checkin(self, key: str, entry: _Entry) -> None:
+        """Drop this holder/waiter; remove the entry when nobody references it any more."""
+        async with self._guard:
+            entry.refs -= 1
+            # Remove only when unreferenced and the mapping still points to this exact entry
+            # (avoids an ABA race where a fresh entry replaced this key).
+            if entry.refs <= 0 and self._locks.get(key) is entry:
+                del self._locks[key]
 
     @asynccontextmanager
     async def acquire(self, requests: list[LockRequest]):
         """Acquire all ``requests`` in sorted key order, releasing in reverse (deadlock-free).
 
         Duplicate keys are merged (exclusive wins), so a caller never self-deadlocks by requesting
-        the same key both shared and exclusive.
+        the same key both shared and exclusive. The lock registry is reference-counted: a key's
+        entry is created on first use (counting waiters too) and removed once no holder or waiter
+        references it, so caller-controlled paths cannot grow the registry without bound.
         """
         merged: dict[str, bool] = {}
         for key, exclusive in requests:
@@ -79,13 +102,17 @@ class ResourceScheduler:
                 continue
             merged[key] = merged.get(key, False) or bool(exclusive)
         ordered = sorted(merged.items())
-        acquired: list[tuple[_RWLock, bool]] = []
+        checked_out: list[tuple[str, _Entry]] = []
+        acquired: list[tuple[_Entry, bool]] = []
         try:
             for key, exclusive in ordered:
-                lock = await self._lock_for(key)
-                await lock.acquire(exclusive)
-                acquired.append((lock, exclusive))
+                entry = await self._checkout(key)
+                checked_out.append((key, entry))
+                await entry.lock.acquire(exclusive)
+                acquired.append((entry, exclusive))
             yield
         finally:
-            for lock, exclusive in reversed(acquired):
-                await lock.release(exclusive)
+            for entry, exclusive in reversed(acquired):
+                await entry.lock.release(exclusive)
+            for key, entry in reversed(checked_out):
+                await self._checkin(key, entry)
