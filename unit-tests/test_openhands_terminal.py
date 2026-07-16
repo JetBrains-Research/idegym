@@ -9,6 +9,7 @@ import asyncio
 import os
 import re
 import time
+from types import SimpleNamespace
 
 import pytest
 from idegym.plugins.openhands.api.errors import ErrorCode, ServiceError
@@ -326,6 +327,53 @@ async def test_reset_all_closes_all_even_if_one_close_raises(tmp_path, monkeypat
     assert count == 2
     assert all(s.close_attempted for s in made)  # every session was closed despite the first raising
     assert mgr.list() == []
+
+
+async def test_openhands_backend_serializes_session_under_cancellation(monkeypatch):
+    # OH-06: cancelling a blocked execute must not let the next call enter the (non-thread-safe)
+    # OpenHands session concurrently — the single worker keeps max concurrency at one.
+    from idegym.plugins.openhands.runtime import compat
+    from idegym.plugins.openhands.runtime.terminal.backends.openhands import OpenHandsTerminalSession
+
+    state = {"cur": 0, "max": 0}
+
+    class _FakeOHSession:
+        cwd = "/w"
+
+        def initialize(self):
+            pass
+
+        def execute(self, action):
+            state["cur"] += 1
+            state["max"] = max(state["max"], state["cur"])
+            time.sleep(0.2)  # a long blocking session call
+            state["cur"] -= 1
+            return SimpleNamespace(exit_code=0, content=[], metadata=SimpleNamespace(working_dir="/w"))
+
+        def interrupt(self):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(compat, "build_terminal_session", lambda **k: _FakeOHSession())
+    monkeypatch.setattr(compat, "terminal_action", lambda *a, **k: object())
+    monkeypatch.setattr(compat, "observation_text", lambda obs: "")
+
+    sess = OpenHandsTerminalSession(backend=TerminalBackend.TMUX, work_dir="/w", username=None, env={})
+    await sess.start()
+    try:
+        blocked = asyncio.create_task(sess.execute("sleep", 5))
+        await asyncio.sleep(0.05)  # let it enter the worker
+        blocked.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await blocked
+        # immediately issue another call: it must queue behind the still-running worker job
+        res = await sess.execute("echo", 5)
+        assert res.running is False
+        assert state["max"] == 1  # never two concurrent session calls
+    finally:
+        await sess.close()
 
 
 async def test_native_close_terminates_background_descendants(manager):

@@ -13,6 +13,8 @@ is still running (no-change timeout), and ``>= 0`` once it completes. All upstre
 """
 
 import asyncio
+import contextlib
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
 
 from idegym.plugins.openhands.api.errors import ErrorCode, ServiceError
@@ -45,17 +47,36 @@ class OpenHandsTerminalSession(TerminalBackendSession):
         self._session: Any = None
         self._alive = False
         self._running = False
+        # A dedicated single-thread executor serializes ALL synchronous session access (start /
+        # execute / input / poll / close). The OpenHands session is not thread-safe, and
+        # asyncio.to_thread() does not stop a worker on caller cancellation — a following request
+        # would then enter the same session concurrently on a different pool thread. With one worker,
+        # a cancelled caller only detaches from the result; the next call queues behind the still-
+        # running job, so at most one synchronous session call is ever in flight. (interrupt() is
+        # intentionally NOT routed here — it is a concurrent signal to an in-flight command.)
+        self._worker: Optional[ThreadPoolExecutor] = None
+
+    def _in_worker(self, fn: Any, *args: Any):
+        loop = asyncio.get_event_loop()
+        return loop.run_in_executor(self._worker, fn, *args)
 
     async def start(self) -> None:
-        self._session = await asyncio.to_thread(
-            compat.build_terminal_session,
-            work_dir=self._work_dir,
-            terminal_type=self.backend.value,
-            env=self._env,
-            username=self._username,
-            no_change_timeout_seconds=self._no_change_timeout,
-        )
-        self._alive = True
+        self._worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="oh-term")
+
+        def _build() -> None:
+            session = compat.build_terminal_session(
+                work_dir=self._work_dir,
+                terminal_type=self.backend.value,
+                env=self._env,
+                username=self._username,
+                no_change_timeout_seconds=self._no_change_timeout,
+            )
+            # Record on self even if the awaiting start() is cancelled, so a later close() can still
+            # tear the late-created session down (no leaked initialized session).
+            self._session = session
+            self._alive = True
+
+        await self._in_worker(_build)
 
     def _run_sync(self, command: str, is_input: bool, timeout: Optional[float], reset: bool) -> BackendExec:
         action = compat.terminal_action(command, is_input=is_input, timeout=timeout, reset=reset)
@@ -74,10 +95,14 @@ class OpenHandsTerminalSession(TerminalBackendSession):
         )
 
     async def _run(self, command: str, is_input: bool, timeout: Optional[float], reset: bool = False) -> BackendExec:
-        if not self._alive:
+        if not self._alive or self._worker is None:
             return BackendExec(lost=True)
         try:
-            res = await asyncio.to_thread(self._run_sync, command, is_input, timeout, reset)
+            res = await self._in_worker(self._run_sync, command, is_input, timeout, reset)
+        except asyncio.CancelledError:
+            # The caller detaches from the result, but the worker keeps running the session call to
+            # completion; the next call queues behind it, so the session is never entered twice.
+            raise
         except Exception:
             self._alive = False
             return BackendExec(lost=True)
@@ -103,6 +128,8 @@ class OpenHandsTerminalSession(TerminalBackendSession):
 
     async def interrupt(self) -> None:
         if self._alive and self._session is not None:
+            # Interrupt is a concurrent signal to an in-flight command, so it runs on a separate
+            # thread (NOT the single worker, which is busy holding the execute it must interrupt).
             await asyncio.to_thread(self._session.interrupt)
             # OpenHands' interrupt blocks until the foreground command is signalled; the handle is
             # now ready for a new command. Clear our derived flag so an idle empty-poll (which reads
@@ -116,12 +143,29 @@ class OpenHandsTerminalSession(TerminalBackendSession):
         return BackendHealth(backend=self.backend, alive=self._alive, detail=compat.openhands_versions())
 
     async def close(self) -> None:
-        session = self._session
         self._alive = False
-        if session is not None:
-            with_close = getattr(session, "close", None)
-            if callable(with_close):
-                await asyncio.to_thread(with_close)
+        worker = self._worker
+        if worker is None:
+            return
+
+        def _shutdown() -> None:
+            session = self._session
+            self._session = None
+            if session is not None:
+                with_close = getattr(session, "close", None)
+                if callable(with_close):
+                    with contextlib.suppress(Exception):
+                        with_close()
+
+        # Submit the close directly so it queues behind any in-flight/late session job on the single
+        # worker (draining it), then shut the worker down. Do not let caller cancellation skip the
+        # worker drain: the close job is already submitted and shutdown() is non-blocking.
+        future = worker.submit(_shutdown)
+        try:
+            await asyncio.wrap_future(future)
+        finally:
+            worker.shutdown(wait=False)
+            self._worker = None
 
     @property
     def alive(self) -> bool:
