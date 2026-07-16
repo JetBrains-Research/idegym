@@ -191,6 +191,18 @@ def test_read_search_tools_enforce_workspace_boundary(tmp_path):
     rt._validate_action_paths(glob, {"pattern": "sub/**/*.py"})  # relative pattern within workspace is fine
 
 
+def test_prepare_purges_orphaned_artifacts(tmp_path):
+    """OH-14: startup must discard artifact files left by a previous process."""
+    from pathlib import Path
+
+    cfg = _config(tmp_path)
+    Path(cfg.output_dir).mkdir(parents=True, exist_ok=True)
+    orphan = Path(cfg.output_dir) / "deadbeef"
+    orphan.write_bytes(b"stale")
+    ToolRuntime(cfg).prepare()
+    assert not orphan.exists()
+
+
 def test_list_tools_reflects_openhands_availability(tmp_path):
     rt = ToolRuntime(_config(tmp_path))
     rt.prepare()

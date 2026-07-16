@@ -85,6 +85,9 @@ class ToolRuntime:
         if self._prepared:
             return
         self.config.ensure_directories()
+        # Discard artifacts orphaned by a previous process: their metadata lived only in memory, so
+        # they are unreachable through the API and untracked by quota/eviction after a restart.
+        self.artifacts.purge_storage()
         self.terminals.probe_backends()
         self._build_adapters()
         self._prepared = True

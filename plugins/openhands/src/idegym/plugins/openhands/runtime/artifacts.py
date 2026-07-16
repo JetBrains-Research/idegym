@@ -87,3 +87,20 @@ class ArtifactStore:
         self._entries.clear()
         self._total_bytes = 0
         return count
+
+    def purge_storage(self) -> int:
+        """Remove every file in the service-owned output dir and reset the in-memory index.
+
+        Artifact metadata lives only in memory, so a file left by a previous process is unreachable
+        through the API and untracked by quota accounting/eviction. Called at startup so repeated
+        restarts do not accumulate permanently orphaned disk usage.
+        """
+        self._entries.clear()
+        self._total_bytes = 0
+        removed = 0
+        if self._dir.exists():
+            for child in self._dir.iterdir():
+                if child.is_file():
+                    child.unlink(missing_ok=True)
+                    removed += 1
+        return removed

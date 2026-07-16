@@ -1,6 +1,7 @@
 """Unit tests for the resource scheduler and the artifact store."""
 
 import asyncio
+from pathlib import Path
 
 import pytest
 from idegym.plugins.openhands.api.errors import ErrorCode, ServiceError
@@ -179,6 +180,21 @@ def test_artifact_clear(tmp_path):
     store.save_text("x")
     store.save_text("y")
     assert store.clear() == 2
+
+
+def test_artifacts_purged_across_restart(tmp_path):
+    # OH-14: a new store on the same dir must not leave a previous run's files orphaned on disk.
+    d = str(tmp_path / "art")
+    a = ArtifactStore(d)
+    desc = a.save_text("leaked across restart")
+    assert (Path(d) / desc.artifact_id).exists()
+
+    # Simulate a restart: a fresh store with no in-memory metadata purges the owned directory.
+    b = ArtifactStore(d)
+    assert b.purge_storage() >= 1
+    assert list(Path(d).iterdir()) == []  # no owned files remain
+    with pytest.raises(ServiceError):
+        b.read(desc.artifact_id)
 
 
 def test_artifact_larger_than_total_budget_is_still_retrievable(tmp_path):
