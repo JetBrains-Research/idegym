@@ -14,12 +14,65 @@ import pytest
 from idegym.plugins.openhands.api.errors import ErrorCode, ServiceError
 from idegym.plugins.openhands.api.models import CallStatus, TerminalBackend, TerminalCreateRequest, TerminalState
 from idegym.plugins.openhands.runtime.config import RuntimeConfig
+from idegym.plugins.openhands.runtime.terminal.backend import BackendExec, BackendHealth, TerminalBackendSession
 from idegym.plugins.openhands.runtime.terminal.backends.subprocess import SubprocessBackendSession
 from idegym.plugins.openhands.runtime.terminal.manager import TerminalSessionManager
 
 pytestmark = pytest.mark.unit
 
 SUB = TerminalBackend.SUBPROCESS
+
+
+class _FakeSession(TerminalBackendSession):
+    """A controllable in-memory backend session for lifecycle/race tests (no real shell)."""
+
+    backend = SUB
+    capture_supported = True
+
+    def __init__(self, *, fail_start: bool = False, gate: asyncio.Event = None, running: bool = False) -> None:
+        self.started = False
+        self.closed = False
+        self._fail_start = fail_start
+        self._gate = gate
+        self._running = running
+        self.calls: list[str] = []
+
+    async def start(self) -> None:
+        if self._gate is not None:
+            await self._gate.wait()
+        if self._fail_start:
+            raise RuntimeError("start failed")
+        self.started = True
+
+    async def execute(self, command: str, timeout: float) -> BackendExec:
+        self.calls.append("execute")
+        return BackendExec(output="ok", running=False, exit_code=0)
+
+    async def input(self, text: str, timeout: float) -> BackendExec:
+        return BackendExec(output="ok", running=False, exit_code=0)
+
+    async def poll(self, timeout: float) -> BackendExec:
+        return BackendExec(output="", running=self._running)
+
+    async def interrupt(self) -> None:
+        self._running = False
+
+    async def capture(self) -> str:
+        return ""
+
+    async def health(self) -> BackendHealth:
+        return BackendHealth(backend=self.backend, alive=self.started and not self.closed)
+
+    async def close(self) -> None:
+        self.closed = True
+
+    @property
+    def alive(self) -> bool:
+        return self.started and not self.closed
+
+    @property
+    def has_foreground_command(self) -> bool:
+        return self._running
 
 
 def _config(tmp_path, allowed=(SUB,), default=SUB):
@@ -124,6 +177,83 @@ async def test_idle_input_rejected_and_shell_stays_usable(manager):
     # the shell is uncorrupted: the next real command runs normally
     res = await manager.execute(d.terminal_id, "echo alive")
     assert res.status == CallStatus.COMPLETED and "alive" in res.output
+
+
+async def _fake_manager(tmp_path):
+    mgr = TerminalSessionManager(_config(tmp_path), lambda: "env-1")
+    mgr.probe_backends()
+    return mgr
+
+
+async def test_create_failure_leaves_no_handle_process_or_quota(tmp_path, monkeypatch):
+    # OH-04: a failed start() must leave no handle, no reservation, no leaked session, no quota use.
+    mgr = await _fake_manager(tmp_path)
+    made: list = []
+
+    def make(*a, **k):
+        s = _FakeSession(fail_start=True)
+        made.append(s)
+        return s
+
+    monkeypatch.setattr(mgr, "_make_session", make)
+    with pytest.raises(RuntimeError):
+        await mgr.create(TerminalCreateRequest(backend=SUB))
+    assert mgr.list() == []  # nothing published
+    assert mgr._creating == {}  # reservation released
+    assert made and made[0].closed  # partial resource cleaned up
+
+
+async def test_handle_not_visible_until_started(tmp_path, monkeypatch):
+    # OH-04: a creating handle is not exposed as usable before start() completes.
+    mgr = await _fake_manager(tmp_path)
+    gate = asyncio.Event()
+    monkeypatch.setattr(mgr, "_make_session", lambda *a, **k: _FakeSession(gate=gate))
+    task = asyncio.create_task(mgr.create(TerminalCreateRequest(backend=SUB)))
+    await asyncio.sleep(0.05)
+    assert mgr.list() == []  # still starting -> not published
+    gate.set()
+    desc = await task
+    assert mgr.get(desc.terminal_id).state == TerminalState.READY
+
+
+async def test_concurrent_ensure_default_creates_exactly_one(tmp_path, monkeypatch):
+    # OH-04: two concurrent ensure_default() must create exactly one session (single-flight).
+    mgr = await _fake_manager(tmp_path)
+    gate = asyncio.Event()
+    made: list = []
+
+    def make(*a, **k):
+        s = _FakeSession(gate=gate)
+        made.append(s)
+        return s
+
+    monkeypatch.setattr(mgr, "_make_session", make)
+    t1 = asyncio.create_task(mgr.ensure_default())
+    t2 = asyncio.create_task(mgr.ensure_default())
+    await asyncio.sleep(0.05)
+    gate.set()
+    h1, h2 = await asyncio.gather(t1, t2)
+    assert h1.terminal_id == h2.terminal_id == "default"
+    assert len(made) == 1  # exactly one session created
+    assert len(mgr.list()) == 1
+
+
+async def test_reset_failure_keeps_old_session_usable(tmp_path, monkeypatch):
+    # OH-04: if the replacement fails to start, the old session stays usable (no dead READY handle).
+    mgr = await _fake_manager(tmp_path)
+    n = {"count": 0}
+
+    def make(*a, **k):
+        n["count"] += 1
+        return _FakeSession(fail_start=(n["count"] == 2))  # first ok, reset replacement fails
+
+    monkeypatch.setattr(mgr, "_make_session", make)
+    d = await mgr.create(TerminalCreateRequest(backend=SUB))
+    with pytest.raises(RuntimeError):
+        await mgr.reset(d.terminal_id)
+    assert mgr.get(d.terminal_id).generation == 1  # unchanged; old session retained
+    res = await mgr.execute(d.terminal_id, "echo x")  # old session still works
+    assert res.status == CallStatus.COMPLETED
 
 
 async def test_native_close_terminates_background_descendants(manager):

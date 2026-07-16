@@ -7,6 +7,7 @@ on a single handle are serialised; distinct handles run concurrently.
 """
 
 import asyncio
+import contextlib
 import shutil
 import uuid
 from datetime import datetime, timezone
@@ -38,12 +39,32 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class _Reservation:
+    """A single-flight slot for an in-progress ``create``: joiners await the same startup."""
+
+    __slots__ = ("event", "handle", "error")
+
+    def __init__(self) -> None:
+        self.event = asyncio.Event()
+        self.handle: Optional["TerminalHandle"] = None
+        self.error: Optional[BaseException] = None
+
+    def resolve(self, handle: "TerminalHandle") -> None:
+        self.handle = handle
+        self.event.set()
+
+    def fail(self, error: BaseException) -> None:
+        self.error = error
+        self.event.set()
+
+
 class TerminalSessionManager:
     def __init__(self, config: RuntimeConfig, environment_id_getter: Callable[[], str]) -> None:
         self._config = config
         self._environment_id = environment_id_getter
         self._handles: dict[str, TerminalHandle] = {}
         self._locks: dict[str, asyncio.Lock] = {}
+        self._creating: dict[str, _Reservation] = {}
         self._registry_lock = asyncio.Lock()
         self._backend_status: dict[TerminalBackend, TerminalBackendStatus] = {}
 
@@ -152,15 +173,49 @@ class TerminalSessionManager:
             filtered[key] = value
         return filtered
 
+    def _validate_dimensions(self, cols: Optional[int], rows: Optional[int]) -> None:
+        # Validate before allocating any OS resources.
+        for name, value in (("cols", cols), ("rows", rows)):
+            if value is not None and (not isinstance(value, int) or value <= 0 or value > 10_000):
+                raise ServiceError(ErrorCode.INVALID_ARGUMENTS, f"Invalid terminal {name}: {value!r}")
+
     async def create(self, request: TerminalCreateRequest, *, terminal_id: Optional[str] = None) -> TerminalDescriptor:
         backend = self._resolve_backend(request.backend)
         cwd = self._config.resolve_cwd(request.cwd)
         env = self._filter_env(request.env)
         no_change_timeout = request.no_change_timeout or self._config.no_change_timeout_seconds
+        self._validate_dimensions(request.cols, request.rows)
+
+        # Reserve the id, or join an in-flight creation (single-flight for fixed ids like default).
         async with self._registry_lock:
-            if len(self._handles) >= self._config.max_terminals:
-                raise ServiceError(ErrorCode.QUOTA_EXCEEDED, f"Terminal quota exceeded ({self._config.max_terminals})")
             tid = terminal_id or TerminalHandle.new_id()
+            existing = self._handles.get(tid)
+            if existing is not None:
+                return existing.descriptor()
+            joined = self._creating.get(tid)
+            if joined is None:
+                # Count in-flight reservations against the quota so concurrent creates can't overshoot.
+                if len(self._handles) + len(self._creating) >= self._config.max_terminals:
+                    raise ServiceError(
+                        ErrorCode.QUOTA_EXCEEDED, f"Terminal quota exceeded ({self._config.max_terminals})"
+                    )
+                reservation = _Reservation()
+                self._creating[tid] = reservation
+                creator = True
+            else:
+                reservation = joined
+                creator = False
+
+        if not creator:
+            await reservation.event.wait()
+            if reservation.error is not None:
+                raise reservation.error
+            assert reservation.handle is not None
+            return reservation.handle.descriptor()
+
+        # Build + start OUTSIDE the registry lock; publish only after startup succeeds.
+        session: Optional[TerminalBackendSession] = None
+        try:
             session = self._make_session(
                 backend, cwd, env, no_change_timeout=no_change_timeout, cols=request.cols, rows=request.rows
             )
@@ -178,18 +233,34 @@ class TerminalSessionManager:
                 cols=request.cols,
                 rows=request.rows,
             )
+            await session.start()
+        except BaseException as exc:
+            # Startup failed/cancelled: close any partial resource and free the reservation slot so
+            # no stale handle or quota slot lingers; joiners observe the same failure.
+            if session is not None:
+                with contextlib.suppress(Exception):
+                    await session.close()
+            async with self._registry_lock:
+                self._creating.pop(tid, None)
+            reservation.fail(exc)
+            raise
+        handle.last_working_dir = cwd
+        async with self._registry_lock:
             self._handles[tid] = handle
             self._locks[tid] = asyncio.Lock()
-        await session.start()
-        handle.last_working_dir = cwd
+            self._creating.pop(tid, None)
+        reservation.resolve(handle)
         return handle.descriptor()
 
     async def ensure_default(self) -> TerminalHandle:
-        handle = self._handles.get(_DEFAULT_ID)
-        if handle is not None:
-            return handle
+        existing = self._handles.get(_DEFAULT_ID)
+        if existing is not None:
+            return existing
         await self.create(TerminalCreateRequest(), terminal_id=_DEFAULT_ID)
-        return self._handles[_DEFAULT_ID]
+        handle = self._handles.get(_DEFAULT_ID)
+        if handle is None:
+            raise ServiceError(ErrorCode.TERMINAL_LOST, "default terminal was removed during creation")
+        return handle
 
     # -- lookups ------------------------------------------------------------
 
@@ -352,8 +423,7 @@ class TerminalSessionManager:
     async def reset(self, terminal_id: str) -> TerminalDescriptor:
         handle = self._require(terminal_id)
         async with self._locks[terminal_id]:
-            handle.state = TerminalState.CLOSING
-            await handle.session.close()
+            old_session = handle.session
             new_session = self._make_session(
                 handle.backend,
                 handle.initial_cwd,
@@ -362,13 +432,23 @@ class TerminalSessionManager:
                 cols=handle.cols,
                 rows=handle.rows,
             )
+            # Start the replacement BEFORE swapping it in; on failure the old session is untouched
+            # so the handle stays usable rather than pointing at a dead, READY-marked session.
+            try:
+                await new_session.start()
+            except BaseException:
+                with contextlib.suppress(Exception):
+                    await new_session.close()
+                raise
+            # Replacement is live: atomically swap, then tear the old session down.
             handle.session = new_session
             handle.generation += 1
             handle.state = TerminalState.READY
             handle.last_exit_code = None
             handle.last_working_dir = handle.initial_cwd
             handle.touch()
-            await new_session.start()
+            with contextlib.suppress(Exception):
+                await old_session.close()
         return handle.descriptor()
 
     async def close(self, terminal_id: str) -> None:
