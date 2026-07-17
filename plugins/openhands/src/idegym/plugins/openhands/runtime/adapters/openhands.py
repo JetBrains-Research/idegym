@@ -11,10 +11,10 @@ from typing import Any, Optional
 from idegym.plugins.openhands.api.errors import ErrorCode, ServiceError
 from idegym.plugins.openhands.api.models import ContentBlock, ContentType
 from idegym.plugins.openhands.runtime import compat
-from idegym.plugins.openhands.runtime.adapters.base import AdapterRun
+from idegym.plugins.openhands.runtime.adapters.base import AdapterRun, ToolAdapter
 
 
-class OpenHandsToolAdapter:
+class OpenHandsToolAdapter(ToolAdapter):
     def __init__(self, family: str, tool: Any) -> None:
         self.family = family
         self._tool = tool
