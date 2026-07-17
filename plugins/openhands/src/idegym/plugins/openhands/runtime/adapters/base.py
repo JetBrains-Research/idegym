@@ -26,4 +26,5 @@ class ToolAdapter(Protocol):
     output_schema: Optional[dict[str, Any]]
     annotations: dict[str, bool]
 
-    async def run(self, arguments: dict[str, Any]) -> AdapterRun: ...
+    async def run(self, arguments: dict[str, Any]) -> AdapterRun:
+        """Validate ``arguments``, dispatch the tool, and return its outcome."""

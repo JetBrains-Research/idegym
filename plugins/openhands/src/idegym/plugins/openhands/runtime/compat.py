@@ -39,9 +39,14 @@ class OpenHandsTool(Protocol):
     description: str
     annotations: Any
 
-    def action_from_arguments(self, arguments: dict[str, Any]) -> Any: ...
-    async def acall(self, action: Any, conversation: Optional[Any] = None) -> Any: ...
-    def to_mcp_tool(self) -> dict[str, Any]: ...
+    def action_from_arguments(self, arguments: dict[str, Any]) -> Any:
+        """Build the tool's typed action from raw MCP arguments."""
+
+    async def acall(self, action: Any, conversation: Optional[Any] = None) -> Any:
+        """Execute the tool for ``action`` and return its observation."""
+
+    def to_mcp_tool(self) -> dict[str, Any]:
+        """Return the MCP tool descriptor (name/description/inputSchema/annotations)."""
 
 
 # Top-level tool families present under ``openhands.tools`` in the pinned revision. The catalog

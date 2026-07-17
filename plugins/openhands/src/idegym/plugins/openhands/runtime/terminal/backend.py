@@ -121,7 +121,8 @@ class TerminalBackendSession(ABC):
         """Return current visible/recent terminal content."""
 
     @abstractmethod
-    async def health(self) -> BackendHealth: ...
+    async def health(self) -> BackendHealth:
+        """Return the backend session's liveness/health."""
 
     @abstractmethod
     async def close(self) -> None:
@@ -129,7 +130,8 @@ class TerminalBackendSession(ABC):
 
     @property
     @abstractmethod
-    def alive(self) -> bool: ...
+    def alive(self) -> bool:
+        """True while the underlying shell/pane is alive."""
 
     @property
     @abstractmethod
