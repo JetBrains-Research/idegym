@@ -1,7 +1,7 @@
 """Unit tests for the shared OpenHands-plugin API models and error mapping."""
 
 import pytest
-from idegym.plugins.openhands.api.errors import ErrorCode, ServiceError, http_status_for
+from idegym.plugins.openhands.api.errors import ErrorCode, ServiceError
 from idegym.plugins.openhands.api.models import (
     CallStatus,
     ContentBlock,
@@ -15,12 +15,14 @@ pytestmark = pytest.mark.unit
 
 
 def test_error_code_http_status_mapping():
-    assert http_status_for(ErrorCode.UNKNOWN_TOOL) == 404
-    assert http_status_for(ErrorCode.PATH_OUTSIDE_WORKSPACE) == 403
-    assert http_status_for(ErrorCode.DUPLICATE_REQUEST_ID) == 409
-    assert http_status_for(ErrorCode.TERMINAL_BACKEND_UNAVAILABLE) == 422
-    assert http_status_for(ErrorCode.SERVICE_UNAVAILABLE) == 503
-    assert http_status_for(ErrorCode.DEADLINE_EXCEEDED) == 504
+    # Each code carries its own suggested HTTP status, and stays a plain string value.
+    assert ErrorCode.UNKNOWN_TOOL.http_status == 404
+    assert ErrorCode.PATH_OUTSIDE_WORKSPACE.http_status == 403
+    assert ErrorCode.DUPLICATE_REQUEST_ID.http_status == 409
+    assert ErrorCode.TERMINAL_BACKEND_UNAVAILABLE.http_status == 422
+    assert ErrorCode.SERVICE_UNAVAILABLE.http_status == 503
+    assert ErrorCode.DEADLINE_EXCEEDED.http_status == 504
+    assert ErrorCode.UNKNOWN_TOOL == "unknown_tool" and ErrorCode.UNKNOWN_TOOL.value == "unknown_tool"
 
 
 def test_service_error_envelope():

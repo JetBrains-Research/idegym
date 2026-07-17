@@ -1,9 +1,9 @@
 """Stable error codes and the error envelope shared across transports.
 
-The runtime raises :class:`ServiceError` with a machine-readable :class:`ErrorCode`; the REST
-layer maps each code to the HTTP status from :func:`http_status_for` and the
-MCP layer maps protocol-level codes to JSON-RPC errors and everything else to ``isError`` tool
-results.
+The runtime raises :class:`ServiceError` with a machine-readable :class:`ErrorCode`. Each code
+carries its own suggested HTTP status (``code.http_status``), so the REST layer maps a code to a
+status by asking the code itself; the MCP layer maps protocol-level codes to JSON-RPC errors and
+everything else to ``isError`` tool results.
 """
 
 from enum import StrEnum
@@ -13,55 +13,40 @@ from pydantic import BaseModel
 
 
 class ErrorCode(StrEnum):
-    """Machine-readable error codes returned in :class:`ErrorResponse`."""
+    """Machine-readable error codes, each carrying its own suggested HTTP status.
 
-    INVALID_ARGUMENTS = "invalid_arguments"
-    UNKNOWN_TOOL = "unknown_tool"
-    UNKNOWN_TERMINAL = "unknown_terminal"
-    UNKNOWN_BROWSER = "unknown_browser"
-    UNKNOWN_ARTIFACT = "unknown_artifact"
-    PATH_OUTSIDE_WORKSPACE = "path_outside_workspace"
-    DUPLICATE_REQUEST_ID = "duplicate_request_id"
-    TERMINAL_BUSY = "terminal_busy"
-    TERMINAL_NOT_RUNNING = "terminal_not_running"
-    TERMINAL_LOST = "terminal_lost"
-    TERMINAL_BACKEND_UNAVAILABLE = "terminal_backend_unavailable"
-    TERMINAL_BACKEND_DISABLED = "terminal_backend_disabled"
-    TOOL_DISABLED = "tool_disabled"
-    TOOL_REQUIRES_AGENT = "tool_requires_agent"
-    QUOTA_EXCEEDED = "quota_exceeded"
-    SERVICE_UNAVAILABLE = "service_unavailable"
-    DEADLINE_EXCEEDED = "deadline_exceeded"
-    INTERNAL_ERROR = "internal_error"
+    The status travels with the code (``ErrorCode.TERMINAL_BUSY.http_status == 409``) so callers map
+    an error by asking the code itself rather than consulting a separate table. Command exit codes
+    never appear here: a nonzero shell command is a 200 response with ``is_error`` metadata.
+    """
 
+    # http_status is attached to each member in __new__; declared here for type-checkers.
+    http_status: int
 
-# Mapping from error code to suggested HTTP status. Command exit codes never
-# appear here: a nonzero shell command is a 200 response with ``is_error`` metadata.
-_HTTP_STATUS: dict[ErrorCode, int] = {
-    ErrorCode.INVALID_ARGUMENTS: 422,
-    ErrorCode.UNKNOWN_TOOL: 404,
-    ErrorCode.UNKNOWN_TERMINAL: 404,
-    ErrorCode.UNKNOWN_BROWSER: 404,
-    ErrorCode.UNKNOWN_ARTIFACT: 404,
-    ErrorCode.PATH_OUTSIDE_WORKSPACE: 403,
-    ErrorCode.DUPLICATE_REQUEST_ID: 409,
-    ErrorCode.TERMINAL_BUSY: 409,
-    ErrorCode.TERMINAL_NOT_RUNNING: 409,
-    ErrorCode.TERMINAL_LOST: 409,
-    ErrorCode.TERMINAL_BACKEND_UNAVAILABLE: 422,
-    ErrorCode.TERMINAL_BACKEND_DISABLED: 422,
-    ErrorCode.TOOL_DISABLED: 422,
-    ErrorCode.TOOL_REQUIRES_AGENT: 422,
-    ErrorCode.QUOTA_EXCEEDED: 429,
-    ErrorCode.SERVICE_UNAVAILABLE: 503,
-    ErrorCode.DEADLINE_EXCEEDED: 504,
-    ErrorCode.INTERNAL_ERROR: 500,
-}
+    def __new__(cls, value: str, http_status: int = 500) -> "ErrorCode":
+        obj = str.__new__(cls, value)
+        obj._value_ = value
+        obj.http_status = http_status
+        return obj
 
-
-def http_status_for(code: ErrorCode) -> int:
-    """Return the suggested HTTP status for an error code (defaults to 500)."""
-    return _HTTP_STATUS.get(code, 500)
+    INVALID_ARGUMENTS = ("invalid_arguments", 422)
+    UNKNOWN_TOOL = ("unknown_tool", 404)
+    UNKNOWN_TERMINAL = ("unknown_terminal", 404)
+    UNKNOWN_BROWSER = ("unknown_browser", 404)
+    UNKNOWN_ARTIFACT = ("unknown_artifact", 404)
+    PATH_OUTSIDE_WORKSPACE = ("path_outside_workspace", 403)
+    DUPLICATE_REQUEST_ID = ("duplicate_request_id", 409)
+    TERMINAL_BUSY = ("terminal_busy", 409)
+    TERMINAL_NOT_RUNNING = ("terminal_not_running", 409)
+    TERMINAL_LOST = ("terminal_lost", 409)
+    TERMINAL_BACKEND_UNAVAILABLE = ("terminal_backend_unavailable", 422)
+    TERMINAL_BACKEND_DISABLED = ("terminal_backend_disabled", 422)
+    TOOL_DISABLED = ("tool_disabled", 422)
+    TOOL_REQUIRES_AGENT = ("tool_requires_agent", 422)
+    QUOTA_EXCEEDED = ("quota_exceeded", 429)
+    SERVICE_UNAVAILABLE = ("service_unavailable", 503)
+    DEADLINE_EXCEEDED = ("deadline_exceeded", 504)
+    INTERNAL_ERROR = ("internal_error", 500)
 
 
 class ErrorResponse(BaseModel):
@@ -83,7 +68,7 @@ class ServiceError(Exception):
 
     @property
     def http_status(self) -> int:
-        return http_status_for(self.code)
+        return self.code.http_status
 
     def to_response(self) -> ErrorResponse:
         return ErrorResponse(error=self.code, message=self.message, detail=self.detail)
