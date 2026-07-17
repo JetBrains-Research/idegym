@@ -198,7 +198,7 @@ async def test_concurrent_interrupt_leaves_terminal_usable(manager):
     await asyncio.sleep(0.4)  # let the execute start and hold the per-terminal lock
     ack = await manager.interrupt(d.terminal_id)
     assert ack.status == CallStatus.INTERRUPTED
-    await exec_task  # the in-flight execute observes the interrupt and returns
+    _ = await exec_task  # the in-flight execute observes the interrupt and returns
     after = await manager.execute(d.terminal_id, "echo recovered")
     assert after.status == CallStatus.COMPLETED and "recovered" in after.output
 
@@ -394,7 +394,7 @@ async def test_openhands_backend_serializes_session_under_cancellation(monkeypat
         await asyncio.sleep(0.05)  # let it enter the worker
         blocked.cancel()
         with pytest.raises(asyncio.CancelledError):
-            await blocked
+            _ = await blocked
         # immediately issue another call: it must queue behind the still-running worker job
         res = await sess.execute("echo", 5)
         assert res.running is False

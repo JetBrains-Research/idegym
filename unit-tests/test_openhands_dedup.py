@@ -91,10 +91,10 @@ async def test_leader_cancellation_gives_followers_a_retryable_error():
 
     leader.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await leader  # the leader propagates its own cancellation
+        _ = await leader  # the leader propagates its own cancellation
 
     with pytest.raises(ServiceError) as exc:
-        await follower  # the follower gets a retryable error, not CancelledError
+        _ = await follower  # the follower gets a retryable error, not CancelledError
     assert exc.value.code == ErrorCode.SERVICE_UNAVAILABLE
 
     # The cancellation was not cached, so a later retry with the same id re-runs and succeeds.

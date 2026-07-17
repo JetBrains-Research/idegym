@@ -71,11 +71,11 @@ async def test_cancelled_adapter_call_drains_before_releasing_file_lock(tmp_path
 
     a.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await a
+        _ = await a
 
     # B starts only after cancellation; it must not run until A's orphaned worker has drained.
     b = asyncio.create_task(rt._call_adapter_tool(entry, {"file_path": target, "tag": "B"}))
-    await b
+    _ = await b
 
     assert log == ["start-A", "end-A", "start-B", "end-B"], log
 
@@ -92,6 +92,6 @@ async def test_run_adapter_drained_waits_for_worker_on_cancel(tmp_path):
         await asyncio.sleep(0.01)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await task
+        _ = await task
     # By the time the cancellation surfaced, the worker had already run to completion.
     assert log == ["start-X", "end-X"], log

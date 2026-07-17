@@ -152,7 +152,7 @@ async def test_scheduler_cancelled_writer_wakes_blocked_readers():
 
     w.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await w
+        _ = await w
 
     await asyncio.wait_for(reader_entered.wait(), timeout=1.0)
     release_holder.set()

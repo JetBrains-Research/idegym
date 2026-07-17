@@ -531,7 +531,7 @@ class ToolRuntime:
             # Drain the still-running worker before the lock is released; ignore its outcome since
             # the caller's operation is being cancelled regardless.
             with contextlib.suppress(BaseException):
-                await task
+                _ = await task
             raise
 
     def _raise_for_status(self, entry: CatalogEntry, status: SupportStatus) -> None:

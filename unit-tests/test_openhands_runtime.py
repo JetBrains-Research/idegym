@@ -145,7 +145,7 @@ async def test_reset_is_exclusive_with_inflight_operations(tmp_path, monkeypatch
         await asyncio.sleep(0.05)
         assert not reset.done()  # reset (exclusive) waits for the in-flight op to drain
         gate.set()
-        await op
+        _ = await op
         resp = await reset
         assert order == ["op-start", "op-end"]  # the op finished before reset completed
         assert resp.environment_generation >= 1

@@ -77,7 +77,7 @@ async def test_cancelled_exclusive_waiter_wakes_blocked_readers():
 
     w.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await w
+        _ = await w
 
     # The reader can now share with the still-present holder; the only wakeup available to it is
     # the cancelled writer abandoning its wait.
