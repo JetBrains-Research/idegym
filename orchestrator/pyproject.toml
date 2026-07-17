@@ -34,7 +34,7 @@ dependencies = [
     "pydantic>=2.10.6",
     "sqlalchemy>=2.0.40",
     "uvicorn>=0.51.0",
-    "websockets>=13.0",
+    "websockets>=16.1",
     "idegym-image-builder",
 ]
 
