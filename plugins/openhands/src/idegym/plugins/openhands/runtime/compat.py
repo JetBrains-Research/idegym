@@ -29,11 +29,10 @@ class OpenHandsTool(Protocol):
 
     Typing the tool against this Protocol instead of ``Any`` gives a type-checker/IDE a compile-time
     contract for every OpenHands tool call the plugin makes (dispatch, schema, annotations) rather
-    than opaque dynamic attribute access. The real SDK cannot be imported at type-check time —
-    ``openhands-sdk`` pins ``opentelemetry-api==1.39.1`` which conflicts with ``idegym-backend-utils``
-    (``>=1.43.0``), the same conflict that makes the service run in its own venv — so this Protocol
-    captures the contract locally, and the ``openhands`` compatibility test re-verifies it against
-    the real SDK at runtime.
+    than opaque dynamic attribute access. The real SDK cannot be imported at type-check time — its
+    dependency tree conflicts with the IdeGYM environment (why the service runs in its own venv; see
+    ``COMPATIBILITY.md``) — so this Protocol captures the contract locally, and the ``openhands``
+    compatibility test re-verifies it against the real SDK at runtime.
     """
 
     name: str

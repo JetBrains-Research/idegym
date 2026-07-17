@@ -432,8 +432,7 @@ class ToolRuntime:
                     result = await self._call_terminal_tool(arguments, terminal_id)
                 else:
                     result = await self._call_adapter_tool(entry, arguments)
-                # One total response budget across content text, images, and structured data —
-                # applied to every path (terminal included), so no result holds hundreds of MB.
+                # Bound every path, terminal included (see _bound_result for the budget policy).
                 return self._bound_result(result)
 
             if not request_id:
