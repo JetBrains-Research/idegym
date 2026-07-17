@@ -72,7 +72,7 @@ def test_pycharm_image_contains_pycharm_and_project():
         [
             "bash",
             "-c",
-            "test -x /opt/pycharm/bin/pycharm.sh && test -x /usr/local/bin/start-pycharm && test -f /test-project/hello.py && echo OK",
+            "test -x /opt/pycharm/bin/pycharm.sh && test -x /usr/local/bin/start-ide && test -f /test-project/hello.py && echo OK",
         ],
         remove=True,
     )

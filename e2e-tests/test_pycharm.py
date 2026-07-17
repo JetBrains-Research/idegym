@@ -14,7 +14,7 @@ Build pipeline (both tests):
 
 ``test_pycharm_mcp_server_starts``
     Builds the full PyCharm + MCP image with the open-project plugin.  At
-    runtime (via supervisord → start-pycharm.sh):
+    runtime (via supervisord → the start-ide entrypoint):
     1. Xvfb starts on :99 — PyCharm does not support java.awt.headless=true
        and requires a virtual display for the full IDE mode.
     2. PyCharm launches; the open-project plugin opens IDEGYM_PROJECT_ROOT.
@@ -155,7 +155,7 @@ async def test_pycharm_mcp_server_starts(test_id):
     - JetBrains MCP plugin is bundled in 2026.1.1+ (no separate installation needed)
     - open-project plugin auto-opens IDEGYM_PROJECT_ROOT on startup
     - Xvfb provides the required virtual display for the full IDE mode
-    - start-pycharm.sh waits for MCP (port 64342) then starts socat bridge
+    - the start-ide entrypoint waits for MCP (port 64342) then starts socat bridge
     - MCP SSE endpoint returns HTTP 200 (confirming IDE + MCP are up)
     """
     from utils.idegym_utils import create_http_client

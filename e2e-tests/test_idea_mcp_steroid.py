@@ -82,9 +82,9 @@ async def test_mcp_steroid_idea(test_id):
       → Idea(open_project=False, mcp_steroid=True)
       → Downloads mcp-steroid 0.94.0 ZIP from GitHub releases
       → Installs to ${IDE_DIR}/plugins/
-      → Copies start-idea-mcp-steroid.sh (waits for port 6315, not 64342)
+      → Copies the start-ide entrypoint (mcp-steroid mode: waits for port 6315, not 64342)
 
-    Runtime sequence (supervisord → start-idea-mcp-steroid.sh):
+    Runtime sequence (supervisord → the start-ide entrypoint):
       1. IDEA launches headless (no project argument).
       2. mcp-steroid plugin loads and binds on 127.0.0.1:6315.
       3. socat bridges 0.0.0.0:6316 → 127.0.0.1:6315.

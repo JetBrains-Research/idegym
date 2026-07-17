@@ -1,0 +1,11 @@
+# Install the open-project plugin into the bundled plugins dir so it is present before the "open"
+# AppStarter command is dispatched. Pre-built ZIP checked into the repo to avoid a Gradle build stage.
+# ({{ context_prefix }} is the per-IDE build-context path holding the prebuilt zip.)
+COPY {{ context_prefix }}/project-opener/project-opener.zip /tmp/open-project.zip
+RUN set -eux; \
+    unzip -qo /tmp/open-project.zip -d "${IDE_DIR}/plugins/" && rm /tmp/open-project.zip
+
+# Trust/first-run settings files and the shared start-ide entrypoint are appended by the plugin's
+# render() (render_open_project_config + render_entrypoint_install). start-ide brings up the display
+# if the IDE needs one, waits for MCP on {{ mcp_port }}, then bridges
+# 0.0.0.0:{{ bridge_port }} -> 127.0.0.1:{{ mcp_port }} via socat.

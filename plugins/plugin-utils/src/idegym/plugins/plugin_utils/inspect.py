@@ -1,8 +1,8 @@
 """Shared IDE inspection runner used by both the PyCharm and IDEA server plugins.
 
 Both plugins ship ``inspect.sh`` inside the IDE installation directory
-(``$PYCHARM_DIR/bin/inspect.sh`` and ``$IDE_DIR/bin/inspect.sh``).  The server
-plugin passes the correct path; everything else is identical.
+(``$IDE_DIR/bin/inspect.sh``).  The server plugin passes the correct path;
+everything else is identical.
 """
 
 import asyncio
@@ -68,15 +68,50 @@ async def run_ide_inspect(inspect_sh: str, request: InspectRequest) -> InspectRe
     )
 
 
+def make_inspect_router(plugin_name: str, inspect_sh: str) -> Any:
+    """Build the FastAPI router exposing ``POST /<plugin_name>/inspect`` for an IDE plugin.
+
+    Both IDE server plugins expose the identical endpoint, differing only by URL prefix and
+    the ``inspect.sh`` path, so this builds it for either. Returns ``None`` when FastAPI is
+    not installed (it ships only in the server image), so importing an IDE server plugin
+    never hard-fails elsewhere.
+
+    Args:
+        plugin_name: Plugin key used as the URL prefix and OpenAPI tag (``"idea"``/``"pycharm"``).
+        inspect_sh:  Absolute path to the IDE's ``inspect.sh``.
+    """
+    try:
+        from fastapi import APIRouter
+    except ImportError:
+        return None
+
+    from idegym.api.inspect import InspectRequest, InspectResponse
+
+    router = APIRouter(prefix=f"/{plugin_name}", tags=[plugin_name])
+
+    @router.post("/inspect")
+    async def _inspect(request: InspectRequest) -> InspectResponse:
+        """Run ``inspect.sh`` and write results to ``request.output_dir``."""
+        return await run_ide_inspect(inspect_sh, request)
+
+    return router
+
+
 class InspectClientOperationsMixin:
     """Mixin that adds a typed ``inspect()`` method to IDE client operation classes.
 
-    Subclasses must set ``_PLUGIN_NAME`` (e.g. ``"pycharm"`` or ``"idea"``) and
-    provide ``_forward``, ``_server_id``, ``_client_id``, and ``_polling_config``
-    as instance attributes (supplied by the concrete constructor).
+    Subclasses only set ``_PLUGIN_NAME`` (e.g. ``"pycharm"`` or ``"idea"``); the shared
+    constructor below stores the forwarding plumbing. Constructor parameters use ``Any``
+    types to avoid a runtime dependency on the ``client`` package — the objects are duck-typed.
     """
 
     _PLUGIN_NAME: str  # set by each concrete subclass
+
+    def __init__(self, forward: Any, server_id: int, client_id: Any, polling_config: Any) -> None:
+        self._forward = forward
+        self._server_id = server_id
+        self._client_id = client_id
+        self._polling_config = polling_config
 
     async def inspect(
         self,

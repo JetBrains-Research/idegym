@@ -95,7 +95,7 @@ markers = [
     "integration: marks integration test suite",
     "unit: marks unit test suite",
     "docker: marks tests that should be run inside a Docker container",
-    "ide_integrations: marks tests that build and run a full IDE image (5-10 min); excluded from CI, run manually with -m 'e2e and ide_integrations'",
+    "ide_integrations: marks tests that build and run a full IDE image (5-10 min); run in the CI 'e2e-ide-integrations' job (or locally with -m 'e2e and ide_integrations')",
 ]
 
 [tool.ruff]

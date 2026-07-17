@@ -16,6 +16,9 @@ Unlike the bundled JetBrains MCP plugin (port 64342/SSE), mcp-steroid:
   - Uses the streamable HTTP MCP transport at /mcp
   - Runs inside the IDE JVM with full IntelliJ Platform API access
 
+The window-listing / screenshot / dialog-dismissal helpers are shared with the
+IDEA virtual-display test in ``utils.mcp_steroid``.
+
 Tests
 -----
 ``test_mcp_steroid_pycharm``
@@ -25,17 +28,15 @@ Tests
     then opens the python-project test project using the ``steroid_open_project`` MCP tool
     and verifies that the project is successfully opened and available in the IDE.
 
-Downloads PyCharm (~800 MB); takes 10-15 min end-to-end. Excluded from CI.
-Run with: ``pytest -m 'e2e and ide_integrations'``
+Downloads PyCharm (~800 MB); takes 10-15 min end-to-end. Runs in CI in the
+``e2e-ide-integrations`` job (``pytest -m 'e2e and ide_integrations'``).
 """
 
 import asyncio
-import base64
 import json
 import os
 import time
 from importlib.resources import files
-from typing import Optional
 
 import pytest
 import resources as e2e_resources
@@ -44,10 +45,14 @@ from idegym.image.builder import Image
 from idegym.plugins.defaults.image import Project
 from idegym.plugins.pycharm.image import PyCharm
 from idegym.utils.logging import get_logger
-from pydantic import BaseModel, ConfigDict
-from pydantic.alias_generators import to_camel
 from utils.build_images import minikube_load_image
 from utils.constants import DEFAULT_SERVER_START_TIMEOUT
+from utils.mcp_steroid import (
+    dismiss_modal_dialogs,
+    list_windows,
+    nonempty_lines,
+    take_screenshots_all_windows,
+)
 
 logger = get_logger(__name__)
 
@@ -76,147 +81,9 @@ _REQUIRED_TOOLS = {"steroid_open_project", "steroid_list_projects"}
 _WAIT_MCP_STEROID_SCRIPT = files(e2e_resources).joinpath("mcp_steroid_wait_300s.sh").read_text(encoding="utf-8")
 _TOOLS_LIST_SCRIPT = files(e2e_resources).joinpath("mcp_steroid_tools_list.sh").read_text(encoding="utf-8")
 _LIST_PROJECTS_SCRIPT = files(e2e_resources).joinpath("mcp_steroid_list_projects.sh").read_text(encoding="utf-8")
-_LIST_WINDOWS_SCRIPT = files(e2e_resources).joinpath("mcp_steroid_list_windows.sh").read_text(encoding="utf-8")
 _OPEN_PROJECT_SCRIPT = f"PROJECT_PATH={_PROJECT_PATH}\n" + files(e2e_resources).joinpath(
     "mcp_steroid_open_project.sh"
 ).read_text(encoding="utf-8")
-_TAKE_SCREENSHOT_SCRIPT = files(e2e_resources).joinpath("mcp_steroid_take_screenshot.sh").read_text(encoding="utf-8")
-
-
-class WindowBounds(BaseModel):
-    x: int
-    y: int
-    width: int
-    height: int
-
-
-class IdeWindow(BaseModel):
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="ignore")
-
-    modal_dialog_showing: bool = False
-    project_name: Optional[str] = None
-    bounds: Optional[WindowBounds] = None
-    project_path: Optional[str] = None
-    window_id: Optional[str] = None
-    id: Optional[str] = None
-
-
-class McpWindowsResult(BaseModel):
-    windows: list[IdeWindow] = []
-    raw_text: str = ""
-
-
-def _nonempty_lines(stdout: str) -> list[str]:
-    return [ln for ln in stdout.strip().splitlines() if ln.strip()]
-
-
-def _parse_mcp_windows(result) -> McpWindowsResult:
-    """Parse the windows list from a steroid_list_windows bash result.
-
-    Returns McpWindowsResult with empty fields on any parse failure.
-    """
-    lines = _nonempty_lines(result.stdout)
-    if not lines:
-        return McpWindowsResult()
-    try:
-        response = json.loads(lines[-1])
-        content = response.get("result", {}).get("content", [])
-        if not content:
-            return McpWindowsResult()
-        raw_text = content[0].get("text", "")
-        windows = [IdeWindow.model_validate(w) for w in json.loads(raw_text).get("windows", [])]
-        return McpWindowsResult(windows=windows, raw_text=raw_text)
-    except Exception:
-        logger.warning(f"steroid_list_windows parse failed: {result.stdout}\n{result.stderr}")
-        return McpWindowsResult()
-
-
-async def _take_screenshot(
-    server, label: str, out_dir: str, project_name: str, window_id: Optional[str] = None
-) -> None:
-    env = f"PROJECT_NAME={project_name}\nTASK_ID={label}\nREASON={label}\n"
-    if window_id:
-        env += f"WINDOW_ID={window_id}\n"
-    result = await server.execute_bash(script=env + _TAKE_SCREENSHOT_SCRIPT, command_timeout=20.0)
-    if result.exit_code != 0:
-        logger.warning(
-            f"Screenshot [{label}]: script failed (exit_code={result.exit_code}, "
-            f"stdout={result.stdout}, stderr={result.stderr})"
-        )
-        return
-    lines = _nonempty_lines(result.stdout)
-    if not lines:
-        logger.warning(f"Screenshot [{label}]: empty response")
-        return
-    try:
-        response = json.loads(lines[-1])
-        content = response.get("result", {}).get("content", [])
-        for item in content:
-            if item.get("type") == "image" and item.get("data"):
-                os.makedirs(out_dir, exist_ok=True)
-                path = os.path.join(out_dir, f"{label}.png")
-                with open(path, "wb") as f:
-                    f.write(base64.b64decode(item["data"]))
-                logger.info(f"Screenshot [{label}] saved: {path}")
-                return
-        logger.warning(f"Screenshot [{label}]: no image in response: {lines[-1][:400]}")
-    except Exception as e:
-        logger.error(f"Screenshot [{label}]: error: {e}")
-
-
-async def _dismiss_modal_dialogs(server) -> bool:
-    """Click through modal dialogs blocking the IDE EDT using xdotool.
-
-    Finds dialog windows (visible, no projectName) and clicks at y=89% (button
-    row) across three x positions (25%, 50%, 75%).  Falls back to Escape when
-    no dialog window with explicit bounds is found.
-
-    Returns True if a modal dialog was detected.
-    """
-    result = await server.execute_bash(script=_LIST_WINDOWS_SCRIPT, command_timeout=15.0)
-    if result.exit_code != 0:
-        return False
-    parsed = _parse_mcp_windows(result)
-    if not parsed.windows or not any(w.modal_dialog_showing for w in parsed.windows):
-        return False
-
-    dialog_windows = [w for w in parsed.windows if not w.project_name and w.bounds]
-    if dialog_windows:
-        for dialog in dialog_windows:
-            b = dialog.bounds
-            btn_y = b.y + int(b.height * 0.89)
-            for x_pct in (0.25, 0.50, 0.75):
-                btn_x = b.x + int(b.width * x_pct)
-                await server.execute_bash(
-                    script=f"xdotool mousemove {btn_x} {btn_y} click 1",
-                    command_timeout=5.0,
-                )
-                await asyncio.sleep(0.3)
-    else:
-        await server.execute_bash(script="xdotool key --clearmodifiers Escape", command_timeout=5.0)
-
-    return True
-
-
-async def _take_screenshots_all_windows(server, label: str, out_dir: str) -> None:
-    """List all open IDE windows and take a screenshot of each one."""
-    result = await server.execute_bash(script=_LIST_WINDOWS_SCRIPT, command_timeout=15.0)
-    if result.exit_code != 0:
-        logger.warning(f"Screenshots [{label}]: list_windows failed")
-        return
-    parsed = _parse_mcp_windows(result)
-    if not parsed.windows:
-        logger.warning(f"Screenshots [{label}]: no windows reported")
-        return
-    logger.info(f"Screenshots [{label}]: {len(parsed.windows)} window(s) found")
-    for i, window in enumerate(parsed.windows):
-        if not window.project_name:
-            logger.debug(f"Screenshots [{label}]: skipping window {i} (no projectName — likely a dialog)")
-            continue
-        win_label = f"{label}_w{i}_{window.project_name}"
-        await _take_screenshot(
-            server, win_label, out_dir, project_name=window.project_name, window_id=window.window_id or window.id
-        )
 
 
 @pytest.mark.ide_integrations
@@ -228,10 +95,10 @@ async def test_mcp_steroid_pycharm(test_id: str):
       Project.from_local("e2e-tests/test_projects/python-project", target="/root/work")
       → PyCharm(open_project=False, mcp_steroid=True)
       → Downloads mcp-steroid 0.94.0 ZIP from GitHub releases
-      → Installs to ${PYCHARM_DIR}/plugins/
-      → Copies start-pycharm-mcp-steroid.sh (waits for port 6315, not 64342)
+      → Installs to ${IDE_DIR}/plugins/
+      → Copies the start-ide entrypoint (mcp-steroid mode: waits for port 6315, not 64342)
 
-    Runtime sequence (supervisord → start-pycharm-mcp-steroid.sh):
+    Runtime sequence (supervisord → the start-ide entrypoint):
       1. PyCharm launches with Xvfb (no project argument).
       2. mcp-steroid plugin loads and binds on 127.0.0.1:6315.
       3. socat bridges 0.0.0.0:6316 → 127.0.0.1:6315.
@@ -295,7 +162,7 @@ async def test_mcp_steroid_pycharm(test_id: str):
             tools_result = await server.execute_bash(script=_TOOLS_LIST_SCRIPT, command_timeout=30.0)
             assert tools_result.exit_code == 0, f"tools/list request failed:\n{tools_result.stderr}"
 
-            lines = _nonempty_lines(tools_result.stdout)
+            lines = nonempty_lines(tools_result.stdout)
             assert lines, "tools/list returned empty output"
             response = json.loads(lines[-1])
             assert "result" in response, f"tools/list returned no result field.\nResponse: {response}"
@@ -308,11 +175,11 @@ async def test_mcp_steroid_pycharm(test_id: str):
                     f"Required mcp-steroid tool {expected_tool!r} not found.\nAvailable tools: {sorted(tool_names)}"
                 )
 
-            await _take_screenshots_all_windows(server, "00_before_open_project", artifacts_dir)
+            await take_screenshots_all_windows(server, "00_before_open_project", artifacts_dir)
 
             # --- Dismiss any startup modal dialogs before opening the project ----
             for attempt in range(10):
-                dismissed = await _dismiss_modal_dialogs(server)
+                dismissed = await dismiss_modal_dialogs(server)
                 if not dismissed:
                     break
                 logger.info(f"Dismissed modal dialog (attempt {attempt + 1}), waiting 2s...")
@@ -321,7 +188,7 @@ async def test_mcp_steroid_pycharm(test_id: str):
             # --- Open project via steroid_open_project tool ----------------
             open_result = await server.execute_bash(script=_OPEN_PROJECT_SCRIPT, command_timeout=120.0)
             assert open_result.exit_code == 0, f"steroid_open_project call failed:\n{open_result.stderr}"
-            open_lines = _nonempty_lines(open_result.stdout)
+            open_lines = nonempty_lines(open_result.stdout)
             if open_lines:
                 open_response = json.loads(open_lines[-1])
                 logger.info(f"steroid_open_project response: {json.dumps(open_response, indent=2)}")
@@ -335,19 +202,17 @@ async def test_mcp_steroid_pycharm(test_id: str):
             next_screenshot_at = time.monotonic()  # take first screenshot immediately
             attempt = 0
             while True:
-                poll_result = await server.execute_bash(script=_LIST_WINDOWS_SCRIPT, command_timeout=15.0)
-                if poll_result.exit_code == 0:
-                    parsed = _parse_mcp_windows(poll_result)
-                    if parsed.raw_text:
-                        last_windows_text = parsed.raw_text
-                        logger.debug(f"Attempt {attempt + 1}: steroid_list_windows: {parsed.raw_text}")
-                    if any(w.project_path == _PROJECT_PATH for w in parsed.windows):
-                        project_in_windows = True
-                        logger.info(f"Project {_PROJECT_PATH} found in windows list.")
-                        break
+                parsed = await list_windows(server)
+                if parsed.raw_text:
+                    last_windows_text = parsed.raw_text
+                    logger.debug(f"Attempt {attempt + 1}: steroid_list_windows: {parsed.raw_text}")
+                if any(w.project_path == _PROJECT_PATH for w in parsed.windows):
+                    project_in_windows = True
+                    logger.info(f"Project {_PROJECT_PATH} found in windows list.")
+                    break
 
                 if time.monotonic() >= next_screenshot_at:
-                    await _take_screenshots_all_windows(server, f"poll_{attempt:02d}", artifacts_dir)
+                    await take_screenshots_all_windows(server, f"poll_{attempt:02d}", artifacts_dir)
                     next_screenshot_at = time.monotonic() + 30
 
                 attempt += 1
@@ -360,7 +225,7 @@ async def test_mcp_steroid_pycharm(test_id: str):
             project_in_list = False
             list_result = await server.execute_bash(script=_LIST_PROJECTS_SCRIPT, command_timeout=15.0)
             if list_result.exit_code == 0:
-                proj_lines = _nonempty_lines(list_result.stdout)
+                proj_lines = nonempty_lines(list_result.stdout)
                 if proj_lines:
                     try:
                         proj_response = json.loads(proj_lines[-1])

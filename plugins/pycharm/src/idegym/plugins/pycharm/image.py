@@ -1,200 +1,28 @@
-import re
-from importlib.resources import files
-from importlib.resources.abc import Traversable
-from typing import Optional
+from typing import ClassVar
 
-from idegym.api.plugin import BuildContext, PluginBase, image_plugin
-from idegym.plugins.plugin_utils import (
-    PluginSource,
-    check_linux_id,
-    external_plugin_build_secrets,
-    ide_context_files,
-    render_external_plugins,
-)
-from jinja2 import BaseLoader, Environment
-from pydantic import field_validator
-
-_PYCHARM_VERSION_RE = re.compile(r"^\d{4}\.\d+(\.\d+)?$")
-_MCP_STEROID_VERSION_RE = re.compile(r"^\d+\.\d+(\.\d+)?(-[a-f0-9]+)?$")
-
-_MCP_PORT = 64342
-_BRIDGE_PORT = 64343
-_CONFIG_DIR = "/tmp/ide-config"
-_MCP_STEROID_PORT = 6315
-_MCP_STEROID_BRIDGE_PORT = 6316
-
-
-def _render(template_name: str, **kwargs: object) -> str:
-    source = files(__package__).joinpath("resources").joinpath(template_name).read_text(encoding="utf-8")
-    return Environment(loader=BaseLoader()).from_string(source).render(**kwargs).rstrip()
+from idegym.api.plugin import image_plugin
+from idegym.plugins.plugin_utils.ide_plugin import JetBrainsIdePlugin
 
 
 @image_plugin("pycharm")
-class PyCharm(PluginBase):
+class PyCharm(JetBrainsIdePlugin):
     """Install PyCharm with the JetBrains MCP server plugin.
 
-    Requires PyCharm 2026.1.1 or newer. Older versions are not supported.
+    Requires PyCharm 2026.1.1 or newer. Older versions are not supported. Starting with
+    2026.1.1 there is no community/professional split — a single unified download.
 
-    Starting with 2026.1.1, PyCharm no longer has a community/professional
-    split — there is a single unified download.
+    PyCharm does not support ``-Djava.awt.headless=true``, so the shared ``start-ide`` entrypoint
+    always starts a virtual X11 display (Xvfb) before launching the IDE. IDEA does not have this
+    limitation (see :class:`~idegym.plugins.idea.image.Idea`).
 
-    PyCharm does not support ``-Djava.awt.headless=true``, so ``start-pycharm.sh``
-    starts Xvfb on ``:99`` to provide a virtual display before launching the IDE.
-
-    **MCP server**: the JetBrains MCP plugin is bundled in 2026.1.1+ and binds to
-    ``127.0.0.1:64342`` (loopback only). Plugin versions are listed at
-    https://plugins.jetbrains.com/plugin/26071-mcp-server/versions. At runtime,
-    ``start-pycharm.sh`` starts a socat bridge that re-listens on ``0.0.0.0:64343``,
-    making the server reachable from outside the container. To use standalone::
-
-        docker run -p 64343:64343 <image>
-
-    then connect your MCP client to ``http://localhost:64343/mcp``.
-
-    **mcp-steroid**: when ``mcp_steroid=True``, the
-    `mcp-steroid <https://github.com/jonnyzzz/mcp-steroid>`_ plugin is downloaded and
-    installed at build time. It provides 9 MCP tools including ``open-project``,
-    ``list-projects``, ``execute-code`` (Kotlin in the IDE JVM), screenshots, and more.
-    mcp-steroid binds to ``127.0.0.1:6315``; a socat bridge re-listens on
-    ``0.0.0.0:6316``. When enabled, ``get_mcp_upstream()`` advertises port 6315 instead
-    of 64342.
-
-    When ``mcp_steroid=True`` and ``open_project=False`` (or no ``Project`` plugin in
-    the pipeline), the IDE starts without opening a project. Agents can then open any
-    project via the mcp-steroid ``open-project`` MCP tool at runtime.
-
-    **Config path**: all IDE settings are written to ``/tmp/ide-config`` at build time,
-    and ``-Didea.config.path=/tmp/ide-config`` is passed at startup. This avoids
-    relying on XDG path detection in containers where ``$HOME`` may be unset.
-
-    **Open-project plugin**: when the pipeline contains a ``Project`` plugin and
-    ``open_project=True``, the pre-built plugin from
-    ``plugins/pycharm/project-opener/project-opener.zip`` is installed into the
-    bundled plugins directory (``${PYCHARM_DIR}/plugins/``) so PyCharm finds it before
-    the ``open`` ``AppStarter`` command is dispatched. Requires build series 261+
-    (PyCharm 2026.1+).
-
-    Attributes:
-        version: PyCharm version in ``YYYY.N`` or ``YYYY.N.N`` format. Must be 2026.1.1
-            or newer; older versions are not supported.
-        open_project: Install the open-project plugin and supervisord entry when a
-            ``Project`` plugin precedes this one in the pipeline.
-        mcp_steroid: Download and install the mcp-steroid plugin at build time.
-            When ``True`` and ``open_project`` resolves to ``False``, the IDE starts
-            without a project and agents can open one via the ``open-project`` MCP tool.
-        mcp_steroid_version: mcp-steroid version to install. Format: ``X.Y`` or
-            ``X.Y.Z``, optionally with a ``-HASH`` suffix (e.g. ``0.94.0-8682a5ce`` or
-            ``0.100-409f23a2``). Defaults to the latest tested version.
-        external_plugins: Extra plugins to bake into ``${PYCHARM_DIR}/plugins`` at build
-            time, in order. Each :class:`PluginSource` names a ``.zip`` URL; set
-            ``auth_env`` for downloads behind authentication (the credential is read from
-            that build-time env var and never persisted into an image layer or build log).
-            Installed after mcp-steroid so they load alongside the bundled plugins.
-        user: User to switch back to after installation. Defaults to ``ctx.current_user``.
+    See :class:`~idegym.plugins.plugin_utils.ide_plugin.JetBrainsIdePlugin` for the shared
+    behaviour (MCP socat bridge, mcp-steroid, ``external_plugins``, fixed config path) and
+    the configurable attributes.
     """
 
-    version: str = "2026.1.1"
-    open_project: bool = True
-    mcp_steroid: bool = False
-    mcp_steroid_version: str = "0.94.0-8682a5ce"
-    external_plugins: tuple[PluginSource, ...] = ()
-    user: Optional[str] = None
-
-    @field_validator("version")
-    @classmethod
-    def _validate_version(cls, v: str) -> str:
-        if not _PYCHARM_VERSION_RE.match(v):
-            raise ValueError(f"Invalid PyCharm version: {v!r}. Expected format: YYYY.N or YYYY.N.N")
-        return v
-
-    @field_validator("mcp_steroid_version")
-    @classmethod
-    def _validate_mcp_steroid_version(cls, v: str) -> str:
-        if not _MCP_STEROID_VERSION_RE.match(v):
-            raise ValueError(
-                f"Invalid mcp-steroid version: {v!r}. Expected format: X.Y or X.Y.Z, optionally with a -HASH suffix"
-            )
-        return v
-
-    @field_validator("user")
-    @classmethod
-    def _validate_user(cls, v: Optional[str]) -> Optional[str]:
-        if v is not None:
-            check_linux_id(v, "user")
-        return v
-
-    def get_build_secrets(self, ctx: BuildContext) -> list[str]:
-        return external_plugin_build_secrets(self.external_plugins)
-
-    def get_mcp_upstream(self, ctx: BuildContext) -> Optional[str]:
-        if self.mcp_steroid:
-            return f"http://localhost:{_MCP_STEROID_PORT}/mcp"
-        has_project = ctx.get_extra("idegym.has_project", False)
-        if not (has_project and self.open_project):
-            return None
-        return f"http://localhost:{_MCP_PORT}"
-
-    def apply(self, ctx: BuildContext) -> BuildContext:
-        existing = list(ctx.get_extra("idegym.enabled_server_plugins", []))
-        if "pycharm" not in existing:
-            existing.append("pycharm")
-        return ctx.with_extra("idegym.enabled_server_plugins", existing)
-
-    def get_context_files(self, ctx: BuildContext) -> dict[str, Traversable]:
-        has_project = ctx.get_extra("idegym.has_project", False)
-        return ide_context_files(
-            __package__,
-            "plugins/pycharm",
-            start_script="start-pycharm.sh",
-            supervisor_conf="supervisord-pycharm.conf",
-            install_open_project=has_project and self.open_project,
-            mcp_steroid=self.mcp_steroid,
-        )
-
-    def render(self, ctx: BuildContext) -> str:
-        user = self.user or ctx.current_user
-        has_project = ctx.get_extra("idegym.has_project", False)
-        install_plugin = has_project and self.open_project
-
-        parts = [_render("Dockerfile.install.j2", version=self.version, config_dir=_CONFIG_DIR)]
-
-        if install_plugin:
-            parts.append(_render("Dockerfile.mcp.j2", config_dir=_CONFIG_DIR))
-
-        if self.mcp_steroid:
-            parts.append(
-                _render(
-                    "Dockerfile.mcp_steroid.j2",
-                    mcp_steroid_version=self.mcp_steroid_version,
-                    plugins_dir="${PYCHARM_DIR}/plugins",
-                )
-            )
-
-        if self.external_plugins:
-            parts.append(render_external_plugins(self.external_plugins, plugins_dir="${PYCHARM_DIR}/plugins"))
-
-        if install_plugin:
-            parts.append(
-                _render(
-                    "Dockerfile.open_project.j2",
-                    config_dir=_CONFIG_DIR,
-                    project_root=ctx.project_root,
-                    home=ctx.home,
-                    mcp_port=_MCP_PORT,
-                    bridge_port=_BRIDGE_PORT,
-                )
-            )
-        elif self.mcp_steroid:
-            # No project opener; start the IDE without a project so the agent can
-            # open one at runtime using mcp-steroid's "open-project" MCP tool.
-            parts.append(
-                _render(
-                    "Dockerfile.mcp_steroid_start.j2",
-                    config_dir=_CONFIG_DIR,
-                    mcp_steroid_port=_MCP_STEROID_PORT,
-                    mcp_steroid_bridge_port=_MCP_STEROID_BRIDGE_PORT,
-                )
-            )
-
-        parts.append(f"\nUSER {user}")
-        return "\n\n".join(parts)
+    _PLUGIN_NAME: ClassVar[str] = "pycharm"
+    _IDE_LABEL: ClassVar[str] = "PyCharm"
+    _PACKAGE: ClassVar[str] = __package__
+    _CONTEXT_PREFIX: ClassVar[str] = "plugins/pycharm"
+    _OPEN_PROJECT_PRIVACY: ClassVar[bool] = False  # PyCharm accepts the EUA via vmoptions
+    _OPEN_PROJECT_PROPERTIES: ClassVar[bool] = True
