@@ -1,82 +1,272 @@
 version: 2
+
+# Policy:
+# - Security updates are alert-driven, grouped by SemVer risk, and are not
+#   delayed by this schedule.
+# - Routine minor/patch version updates run quarterly.
+# - Routine major version updates are ignored and must be initiated manually.
 updates:
-  - package-ecosystem: github-actions
-    directory: /
+  - package-ecosystem: "github-actions"
+    directory: "/"
     schedule:
-      interval: weekly
-      day: monday
+      interval: "quarterly"
       time: "09:00"
-    cooldown:
-      default-days: 7
-    target-branch: main
+      timezone: "Europe/Amsterdam"
     groups:
-      astral:
+      security-minor-patch:
+        applies-to: "security-updates"
         patterns:
-          - "astral-sh/*"
-      core:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+      security-major:
+        applies-to: "security-updates"
         patterns:
-          - "actions/*"
-      docker:
+          - "*"
+        update-types:
+          - "major"
+      actions-minor-patch:
+        applies-to: "version-updates"
         patterns:
-          - "docker/*"
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
     commit-message:
       prefix: "[ci] "
     labels:
-      - dependencies
-  - package-ecosystem: docker
-    directory: /orchestrator
+      - "dependencies"
+
+  # NOTE: the server base images (debian/ubuntu) are built from a Jinja template
+  # (Dockerfile.jinja / server.Dockerfile.jinja); their tags live in
+  # scripts/build_server_images.py and CANNOT be tracked by Dependabot. Bump them
+  # manually. The uv helper image is covered here via the concrete /orchestrator
+  # and /watcher Dockerfiles.
+  - package-ecosystem: "docker"
+    directories:
+      - "/orchestrator"
+      - "/watcher"
     schedule:
-      interval: weekly
-      day: monday
+      interval: "quarterly"
       time: "09:00"
-    cooldown:
-      default-days: 7
-    target-branch: main
+      timezone: "Europe/Amsterdam"
     groups:
-      python:
+      security-minor-patch:
+        applies-to: "security-updates"
         patterns:
-          - "python"
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+      security-major:
+        applies-to: "security-updates"
+        patterns:
+          - "*"
+        update-types:
+          - "major"
+      docker-minor-patch:
+        applies-to: "version-updates"
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
     commit-message:
-      prefix: "[orchestrator] "
+      prefix: "[docker] "
     labels:
-      - dependencies
-  - package-ecosystem: helm
-    directory: /charts/idegym
+      - "dependencies"
+
+  - package-ecosystem: "helm"
+    directory: "/charts/idegym"
     schedule:
-      interval: weekly
-      day: monday
+      interval: "quarterly"
       time: "09:00"
-    cooldown:
-      default-days: 7
-    target-branch: main
+      timezone: "Europe/Amsterdam"
     groups:
-      observability:
+      security-minor-patch:
+        applies-to: "security-updates"
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+      security-major:
+        applies-to: "security-updates"
+        patterns:
+          - "*"
+        update-types:
+          - "major"
+      observability-minor-patch:
+        applies-to: "version-updates"
         patterns:
           - "grafana"
           - "prometheus"
           - "tempo"
+        update-types:
+          - "minor"
+          - "patch"
+      data-services-minor-patch:
+        applies-to: "version-updates"
+        patterns:
+          - "postgresql"
+        update-types:
+          - "minor"
+          - "patch"
+      helm-other-minor-patch:
+        applies-to: "version-updates"
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
     commit-message:
       prefix: "[helm] "
     labels:
-      - dependencies
-  - package-ecosystem: uv
-    directory: /
+      - "dependencies"
+
+  - package-ecosystem: "uv"
+    directory: "/"
     schedule:
-      interval: weekly
-      day: monday
+      interval: "quarterly"
       time: "09:00"
-    cooldown:
-      default-days: 7
-    target-branch: main
+      timezone: "Europe/Amsterdam"
     groups:
-      opentelemetry:
+      security-minor-patch:
+        applies-to: "security-updates"
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+      security-major:
+        applies-to: "security-updates"
+        patterns:
+          - "*"
+        update-types:
+          - "major"
+      python-web-stack-minor-patch:
+        applies-to: "version-updates"
+        patterns:
+          - "fastapi*"
+          - "starlette"
+          - "uvicorn"
+          - "anyio"
+          - "pydantic*"
+          - "python-multipart"
+          - "aiohttp"
+        update-types:
+          - "minor"
+          - "patch"
+      python-database-minor-patch:
+        applies-to: "version-updates"
+        patterns:
+          - "sqlalchemy"
+          - "alembic"
+          - "greenlet"
+          - "asyncpg"
+          - "psycopg*"
+        update-types:
+          - "minor"
+          - "patch"
+      python-auth-minor-patch:
+        applies-to: "version-updates"
+        patterns:
+          - "cryptography"
+          - "joserfc"
+          - "pyjwt"
+        update-types:
+          - "minor"
+          - "patch"
+      python-observability-minor-patch:
+        applies-to: "version-updates"
         patterns:
           - "opentelemetry-*"
-      testing:
+          - "structlog"
+        update-types:
+          - "minor"
+          - "patch"
+      python-testing-tooling-minor-patch:
+        applies-to: "version-updates"
         patterns:
           - "pytest*"
-          - "testcontainers"
+          - "testcontainers*"
+          - "junitparser"
+          - "ruff"
+          - "pre-commit"
+        update-types:
+          - "minor"
+          - "patch"
+      python-platform-minor-patch:
+        applies-to: "version-updates"
+        patterns:
+          - "kubernetes"
+          - "kubernetes-asyncio"
+          - "python-on-whales"
+        update-types:
+          - "minor"
+          - "patch"
+      python-other-minor-patch:
+        applies-to: "version-updates"
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
     commit-message:
       prefix: "[dependencies] "
     labels:
-      - dependencies
+      - "dependencies"
+
+  # /examples has its own uv.lock and has received separate security PRs.
+  - package-ecosystem: "uv"
+    directory: "/examples"
+    schedule:
+      interval: "quarterly"
+      time: "09:00"
+      timezone: "Europe/Amsterdam"
+    groups:
+      security-minor-patch:
+        applies-to: "security-updates"
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+      security-major:
+        applies-to: "security-updates"
+        patterns:
+          - "*"
+        update-types:
+          - "major"
+      examples-minor-patch:
+        applies-to: "version-updates"
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+    commit-message:
+      prefix: "[examples] "
+    labels:
+      - "dependencies"
