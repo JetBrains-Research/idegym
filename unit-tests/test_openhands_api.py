@@ -28,9 +28,8 @@ def test_error_code_http_status_mapping():
 def test_service_error_envelope():
     err = ServiceError(ErrorCode.TERMINAL_BUSY, "busy", {"terminal_id": "t"})
     assert err.http_status == 409
-    payload = err.to_response()
-    assert payload.error == ErrorCode.TERMINAL_BUSY
-    assert payload.detail == {"terminal_id": "t"}
+    payload = err.to_dict()
+    assert payload == {"error": "terminal_busy", "message": "busy", "detail": {"terminal_id": "t"}}
 
 
 def test_request_models_reject_unknown_fields():

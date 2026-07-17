@@ -30,7 +30,7 @@ from idegym.plugins.openhands.runtime.service import ToolRuntime
 
 
 def _error_response(exc: ServiceError) -> JSONResponse:
-    return JSONResponse(status_code=exc.http_status, content=exc.to_response().model_dump(mode="json"))
+    return JSONResponse(status_code=exc.http_status, content=exc.to_dict())
 
 
 def build_rest_router(runtime: ToolRuntime) -> APIRouter:

@@ -47,7 +47,7 @@ def build_app(config: Optional[RuntimeConfig] = None, runtime: Optional[ToolRunt
 
     @app.exception_handler(ServiceError)
     async def _service_error_handler(_request: Request, exc: ServiceError) -> JSONResponse:
-        return JSONResponse(status_code=exc.http_status, content=exc.to_response().model_dump(mode="json"))
+        return JSONResponse(status_code=exc.http_status, content=exc.to_dict())
 
     app.mount("/mcp", mcp_app)
     return app

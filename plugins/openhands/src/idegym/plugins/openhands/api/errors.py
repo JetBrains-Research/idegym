@@ -9,8 +9,6 @@ everything else to ``isError`` tool results.
 from enum import StrEnum
 from typing import Any, Optional
 
-from pydantic import BaseModel
-
 
 class ErrorCode(StrEnum):
     """Machine-readable error codes, each carrying its own suggested HTTP status.
@@ -49,14 +47,6 @@ class ErrorCode(StrEnum):
     INTERNAL_ERROR = ("internal_error", 500)
 
 
-class ErrorResponse(BaseModel):
-    """Stable error envelope."""
-
-    error: ErrorCode
-    message: str
-    detail: Optional[dict[str, Any]] = None
-
-
 class ServiceError(Exception):
     """Raised by the runtime for request/protocol/service failures (not command exit codes)."""
 
@@ -70,5 +60,6 @@ class ServiceError(Exception):
     def http_status(self) -> int:
         return self.code.http_status
 
-    def to_response(self) -> ErrorResponse:
-        return ErrorResponse(error=self.code, message=self.message, detail=self.detail)
+    def to_dict(self) -> dict[str, Any]:
+        """The JSON-serialisable error envelope: ``{error, message, detail}``."""
+        return {"error": self.code.value, "message": self.message, "detail": self.detail}
