@@ -57,7 +57,9 @@ class OpenHandsTerminalSession(TerminalBackendSession):
         self._worker: Optional[ThreadPoolExecutor] = None
 
     def _in_worker(self, fn: Any, *args: Any):
-        loop = asyncio.get_event_loop()
+        # Always invoked from within a coroutine; use the running loop explicitly rather than the
+        # deprecated get_event_loop(), which would create/return a loop off the running one.
+        loop = asyncio.get_running_loop()
         return loop.run_in_executor(self._worker, fn, *args)
 
     async def start(self) -> None:

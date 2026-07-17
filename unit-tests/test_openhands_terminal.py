@@ -376,6 +376,22 @@ async def test_openhands_backend_serializes_session_under_cancellation(monkeypat
         await sess.close()
 
 
+def test_openhands_worker_requires_a_running_loop():
+    # The worker helper resolves the running loop explicitly, so calling it with no running loop
+    # fails fast instead of silently binding to (or creating) an off-loop executor future.
+    from concurrent.futures import ThreadPoolExecutor
+
+    from idegym.plugins.openhands.runtime.terminal.backends.openhands import OpenHandsTerminalSession
+
+    sess = OpenHandsTerminalSession(backend=TerminalBackend.TMUX, work_dir="/w", username=None, env={})
+    sess._worker = ThreadPoolExecutor(max_workers=1)
+    try:
+        with pytest.raises(RuntimeError):
+            sess._in_worker(lambda: 1)
+    finally:
+        sess._worker.shutdown(wait=True)
+
+
 async def test_native_close_terminates_background_descendants(manager):
     # A detached/backgrounded child (its own process group under job control) must be killed
     # on close, not leaked into a later environment.
