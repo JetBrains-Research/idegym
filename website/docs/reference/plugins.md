@@ -591,14 +591,71 @@ Ships in `plugins/idea/`. Install the `idea` extra to use the IntelliJ IDEA inte
 | Server routing | `idegym.plugins.server` | `IdeaPlugin` — mounts `POST /api/idea/inspect` |
 | Client operations | `idegym.plugins.client` | `IdeaClientOperations` — exposes `server.idea.inspect(...)` |
 
+### OpenHands tools — `idegym-plugins[openhands]` (optional extra)
+
+Ships in `plugins/openhands/`. Exposes the agent-independent
+[`openhands-tools`](https://github.com/OpenHands/software-agent-sdk) — terminal, file editor, grep,
+glob, apply-patch, planning file editor, task tracker, and the Gemini file tools — through all three
+IdeGYM surfaces. There is no OpenHands agent or LLM: it reuses OpenHands' executors, tool
+definitions, MCP schemas, and terminal sessions.
+
+| Integration point | Entry point group | Class |
+|---|---|---|
+| Image build | `idegym.plugins.image` | `OpenHands` — installs the runtime into a dedicated venv, starts the loopback service, declares the MCP upstream |
+| Server routing | `idegym.plugins.server` | `OpenHandsServerPlugin` — mounts `/api/openhands/*` as a typed proxy to the loopback service |
+| Client operations | `idegym.plugins.client` | `OpenHandsClientOperations` — exposes `server.openhands.*` (tools, stateful terminals, capabilities) |
+
+All three surfaces dispatch to **one** runtime and **one** set of stateful terminal sessions:
+
+```mermaid
+flowchart TB
+    caller(["<b>server.openhands.*</b>"]):::client
+    rest(["<b>/api/openhands/*</b> REST"]):::client
+    mcp(["<b>/mcp</b> · openhands ns"]):::client
+
+    subgraph venv["dedicated venv · 127.0.0.1"]
+        svc[["FastAPI /v1 + FastMCP /mcp"]]:::pod
+        runtime{{"<b>ToolRuntime</b>"}}:::ctrl
+        term("stateful terminals<br/>tmux · subprocess"):::tool
+        adapters("OpenHands adapters"):::tool
+    end
+    oh[("openhands-sdk · openhands-tools")]:::store
+
+    caller --> svc
+    rest --> svc
+    mcp --> svc
+    svc --> runtime --> term & adapters
+    term --> oh
+    adapters --> oh
+
+    classDef client fill:#2563eb,stroke:#1d4ed8,color:#fff;
+    classDef ctrl fill:#6b57ff,stroke:#5b4bd2,color:#fff;
+    classDef pod fill:#4f46e5,stroke:#4338ca,color:#fff;
+    classDef tool fill:#e23b3b,stroke:#c02626,color:#fff;
+    classDef store fill:#0891b2,stroke:#0e7490,color:#fff;
+
+    click svc "https://github.com/JetBrains-Research/idegym/blob/main/plugins/openhands/src/idegym/plugins/openhands/service/app.py" "View the loopback service on GitHub."
+    click oh "https://github.com/OpenHands/software-agent-sdk" "OpenHands software-agent-sdk."
+```
+
+The service runs in its **own in-container virtualenv**: `openhands-sdk` transitively pins an older
+`opentelemetry-api` than IdeGYM, so the two cannot share one environment. The venv installs the
+plugin runtime from the `idegym-plugins` source the base image already provides (the same
+distribution the pycharm/idea plugins come from) — nothing is fetched or copied a second time — and
+IdeGYM only proxies to the service over loopback. Terminals are backed by OpenHands'
+`create_terminal_session` (one retained pinned pane or process per handle); the backend
+(`tmux`/`subprocess`) is fixed per terminal and never silently switched, and **tmux is the reliable
+choice** (OpenHands' subprocess terminal has an unreliable interrupt). Agent-dependent families
+(`task`, `workflow`, `tom_consult`) are reported as unsupported with a reason rather than faked.
+
 ---
 
 ## Entry Point Groups Reference
 
 ```mermaid
 flowchart LR
-    img["idegym.plugins.image"]:::grp --> i1["base-system → BaseSystem"] & i2["user → User"] & i3["permissions → Permissions"] & i4["mcp-upstream → MCPUpstream"] & i5["project → Project"] & i6["idegym-server → IdeGYMServer"] & i7["pycharm → PyCharm"] & i8["idea → Idea"]
-    srv["idegym.plugins.server"]:::grp --> s1["tools → ToolsPlugin"] & s2["rewards → RewardsPlugin"] & s3["pycharm → PyCharmPlugin"] & s4["idea → IdeaPlugin"]
-    cli["idegym.plugins.client"]:::grp --> c1["pycharm → PycharmClientOperations"] & c2["idea → IdeaClientOperations"]
+    img["idegym.plugins.image"]:::grp --> i1["base-system → BaseSystem"] & i2["user → User"] & i3["permissions → Permissions"] & i4["mcp-upstream → MCPUpstream"] & i5["project → Project"] & i6["idegym-server → IdeGYMServer"] & i7["pycharm → PyCharm"] & i8["idea → Idea"] & i9["openhands → OpenHands"]
+    srv["idegym.plugins.server"]:::grp --> s1["tools → ToolsPlugin"] & s2["rewards → RewardsPlugin"] & s3["pycharm → PyCharmPlugin"] & s4["idea → IdeaPlugin"] & s5["openhands → OpenHandsServerPlugin"]
+    cli["idegym.plugins.client"]:::grp --> c1["pycharm → PycharmClientOperations"] & c2["idea → IdeaClientOperations"] & c3["openhands → OpenHandsClientOperations"]
     classDef grp fill:#6b57ff,stroke:#5b4bd2,color:#fff;
 ```

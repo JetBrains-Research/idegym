@@ -102,6 +102,7 @@ upstream under its stem as a namespace — that's how an IDE's MCP tools surface
 | `idegym-plugins` (defaults, always installed) | `base-system`, `user`, `permissions`, `mcp-upstream`, `project`, `idegym-server`, `tools`, `rewards` |
 | `idegym-plugins[pycharm]` | `PyCharm` (image) + `PyCharmPlugin` (server) + `PycharmClientOperations` (client) |
 | `idegym-plugins[idea]` | `Idea` (image) + `IdeaPlugin` (server) + `IdeaClientOperations` (client) |
+| `idegym-plugins[openhands]` | `OpenHands` (image) + `OpenHandsServerPlugin` (server) + `OpenHandsClientOperations` (client) — agentless OpenHands tools over a loopback service |
 
 ## Baking external IDE plugins
 

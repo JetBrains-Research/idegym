@@ -21,6 +21,11 @@ idea = [
 pycharm = [
     "jinja2>=3.1.5",
 ]
+# NOTE: no `openhands` extra, and OpenHands is deliberately absent from the workspace lock.
+# `openhands-sdk` transitively pins `opentelemetry-api==1.39.1` (via `lmnr`), which conflicts with
+# `idegym-backend-utils` (`opentelemetry-api>=1.43.0`) — the two cannot share one environment.
+# The OpenHands Tools Service therefore runs in its OWN in-container virtualenv (created by the
+# OpenHands image plugin) and is reached over loopback HTTP. See plugins/openhands/COMPATIBILITY.md.
 # NOTE: no `server` extra. The server-side plugins (ToolsPlugin/RewardsPlugin and the
 # IDE server routers) only ever run inside the `idegym-server` container, which is built
 # from the workspace and is not published to PyPI. Their runtime deps (fastapi, plus the
@@ -36,16 +41,19 @@ project = "idegym.plugins.defaults.image:Project"
 idegym-server = "idegym.plugins.defaults.image:IdeGYMServer"
 idea = "idegym.plugins.idea.image:Idea"
 pycharm = "idegym.plugins.pycharm.image:PyCharm"
+openhands = "idegym.plugins.openhands.image:OpenHands"
 
 [project.entry-points."idegym.plugins.server"]
 tools = "idegym.plugins.defaults.server:ToolsPlugin"
 rewards = "idegym.plugins.defaults.server:RewardsPlugin"
 idea = "idegym.plugins.idea.server:IdeaPlugin"
 pycharm = "idegym.plugins.pycharm.server:PyCharmPlugin"
+openhands = "idegym.plugins.openhands.server:OpenHandsServerPlugin"
 
 [project.entry-points."idegym.plugins.client"]
 idea = "idegym.plugins.idea.client:IdeaClientOperations"
 pycharm = "idegym.plugins.pycharm.client:PycharmClientOperations"
+openhands = "idegym.plugins.openhands.client:OpenHandsClientOperations"
 
 [build-system]
 requires = ["hatchling"]
@@ -58,6 +66,7 @@ packages = [
     "defaults/src/idegym",
     "idea/src/idegym",
     "pycharm/src/idegym",
+    "openhands/src/idegym",
     "plugin-utils/src/idegym",
 ]
 # Editable installs: expose every per-plugin `src` root on sys.path so the shared
@@ -68,6 +77,7 @@ dev-mode-dirs = [
     "defaults/src",
     "idea/src",
     "pycharm/src",
+    "openhands/src",
     "plugin-utils/src",
 ]
 
@@ -81,3 +91,4 @@ dev-mode-dirs = [
 "plugin-utils/scripts" = "idegym/plugins/plugin_utils/scripts"
 "idea/project-opener/project-opener.zip" = "idegym/plugins/idea/project-opener/project-opener.zip"
 "pycharm/project-opener/project-opener.zip" = "idegym/plugins/pycharm/project-opener/project-opener.zip"
+"openhands/scripts" = "idegym/plugins/openhands/scripts"

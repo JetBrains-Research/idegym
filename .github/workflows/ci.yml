@@ -12,6 +12,7 @@ jobs:
     name: Run ${{ matrix.suite }} tests
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         include:
           - suite: unit
@@ -66,8 +67,27 @@ jobs:
           IDEGYM_TEST_REGISTRY: ${{ matrix.registry }}
 
   e2e:
-    name: Run e2e tests (excluding IDE integrations)
+    # One matrix entry per balanced e2e group. Every group recreates the same cluster once and
+    # differs only by the pytest ``-m`` marker expression. The "other" group is the catch-all so a
+    # new e2e test file is never silently dropped. Group markers are auto-applied by ``conftest.py``.
+    name: Run e2e ${{ matrix.name }} tests
     runs-on: Ubuntu-Latest-8-32-x64
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: idea
+            markexpr: "e2e and idea"
+          - name: pycharm
+            markexpr: "e2e and pycharm"
+          - name: openhands
+            markexpr: "e2e and openhands"
+          - name: kaniko
+            markexpr: "e2e and kaniko"
+          - name: mcp
+            markexpr: "e2e and mcp"
+          - name: other
+            markexpr: "e2e and not idea and not pycharm and not openhands and not kaniko and not mcp"
 
     steps:
       - name: Checkout latest
@@ -115,64 +135,8 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-packages --all-extras --all-groups
 
-      - name: Run e2e tests (excluding IDE integrations)
+      - name: Run e2e ${{ matrix.name }} tests
         run: |
           sudo -E kubectl port-forward -n ingress-nginx svc/ingress-nginx-controller 80:80 > /dev/null 2>&1 &
           sleep 5
-          uv run pytest -m "e2e and not ide_integrations" -vv
-
-  e2e-ide-integrations:
-    name: Run e2e IDE integration tests
-    runs-on: Ubuntu-Latest-8-32-x64
-
-    steps:
-      - name: Checkout latest
-        uses: actions/checkout@v7.0.0
-
-      - name: Start minikube
-        uses: medyagh/setup-minikube@v0.0.21
-        with:
-          addons: gvisor,ingress,registry
-          container-runtime: containerd
-          kubernetes-version: v1.35.0
-          start-args: --docker-opt containerd=/var/run/containerd/containerd.sock
-
-      - name: Install Helm
-        uses: azure/setup-helm@v5
-
-      - name: Build Helm chart dependencies
-        run: helm dependency build charts/idegym
-
-      - name: Configure hosts and wait for ingress controller to be ready
-        run: |
-          echo "127.0.0.1 idegym-local.test" | sudo tee -a /etc/hosts
-          kubectl wait pod \
-            --namespace=ingress-nginx \
-            --for=condition=ready \
-            --selector=app.kubernetes.io/component=controller \
-            --timeout=120s
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v8.3.2
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-
-      - name: Set up Python
-        run: uv python install
-
-      - name: Login to Docker registry
-        uses: docker/login-action@v4.4.0
-        with:
-          registry: ghcr.io
-          username: github-actions[bot]
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install dependencies
-        run: uv sync --all-packages --all-extras --all-groups
-
-      - name: Run e2e IDE integration tests
-        run: |
-          sudo -E kubectl port-forward -n ingress-nginx svc/ingress-nginx-controller 80:80 > /dev/null 2>&1 &
-          sleep 5
-          uv run pytest -m "e2e and ide_integrations" -vv
+          uv run pytest -m "${{ matrix.markexpr }}" -vv
