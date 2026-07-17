@@ -33,11 +33,18 @@ class _RWLock:
         async with self._cond:
             if exclusive:
                 self._writers_waiting += 1
+                acquired = False
                 try:
                     while self._writer or self._readers > 0:
                         await self._cond.wait()
+                    acquired = True
                 finally:
                     self._writers_waiting -= 1
+                    if not acquired:
+                        # A cancelled writer that abandons its wait must wake readers that blocked
+                        # only because a writer was queued; otherwise they hang until the next
+                        # unrelated release. The normal path becomes the writer and needs no notify.
+                        self._cond.notify_all()
                 self._writer = True
             else:
                 while self._writer or self._writers_waiting > 0:

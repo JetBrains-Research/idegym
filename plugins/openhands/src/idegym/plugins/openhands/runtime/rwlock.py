@@ -20,11 +20,20 @@ class RWLock:
         async with self._cond:
             if exclusive:
                 self._writers_waiting += 1
+                acquired = False
                 try:
                     while self._writer or self._readers > 0:
                         await self._cond.wait()
+                    acquired = True
                 finally:
                     self._writers_waiting -= 1
+                    if not acquired:
+                        # The wait was abandoned (cancelled) while we were still counted as a
+                        # queued writer. Readers block while a writer is queued, so some may have
+                        # blocked solely on our presence; wake them to re-evaluate now that
+                        # writers_waiting has dropped. On the normal path we become the writer and
+                        # any woken reader would only re-block, so we skip the notify there.
+                        self._cond.notify_all()
                 self._writer = True
             else:
                 # Writer preference: a new reader waits while a writer is queued, so a steady stream

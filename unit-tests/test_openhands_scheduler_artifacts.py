@@ -119,6 +119,46 @@ async def test_scheduler_shared_reads_run_parallel_but_same_file_serializes():
     assert op2.peak == 1
 
 
+async def test_scheduler_cancelled_writer_wakes_blocked_readers():
+    # A cancelled writer that never acquired the lock must wake readers that blocked only because a
+    # writer was queued (writer preference). Without that wakeup the reader hangs, since the holder
+    # here never releases and no other event can wake it.
+    sched = ResourceScheduler()
+    release_holder = asyncio.Event()
+
+    async def holder():
+        async with sched.acquire([("k", False)]):  # shared reader holds the key
+            await release_holder.wait()
+
+    held = asyncio.create_task(holder())
+    await asyncio.sleep(0.02)
+
+    async def writer():
+        async with sched.acquire([("k", True)]):  # exclusive writer, blocked by the reader
+            pass
+
+    w = asyncio.create_task(writer())
+    await asyncio.sleep(0.02)
+
+    reader_entered = asyncio.Event()
+
+    async def reader():
+        async with sched.acquire([("k", False)]):
+            reader_entered.set()
+
+    r = asyncio.create_task(reader())
+    await asyncio.sleep(0.02)
+    assert not reader_entered.is_set()  # blocked behind the queued writer
+
+    w.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await w
+
+    await asyncio.wait_for(reader_entered.wait(), timeout=1.0)
+    release_holder.set()
+    await asyncio.gather(held, r)
+
+
 async def test_scheduler_registry_is_bounded_and_correct():
     # Acquiring/releasing many unique keys must not grow the registry without bound.
     sched = ResourceScheduler()
