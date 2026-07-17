@@ -69,13 +69,17 @@ updates:
           - "*"
         update-types:
           - "major"
-      docker-minor-patch:
+      # group-by: dependency-name consolidates the same image (e.g. python) across
+      # BOTH /orchestrator and /watcher into a single cross-directory PR, instead of
+      # one grouped PR per directory. Dropping update-types also catches updates that
+      # Dependabot cannot classify (e.g. prerelease tags like 3.15.0bN, which is why
+      # #235 fell out of the group). NOTE: this yields at most one PR per distinct
+      # image (python, uv) - Dependabot cannot merge different images into one PR.
+      docker-routine:
         applies-to: "version-updates"
         patterns:
           - "*"
-        update-types:
-          - "minor"
-          - "patch"
+        group-by: "dependency-name"
     ignore:
       - dependency-name: "*"
         update-types:
@@ -241,6 +245,12 @@ updates:
       interval: "quarterly"
       time: "09:00"
       timezone: "Europe/Amsterdam"
+    # increase-if-necessary avoids raising lower bounds (e.g. >=1.36 -> >=1.44) when the
+    # existing constraint already permits the latest version, while still refreshing the
+    # locked version. NOTE: the uv ecosystem does not yet honor versioning-strategy
+    # (dependabot-core#12162); this is a no-op until that support lands, at which point
+    # it takes effect automatically.
+    versioning-strategy: "increase-if-necessary"
     groups:
       security-minor-patch:
         applies-to: "security-updates"
@@ -255,13 +265,15 @@ updates:
           - "*"
         update-types:
           - "major"
-      examples-minor-patch:
+      # No update-types filter: this catches minor/patch updates AND updates that
+      # Dependabot cannot classify (the OpenTelemetry bumps in #240-#242 carried no
+      # update-type), folding them all into a single quarterly PR. The semver-major
+      # ignore below still blocks classified majors (an unclassifiable major could
+      # slip through - an accepted tradeoff of dropping the filter).
+      examples-routine:
         applies-to: "version-updates"
         patterns:
           - "*"
-        update-types:
-          - "minor"
-          - "patch"
     ignore:
       - dependency-name: "*"
         update-types:
