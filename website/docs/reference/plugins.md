@@ -587,7 +587,7 @@ Ships in `plugins/idea/`. Install the `idea` extra to use the IntelliJ IDEA inte
 
 | Integration point | Entry point group | Class |
 |---|---|---|
-| Image build | `idegym.plugins.image` | `Idea` — installs IntelliJ IDEA; true headless (no Xvfb) |
+| Image build | `idegym.plugins.image` | `Idea` — installs IntelliJ IDEA; headless by default, `headless=False` runs under Xvfb like PyCharm |
 | Server routing | `idegym.plugins.server` | `IdeaPlugin` — mounts `POST /api/idea/inspect` |
 | Client operations | `idegym.plugins.client` | `IdeaClientOperations` — exposes `server.idea.inspect(...)` |
 

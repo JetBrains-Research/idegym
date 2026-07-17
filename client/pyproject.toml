@@ -18,9 +18,9 @@ dependencies = [
 
 [project.optional-dependencies]
 otel = [
-    "opentelemetry-exporter-otlp>=1.36.0",
-    "opentelemetry-instrumentation-httpx>=0.57b0",
-    "opentelemetry-sdk>=1.36.0",
+    "opentelemetry-exporter-otlp>=1.44.0",
+    "opentelemetry-instrumentation-httpx>=0.65b0",
+    "opentelemetry-sdk>=1.44.0",
 ]
 
 [build-system]

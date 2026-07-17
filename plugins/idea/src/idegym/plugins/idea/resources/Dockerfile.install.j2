@@ -1,12 +1,16 @@
 # Install IntelliJ IDEA Community {{ version }}
 # https://www.jetbrains.com/idea/download/other.html
+#
+# Headless by default. When headless=False the image also installs Xvfb (+ xdotool) so the
+# start script can launch the IDE against a virtual display; see the Idea plugin docstring.
 USER root
 RUN set -eux; \
     apt-get update -qq; \
     apt-get install -y --no-install-recommends \
         ca-certificates curl unzip procps socat \
         libx11-6 libxext6 libxrender1 libxtst6 libxi6 libxrandr2 \
-        libfreetype6 libfontconfig1; \
+        libfreetype6 libfontconfig1{% if not headless %} \
+        xvfb xdotool{% endif %}; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
 
@@ -31,9 +35,36 @@ RUN set -eux; \
 
 ENV JAVA_HOME="${IDE_DIR}/jbr"
 ENV PATH="${JAVA_HOME}/bin:${IDE_DIR}/bin:${PATH}"
-
-# Headless + startup-suppression flags in vmoptions (applies without CLI args).
-# IDEA CE supports java.awt.headless=true natively; no Xvfb required.
-RUN for f in "${IDE_DIR}/bin/idea64.vmoptions" "${IDE_DIR}/bin/idea.vmoptions"; do \
-        [ -f "$f" ] && printf '\n-Djava.awt.headless=true\n-Didea.trust.all.projects=true\n-Djb.consents.confirmation.enabled=false\n-Dide.show.tips.on.startup.default.value=false\n-Dide.no.platform.update=true\n-Dide.browser.jcef.enabled=false\n-XX:-UsePerfData\n-XX:+PerfDisableSharedMem\n-XX:+UseContainerSupport\n-XX:ErrorFile=/tmp/jvm-crash.log\n' >> "$f" || true; \
+# IDE-specific config for the shared start-ide entrypoint (installed as /usr/local/bin/start-ide).
+ENV IDE_NAME="IntelliJ IDEA"
+ENV IDE_LAUNCHER="idea.sh"
+ENV IDE_LOG_FILE="/tmp/idea.log"
+ENV IDE_LAUNCH_ARGS="-Didea.platform.prefix=Idea"
+ENV IDE_SUPPORTS_HEADLESS="true"
+# IDEA_HEADLESS picks true headless mode vs a virtual display (Xvfb).
+ENV IDEA_HEADLESS="{{ 'true' if headless else 'false' }}"
+{% if not headless %}
+ENV DISPLAY=":99"
+{% endif %}
+# Append startup-suppression flags to vmoptions, one per line so the list stays readable and
+# reviewable. Headless builds force -Djava.awt.headless=true; virtual-display builds must NOT
+# (they would ignore the Xvfb DISPLAY) and instead suppress the EUA / first-run dialogs.
+RUN set -eux; \
+    for f in "${IDE_DIR}/bin/idea64.vmoptions" "${IDE_DIR}/bin/idea.vmoptions"; do \
+        [ -f "$f" ] || continue; \
+        printf '%s\n' \
+            '' \
+{% if headless %}            '-Djava.awt.headless=true' \
+{% else %}            '-Djb.privacy.policy.text=<!--999.999-->' \
+            '-Dide.firstStartup=false' \
+{% endif %}            '-Didea.trust.all.projects=true' \
+            '-Djb.consents.confirmation.enabled=false' \
+            '-Dide.show.tips.on.startup.default.value=false' \
+            '-Dide.no.platform.update=true' \
+            '-Dide.browser.jcef.enabled=false' \
+            '-XX:-UsePerfData' \
+            '-XX:+PerfDisableSharedMem' \
+            '-XX:+UseContainerSupport' \
+            '-XX:ErrorFile=/tmp/jvm-crash.log' \
+            >> "$f"; \
     done

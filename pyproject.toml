@@ -27,10 +27,10 @@ dev = [
     "python-on-whales>=0.81.0",
     "pyyaml>=6.0.3",
     "requests>=2.34.2",
-    "ruff>=0.15.20",
+    "ruff>=0.15.22",
     "supervisor>=4.3.0",
-    "tqdm>=4.68.2",
-    "tomlkit>=0.15.0",
+    "tqdm>=4.68.4",
+    "tomlkit>=0.15.1",
 ]
 
 [tool.uv]
@@ -95,7 +95,7 @@ markers = [
     "integration: marks integration test suite",
     "unit: marks unit test suite",
     "docker: marks tests that should be run inside a Docker container",
-    "ide_integrations: marks tests that build and run a full IDE image (5-10 min); excluded from CI, run manually with -m 'e2e and ide_integrations'",
+    "ide_integrations: marks tests that build and run a full IDE image (5-10 min); run in CI via the 'idea'/'pycharm' e2e groups (or locally with -m 'e2e and ide_integrations')",
     "idea: e2e group — IntelliJ IDEA image tests (auto-applied by conftest to test_idea*)",
     "pycharm: e2e group — PyCharm image tests (auto-applied by conftest to test_pycharm*)",
     "openhands: e2e group — OpenHands tools plugin tests (auto-applied by conftest to test_openhands*)",

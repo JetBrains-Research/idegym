@@ -1,6 +1,9 @@
 # Install PyCharm {{ version }}
 # https://www.jetbrains.com/pycharm/download/other.html
 # Requires 2026.1.1+; older versions are not supported.
+#
+# PyCharm has no headless mode, so Xvfb is always installed and the start script runs the IDE
+# against a virtual display; see the PyCharm plugin docstring.
 USER root
 RUN set -eux; \
     apt-get update -qq; \
@@ -11,7 +14,7 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/*
 
 ENV PYCHARM_VERSION="{{ version }}"
-ENV PYCHARM_DIR="/opt/pycharm"
+ENV IDE_DIR="/opt/pycharm"
 ENV IDE_CONFIG_PATH="{{ config_dir }}"
 RUN set -eux; \
     arch=$(dpkg --print-architecture); \
@@ -25,46 +28,45 @@ RUN set -eux; \
     curl -fsSL "https://download.jetbrains.com/python/${archive}.sha256" -o /tmp/pycharm.sha256; \
     expected=$(cut -d' ' -f1 /tmp/pycharm.sha256); \
     echo "$expected  /tmp/pycharm.tar.gz" | sha256sum -c -; \
-    mkdir -p ${PYCHARM_DIR}; \
-    tar -xzf /tmp/pycharm.tar.gz -C ${PYCHARM_DIR} --strip-components=1; \
+    mkdir -p ${IDE_DIR}; \
+    tar -xzf /tmp/pycharm.tar.gz -C ${IDE_DIR} --strip-components=1; \
     rm /tmp/pycharm.tar.gz /tmp/pycharm.sha256
 
-ENV JAVA_HOME="${PYCHARM_DIR}/jbr"
-ENV PATH="${JAVA_HOME}/bin:${PYCHARM_DIR}/bin:${PATH}"
+ENV JAVA_HOME="${IDE_DIR}/jbr"
+ENV PATH="${JAVA_HOME}/bin:${IDE_DIR}/bin:${PATH}"
 ENV DISPLAY=":99"
+# IDE-specific config for the shared start-ide entrypoint (installed as /usr/local/bin/start-ide).
+# PyCharm has no headless mode, so IDE_SUPPORTS_HEADLESS=false and the entrypoint always starts Xvfb.
+ENV IDE_NAME="PyCharm"
+ENV IDE_LAUNCHER="pycharm.sh"
+ENV IDE_LOG_FILE="/tmp/pycharm.log"
+ENV IDE_LAUNCH_ARGS="-Dide.show.tips.on.startup.default.value=false -Djb.consents.confirmation.enabled=false"
+ENV IDE_SUPPORTS_HEADLESS="false"
 
-# Configure PyCharm for headless/CI use.
-# These settings apply to every JVM invocation including inspect.sh:
-#   -Didea.config.path   avoids XDG detection failures in containers
-#   -Dide.trust.all.projects=true  suppresses the interactive "Trust Project?" dialog
-#   the remaining flags suppress first-run/consent/update dialogs and tune the JVM for containers
+# Append JVM/startup flags to vmoptions, one per line so the list stays readable and reviewable.
+# These apply to every JVM invocation (including inspect.sh): -Didea.config.path avoids XDG
+# detection failures, -Dide.trust.all.projects suppresses the "Trust Project?" dialog, and the
+# rest suppress first-run/consent/update dialogs and tune the JVM for containers.
 RUN set -eux; \
-    mkdir -p "{{ config_dir }}/options"; \
-    mkdir -p /root/.local/share/JetBrains/consentOptions; \
-    printf '%s\n' 'rsch.send.usage.stat:1.1:1:1700000000000' \
-        > /root/.local/share/JetBrains/consentOptions/accepted; \
-    printf '%s\n' \
-        'com.intellij.marketplace' \
-        'com.intellij.settingsSync' \
-        'com.jetbrains.codeWithMe' \
-        'com.intellij.platform.daemon' \
-        > "{{ config_dir }}/disabled_plugins.txt"; \
-    printf '%s\n' \
-        '<application>' \
-        '  <component name="UpdatesConfigurable">' \
-        '    <option name="SHOW_WHATS_NEW_EDITOR" value="false" />' \
-        '  </component>' \
-        '</application>' \
-        > "{{ config_dir }}/options/updates.xml"; \
-    printf '%s\n' \
-        '<application>' \
-        '  <component name="PropertyService"><![CDATA[{' \
-        '  "keyToString": {' \
-        '    "whats.new.last.shown.version": "9999-9.9-99999"' \
-        '  }' \
-        '}]]></component>' \
-        '</application>' \
-        > "{{ config_dir }}/options/other.xml"; \
-    for f in "${PYCHARM_DIR}/bin/pycharm64.vmoptions" "${PYCHARM_DIR}/bin/pycharm.vmoptions"; do \
-        [ -f "$f" ] && printf '\n-Didea.config.path={{ config_dir }}\n-Dide.trust.all.projects=true\n-Djb.privacy.policy.text=<!--999.999-->\n-Dide.firstStartup=false\n-Dide.no.platform.update=true\n-Djb.consents.confirmation.enabled=false\n-Dide.show.tips.on.startup.default.value=false\n-Dide.browser.jcef.enabled=false\n-Dsun.net.client.defaultConnectTimeout=5000\n-Dsun.net.client.defaultReadTimeout=10000\n-XX:-UsePerfData\n-XX:+PerfDisableSharedMem\n-XX:-UseLargePages\n-Xshare:off\n-XX:+UseContainerSupport\n-XX:ErrorFile=/tmp/jvm-crash.log\n' >> "$f" || true; \
+    for f in "${IDE_DIR}/bin/pycharm64.vmoptions" "${IDE_DIR}/bin/pycharm.vmoptions"; do \
+        [ -f "$f" ] || continue; \
+        printf '%s\n' \
+            '' \
+            '-Didea.config.path={{ config_dir }}' \
+            '-Dide.trust.all.projects=true' \
+            '-Djb.privacy.policy.text=<!--999.999-->' \
+            '-Dide.firstStartup=false' \
+            '-Dide.no.platform.update=true' \
+            '-Djb.consents.confirmation.enabled=false' \
+            '-Dide.show.tips.on.startup.default.value=false' \
+            '-Dide.browser.jcef.enabled=false' \
+            '-Dsun.net.client.defaultConnectTimeout=5000' \
+            '-Dsun.net.client.defaultReadTimeout=10000' \
+            '-XX:-UsePerfData' \
+            '-XX:+PerfDisableSharedMem' \
+            '-XX:-UseLargePages' \
+            '-Xshare:off' \
+            '-XX:+UseContainerSupport' \
+            '-XX:ErrorFile=/tmp/jvm-crash.log' \
+            >> "$f"; \
     done
