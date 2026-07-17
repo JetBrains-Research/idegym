@@ -15,9 +15,9 @@ from idegym.plugins.openhands.runtime.adapters.base import AdapterRun, ToolAdapt
 
 
 class OpenHandsToolAdapter(ToolAdapter):
-    def __init__(self, family: str, tool: Any) -> None:
+    def __init__(self, family: str, tool: compat.OpenHandsTool) -> None:
         self.family = family
-        self._tool = tool
+        self._tool: compat.OpenHandsTool = tool
         mcp = compat.tool_mcp_schema(tool)
         self.name: str = mcp.get("name", getattr(tool, "name", "unknown"))
         self.description: str = mcp.get("description", getattr(tool, "description", "") or "")

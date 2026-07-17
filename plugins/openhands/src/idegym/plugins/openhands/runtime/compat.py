@@ -16,11 +16,34 @@ import importlib.metadata
 import os
 import pkgutil
 from types import SimpleNamespace
-from typing import Any, Optional
+from typing import Any, Optional, Protocol, runtime_checkable
 
 # Pinned, compatible versions. Bump together with COMPATIBILITY.md and the image plugin default.
 PINNED_OPENHANDS_SDK = "1.36.0"
 PINNED_OPENHANDS_TOOLS = "1.36.0"
+
+
+@runtime_checkable
+class OpenHandsTool(Protocol):
+    """The subset of the OpenHands ``ToolDefinition`` surface this plugin invokes.
+
+    Typing the tool against this Protocol instead of ``Any`` gives a type-checker/IDE a compile-time
+    contract for every OpenHands tool call the plugin makes (dispatch, schema, annotations) rather
+    than opaque dynamic attribute access. The real SDK cannot be imported at type-check time —
+    ``openhands-sdk`` pins ``opentelemetry-api==1.39.1`` which conflicts with ``idegym-backend-utils``
+    (``>=1.43.0``), the same conflict that makes the service run in its own venv — so this Protocol
+    captures the contract locally, and the ``openhands`` compatibility test re-verifies it against
+    the real SDK at runtime.
+    """
+
+    name: str
+    description: str
+    annotations: Any
+
+    def action_from_arguments(self, arguments: dict[str, Any]) -> Any: ...
+    async def acall(self, action: Any, conversation: Optional[Any] = None) -> Any: ...
+    def to_mcp_tool(self) -> dict[str, Any]: ...
+
 
 # Top-level tool families present under ``openhands.tools`` in the pinned revision. The catalog
 # audit test fails if the installed set differs.
@@ -149,7 +172,7 @@ def _agentless_conv_state(working_dir: str, persistence_dir: str, env_persistenc
     )
 
 
-def _build_file_editor(working_dir: str) -> list[Any]:
+def _build_file_editor(working_dir: str) -> list[OpenHandsTool]:
     """Construct ``file_editor`` directly (executor + definition), avoiding any fake agent.
 
     ``FileEditorTool.create`` reads ``conv_state.agent.llm.vision_is_active()`` only to toggle a
@@ -184,7 +207,7 @@ def build_family_tools(
     working_dir: str,
     persistence_dir: str,
     env_persistence_dir: str,
-) -> list[Any]:
+) -> list[OpenHandsTool]:
     """Return the agentless ``ToolDefinition`` instances a family contributes.
 
     Most families are built via their ``create(conv_state)`` classmethod with the narrow
@@ -196,7 +219,7 @@ def build_family_tools(
 
     module = importlib.import_module(f"openhands.tools.{family}")
     shim = _agentless_conv_state(working_dir, persistence_dir, env_persistence_dir)
-    tools: list[Any] = []
+    tools: list[OpenHandsTool] = []
     for attr in dir(module):
         cls = getattr(module, attr)
         # Only concrete tool classes defined in this family module (skip the imported SDK base).
@@ -211,12 +234,12 @@ def build_family_tools(
     return tools
 
 
-def tool_mcp_schema(tool: Any) -> dict[str, Any]:
+def tool_mcp_schema(tool: OpenHandsTool) -> dict[str, Any]:
     """Return the MCP tool descriptor (name/description/inputSchema/annotations/outputSchema)."""
     return tool.to_mcp_tool()
 
 
-def tool_annotations(tool: Any) -> dict[str, bool]:
+def tool_annotations(tool: OpenHandsTool) -> dict[str, bool]:
     """Extract OpenHands annotation hints as plain bools."""
     ann = getattr(tool, "annotations", None)
     return {

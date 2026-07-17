@@ -34,6 +34,8 @@ async def test_build_family_tools_and_acall(tmp_path):
         env_persistence_dir=str(tmp_path / "e"),
     )
     assert tools, "grep should yield at least one tool"
+    # The real SDK tool conforms to the local OpenHandsTool protocol the plugin types against.
+    assert isinstance(tools[0], compat.OpenHandsTool)
     adapter = OpenHandsToolAdapter("grep", tools[0])
     assert adapter.name == "grep"
     assert "pattern" in adapter.input_schema.get("properties", {})
