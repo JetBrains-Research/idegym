@@ -17,7 +17,7 @@ dependencies = [
     "idegym-common-utils",
     "idegym-orchestrator",
     "pydantic>=2.10.6",
-    "uvicorn>=0.50.1",
+    "uvicorn>=0.51.0",
 ]
 
 [build-system]
