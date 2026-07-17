@@ -204,8 +204,9 @@ def test_lock_requests_reflect_tool_resources(tmp_path):
     assert reqs("apply_patch") == {(ws, True)}
     # a file write: shared workspace lease + exclusive per-file lock
     assert reqs("write_file", {"file_path": "a.txt"}) == {(ws, False), (file_a, True)}
-    # read_file declares the same file resource, so it conflicts with a write to that file
-    assert reqs("read_file", {"path": "a.txt"}) == {(ws, False), (file_a, True)}
+    # read_file declares the same file resource *shared*: concurrent reads run in parallel, but a
+    # write (exclusive on that file) still excludes them
+    assert reqs("read_file", {"path": "a.txt"}) == {(ws, False), (file_a, False)}
     # grep is a parallel-safe read: shared workspace only
     assert reqs("grep", {"pattern": "x"}) == {(ws, False)}
     # glob's Python fallback uses process-global chdir -> tool-wide exclusive lock

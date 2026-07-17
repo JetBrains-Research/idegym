@@ -345,10 +345,12 @@ class ToolRuntime:
             # Read/search tools: a shared workspace lease so a mutation still excludes them.
             reqs: list[tuple[str, bool]] = [(ws, False)]
             if entry.name == ToolName.READ_FILE:
-                # read_file declares a file resource: a read must not overlap a write to that file.
+                # read_file declares a file resource *shared*: concurrent reads of the same file run
+                # in parallel, while a write (which takes the file lock exclusively) still excludes
+                # them so a read never overlaps a write to the same file.
                 path = self._extract_path(arguments)
                 if path:
-                    reqs.append((f"file:{path}", True))
+                    reqs.append((f"file:{path}", False))
             elif entry.name == ToolName.GLOB:
                 reqs.append((f"tool:{entry.name}", True))
             return reqs
