@@ -5,7 +5,9 @@ scheduler, the artifact store, the deduplication cache, and the environment gene
 are thin projections over this single object; neither builds its own executors or terminals.
 """
 
+import asyncio
 import base64
+import contextlib
 import json
 import os
 import uuid
@@ -494,7 +496,7 @@ class ToolRuntime:
         call_id = _new_call_id()
         started = _now()
         async with self.scheduler.acquire(self._lock_requests(entry, arguments)):
-            run = await adapter.run(arguments)
+            run = await self._run_adapter_drained(adapter, arguments)
         # Content/structured bounding is applied uniformly by _bound_result in _dispatch.
         return ToolCallResult(
             call_id=call_id,
@@ -507,6 +509,29 @@ class ToolRuntime:
             started_at=started,
             finished_at=_now(),
         )
+
+    async def _run_adapter_drained(self, adapter: OpenHandsToolAdapter, arguments: dict[str, Any]) -> Any:
+        """Run the adapter, holding the caller's cancellation until the tool's work has drained.
+
+        OpenHands' ``acall`` runs the synchronous tool in the event loop's default thread-pool
+        executor. Cancelling the awaiting coroutine (e.g. the REST client disconnected) detaches
+        from that worker but does not stop it, so the tool keeps reading/writing the workspace after
+        the ``await`` unwinds. Releasing the scheduler lock at that point would let another operation
+        touch the same file while the worker is still running, interleaving two writes.
+
+        Shield the call so cancellation does not tear it down, and on cancellation wait for the
+        worker to finish before re-raising. Because this runs inside ``scheduler.acquire``, the lock
+        is not released until the in-flight work has drained.
+        """
+        task = asyncio.ensure_future(adapter.run(arguments))
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            # Drain the still-running worker before the lock is released; ignore its outcome since
+            # the caller's operation is being cancelled regardless.
+            with contextlib.suppress(BaseException):
+                await task
+            raise
 
     def _raise_for_status(self, entry: CatalogEntry, status: SupportStatus) -> None:
         if status == SupportStatus.UNSUPPORTED_REQUIRES_AGENT:
