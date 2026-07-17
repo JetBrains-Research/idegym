@@ -48,6 +48,7 @@ class _FakeSession(TerminalBackendSession):
         self._slow = slow
         self._close_raises = close_raises
         self.calls: list[str] = []
+        self.interrupts = 0
         # Shared in-flight counter across all backend methods, to detect the manager letting a close
         # overlap an execute/input/poll on the same session.
         self.inflight = 0
@@ -84,6 +85,7 @@ class _FakeSession(TerminalBackendSession):
         return BackendExec(output="", running=self._running)
 
     async def interrupt(self) -> None:
+        self.interrupts += 1
         self._running = False
 
     async def capture(self) -> str:
@@ -199,6 +201,31 @@ async def test_concurrent_interrupt_leaves_terminal_usable(manager):
     await exec_task  # the in-flight execute observes the interrupt and returns
     after = await manager.execute(d.terminal_id, "echo recovered")
     assert after.status == CallStatus.COMPLETED and "recovered" in after.output
+
+
+async def test_interrupt_idle_terminal_is_neutral_and_sends_no_signal(tmp_path, monkeypatch):
+    # Interrupting an idle terminal (no foreground command) must not signal the shell and must
+    # report a neutral, non-error result rather than a misleading INTERRUPTED.
+    mgr = await _fake_manager(tmp_path)
+    sess = _FakeSession(running=False)
+    monkeypatch.setattr(mgr, "_make_session", lambda *a, **k: sess)
+    d = await mgr.create(TerminalCreateRequest(backend=SUB))
+    res = await mgr.interrupt(d.terminal_id)
+    assert res.status == CallStatus.COMPLETED and not res.is_error
+    assert res.status != CallStatus.INTERRUPTED
+    assert res.metadata.get("idle") is True
+    assert sess.interrupts == 0  # no signal sent to an idle shell
+
+
+async def test_interrupt_running_foreground_signals_and_reports_interrupted(tmp_path, monkeypatch):
+    # A soft-timed-out foreground command (running but not holding the op lock) is still signalled.
+    mgr = await _fake_manager(tmp_path)
+    sess = _FakeSession(running=True)
+    monkeypatch.setattr(mgr, "_make_session", lambda *a, **k: sess)
+    d = await mgr.create(TerminalCreateRequest(backend=SUB))
+    res = await mgr.interrupt(d.terminal_id)
+    assert sess.interrupts == 1
+    assert res.status == CallStatus.INTERRUPTED
 
 
 async def test_idle_input_rejected_and_shell_stays_usable(manager):

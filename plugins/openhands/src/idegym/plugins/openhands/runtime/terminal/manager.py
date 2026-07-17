@@ -394,15 +394,14 @@ class TerminalSessionManager:
             return self._apply(handle, res, call_id=call_id)
 
     async def interrupt(self, terminal_id: str, *, call_id: str = "") -> TerminalResult:
-        # Interrupt must be able to signal an in-flight command without waiting on the execution
-        # lock. Send the signal first, unconditionally.
         handle = self._require(terminal_id)
-        await handle.session.interrupt()
         lock = handle.op_lock
         if lock.locked():
-            # An execute/input is in flight and holds the lock. It owns the backend's output buffer,
-            # so we must NOT poll here (that would race it for the completion sentinel). The in-flight
-            # call observes the interrupt in its own drain and returns the result; we return an ack.
+            # An execute/input is in flight and holds the lock. Signal the foreground command now
+            # (without waiting on the lock); it owns the backend's output buffer, so we must NOT
+            # poll here (that would race it for the completion sentinel). The in-flight call
+            # observes the interrupt in its own drain and returns the result; we return an ack.
+            await handle.session.interrupt()
             handle.touch()
             return TerminalResult(
                 call_id=call_id or uuid.uuid4().hex,
@@ -416,8 +415,30 @@ class TerminalSessionManager:
                 started_at=_now(),
                 finished_at=_now(),
             )
-        # No command in flight: drain post-interrupt output under the lock so the shell becomes usable.
+        # No command in flight: take the lock so we own the backend buffer, then decide by state.
         async with lock:
+            self._reject_if_closing(handle, terminal_id)
+            if not handle.session.has_foreground_command:
+                # Idle terminal: nothing to interrupt. Sending a signal would only disturb the
+                # prompt, and reporting INTERRUPTED would be misleading — return a neutral result.
+                handle.touch()
+                return TerminalResult(
+                    call_id=call_id or uuid.uuid4().hex,
+                    terminal_id=handle.terminal_id,
+                    backend=handle.backend,
+                    generation=handle.generation,
+                    state=handle.state,
+                    status=CallStatus.COMPLETED,
+                    running=False,
+                    exit_code=handle.last_exit_code,
+                    working_dir=handle.last_working_dir,
+                    metadata={"terminal_id": handle.terminal_id, "idle": True},
+                    started_at=_now(),
+                    finished_at=_now(),
+                )
+            # A foreground command is running (soft-timed-out): signal it, then drain post-interrupt
+            # output under the lock so the shell becomes usable.
+            await handle.session.interrupt()
             res = await handle.session.poll(1.0)
             res.interrupted = True
             return self._apply(handle, res, call_id=call_id)
