@@ -29,8 +29,8 @@ dev = [
     "requests>=2.34.2",
     "ruff>=0.15.20",
     "supervisor>=4.3.0",
-    "tqdm>=4.68.2",
-    "tomlkit>=0.15.0",
+    "tqdm>=4.68.4",
+    "tomlkit>=0.15.1",
 ]
 
 [tool.uv]
