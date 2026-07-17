@@ -80,7 +80,17 @@ class RequestDeduplicator:
             # the same id re-runs, but still hand the outcome to any in-flight followers.
             async with self._lock:
                 self._entries.pop(request_id, None)
-            entry.error = exc
+            # Followers are independent tasks that were NOT cancelled. Re-raising the leader's
+            # CancelledError inside them would surface as an unhandled error (a 500) rather than a
+            # clean, retryable outcome and would corrupt their task state. Give followers a
+            # retryable service error while the leader still re-raises its own cancellation.
+            if isinstance(exc, asyncio.CancelledError):
+                entry.error = ServiceError(
+                    ErrorCode.SERVICE_UNAVAILABLE,
+                    "the in-flight request was cancelled before completion; retry with the same request_id",
+                )
+            else:
+                entry.error = exc
             entry.done.set()
             raise
         async with self._lock:

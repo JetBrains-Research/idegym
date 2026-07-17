@@ -71,6 +71,37 @@ async def test_failure_is_not_cached_and_retry_reruns():
     assert calls == 2
 
 
+async def test_leader_cancellation_gives_followers_a_retryable_error():
+    # When the leader is cancelled (e.g. its client disconnected), a follower that was NOT cancelled
+    # must not receive the leader's CancelledError — it gets a clean, retryable service error.
+    dedup = RequestDeduplicator(10)
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def f():
+        started.set()
+        await release.wait()
+        return "ok"
+
+    h = canonical_hash({"a": 1})
+    leader = asyncio.create_task(dedup.run("r1", h, f))
+    await started.wait()
+    follower = asyncio.create_task(dedup.run("r1", h, f))
+    await asyncio.sleep(0.01)  # follower is now awaiting the leader's outcome
+
+    leader.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await leader  # the leader propagates its own cancellation
+
+    with pytest.raises(ServiceError) as exc:
+        await follower  # the follower gets a retryable error, not CancelledError
+    assert exc.value.code == ErrorCode.SERVICE_UNAVAILABLE
+
+    # The cancellation was not cached, so a later retry with the same id re-runs and succeeds.
+    release.set()
+    assert await dedup.run("r1", h, f) == "ok"
+
+
 async def test_concurrent_followers_share_a_single_failure():
     dedup = RequestDeduplicator(10)
     started = asyncio.Event()
