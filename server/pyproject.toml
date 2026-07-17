@@ -12,7 +12,7 @@ dependencies = [
     "anyio>=4.14.1",
     "dependency-injector>=4.49.1",
     "fastapi[standard]>=0.139.0",
-    "fastmcp>=3.3.1",
+    "fastmcp>=3.4.4",
     "idegym-api",
     "idegym-backend-utils",
     "idegym-common-utils",
