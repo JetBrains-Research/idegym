@@ -392,6 +392,54 @@ def test_openhands_worker_requires_a_running_loop():
         sess._worker.shutdown(wait=True)
 
 
+async def test_openhands_interrupt_wins_over_racing_run_update(monkeypatch):
+    # On SDK builds without an authoritative is_running(), has_foreground_command falls back to the
+    # derived running flag. An interrupt fired while an execute is in flight must keep that flag
+    # cleared even though the execute's observation still reports the command as running.
+    import threading
+
+    from idegym.plugins.openhands.runtime import compat
+    from idegym.plugins.openhands.runtime.terminal.backends.openhands import OpenHandsTerminalSession
+
+    started = threading.Event()
+    release = threading.Event()
+
+    class _FakeOHSession:  # deliberately no is_running() -> exercises the derived-flag fallback
+        cwd = "/w"
+
+        def initialize(self):
+            pass
+
+        def execute(self, action):
+            started.set()
+            release.wait(2.0)
+            # exit_code < 0 => the observation still reports the command as running.
+            return SimpleNamespace(exit_code=-1, content=[], metadata=SimpleNamespace(working_dir="/w"))
+
+        def interrupt(self):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(compat, "build_terminal_session", lambda **k: _FakeOHSession())
+    monkeypatch.setattr(compat, "terminal_action", lambda *a, **k: object())
+    monkeypatch.setattr(compat, "observation_text", lambda obs: "")
+
+    sess = OpenHandsTerminalSession(backend=TerminalBackend.TMUX, work_dir="/w", username=None, env={})
+    await sess.start()
+    try:
+        run_task = asyncio.create_task(sess.execute("sleep 30", 5))
+        await asyncio.to_thread(started.wait, 2.0)  # execute worker is now inside the session call
+        await sess.interrupt()  # fires while the execute is in flight
+        release.set()  # let the execute worker finish; its observation still says "running"
+        res = await run_task
+        assert res.running is True  # observation reported running...
+        assert sess.has_foreground_command is False  # ...but the interrupt result is not overwritten
+    finally:
+        await sess.close()
+
+
 async def test_native_close_terminates_background_descendants(manager):
     # A detached/backgrounded child (its own process group under job control) must be killed
     # on close, not leaked into a later environment.

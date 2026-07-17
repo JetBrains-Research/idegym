@@ -47,6 +47,10 @@ class OpenHandsTerminalSession(TerminalBackendSession):
         self._session: Any = None
         self._alive = False
         self._running = False
+        # Bumped on every interrupt. A run that started before an interrupt must not overwrite the
+        # running flag the interrupt cleared, so _run only trusts its observation when this is
+        # unchanged across the call.
+        self._interrupt_seq = 0
         # A dedicated single-thread executor serializes ALL synchronous session access (start /
         # execute / input / poll / close). The OpenHands session is not thread-safe, and
         # asyncio.to_thread() does not stop a worker on caller cancellation — a following request
@@ -99,6 +103,7 @@ class OpenHandsTerminalSession(TerminalBackendSession):
     async def _run(self, command: str, is_input: bool, timeout: Optional[float], reset: bool = False) -> BackendExec:
         if not self._alive or self._worker is None:
             return BackendExec(lost=True)
+        seq = self._interrupt_seq
         try:
             res = await self._in_worker(self._run_sync, command, is_input, timeout, reset)
         except asyncio.CancelledError:
@@ -108,7 +113,9 @@ class OpenHandsTerminalSession(TerminalBackendSession):
         except Exception:
             self._alive = False
             return BackendExec(lost=True)
-        self._running = res.running
+        # An interrupt that fired while this call was in flight wins: never resurrect the running
+        # flag it just cleared. Otherwise reflect what the observation reported.
+        self._running = res.running if self._interrupt_seq == seq else False
         return res
 
     async def execute(self, command: str, timeout: float) -> BackendExec:
@@ -130,6 +137,9 @@ class OpenHandsTerminalSession(TerminalBackendSession):
 
     async def interrupt(self) -> None:
         if self._alive and self._session is not None:
+            # Record the interrupt before signalling so a concurrent in-flight _run observes it and
+            # does not overwrite the cleared running flag with its own (stale) observation.
+            self._interrupt_seq += 1
             # Interrupt is a concurrent signal to an in-flight command, so it runs on a separate
             # thread (NOT the single worker, which is busy holding the execute it must interrupt).
             await asyncio.to_thread(self._session.interrupt)
