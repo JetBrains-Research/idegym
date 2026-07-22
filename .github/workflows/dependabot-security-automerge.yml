@@ -32,15 +32,66 @@ jobs:
         with:
           github-token: ${{ github.token }}
 
-      # Fail closed: only the explicitly named security group and recognized
-      # minor/patch SemVer updates are eligible. Major or unclassified security
-      # updates remain open for human review.
+      # Single source of truth for the verdict, reused by both the merge step and
+      # the job summary. Fail-closed: only the explicitly named security group and a
+      # recognized minor/patch SemVer bump qualify. Major or unclassified security
+      # updates are intentionally skipped (NOT failed) and left for manual review.
+      # This step NEVER enables auto-merge and NEVER approves the PR — the human
+      # approval required by branch protection is untouched.
+      - name: Evaluate auto-merge eligibility
+        id: evaluate
+        env:
+          DEP_GROUP: ${{ steps.dependabot-metadata.outputs.dependency-group }}
+          UPDATE_TYPE: ${{ steps.dependabot-metadata.outputs.update-type }}
+        run: |
+          eligible=false
+          if [ "$DEP_GROUP" != "security-minor-patch" ]; then
+            reason="dependency group '${DEP_GROUP:-<none>}' is not 'security-minor-patch'; only grouped minor/patch security updates auto-merge"
+          elif [ "$UPDATE_TYPE" != "version-update:semver-minor" ] && [ "$UPDATE_TYPE" != "version-update:semver-patch" ]; then
+            reason="update type '${UPDATE_TYPE:-<none>}' is not a minor or patch bump; majors stay manual"
+          else
+            eligible=true
+            reason="grouped minor/patch security update"
+          fi
+          echo "eligible=$eligible" >> "$GITHUB_OUTPUT"
+          echo "reason=$reason" >> "$GITHUB_OUTPUT"
+
+      # Enabling GitHub auto-merge does NOT bypass required reviews: the PR still
+      # needs the mandatory human approval and all required checks before it merges.
       - name: Enable auto-merge for minor and patch security updates
-        if: >-
-          steps.dependabot-metadata.outputs.dependency-group == 'security-minor-patch' &&
-          (steps.dependabot-metadata.outputs.update-type == 'version-update:semver-patch' ||
-           steps.dependabot-metadata.outputs.update-type == 'version-update:semver-minor')
+        if: steps.evaluate.outputs.eligible == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_URL: ${{ github.event.pull_request.html_url }}
         run: gh pr merge --auto --squash "$PR_URL"
+
+      # Always run so the outcome is visible in the run's Summary tab even when the
+      # merge step was skipped. A skipped merge is an expected, non-failing outcome.
+      - name: Report outcome
+        if: always()
+        env:
+          DEP_GROUP: ${{ steps.dependabot-metadata.outputs.dependency-group }}
+          UPDATE_TYPE: ${{ steps.dependabot-metadata.outputs.update-type }}
+          ELIGIBLE: ${{ steps.evaluate.outputs.eligible }}
+          REASON: ${{ steps.evaluate.outputs.reason }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if [ "$ELIGIBLE" = "true" ]; then
+            automerge="✅ enabled"
+            note="GitHub auto-merge was enabled. This does **not** approve the PR: it still requires the mandatory human approval and all required status checks before it merges."
+          else
+            automerge="⏭️ skipped (not a failure)"
+            note="Merge step skipped — ${REASON:-not eligible}. This PR must be reviewed and merged manually."
+          fi
+          {
+            echo "## Dependabot security auto-merge"
+            echo ""
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| PR | #${PR_NUMBER} |"
+            echo "| Dependency group | \`${DEP_GROUP:-<none>}\` |"
+            echo "| Update type | \`${UPDATE_TYPE:-<none>}\` |"
+            echo "| Auto-merge | ${automerge} |"
+            echo ""
+            echo "${note}"
+          } >> "$GITHUB_STEP_SUMMARY"

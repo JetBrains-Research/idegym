@@ -5,6 +5,8 @@ version: 2
 #   delayed by this schedule.
 # - Routine minor/patch version updates run quarterly.
 # - Routine major version updates are ignored and must be initiated manually.
+# - The /website (npm) presentation site is security-only: routine version
+#   updates are disabled (open-pull-requests-limit: 0); security updates still flow.
 updates:
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -280,5 +282,41 @@ updates:
           - "version-update:semver-major"
     commit-message:
       prefix: "[examples] "
+    labels:
+      - "dependencies"
+
+  # /website is the Docusaurus presentation site (its own package-lock.json). There
+  # is no requirement for routine npm version bumps here, so this block is
+  # security-only: open-pull-requests-limit: 0 disables routine version updates
+  # while leaving Dependabot's alert-driven security updates untouched (security
+  # updates have a separate internal limit of 10 and ignore this setting). The two
+  # security groups mirror every other ecosystem so npm security PRs are grouped by
+  # SemVer risk (security-minor-patch vs security-major) instead of arriving as one
+  # ungrouped PR per package (which is why #249/#250 landed separately before this).
+  # No `ignore` block is needed: with version updates off, only security updates
+  # remain, and security majors must still surface (grouped) for manual review.
+  - package-ecosystem: "npm"
+    directory: "/website"
+    schedule:
+      interval: "quarterly"
+      time: "09:00"
+      timezone: "Europe/Amsterdam"
+    open-pull-requests-limit: 0
+    groups:
+      security-minor-patch:
+        applies-to: "security-updates"
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+      security-major:
+        applies-to: "security-updates"
+        patterns:
+          - "*"
+        update-types:
+          - "major"
+    commit-message:
+      prefix: "[website] "
     labels:
       - "dependencies"
