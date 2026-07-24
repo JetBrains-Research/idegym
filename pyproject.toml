@@ -29,7 +29,7 @@ dev = [
     "requests>=2.34.2",
     "ruff>=0.16.0",
     "supervisor>=4.3.0",
-    "tqdm>=4.68.4",
+    "tqdm>=4.69.1",
     "tomlkit>=0.15.1",
 ]
 
