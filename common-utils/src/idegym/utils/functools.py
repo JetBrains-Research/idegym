@@ -1,5 +1,6 @@
 from asyncio import Lock
-from typing import Awaitable, Callable, Optional, ParamSpec, TypeVar, cast, overload
+from collections.abc import Awaitable, Callable
+from typing import Optional, ParamSpec, TypeVar, cast, overload
 
 P = ParamSpec("P")
 R = TypeVar("R")

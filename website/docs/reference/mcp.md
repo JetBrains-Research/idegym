@@ -256,7 +256,7 @@ result = await mcp.call_tool(
         },
     },
 )
-content = result.structured_content["content"]   # list of MCP content items
+content = result.structured_content["content"]  # list of MCP content items
 is_error = result.structured_content["is_error"]
 ```
 
@@ -302,10 +302,7 @@ Enable it by passing `mcp_steroid=True` to the `Idea` or `PyCharm` plugin:
 from idegym.image.builder import Image
 from idegym.plugins.pycharm.image import PyCharm
 
-image = (
-    Image(base="...")
-    .plugin(PyCharm(version="2026.1.1", mcp_steroid=True))
-)
+image = Image(base="...").plugin(PyCharm(version="2026.1.1", mcp_steroid=True))
 ```
 
 When `mcp_steroid=True`:

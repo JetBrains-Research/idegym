@@ -1,5 +1,5 @@
 from enum import StrEnum
-from typing import Optional, Union
+from typing import Optional
 from uuid import UUID
 
 from idegym.api.orchestrator.servers import ServerKind, StartServerRequest
@@ -45,7 +45,6 @@ class PodSnapshotManualTrigger(BaseModel):
 
 
 class PodSnapshotTriggerReason(StrEnum):
-
     PROCESSING = "Processing"
     COMPLETE = "Complete"
 
@@ -72,7 +71,7 @@ class PodSnapshotManualTriggerStatus(BaseModel):
 
     conditions: list[PodSnapshotTriggerCondition] = Field(default_factory=list)
     # GKE's docs disagree on the shape: a nested object carrying `name`, or the plain name string.
-    snapshot_created: Optional[Union[PodSnapshotCreated, str]] = None
+    snapshot_created: Optional[PodSnapshotCreated | str] = None
     snapshot_created_name: Optional[str] = None
 
     @property

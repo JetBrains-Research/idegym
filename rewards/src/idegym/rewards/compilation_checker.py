@@ -12,7 +12,7 @@ class CompilationChecker:
         timeout: float = 600.0,
         graceful_termination_timeout: float = 2.0,
     ) -> dict:
-        stdout, stderr, exit_code = await self.bash_executor.execute_bash_command(
+        _stdout, stderr, exit_code = await self.bash_executor.execute_bash_command(
             compilation_script, timeout, graceful_termination_timeout
         )
 

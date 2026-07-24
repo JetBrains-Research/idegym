@@ -1,13 +1,15 @@
 from asyncio import Task, all_tasks, sleep
+from collections.abc import Iterable
 from types import FrameType
-from typing import Iterable, Union
+from typing import Union
 
 from idegym.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-FrameDump = dict[str, Union[int, str, ...]]
-TaskDump = dict[str, Union[bool, str, Iterable[FrameDump]]]
+# Runtime-evaluated alias: `... | int` raises at runtime, so Ellipsis must stay inside Union.
+FrameDump = dict[str, Union[int, str, ...]]  # noqa: UP007
+TaskDump = dict[str, bool | str | Iterable[FrameDump]]
 
 
 def dump_tasks() -> Iterable[TaskDump]:

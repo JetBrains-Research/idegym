@@ -137,7 +137,7 @@ image = image.with_runtime(
     runtime_class_name="gvisor",
     resources={
         "requests": {"cpu": "500m", "memory": "512Mi", "ephemeral-storage": "2Gi"},
-        "limits":   {"cpu": "1",    "memory": "1Gi",   "ephemeral-storage": "2Gi"},
+        "limits": {"cpu": "1", "memory": "1Gi", "ephemeral-storage": "2Gi"},
     },
 )
 ```
@@ -161,15 +161,13 @@ image = (
             target="/home/devuser/project",
         )
     )
-    .with_plugin(
-        Permissions(paths={"/home/devuser/project": {"owner": "devuser", "mode": "755"}})
-    )
+    .with_plugin(Permissions(paths={"/home/devuser/project": {"owner": "devuser", "mode": "755"}}))
     .pip_install("pytest", "black")
     .with_runtime(
         runtime_class_name="gvisor",
         resources={
             "requests": {"cpu": "500m", "memory": "512Mi"},
-            "limits":   {"cpu": "1",    "memory": "1Gi"},
+            "limits": {"cpu": "1", "memory": "1Gi"},
         },
     )
 )
@@ -293,10 +291,10 @@ User(
     username="appuser",
     uid=1000,
     gid=1000,
-    group="appuser",              # Optional primary group name (defaults to username)
-    home="/home/appuser",         # Optional, defaults to /home/<username>
-    shell="/bin/bash",            # Optional, defaults to /bin/bash
-    sudo=True,                    # Grant passwordless sudo
+    group="appuser",  # Optional primary group name (defaults to username)
+    home="/home/appuser",  # Optional, defaults to /home/<username>
+    shell="/bin/bash",  # Optional, defaults to /bin/bash
+    sudo=True,  # Grant passwordless sudo
     additional_groups=("docker",),  # Optional extra groups to join
 )
 ```
@@ -331,9 +329,9 @@ from idegym.plugins.defaults.image import Permissions
 
 Permissions(
     paths={
-        "/home/appuser":         {"owner": "appuser", "mode": "755"},
-        "/home/appuser/.config": {"owner": "appuser"},          # mode optional
-        "/var/log/app":          {"mode": "777"},                # owner optional
+        "/home/appuser": {"owner": "appuser", "mode": "755"},
+        "/home/appuser/.config": {"owner": "appuser"},  # mode optional
+        "/var/log/app": {"mode": "777"},  # owner optional
     }
 )
 ```
@@ -379,11 +377,11 @@ from idegym.plugins.defaults.image import Project
 
 Project.from_git(
     url="https://github.com/your-org/your-repo.git",
-    ref="abc1234",                 # branch, tag, or commit SHA (pin to a SHA for reproducibility)
-    owner="appuser",               # file ownership inside the container
-    target="/home/appuser/work",   # destination path (defaults to $HOME/work)
-    group="appuser",               # optional group (defaults to owner)
-    auth=None,                     # optional Authorization for private repos
+    ref="abc1234",  # branch, tag, or commit SHA (pin to a SHA for reproducibility)
+    owner="appuser",  # file ownership inside the container
+    target="/home/appuser/work",  # destination path (defaults to $HOME/work)
+    group="appuser",  # optional group (defaults to owner)
+    auth=None,  # optional Authorization for private repos
 )
 ```
 
@@ -404,7 +402,7 @@ Downloads one specific file from a git repository via IdeGYM's download infrastr
 Project.from_resource(
     url="https://github.com/your-org/your-repo.git",
     ref="abc1234",
-    path="scripts/setup.sh",       # path to the file inside the repo
+    path="scripts/setup.sh",  # path to the file inside the repo
     owner="appuser",
     target="/home/appuser/work",
 )
@@ -426,7 +424,7 @@ Emits a `COPY` instruction. No network access; the directory must be present in 
 
 ```python
 Project.from_local(
-    path="./my-project",           # path relative to the build context
+    path="./my-project",  # path relative to the build context
     target="/home/appuser/work",
     owner="appuser",
     group="appuser",
@@ -472,7 +470,7 @@ download-based approach and works with any git server, but requires `git` to be 
 ```python
 Project.from_git_clone(
     url="https://github.com/your-org/your-repo.git",
-    ref="main",                    # branch, tag, or commit SHA
+    ref="main",  # branch, tag, or commit SHA
     target="/home/appuser/work",
     owner="appuser",
     group="appuser",
@@ -517,7 +515,7 @@ The Docker build context is set to the repository root, and all workspace packag
 from idegym.plugins.defaults.image import IdeGYMServer
 from from_root import from_root
 
-IdeGYMServer.from_local(root=from_root())   # from_root() returns the repository root
+IdeGYMServer.from_local(root=from_root())  # from_root() returns the repository root
 ```
 
 ```yaml
@@ -533,7 +531,7 @@ IdeGYM is cloned with `git clone` inside the container at build time. No build c
 ```python
 IdeGYMServer.from_git(
     url="https://github.com/JetBrains-Research/idegym.git",
-    ref="main",    # branch, tag, or commit SHA
+    ref="main",  # branch, tag, or commit SHA
 )
 ```
 
@@ -584,10 +582,12 @@ image = (
     Image.from_base("debian:bookworm-20250520-slim")
     .with_plugin(BaseSystem())
     .with_plugin(User(username="appuser", uid=1000, gid=1000))
-    .with_plugin(IdeGYMServer.from_git(
-        url="https://github.com/JetBrains-Research/idegym.git",
-        ref="main",
-    ))
+    .with_plugin(
+        IdeGYMServer.from_git(
+            url="https://github.com/JetBrains-Research/idegym.git",
+            ref="main",
+        )
+    )
     .with_plugin(
         Project.from_git_clone(
             url="https://github.com/your-org/your-repo.git",
@@ -610,8 +610,8 @@ and the JetBrains MCP server plugin is bundled.
 from idegym.plugins.pycharm.image import PyCharm
 
 PyCharm(
-    version="2026.1.1",            # YYYY.N or YYYY.N.N; must be 2026.1.1+
-    user="appuser",                # user to switch back to after installation
+    version="2026.1.1",  # YYYY.N or YYYY.N.N; must be 2026.1.1+
+    user="appuser",  # user to switch back to after installation
 )
 ```
 
@@ -870,7 +870,7 @@ class MyPlugin(PluginBase):
 
     def render(self, ctx: BuildContext) -> str:
         # Return a Dockerfile fragment (no leading/trailing newlines needed).
-        return f'RUN echo {self.message!r} > {self.path}'
+        return f"RUN echo {self.message!r} > {self.path}"
 ```
 
 Once registered, the plugin can be used in Python:

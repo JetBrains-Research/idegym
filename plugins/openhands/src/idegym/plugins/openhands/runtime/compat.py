@@ -85,7 +85,7 @@ def openhands_available() -> bool:
     try:
         importlib.import_module("openhands.tools")
         return True
-    except Exception:
+    except Exception:  # noqa: BLE001  # probe: any import error means OpenHands is unavailable
         return False
 
 

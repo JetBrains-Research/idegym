@@ -24,7 +24,7 @@ class JobOperations:
         timeout: Optional[int] = None,
         poll_interval: int = 10,
     ) -> BuildJobsSummary:
-        with open(path, "r") as file:
+        with open(path) as file:  # noqa: ASYNC230  # one-shot read of a caller-provided local file
             yaml_content = file.read()
 
         namespace = self._utils.validate_namespace(namespace)
@@ -99,7 +99,7 @@ class JobOperations:
             except Exception as e:
                 if attempt < max_retries - 1:
                     logger.warning(
-                        f"Error getting job status for {job_name} (attempt {attempt + 1}/{max_retries}): {type(e).__name__}: {str(e)}. "
+                        f"Error getting job status for {job_name} (attempt {attempt + 1}/{max_retries}): {type(e).__name__}: {e!s}. "
                         f"Retrying in {retry_delay} seconds..."
                     )
                     await sleep(retry_delay)
@@ -109,5 +109,5 @@ class JobOperations:
                     return JobStatusResponse(
                         job_name=job_name,
                         status=Status.FAILURE,
-                        details=f"{message}: {type(e).__name__}: {str(e)}",
+                        details=f"{message}: {type(e).__name__}: {e!s}",
                     )

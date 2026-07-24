@@ -358,7 +358,7 @@ Centralized configuration used across the test suite:
 DEFAULT_NAMESPACE = "idegym-local"
 INGRESS_NAMESPACE = "ingress-nginx"
 BASE_URL = "http://idegym-local.test"
-DEFAULT_REQUEST_TIMEOUT = 60        # seconds
+DEFAULT_REQUEST_TIMEOUT = 60  # seconds
 DEFAULT_SERVER_START_TIMEOUT = 600  # seconds
 ```
 

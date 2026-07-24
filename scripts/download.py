@@ -7,7 +7,7 @@
 # ]
 # ///
 from argparse import ArgumentParser, ArgumentTypeError, Namespace
-from sys import stderr, stdout
+from sys import exit, stderr, stdout
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -17,7 +17,7 @@ from tqdm import tqdm
 
 
 def http_url(value: str) -> str:
-    scheme, netloc, path, *_ = urlparse(value)
+    scheme, netloc, _path, *_ = urlparse(value)
     match scheme:
         case "http" | "https" if bool(netloc):
             return value

@@ -114,83 +114,83 @@ async def test_mcp_steroid_idea(test_id):
     image_tag = str(built.repo_tags[0])
     minikube_load_image(image_tag=image_tag, timeout=600)
 
-    async with create_http_client(
-        name=f"idea-mcp-steroid-{test_id}",
-        nodes_count=0,
-        request_timeout_in_seconds=600,
-    ) as client:
-        async with client.with_server(
+    async with (
+        create_http_client(
+            name=f"idea-mcp-steroid-{test_id}",
+            nodes_count=0,
+            request_timeout_in_seconds=600,
+        ) as client,
+        client.with_server(
             image_tag=image_tag,
             server_name=f"idea-mcp-steroid-server-{test_id}",
             run_as_root=True,
             resources=_IDEA_RESOURCES,
             server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
-        ) as server:
-            # Wait for mcp-steroid (IDEA starts asynchronously via supervisord).
-            wait_result = await server.execute_bash(
-                script=_WAIT_MCP_STEROID_SCRIPT,
-                command_timeout=320.0,
-            )
-            assert wait_result.exit_code == 0, (
-                f"mcp-steroid did not become ready within 300s.\n"
-                f"stdout: {wait_result.stdout}\n"
-                f"stderr: {wait_result.stderr}"
+        ) as server,
+    ):
+        # Wait for mcp-steroid (IDEA starts asynchronously via supervisord).
+        wait_result = await server.execute_bash(
+            script=_WAIT_MCP_STEROID_SCRIPT,
+            command_timeout=320.0,
+        )
+        assert wait_result.exit_code == 0, (
+            f"mcp-steroid did not become ready within 300s.\nstdout: {wait_result.stdout}\nstderr: {wait_result.stderr}"
+        )
+
+        # --- tools/list -------------------------------------------------
+        tools_result = await server.execute_bash(script=_TOOLS_LIST_SCRIPT, command_timeout=30.0)
+        assert tools_result.exit_code == 0, f"tools/list request failed:\n{tools_result.stderr}"
+
+        lines = [ln for ln in tools_result.stdout.strip().splitlines() if ln.strip()]
+        response = json.loads(lines[-1])
+        assert "result" in response, f"tools/list returned no result field.\nResponse: {response}"
+
+        tool_names = {t["name"] for t in response["result"]["tools"]}
+
+        print(f"\nmcp-steroid tools available ({len(tool_names)}):")
+        for name in sorted(tool_names):
+            print(f"  - {name}")
+
+        for expected_tool in _REQUIRED_TOOLS:
+            assert expected_tool in tool_names, (
+                f"Required mcp-steroid tool {expected_tool!r} not found.\nAvailable tools: {sorted(tool_names)}"
             )
 
-            # --- tools/list -------------------------------------------------
-            tools_result = await server.execute_bash(script=_TOOLS_LIST_SCRIPT, command_timeout=30.0)
-            assert tools_result.exit_code == 0, f"tools/list request failed:\n{tools_result.stderr}"
+        # --- Open project via steroid_open_project tool ----------------
+        open_result = await server.execute_bash(script=_OPEN_PROJECT_SCRIPT, command_timeout=60.0)
+        assert open_result.exit_code == 0, f"steroid_open_project call failed:\n{open_result.stderr}"
 
-            lines = [ln for ln in tools_result.stdout.strip().splitlines() if ln.strip()]
+        lines = [ln for ln in open_result.stdout.strip().splitlines() if ln.strip()]
+        if lines:
             response = json.loads(lines[-1])
-            assert "result" in response, f"tools/list returned no result field.\nResponse: {response}"
+            print(f"\nsteroid_open_project response: {json.dumps(response, indent=2)}")
+            if "error" in response:
+                raise AssertionError(f"steroid_open_project failed: {response['error']}")
 
-            tool_names = {t["name"] for t in response["result"]["tools"]}
+        # --- Poll steroid_list_projects until the project appears -------
+        # Wait up to 60s for the project to appear (IDE may take time to index).
+        for attempt in range(12):  # 12 attempts × 5s = 60s
+            list_result = await server.execute_bash(script=_LIST_PROJECTS_SCRIPT, command_timeout=15.0)
+            assert list_result.exit_code == 0, f"steroid_list_projects call failed:\n{list_result.stderr}"
 
-            print(f"\nmcp-steroid tools available ({len(tool_names)}):")
-            for name in sorted(tool_names):
-                print(f"  - {name}")
-
-            for expected_tool in _REQUIRED_TOOLS:
-                assert expected_tool in tool_names, (
-                    f"Required mcp-steroid tool {expected_tool!r} not found.\nAvailable tools: {sorted(tool_names)}"
-                )
-
-            # --- Open project via steroid_open_project tool ----------------
-            open_result = await server.execute_bash(script=_OPEN_PROJECT_SCRIPT, command_timeout=60.0)
-            assert open_result.exit_code == 0, f"steroid_open_project call failed:\n{open_result.stderr}"
-
-            lines = [ln for ln in open_result.stdout.strip().splitlines() if ln.strip()]
+            lines = [ln for ln in list_result.stdout.strip().splitlines() if ln.strip()]
             if lines:
                 response = json.loads(lines[-1])
-                print(f"\nsteroid_open_project response: {json.dumps(response, indent=2)}")
-                if "error" in response:
-                    raise AssertionError(f"steroid_open_project failed: {response['error']}")
+                if "result" in response:
+                    result_content = response.get("result", {})
+                    if "content" in result_content:
+                        content = result_content["content"]
+                        if isinstance(content, list) and content:
+                            projects_text = content[0].get("text", "")
+                            print(f"\nAttempt {attempt + 1}: steroid_list_projects:\n{projects_text}")
+                            if _PROJECT_PATH in projects_text:
+                                print(f"\n✓ Project {_PROJECT_PATH} successfully opened and listed!")
+                                return
 
-            # --- Poll steroid_list_projects until the project appears -------
-            # Wait up to 60s for the project to appear (IDE may take time to index).
-            for attempt in range(12):  # 12 attempts × 5s = 60s
-                list_result = await server.execute_bash(script=_LIST_PROJECTS_SCRIPT, command_timeout=15.0)
-                assert list_result.exit_code == 0, f"steroid_list_projects call failed:\n{list_result.stderr}"
+            if attempt < 11:
+                await server.execute_bash(script="sleep 5", command_timeout=10.0)
 
-                lines = [ln for ln in list_result.stdout.strip().splitlines() if ln.strip()]
-                if lines:
-                    response = json.loads(lines[-1])
-                    if "result" in response:
-                        result_content = response.get("result", {})
-                        if "content" in result_content:
-                            content = result_content["content"]
-                            if isinstance(content, list) and content:
-                                projects_text = content[0].get("text", "")
-                                print(f"\nAttempt {attempt + 1}: steroid_list_projects:\n{projects_text}")
-                                if _PROJECT_PATH in projects_text:
-                                    print(f"\n✓ Project {_PROJECT_PATH} successfully opened and listed!")
-                                    return
-
-                if attempt < 11:
-                    await server.execute_bash(script="sleep 5", command_timeout=10.0)
-
-            raise AssertionError(
-                f"Project {_PROJECT_PATH} did not appear in steroid_list_projects after 60 seconds.\n"
-                f"Last response: " + (lines[-1] if lines else "no response")
-            )
+        raise AssertionError(
+            f"Project {_PROJECT_PATH} did not appear in steroid_list_projects after 60 seconds.\n"
+            f"Last response: " + (lines[-1] if lines else "no response")
+        )

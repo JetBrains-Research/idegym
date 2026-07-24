@@ -114,7 +114,7 @@ class SubprocessBackendSession(TerminalBackendSession):
             stderr=slave_fd,
             cwd=self._cwd,
             env=self._env,
-            preexec_fn=_preexec,
+            preexec_fn=_preexec,  # noqa: PLW1509  # intentional setsid; child is single-threaded pre-exec
             close_fds=True,
         )
         os.close(slave_fd)
@@ -200,7 +200,7 @@ class SubprocessBackendSession(TerminalBackendSession):
         self._write(build_command_line("true", token).encode())
         deadline = time.monotonic() + 5.0
         while time.monotonic() < deadline:
-            _before, rc, cwd, done = self._take(sentinel)  # discard residual output from the abort
+            _before, _rc, cwd, done = self._take(sentinel)  # discard residual output from the abort
             if done:
                 self._pending_token = None
                 self._sentinel = None
@@ -350,7 +350,7 @@ class SubprocessBackendSession(TerminalBackendSession):
         except OSError:
             pass
         with contextlib.suppress(OSError, subprocess.SubprocessError):
-            out = subprocess.run(["pgrep", "-P", str(pid)], capture_output=True, text=True, timeout=2)
+            out = subprocess.run(["pgrep", "-P", str(pid)], capture_output=True, text=True, timeout=2, check=False)
             return [int(p) for p in out.stdout.split() if p.strip().isdigit()]
         return []
 

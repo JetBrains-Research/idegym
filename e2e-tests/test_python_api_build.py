@@ -272,33 +272,35 @@ async def test_local_docker_build_and_deploy(test_id):
     # Load into minikube's containerd so pods can use it
     minikube_load_image(image_tag, timeout=120)
 
-    async with create_http_client(
-        name=f"local-docker-{test_id}",
-        nodes_count=0,
-        request_timeout_in_seconds=300,
-    ) as client:
-        async with client.with_server(
+    async with (
+        create_http_client(
+            name=f"local-docker-{test_id}",
+            nodes_count=0,
+            request_timeout_in_seconds=300,
+        ) as client,
+        client.with_server(
             image_tag=image_tag,
             server_name=f"local-docker-server-{test_id}",
             runtime_class_name="gvisor",
             run_as_root=True,
             resources=_DEFAULT_RESOURCES,
             server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
-        ) as server:
-            # User plugin: localuser with uid=5000 should exist
-            result = await server.execute_bash(script="id localuser", command_timeout=60.0)
-            assert result.exit_code == 0, f"localuser not found: {result.stderr}"
-            assert "5000" in result.stdout, f"Unexpected uid for localuser: {result.stdout}"
+        ) as server,
+    ):
+        # User plugin: localuser with uid=5000 should exist
+        result = await server.execute_bash(script="id localuser", command_timeout=60.0)
+        assert result.exit_code == 0, f"localuser not found: {result.stderr}"
+        assert "5000" in result.stdout, f"Unexpected uid for localuser: {result.stdout}"
 
-            # Permissions plugin: /home/localuser should be owned by localuser
-            result = await server.execute_bash(script="stat -c '%U' /home/localuser", command_timeout=60.0)
-            assert result.exit_code == 0, f"Failed to stat /home/localuser: {result.stderr}"
-            assert "localuser" in result.stdout, f"Unexpected owner: {result.stdout}"
+        # Permissions plugin: /home/localuser should be owned by localuser
+        result = await server.execute_bash(script="stat -c '%U' /home/localuser", command_timeout=60.0)
+        assert result.exit_code == 0, f"Failed to stat /home/localuser: {result.stderr}"
+        assert "localuser" in result.stdout, f"Unexpected owner: {result.stdout}"
 
-            # Commands block: marker file should be in localuser's home
-            result = await server.execute_bash(script="cat /home/localuser/local-test.txt", command_timeout=60.0)
-            assert result.exit_code == 0, f"Marker file missing: {result.stderr}"
-            assert "local-docker-test" in result.stdout, f"Unexpected content: {result.stdout}"
+        # Commands block: marker file should be in localuser's home
+        result = await server.execute_bash(script="cat /home/localuser/local-test.txt", command_timeout=60.0)
+        assert result.exit_code == 0, f"Marker file missing: {result.stderr}"
+        assert "local-docker-test" in result.stdout, f"Unexpected content: {result.stdout}"
 
 
 @pytest.mark.asyncio
@@ -338,24 +340,26 @@ async def test_local_docker_build_from_idegym_server_plugin(test_id):
     image_tag = str(built.repo_tags[0])
     minikube_load_image(image_tag, timeout=120)
 
-    async with create_http_client(
-        name=f"idegym-from-local-{test_id}",
-        nodes_count=0,
-        request_timeout_in_seconds=300,
-    ) as client:
-        async with client.with_server(
+    async with (
+        create_http_client(
+            name=f"idegym-from-local-{test_id}",
+            nodes_count=0,
+            request_timeout_in_seconds=300,
+        ) as client,
+        client.with_server(
             image_tag=image_tag,
             server_name=f"idegym-from-local-server-{test_id}",
             runtime_class_name="gvisor",
             run_as_root=True,
             resources=_DEFAULT_RESOURCES,
             server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
-        ) as server:
-            # IdeGYM should be installed at /opt/idegym from local source
-            result = await server.execute_bash(script="ls /opt/idegym/server", command_timeout=30.0)
-            assert result.exit_code == 0, f"IdeGYM server dir missing: {result.stderr}"
-            assert result.stdout.strip(), "IdeGYM server directory is empty"
+        ) as server,
+    ):
+        # IdeGYM should be installed at /opt/idegym from local source
+        result = await server.execute_bash(script="ls /opt/idegym/server", command_timeout=30.0)
+        assert result.exit_code == 0, f"IdeGYM server dir missing: {result.stderr}"
+        assert result.stdout.strip(), "IdeGYM server directory is empty"
 
-            # uv sync should have created a virtual environment
-            result = await server.execute_bash(script="ls /opt/idegym/.venv/bin/python", command_timeout=30.0)
-            assert result.exit_code == 0, f"Python venv not found: {result.stderr}"
+        # uv sync should have created a virtual environment
+        result = await server.execute_bash(script="ls /opt/idegym/.venv/bin/python", command_timeout=30.0)
+        assert result.exit_code == 0, f"Python venv not found: {result.stderr}"

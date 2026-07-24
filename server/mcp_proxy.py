@@ -60,7 +60,7 @@ def create_mcp_server(get_tool_service: Optional[Callable] = None) -> FastMCP:
         try:
             proxy = create_proxy(url, name=name)
             mcp.mount(proxy, namespace=name)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # skip an upstream that fails to mount
             logger.warning(f"Skipping MCP upstream {config_file.name} during mount: {exc}")
             continue
         logger.info(f"MCP upstream {name!r} mounted from {url}")

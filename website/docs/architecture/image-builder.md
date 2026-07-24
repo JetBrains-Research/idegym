@@ -72,12 +72,12 @@ from idegym.plugins.defaults.image import BaseSystem, User, Project, IdeGYMServe
 
 image = (
     Image.from_base("debian:bookworm-slim")
-    .with_plugin(BaseSystem())                       # apt packages
+    .with_plugin(BaseSystem())  # apt packages
     .with_plugin(User(username="appuser", uid=1000, gid=1000))
     .with_plugin(IdeGYMServer.from_git(url=..., ref="main"))
     .with_plugin(Project.from_git(url=..., ref="abc123", owner="appuser"))
 )
-spec = image.to_spec()        # → ImageBuildSpec (inspect spec.dockerfile_content)
+spec = image.to_spec()  # → ImageBuildSpec (inspect spec.dockerfile_content)
 ```
 
 ## Built-in image plugins

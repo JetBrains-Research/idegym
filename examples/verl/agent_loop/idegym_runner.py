@@ -36,10 +36,10 @@ def with_timeout_and_retry(max_retries: int = 3, retry_delay: float = 1.0, timeo
                     result = await asyncio.wait_for(func(*args, **kwargs), timeout=timeout)
                     return result
                 except (
+                    TimeoutError,
                     IdeGYMException,
                     aiohttp.client_exceptions.ServerDisconnectedError,
                     aiohttp.client_exceptions.ClientConnectorError,
-                    asyncio.TimeoutError,
                     ConnectionError,
                 ) as e:
                     logger.warning(f"Attempt {attempt + 1}/{max_retries} failed: {type(e).__name__}: {e}")
@@ -49,7 +49,7 @@ def with_timeout_and_retry(max_retries: int = 3, retry_delay: float = 1.0, timeo
                     await asyncio.sleep(retry_delay)
                 except Exception as e:
                     logger.error(f"Non-retryable error: {type(e).__name__}: {e}")
-                    raise e
+                    raise
 
         return wrapper
 

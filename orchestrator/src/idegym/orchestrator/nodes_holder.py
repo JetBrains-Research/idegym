@@ -1,5 +1,6 @@
+from collections.abc import Awaitable, Callable
 from http import HTTPStatus
-from typing import Awaitable, Callable, Optional, TypeVar
+from typing import Optional
 from uuid import UUID
 
 from idegym.api import __version__
@@ -32,14 +33,12 @@ from kubernetes_asyncio.client import (
     V1Toleration,
 )
 
-T = TypeVar("T", V1Deployment, V1PodDisruptionBudget)
-
 logger = get_logger(__name__)
 
 component = "node-holder"
 
 
-async def create_or_patch_resource(
+async def create_or_patch_resource[T: (V1Deployment, V1PodDisruptionBudget)](
     create_resource_method: Callable[..., Awaitable[T]],
     patch_resource_method: Callable[..., Awaitable[T]],
     resource_name: str,
@@ -290,8 +289,8 @@ async def change_number_of_spun_nodes(client_id: UUID, namespace: str):
             nodes_released = await release_nodes_for_client(client_name=client_nodes.name, namespace=namespace)
             if not nodes_released:
                 had_errors = True
-        except Exception as e:
-            logger.exception(f"Error deleting client nodes for client ID {client_id}: {str(e)}")
+        except Exception:
+            logger.exception(f"Error deleting client nodes for client ID {client_id}")
             had_errors = True
 
     if client_nodes.nodes > 0:
@@ -304,8 +303,8 @@ async def change_number_of_spun_nodes(client_id: UUID, namespace: str):
             )
             if not nodes_released:
                 had_errors = True
-        except Exception as e:
-            logger.exception(f"Error updating client nodes for client ID {client_id}: {str(e)}")
+        except Exception:
+            logger.exception(f"Error updating client nodes for client ID {client_id}")
             had_errors = True
 
     return had_errors

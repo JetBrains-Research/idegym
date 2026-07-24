@@ -1,5 +1,5 @@
 from asyncio import current_task
-from typing import Final, FrozenSet
+from typing import Final
 
 from aiorwlock import RWLock as ReadWriteLock
 from idegym.api.ctx import task_id_context_var, task_name_context_var
@@ -14,7 +14,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 
 class AsyncioTaskContextMiddleware:
-    SCOPE_TYPES: Final[FrozenSet] = frozenset({"http", "websocket"})
+    SCOPE_TYPES: Final[frozenset] = frozenset({"http", "websocket"})
 
     def __init__(self, app: ASGIApp):
         self.app = app

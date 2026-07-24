@@ -205,12 +205,14 @@ forward = await mcp.call_tool(
             "path": "idea/inspect",
             "method": "POST",
             "headers": {"Content-Type": "application/json"},
-            "body": json.dumps({
-                "project_path": "/root/work",
-                "profile_path": "/root/work/.idea/inspectionProfiles/Project_Default.xml",
-                "output_dir": "/tmp/inspection-results",
-                "format": "xml",
-            }),
+            "body": json.dumps(
+                {
+                    "project_path": "/root/work",
+                    "profile_path": "/root/work/.idea/inspectionProfiles/Project_Default.xml",
+                    "output_dir": "/tmp/inspection-results",
+                    "format": "xml",
+                }
+            ),
         },
     },
 )

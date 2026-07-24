@@ -16,7 +16,7 @@ pytestmark = pytest.mark.unit
 
 
 def _spec(**kwargs) -> ImageBuildSpec:
-    defaults = dict(dockerfile_content="FROM scratch\n")
+    defaults = {"dockerfile_content": "FROM scratch\n"}
     defaults.update(kwargs)
     return ImageBuildSpec(**defaults)
 

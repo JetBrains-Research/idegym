@@ -61,7 +61,7 @@ from argparse import ArgumentParser, Namespace
 from os import kill
 from pathlib import Path
 from signal import SIGKILL
-from sys import stderr
+from sys import exit, stderr
 
 from supervisor.childutils import get_headers, listener
 
@@ -74,7 +74,7 @@ def watch(
         # Transition from `ACKNOWLEDGED` state to `READY`,
         # wait for a header to arrive and read it,
         # then use this information to read the payload.
-        headers, raw = listener.wait()
+        _headers, raw = listener.wait()
         print(f"Received payload: {raw}", file=stderr, flush=True)
         payload = get_headers(raw)
 

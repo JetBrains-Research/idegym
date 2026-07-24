@@ -435,7 +435,7 @@ async def clean_kubernetes(request, server_generated_name):
         logger.info(
             f"Deleted k8s resources for IdeGYM server {server_generated_name} in namespace {request.namespace} after startup failure"
         )
-    except Exception as k8s_e:
+    except Exception as k8s_e:  # noqa: BLE001  # best-effort k8s cleanup after startup failure
         logger.warning(
             f"Failed to delete k8s resources for {server_generated_name} during cleanup after startup failure: {k8s_e}"
         )

@@ -91,8 +91,8 @@ app.container.wire(packages=[fs, project, root])
 
 # Register dependency overrides so the tools/rewards routers (which use native
 # FastAPI Depends stubs) receive the real service instances from the DI container.
-from idegym.rewards.router import _get_reward_service  # noqa: E402
-from idegym.tools.router import _get_tool_service  # noqa: E402
+from idegym.rewards.router import _get_reward_service
+from idegym.tools.router import _get_tool_service
 
 app.dependency_overrides[_get_tool_service] = lambda: app.container.tool_service()
 app.dependency_overrides[_get_reward_service] = lambda: app.container.reward_service()

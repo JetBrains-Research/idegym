@@ -110,7 +110,7 @@ class OpenHandsTerminalSession(TerminalBackendSession):
             # The caller detaches from the result, but the worker keeps running the session call to
             # completion; the next call queues behind it, so the session is never entered twice.
             raise
-        except Exception:
+        except Exception:  # noqa: BLE001  # mark backend lost on any session error
             self._alive = False
             return BackendExec(lost=True)
         # An interrupt that fired while this call was in flight wins: never resurrect the running
@@ -192,7 +192,7 @@ class OpenHandsTerminalSession(TerminalBackendSession):
         if callable(is_running):
             try:
                 return bool(is_running())
-            except Exception:
+            except Exception:  # noqa: BLE001  # fall back to cached running state
                 return self._running
         if isinstance(is_running, bool):
             return is_running

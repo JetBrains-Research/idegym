@@ -1,4 +1,5 @@
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 import yaml
 from idegym.api.plugin import get_plugin_class, get_plugin_type_name

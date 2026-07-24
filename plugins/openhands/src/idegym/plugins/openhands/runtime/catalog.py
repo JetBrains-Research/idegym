@@ -288,9 +288,8 @@ class ToolCatalog:
         if entry.base_status != SupportStatus.ENABLED:
             return entry.base_status
         # custom allow/deny overrides
-        if self._profile == Profile.CUSTOM:
-            if self._enabled and entry.name not in self._enabled:
-                return SupportStatus.DISABLED_BY_PROFILE
+        if self._profile == Profile.CUSTOM and self._enabled and entry.name not in self._enabled:
+            return SupportStatus.DISABLED_BY_PROFILE
         if entry.name in self._disabled:
             return SupportStatus.DISABLED_BY_PROFILE
         # profile gating

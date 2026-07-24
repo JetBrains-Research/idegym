@@ -6,7 +6,7 @@ directory. Results carry an opaque artifact id and a retrieval URL — never a r
 
 import uuid
 from collections import OrderedDict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Optional
 
@@ -36,7 +36,7 @@ class ArtifactStore:
         self._max_artifacts = max_artifacts
         self._max_total_bytes = max_total_bytes
         self._max_single_bytes = max_single_bytes
-        self._entries: "OrderedDict[str, _Entry]" = OrderedDict()
+        self._entries: OrderedDict[str, _Entry] = OrderedDict()
         self._total_bytes = 0
 
     def _public_url(self, artifact_id: str) -> str:
@@ -58,7 +58,7 @@ class ArtifactStore:
             size_bytes=len(content),
             filename=filename,
             url=self._public_url(artifact_id),
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
         )
         self._entries[artifact_id] = _Entry(descriptor, path)
         self._total_bytes += len(content)
