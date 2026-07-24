@@ -60,7 +60,7 @@ KubernetesLabelValue = Annotated[
 
 
 KubernetesNodeSelector: TypeAlias = dict[KubernetesLabelKey, KubernetesLabelValue]
-AuthType: type[str] = Literal["Basic", "Bearer", "Token"]
+AuthType: TypeAlias = Literal["Basic", "Bearer", "Token"]
 Duration: TypeAlias = timedelta
 LogLevel: TypeAlias = int
-LogLevelName: type[str] = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+LogLevelName: TypeAlias = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]

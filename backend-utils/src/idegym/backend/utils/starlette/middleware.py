@@ -14,7 +14,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 
 class AsyncioTaskContextMiddleware:
-    SCOPE_TYPES: Final[frozenset] = frozenset({"http", "websocket"})
+    SCOPE_TYPES: Final[frozenset[str]] = frozenset({"http", "websocket"})
 
     def __init__(self, app: ASGIApp):
         self.app = app
