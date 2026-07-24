@@ -241,7 +241,15 @@ class Image(BaseModel):
         )
 
     def _render_project_archive_env(self) -> str:
-        return 'ARG IDEGYM_PROJECT_ARCHIVE_URL\nARG IDEGYM_PROJECT_ARCHIVE_PATH\nARG IDEGYM_AUTH_TOKEN\nARG IDEGYM_AUTH_TYPE\n\nENV IDEGYM_PROJECT_ARCHIVE_URL="$IDEGYM_PROJECT_ARCHIVE_URL"\nENV IDEGYM_PROJECT_ARCHIVE_PATH="$IDEGYM_PROJECT_ARCHIVE_PATH"'
+        return (
+            "ARG IDEGYM_PROJECT_ARCHIVE_URL\n"
+            "ARG IDEGYM_PROJECT_ARCHIVE_PATH\n"
+            "ARG IDEGYM_AUTH_TOKEN\n"
+            "ARG IDEGYM_AUTH_TYPE\n"
+            "\n"
+            'ENV IDEGYM_PROJECT_ARCHIVE_URL="$IDEGYM_PROJECT_ARCHIVE_URL"\n'
+            'ENV IDEGYM_PROJECT_ARCHIVE_PATH="$IDEGYM_PROJECT_ARCHIVE_PATH"'
+        )
 
     def _render_dockerfile(
         self,

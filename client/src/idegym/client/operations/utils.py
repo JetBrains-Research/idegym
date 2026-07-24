@@ -133,7 +133,7 @@ class HTTPUtils:
             raise RuntimeError(message)
 
         except JSONDecodeError:
-            logger.exception(f"Failed to parse JSON response: url={url} data='{response.text}' '")
+            logger.exception(f"Failed to parse JSON response: url={url} data={response.text!r}")
             raise
 
         except Exception:
