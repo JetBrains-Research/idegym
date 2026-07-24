@@ -237,8 +237,8 @@ async def test_idea_virtual_display_windows(test_id):
                         projects_text = content[0].get("text", "")
                         logger.info(f"steroid_list_projects: {projects_text}")
                         project_in_list = _PROJECT_PATH in projects_text
-                except (json.JSONDecodeError, KeyError):
-                    pass
+                except (json.JSONDecodeError, KeyError) as exc:
+                    logger.debug(f"Could not parse steroid_list_projects output: {exc}")
 
         if project_in_windows or project_in_list:
             logger.info(
