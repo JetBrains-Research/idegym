@@ -86,35 +86,37 @@ async def test_mcp_upstream_plugin_writes_config_file(test_id):
 
     minikube_load_image(image_tag, timeout=120)
 
-    async with create_http_client(
-        name=f"mcp-plugin-{test_id}",
-        nodes_count=0,
-        request_timeout_in_seconds=300,
-    ) as client:
-        async with client.with_server(
+    async with (
+        create_http_client(
+            name=f"mcp-plugin-{test_id}",
+            nodes_count=0,
+            request_timeout_in_seconds=300,
+        ) as client,
+        client.with_server(
             image_tag=image_tag,
             server_name=f"mcp-plugin-server-{test_id}",
             runtime_class_name="gvisor",
             run_as_root=True,
             resources=_DEFAULT_RESOURCES,
             server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
-        ) as server:
-            # MCP config directory should exist and contain the declared file
-            result = await server.execute_bash(
-                script="ls /etc/idegym/mcp-upstreams.d/",
-                command_timeout=30.0,
-            )
-            assert result.exit_code == 0, f"MCP upstreams dir missing or unreadable: {result.stderr}"
-            assert "test-svc.json" in result.stdout, f"Config file not found in mcp-upstreams.d/: {result.stdout}"
+        ) as server,
+    ):
+        # MCP config directory should exist and contain the declared file
+        result = await server.execute_bash(
+            script="ls /etc/idegym/mcp-upstreams.d/",
+            command_timeout=30.0,
+        )
+        assert result.exit_code == 0, f"MCP upstreams dir missing or unreadable: {result.stderr}"
+        assert "test-svc.json" in result.stdout, f"Config file not found in mcp-upstreams.d/: {result.stdout}"
 
-            # Config file must contain valid JSON with the declared URL
-            result = await server.execute_bash(
-                script="cat /etc/idegym/mcp-upstreams.d/test-svc.json",
-                command_timeout=30.0,
-            )
-            assert result.exit_code == 0, f"Failed to read MCP config file: {result.stderr}"
-            config = json.loads(result.stdout.strip())
-            assert config == {"url": "http://localhost:8080/mcp"}, f"Unexpected MCP config content: {config}"
+        # Config file must contain valid JSON with the declared URL
+        result = await server.execute_bash(
+            script="cat /etc/idegym/mcp-upstreams.d/test-svc.json",
+            command_timeout=30.0,
+        )
+        assert result.exit_code == 0, f"Failed to read MCP config file: {result.stderr}"
+        config = json.loads(result.stdout.strip())
+        assert config == {"url": "http://localhost:8080/mcp"}, f"Unexpected MCP config content: {config}"
 
 
 @pytest.mark.asyncio
@@ -143,31 +145,33 @@ async def test_plugin_discovered_tools_and_rewards_endpoints(test_id):
 
     minikube_load_image(image_tag, timeout=120)
 
-    async with create_http_client(
-        name=f"plugin-disc-{test_id}",
-        nodes_count=0,
-        request_timeout_in_seconds=300,
-    ) as client:
-        async with client.with_server(
+    async with (
+        create_http_client(
+            name=f"plugin-disc-{test_id}",
+            nodes_count=0,
+            request_timeout_in_seconds=300,
+        ) as client,
+        client.with_server(
             image_tag=image_tag,
             server_name=f"plugin-disc-server-{test_id}",
             runtime_class_name="gvisor",
             run_as_root=True,
             resources=_DEFAULT_RESOURCES,
             server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
-        ) as server:
-            # Tools endpoint (registered via ToolsPlugin) must be accessible
-            bash_result = await server.execute_bash(script="echo hello", command_timeout=30.0)
-            assert bash_result.exit_code == 0, f"Bash tool failed: {bash_result.stderr}"
-            assert "hello" in bash_result.stdout
+        ) as server,
+    ):
+        # Tools endpoint (registered via ToolsPlugin) must be accessible
+        bash_result = await server.execute_bash(script="echo hello", command_timeout=30.0)
+        assert bash_result.exit_code == 0, f"Bash tool failed: {bash_result.stderr}"
+        assert "hello" in bash_result.stdout
 
-            # Rewards endpoint (registered via RewardsPlugin) must be accessible.
-            # A simple compilation script lets us verify the router was mounted correctly.
-            reward_result = await server.compilation_reward(
-                compilation_script="echo 'plugin-discovery-test'",
-                compilation_timeout=30.0,
-            )
-            assert reward_result is not None, "Compilation reward returned None — endpoint not reachable"
+        # Rewards endpoint (registered via RewardsPlugin) must be accessible.
+        # A simple compilation script lets us verify the router was mounted correctly.
+        reward_result = await server.compilation_reward(
+            compilation_script="echo 'plugin-discovery-test'",
+            compilation_timeout=30.0,
+        )
+        assert reward_result is not None, "Compilation reward returned None — endpoint not reachable"
 
 
 @pytest.mark.asyncio
@@ -199,27 +203,29 @@ async def test_forward_generic_method_calls_plugin_endpoint(test_id):
 
     from idegym.api.tools.bash import BashCommandRequest
 
-    async with create_http_client(
-        name=f"forward-generic-{test_id}",
-        nodes_count=0,
-        request_timeout_in_seconds=300,
-    ) as client:
-        async with client.with_server(
+    async with (
+        create_http_client(
+            name=f"forward-generic-{test_id}",
+            nodes_count=0,
+            request_timeout_in_seconds=300,
+        ) as client,
+        client.with_server(
             image_tag=image_tag,
             server_name=f"forward-generic-server-{test_id}",
             runtime_class_name="gvisor",
             run_as_root=True,
             resources=_DEFAULT_RESOURCES,
             server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
-        ) as server:
-            result = await server.forward(
-                "POST",
-                "tools/bash",
-                body=BashCommandRequest(command="echo hello", timeout=10.0),
-            )
-            assert isinstance(result, dict), f"Expected dict, got {type(result)}"
-            assert result.get("exit_code") == 0, f"Unexpected bash result: {result}"
-            assert "hello" in result.get("stdout", ""), f"Expected 'hello' in stdout: {result}"
+        ) as server,
+    ):
+        result = await server.forward(
+            "POST",
+            "tools/bash",
+            body=BashCommandRequest(command="echo hello", timeout=10.0),
+        )
+        assert isinstance(result, dict), f"Expected dict, got {type(result)}"
+        assert result.get("exit_code") == 0, f"Unexpected bash result: {result}"
+        assert "hello" in result.get("stdout", ""), f"Expected 'hello' in stdout: {result}"
 
 
 @pytest.mark.asyncio
@@ -261,30 +267,32 @@ async def test_typed_plugin_operations_pycharm_inspect_routed(test_id):
 
     minikube_load_image(image_tag, timeout=120)
 
-    async with create_http_client(
-        name=f"typed-plugin-{test_id}",
-        nodes_count=0,
-        request_timeout_in_seconds=300,
-    ) as client:
-        async with client.with_server(
+    async with (
+        create_http_client(
+            name=f"typed-plugin-{test_id}",
+            nodes_count=0,
+            request_timeout_in_seconds=300,
+        ) as client,
+        client.with_server(
             image_tag=image_tag,
             server_name=f"typed-plugin-server-{test_id}",
             runtime_class_name="gvisor",
             run_as_root=True,
             resources=_DEFAULT_RESOURCES,
             server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
-        ) as server:
-            assert hasattr(server, "pycharm"), "server.pycharm not attached — plugin ops loop failed"
-            # inspect.sh is absent (no PyCharm IDE installed); the server returns a
-            # 500-level error which the client surfaces as RuntimeError.  This proves
-            # the full routing stack works: client → orchestrator → server → plugin endpoint.
-            with pytest.raises(RuntimeError):
-                await server.pycharm.inspect(
-                    project_path="/tmp/proj",
-                    profile_path="/tmp/profile.xml",
-                    output_dir="/tmp/out",
-                    timeout=5.0,
-                )
+        ) as server,
+    ):
+        assert hasattr(server, "pycharm"), "server.pycharm not attached — plugin ops loop failed"
+        # inspect.sh is absent (no PyCharm IDE installed); the server returns a
+        # 500-level error which the client surfaces as RuntimeError.  This proves
+        # the full routing stack works: client → orchestrator → server → plugin endpoint.
+        with pytest.raises(RuntimeError):
+            await server.pycharm.inspect(
+                project_path="/tmp/proj",
+                profile_path="/tmp/profile.xml",
+                output_dir="/tmp/out",
+                timeout=5.0,
+            )
 
 
 @pytest.mark.asyncio
@@ -314,27 +322,29 @@ async def test_plugins_json_written_with_default_content(test_id):
 
     minikube_load_image(image_tag, timeout=120)
 
-    async with create_http_client(
-        name=f"plugins-json-default-{test_id}",
-        nodes_count=0,
-        request_timeout_in_seconds=300,
-    ) as client:
-        async with client.with_server(
+    async with (
+        create_http_client(
+            name=f"plugins-json-default-{test_id}",
+            nodes_count=0,
+            request_timeout_in_seconds=300,
+        ) as client,
+        client.with_server(
             image_tag=image_tag,
             server_name=f"plugins-json-default-server-{test_id}",
             runtime_class_name="gvisor",
             run_as_root=True,
             resources=_DEFAULT_RESOURCES,
             server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
-        ) as server:
-            result = await server.execute_bash(
-                script="cat /etc/idegym/plugins.json",
-                command_timeout=30.0,
-            )
-            assert result.exit_code == 0, f"Failed to read plugins.json: {result.stderr}"
-            config = json.loads(result.stdout.strip())
-            assert "server" in config, f"plugins.json missing 'server' key: {config}"
-            assert config["server"] == ["tools", "rewards"], f"Expected ['tools', 'rewards'], got {config['server']}"
+        ) as server,
+    ):
+        result = await server.execute_bash(
+            script="cat /etc/idegym/plugins.json",
+            command_timeout=30.0,
+        )
+        assert result.exit_code == 0, f"Failed to read plugins.json: {result.stderr}"
+        config = json.loads(result.stdout.strip())
+        assert "server" in config, f"plugins.json missing 'server' key: {config}"
+        assert config["server"] == ["tools", "rewards"], f"Expected ['tools', 'rewards'], got {config['server']}"
 
 
 @pytest.mark.asyncio
@@ -367,25 +377,27 @@ async def test_server_does_not_expose_pycharm_endpoint_when_not_in_plugins_json(
 
     minikube_load_image(image_tag, timeout=120)
 
-    async with create_http_client(
-        name=f"no-pycharm-filter-{test_id}",
-        nodes_count=0,
-        request_timeout_in_seconds=300,
-    ) as client:
-        async with client.with_server(
+    async with (
+        create_http_client(
+            name=f"no-pycharm-filter-{test_id}",
+            nodes_count=0,
+            request_timeout_in_seconds=300,
+        ) as client,
+        client.with_server(
             image_tag=image_tag,
             server_name=f"no-pycharm-filter-server-{test_id}",
             runtime_class_name="gvisor",
             run_as_root=True,
             resources=_DEFAULT_RESOURCES,
             server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
-        ) as server:
-            # The PyCharm endpoint must NOT be reachable because pycharm is
-            # not in plugins.json → PyCharmPlugin was never loaded → 404.
-            import pytest as _pytest
+        ) as server,
+    ):
+        # The PyCharm endpoint must NOT be reachable because pycharm is
+        # not in plugins.json → PyCharmPlugin was never loaded → 404.
+        import pytest as _pytest
 
-            with _pytest.raises(Exception):
-                await server.forward("GET", "pycharm/health")
+        with _pytest.raises(Exception):
+            await server.forward("GET", "pycharm/health")
 
 
 @pytest.mark.asyncio
@@ -417,21 +429,23 @@ async def test_capabilities_returns_loaded_plugins(test_id):
 
     minikube_load_image(image_tag, timeout=120)
 
-    async with create_http_client(
-        name=f"capabilities-{test_id}",
-        nodes_count=0,
-        request_timeout_in_seconds=300,
-    ) as client:
-        async with client.with_server(
+    async with (
+        create_http_client(
+            name=f"capabilities-{test_id}",
+            nodes_count=0,
+            request_timeout_in_seconds=300,
+        ) as client,
+        client.with_server(
             image_tag=image_tag,
             server_name=f"capabilities-server-{test_id}",
             runtime_class_name="gvisor",
             run_as_root=True,
             resources=_DEFAULT_RESOURCES,
             server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
-        ) as server:
-            result = await server.list_capabilities()
-            assert isinstance(result.plugins, list), f"Expected list, got {type(result.plugins)}"
-            assert "tools" in result.plugins, f"'tools' missing from capabilities: {result.plugins}"
-            assert "rewards" in result.plugins, f"'rewards' missing from capabilities: {result.plugins}"
-            assert "pycharm" not in result.plugins, f"'pycharm' should not be in default capabilities: {result.plugins}"
+        ) as server,
+    ):
+        result = await server.list_capabilities()
+        assert isinstance(result.plugins, list), f"Expected list, got {type(result.plugins)}"
+        assert "tools" in result.plugins, f"'tools' missing from capabilities: {result.plugins}"
+        assert "rewards" in result.plugins, f"'rewards' missing from capabilities: {result.plugins}"
+        assert "pycharm" not in result.plugins, f"'pycharm' should not be in default capabilities: {result.plugins}"

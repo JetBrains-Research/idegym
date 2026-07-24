@@ -1,5 +1,6 @@
+from collections.abc import Callable, Collection, Iterator
 from threading import RLock as ReentrantLock
-from typing import Any, Callable, Collection, Iterator, Optional
+from typing import Any, Optional
 from weakref import WeakSet
 
 from idegym.backend import __version__

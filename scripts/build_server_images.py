@@ -1,11 +1,13 @@
 #!/usr/bin/env -S uv run --project image-builder python
+import sys
 from argparse import ArgumentParser, Namespace
+from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from os import environ as env
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Iterable, NamedTuple, Set
+from typing import NamedTuple
 
 from jinja2 import Template
 from python_on_whales import DockerClient
@@ -73,10 +75,10 @@ def build(args: BuildArgs):
 def main(args: Namespace):
     context: Path = args.context
     registry: str = args.registry
-    versions: Set[str] = args.versions
+    versions: set[str] = args.versions
     push: bool = args.push
     multiplatform: bool = args.multiplatform
-    skip_base: Set[str] = args.skip_base
+    skip_base: set[str] = args.skip_base
 
     with open(args.template, "r") as buffer:
         content: str = buffer.read()
@@ -97,7 +99,7 @@ def main(args: Namespace):
     ]
 
     if len(builds) < 1:
-        exit()
+        sys.exit()
 
     with ThreadPoolExecutor(
         thread_name_prefix="idegym-build-base-image",

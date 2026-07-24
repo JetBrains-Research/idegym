@@ -45,9 +45,9 @@ class MigrationManager:
             migration_result = migration_task.result()
             return migration_result
 
-        except* asyncio.TimeoutError as eg:
+        except* TimeoutError as eg:
             logger.error(f"Migration timeout after {self.timeout} seconds")
-            raise asyncio.TimeoutError("Database migration timed out") from eg.exceptions[0]
+            raise TimeoutError("Database migration timed out") from eg.exceptions[0]
         except* Exception as eg:
             logger.exception("Error running migrations with structured concurrency")
             raise eg.exceptions[0]
@@ -88,7 +88,7 @@ class MigrationManager:
             command.upgrade(alembic_cfg, "heads")
             logger.info("Alembic upgrade command completed successfully")
         except Exception as e:
-            logger.exception(f"Alembic upgrade failed: {e}")
+            logger.exception("Alembic upgrade failed")
             raise RuntimeError(f"Database migration failed: {e}") from e
 
     def get_expected_version(self) -> str:
@@ -101,5 +101,5 @@ class MigrationManager:
                 raise ValueError("No migration heads found")
             return heads[0]
         except Exception as e:
-            logger.exception(f"Failed to get expected migration version: {e}")
+            logger.exception("Failed to get expected migration version")
             raise RuntimeError(f"Failed to get expected migration version: {e}") from e

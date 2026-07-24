@@ -42,9 +42,7 @@ BASE_IMAGE = "ghcr.io/jetbrains-research/idegym/server-debian-bookworm-20250520-
 image = (
     Image.from_base(BASE_IMAGE)
     .with_plugin(User(username="devuser", uid=2000, gid=2000, sudo=True))
-    .with_plugin(
-        Permissions(paths={"/home/devuser": {"owner": "devuser", "mode": "755"}})
-    )
+    .with_plugin(Permissions(paths={"/home/devuser": {"owner": "devuser", "mode": "755"}}))
     .with_plugin(
         Project.from_git(
             url="https://github.com/owner/my-repo.git",
@@ -58,7 +56,7 @@ image = (
         runtime_class_name="gvisor",
         resources={
             "requests": {"cpu": "500m", "memory": "512Mi", "ephemeral-storage": "1Gi"},
-            "limits":   {"cpu": "500m", "memory": "512Mi", "ephemeral-storage": "1Gi"},
+            "limits": {"cpu": "500m", "memory": "512Mi", "ephemeral-storage": "1Gi"},
         },
     )
 )
@@ -77,6 +75,7 @@ from idegym.api.memory import MemoryQuantity
 from idegym.api.resources import KubernetesResources, ResourceQuantities
 from idegym.client.client import IdeGYMClient
 
+
 async def main():
     async with IdeGYMClient(
         orchestrator_url="http://idegym-local.test",
@@ -84,7 +83,6 @@ async def main():
         namespace="idegym-local",
         auth=BasicAuth(username="test", password="test"),
     ) as client:
-
         # Submit a Kaniko build job and wait for it to finish.
         with tempfile.TemporaryDirectory() as tmp:
             yaml_path = image.write_yaml(Path(tmp) / "image.yaml")
@@ -119,17 +117,15 @@ async def main():
             ),
             server_start_wait_timeout_in_seconds=600,
         ) as server:
-
             result = await server.execute_bash(script="id devuser", command_timeout=30.0)
             print(f"User: {result.stdout.strip()}")
 
-            result = await server.execute_bash(
-                script="ls /home/devuser/project/", command_timeout=30.0
-            )
+            result = await server.execute_bash(script="ls /home/devuser/project/", command_timeout=30.0)
             print(f"Project files: {result.stdout.strip()}")
 
         # Server is stopped automatically when the `with_server` block exits.
         print("Done.")
+
 
 asyncio.run(main())
 ```
@@ -151,11 +147,11 @@ from idegym.image.builder import Image
 from idegym.plugins.defaults.image import BaseSystem, IdeGYMServer, Project, User
 
 IDEGYM_REPO = "https://github.com/jetbrains-research/idegym-oss.git"
-IDEGYM_REF  = "main"   # pin to a tag or commit SHA for reproducibility
+IDEGYM_REF = "main"  # pin to a tag or commit SHA for reproducibility
 
 image = (
     Image.from_base("debian:bookworm-slim")
-    .with_plugin(BaseSystem())           # installs git, curl, dumb-init, etc.
+    .with_plugin(BaseSystem())  # installs git, curl, dumb-init, etc.
     .with_plugin(User(username="devuser", uid=2000, gid=2000, sudo=True))
     .with_plugin(IdeGYMServer.from_git(url=IDEGYM_REPO, ref=IDEGYM_REF))
     .with_plugin(
@@ -171,7 +167,7 @@ image = (
         runtime_class_name="gvisor",
         resources={
             "requests": {"cpu": "500m", "memory": "1Gi", "ephemeral-storage": "2Gi"},
-            "limits":   {"cpu": "500m", "memory": "1Gi", "ephemeral-storage": "2Gi"},
+            "limits": {"cpu": "500m", "memory": "1Gi", "ephemeral-storage": "2Gi"},
         },
     )
 )
@@ -196,6 +192,7 @@ from idegym.api.memory import MemoryQuantity
 from idegym.api.resources import KubernetesResources, ResourceQuantities
 from idegym.client.client import IdeGYMClient
 
+
 async def main():
     async with IdeGYMClient(
         orchestrator_url="http://idegym-local.test",
@@ -203,13 +200,12 @@ async def main():
         namespace="idegym-local",
         auth=BasicAuth(username="test", password="test"),
     ) as client:
-
         with tempfile.TemporaryDirectory() as tmp:
             yaml_path = image.write_yaml(Path(tmp) / "image.yaml")
             summary = await client.jobs.build_and_push_images(
                 path=yaml_path,
                 namespace="idegym-local",
-                timeout=1200,    # allow extra time for source build
+                timeout=1200,  # allow extra time for source build
                 poll_interval=15,
             )
 
@@ -236,11 +232,9 @@ async def main():
             ),
             server_start_wait_timeout_in_seconds=600,
         ) as server:
-
-            result = await server.execute_bash(
-                script="cat /home/devuser/ready.txt", command_timeout=30.0
-            )
+            result = await server.execute_bash(script="cat /home/devuser/ready.txt", command_timeout=30.0)
             print(f"Ready: {result.stdout.strip()}")
+
 
 asyncio.run(main())
 ```

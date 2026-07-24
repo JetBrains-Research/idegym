@@ -40,16 +40,17 @@ ORCHESTRATOR_URL = os.getenv("IDEGYM_ORCHESTRATOR_URL", "http://idegym.test")
 
 
 async def main():
-    async with IdeGYMClient(
-        orchestrator_url=ORCHESTRATOR_URL,
-        name="tbench2-client",
-        namespace="idegym",
-        auth=BasicAuth(
-            username=os.getenv("IDEGYM_AUTH_USERNAME"),
-            password=os.getenv("IDEGYM_AUTH_PASSWORD"),
-        ),
-    ) as client:
-        async with client.with_server(
+    async with (
+        IdeGYMClient(
+            orchestrator_url=ORCHESTRATOR_URL,
+            name="tbench2-client",
+            namespace="idegym",
+            auth=BasicAuth(
+                username=os.getenv("IDEGYM_AUTH_USERNAME"),
+                password=os.getenv("IDEGYM_AUTH_PASSWORD"),
+            ),
+        ) as client,
+        client.with_server(
             image_tag=TBENCH2_IMAGE_TAG,
             server_name="tbench2-server",
             server_kind=ServerKind.OPENENV,
@@ -63,60 +64,61 @@ async def main():
                 "limits": {"cpu": "2", "memory": "2Gi"},
             },
             server_start_wait_timeout_in_seconds=120,
-        ) as server:
-            logger.info(f"Server started (id={server.server_id})")
-            logger.info(f"openenv_url: {server.openenv_url}")
+        ) as server,
+    ):
+        logger.info(f"Server started (id={server.server_id})")
+        logger.info(f"openenv_url: {server.openenv_url}")
 
-            # Tbench2Env is async — use `async with` and `await`.
-            async with Tbench2Env(base_url=server.openenv_url) as tbench:
-                # Reset to the chosen task — returns the task instruction.
-                reset_result = await tbench.reset(task_id=TASK_ID)
-                observation = reset_result.observation
-                logger.info(
-                    event="reset",
-                    task_id=observation.task_id,
-                    task_path=observation.task_path,
-                    instruction=observation.instruction,
+        # Tbench2Env is async — use `async with` and `await`.
+        async with Tbench2Env(base_url=server.openenv_url) as tbench:
+            # Reset to the chosen task — returns the task instruction.
+            reset_result = await tbench.reset(task_id=TASK_ID)
+            observation = reset_result.observation
+            logger.info(
+                event="reset",
+                task_id=observation.task_id,
+                task_path=observation.task_path,
+                instruction=observation.instruction,
+            )
+
+            # --- agent loop ---
+
+            # Explore the task directory.
+            result = await tbench.step(Tbench2Action(action_type="exec", command="ls -la"))
+            logger.info(event="ls", output=result.observation.output)
+
+            # Read the task instruction from the environment.
+            result = await tbench.step(Tbench2Action(action_type="exec", command="cat instruction.md"))
+            logger.info(event="readme", output=result.observation.output)
+
+            # Write a solution file.
+            result = await tbench.step(
+                Tbench2Action(
+                    action_type="write_file",
+                    file_path="solution.py",
+                    content="# solution placeholder\nprint('hello')\n",
                 )
+            )
+            logger.info(
+                event="write_file",
+                success=result.observation.success,
+                error=result.observation.error,
+            )
 
-                # --- agent loop ---
+            # Run the solution and check output.
+            result = await tbench.step(Tbench2Action(action_type="exec", command="python solution.py"))
+            logger.info(event="run_solution", output=result.observation.output)
 
-                # Explore the task directory.
-                result = await tbench.step(Tbench2Action(action_type="exec", command="ls -la"))
-                logger.info(event="ls", output=result.observation.output)
+            # Evaluate the task — runs the test suite and returns a binary reward.
+            eval_result = await tbench.step(Tbench2Action(action_type="evaluate"))
+            logger.info(
+                event="evaluate",
+                reward=eval_result.reward,
+                done=eval_result.done,
+                output=eval_result.observation.output,
+            )
 
-                # Read the task instruction from the environment.
-                result = await tbench.step(Tbench2Action(action_type="exec", command="cat instruction.md"))
-                logger.info(event="readme", output=result.observation.output)
-
-                # Write a solution file.
-                result = await tbench.step(
-                    Tbench2Action(
-                        action_type="write_file",
-                        file_path="solution.py",
-                        content="# solution placeholder\nprint('hello')\n",
-                    )
-                )
-                logger.info(
-                    event="write_file",
-                    success=result.observation.success,
-                    error=result.observation.error,
-                )
-
-                # Run the solution and check output.
-                result = await tbench.step(Tbench2Action(action_type="exec", command="python solution.py"))
-                logger.info(event="run_solution", output=result.observation.output)
-
-                # Evaluate the task — runs the test suite and returns a binary reward.
-                eval_result = await tbench.step(Tbench2Action(action_type="evaluate"))
-                logger.info(
-                    event="evaluate",
-                    reward=eval_result.reward,
-                    done=eval_result.done,
-                    output=eval_result.observation.output,
-                )
-
-            logger.info("Example completed successfully!")
+        logger.info("Example completed successfully!")
 
 
 if __name__ == "__main__":

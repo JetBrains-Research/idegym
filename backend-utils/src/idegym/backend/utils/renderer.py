@@ -4,7 +4,7 @@ from structlog import dev
 class LevelFormatter(dev.LogLevelColumnFormatter):
     def __init__(self):
         super().__init__(
-            level_styles=dict(),
+            level_styles={},
             reset_style="",
             width=0,
         )

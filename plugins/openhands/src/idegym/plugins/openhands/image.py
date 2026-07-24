@@ -120,7 +120,7 @@ class OpenHands(PluginBase):
         if tmux_enabled:
             system_pkgs.append("tmux")
 
-        dirs = " ".join([self.state_dir, self.output_dir, self.log_dir, self.tmux_socket_dir])
+        dirs = f"{self.state_dir} {self.output_dir} {self.log_dir} {self.tmux_socket_dir}"
         env_lines = "\n".join(f"ENV {name}={value}" for name, value in self._env_pairs(ctx).items())
 
         parts = [

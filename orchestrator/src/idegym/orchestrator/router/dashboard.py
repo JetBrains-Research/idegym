@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from os import environ as env
 from urllib.parse import quote_plus
 
@@ -30,9 +30,9 @@ def _format_ts(value):
         if isinstance(value, datetime):
             dt = value
         else:
-            dt = datetime.fromtimestamp(value / 1000)
+            dt = datetime.fromtimestamp(value / 1000, tz=UTC)
         return dt.strftime("%Y-%m-%d %H:%M:%S")
-    except Exception:
+    except Exception:  # noqa: BLE001  # best-effort template filter: fall back to the raw value
         return str(value)
 
 
@@ -96,10 +96,8 @@ async def dashboard_pods(
             )
             pods = resp.items
             next_continue = getattr(resp, "metadata", None)._continue if getattr(resp, "metadata", None) else None
-        except Exception as e:
-            logger.exception(
-                f"Error listing pods: {str(e)}", label_selector=label_selector, limit=limit, _continue=_continue
-            )
+        except Exception:
+            logger.exception("Error listing pods", label_selector=label_selector, limit=limit, _continue=_continue)
             pods = []
             next_continue = None
 

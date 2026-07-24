@@ -193,9 +193,9 @@ def test_idegym_smoke():
             value = await coro
             results.append((name, True, time.perf_counter() - t0))
             return value
-        except Exception as e:
+        except Exception:
             results.append((name, False, time.perf_counter() - t0))
-            raise e
+            raise
 
     async def _run():
         runner = IDEGymRunner()

@@ -1,8 +1,9 @@
 import io
 import tarfile
 from asyncio import CancelledError, sleep, to_thread
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Optional, TypeVar
+from typing import Any, Optional, TypeVar
 
 from idegym.api.image_build import ImageBuildSpec
 from idegym.api.status import Status
@@ -107,7 +108,7 @@ def build_context_tar(dockerfile_content: str, *, auth_token: Optional[str] = No
             _add_tar_file(tar, AUTH_SECRET_SRC, auth_token.encode("utf-8"), mode=0o600)
             # BuildKit reads the secret from the local FS (`src=`), so ignoring it in the build
             # context keeps it out of the image even if custom commands add a stray `COPY .`.
-            _add_tar_file(tar, ".dockerignore", f"{AUTH_SECRET_SRC}\n".encode("utf-8"))
+            _add_tar_file(tar, ".dockerignore", f"{AUTH_SECRET_SRC}\n".encode())
     return buffer.getvalue()
 
 
@@ -271,7 +272,7 @@ class CloudBuildGKEImageBuilder(ImageBuilder):
             name = f"projects/{self._project_id}/locations/{self._region}/builds/{handle.name}"
             build = await client.get_build(name=name)
             return map_build_status(build.status.name)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001  # report FAILURE on any Cloud Build status error
             logger.error(f"Error getting Cloud Build status for '{handle.name}': {e}")
             return Status.FAILURE
 
@@ -316,7 +317,7 @@ class CloudBuildGKEImageBuilder(ImageBuilder):
                 return True
             except NotFound:
                 return False
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001  # treat any lookup error as image-absent
             logger.warning(f"Could not check whether image '{tag}' exists: {e}")
             return False
 
@@ -328,7 +329,7 @@ class CloudBuildGKEImageBuilder(ImageBuilder):
                 return await operation()
             except CancelledError:
                 raise
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001  # retry loop records any error and retries
                 last_error = e
                 if attempt + 1 >= self._max_submit_attempts:
                     break

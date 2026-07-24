@@ -46,7 +46,7 @@ _DOCKERFILE_WITH_AUTH = (
 
 
 def _spec(**kwargs) -> ImageBuildSpec:
-    defaults = dict(dockerfile_content="FROM scratch\n")
+    defaults = {"dockerfile_content": "FROM scratch\n"}
     defaults.update(kwargs)
     return ImageBuildSpec(**defaults)
 
@@ -257,7 +257,7 @@ def _fake_storage_client():
 
 async def test_submit_build_uploads_context_and_returns_handle():
     build_client = _fake_build_client()
-    storage_client, bucket, blob = _fake_storage_client()
+    storage_client, _bucket, blob = _fake_storage_client()
     builder = CloudBuildGKEImageBuilder(
         project_id="proj",
         region="europe-west1",
@@ -281,7 +281,7 @@ async def test_submit_build_uploads_context_and_returns_handle():
 
 async def test_submit_build_uploads_secret_and_transformed_dockerfile():
     build_client = _fake_build_client()
-    storage_client, bucket, blob = _fake_storage_client()
+    storage_client, _bucket, blob = _fake_storage_client()
     builder = CloudBuildGKEImageBuilder(
         project_id="proj",
         region="europe-west1",

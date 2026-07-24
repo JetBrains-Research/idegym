@@ -24,11 +24,12 @@ async def test_openenv_websocket_forwarding_commands(websocket_test_image, test_
     Start an OpenEnv-like server, connect via websocket forwarding endpoint,
     send several commands, validate responses, and stop server on exit.
     """
-    async with create_http_client(
-        name=f"openenv-ws-{test_id}",
-        request_timeout_in_seconds=600,
-    ) as client:
-        async with client.with_server(
+    async with (
+        create_http_client(
+            name=f"openenv-ws-{test_id}",
+            request_timeout_in_seconds=600,
+        ) as client,
+        client.with_server(
             image_tag=websocket_test_image,
             server_name=f"openenv-ws-{test_id}",
             runtime_class_name="gvisor",
@@ -36,24 +37,25 @@ async def test_openenv_websocket_forwarding_commands(websocket_test_image, test_
             reuse_strategy=ServerReuseStrategy.NONE,
             close_action=ServerCloseAction.STOP,
             server_kind=ServerKind.OPENENV,
-        ) as server:
-            ws_url = _ws_url_from_openenv_url(server.openenv_url)
+        ) as server,
+    ):
+        ws_url = _ws_url_from_openenv_url(server.openenv_url)
 
-            async with websockets.connect(ws_url) as socket:
-                await socket.send("status")
-                assert await socket.recv() == "ready"
+        async with websockets.connect(ws_url) as socket:
+            await socket.send("status")
+            assert await socket.recv() == "ready"
 
-                await socket.send("ping")
-                assert await socket.recv() == "pong"
+            await socket.send("ping")
+            assert await socket.recv() == "pong"
 
-                await socket.send("echo hello-openenv")
-                assert await socket.recv() == "hello-openenv"
+            await socket.send("echo hello-openenv")
+            assert await socket.recv() == "hello-openenv"
 
-                await socket.send("add 7 35")
-                assert await socket.recv() == "42"
+            await socket.send("add 7 35")
+            assert await socket.recv() == "42"
 
-                await socket.send("close")
-                assert await socket.recv() == "bye"
+            await socket.send("close")
+            assert await socket.recv() == "bye"
 
 
 @pytest.mark.asyncio
@@ -61,11 +63,12 @@ async def test_openenv_websocket_error_processing_and_closure(websocket_test_ima
     """
     Validate OpenEnv websocket error responses and graceful close propagation.
     """
-    async with create_http_client(
-        name=f"openenv-ws-errors-{test_id}",
-        request_timeout_in_seconds=600,
-    ) as client:
-        async with client.with_server(
+    async with (
+        create_http_client(
+            name=f"openenv-ws-errors-{test_id}",
+            request_timeout_in_seconds=600,
+        ) as client,
+        client.with_server(
             image_tag=websocket_test_image,
             server_name=f"openenv-ws-errors-{test_id}",
             runtime_class_name="gvisor",
@@ -73,27 +76,28 @@ async def test_openenv_websocket_error_processing_and_closure(websocket_test_ima
             reuse_strategy=ServerReuseStrategy.NONE,
             close_action=ServerCloseAction.STOP,
             server_kind=ServerKind.OPENENV,
-        ) as server:
-            ws_url = _ws_url_from_openenv_url(server.openenv_url)
+        ) as server,
+    ):
+        ws_url = _ws_url_from_openenv_url(server.openenv_url)
 
-            async with websockets.connect(ws_url) as socket:
-                await socket.send("add 1 nope")
-                assert await socket.recv() == "error: add requires two integers"
+        async with websockets.connect(ws_url) as socket:
+            await socket.send("add 1 nope")
+            assert await socket.recv() == "error: add requires two integers"
 
-                await socket.send("add 1")
-                assert await socket.recv() == "error: bad add syntax"
+            await socket.send("add 1")
+            assert await socket.recv() == "error: bad add syntax"
 
-                await socket.send("unsupported")
-                assert await socket.recv() == "error: unknown command"
+            await socket.send("unsupported")
+            assert await socket.recv() == "error: unknown command"
 
-                await socket.send("ping")
-                assert await socket.recv() == "pong"
+            await socket.send("ping")
+            assert await socket.recv() == "pong"
 
-                await socket.send("close")
-                assert await socket.recv() == "bye"
+            await socket.send("close")
+            assert await socket.recv() == "bye"
 
-                with pytest.raises(ConnectionClosedOK):
-                    await asyncio.wait_for(socket.recv(), timeout=15)
+            with pytest.raises(ConnectionClosedOK):
+                await asyncio.wait_for(socket.recv(), timeout=15)
 
 
 @pytest.mark.asyncio
@@ -101,11 +105,12 @@ async def test_openenv_websocket_non_graceful_server_closure(websocket_test_imag
     """
     Simulate a non-graceful server-side closure and verify the websocket ends up closed.
     """
-    async with create_http_client(
-        name=f"openenv-ws-server-abort-{test_id}",
-        request_timeout_in_seconds=600,
-    ) as client:
-        async with client.with_server(
+    async with (
+        create_http_client(
+            name=f"openenv-ws-server-abort-{test_id}",
+            request_timeout_in_seconds=600,
+        ) as client,
+        client.with_server(
             image_tag=websocket_test_image,
             server_name=f"openenv-ws-server-abort-{test_id}",
             runtime_class_name="gvisor",
@@ -113,20 +118,21 @@ async def test_openenv_websocket_non_graceful_server_closure(websocket_test_imag
             reuse_strategy=ServerReuseStrategy.NONE,
             close_action=ServerCloseAction.STOP,
             server_kind=ServerKind.OPENENV,
-        ) as server:
-            ws_url = _ws_url_from_openenv_url(server.openenv_url)
+        ) as server,
+    ):
+        ws_url = _ws_url_from_openenv_url(server.openenv_url)
 
-            async with websockets.connect(ws_url) as socket:
-                await socket.send("status")
-                assert await socket.recv() == "ready"
+        async with websockets.connect(ws_url) as socket:
+            await socket.send("status")
+            assert await socket.recv() == "ready"
 
-                await socket.send("crash")
-                with pytest.raises(ConnectionClosed):
-                    await asyncio.wait_for(socket.recv(), timeout=15)
+            await socket.send("crash")
+            with pytest.raises(ConnectionClosed):
+                await asyncio.wait_for(socket.recv(), timeout=15)
 
-                await asyncio.wait_for(socket.wait_closed(), timeout=15)
-                assert socket.state == State.CLOSED
-                assert socket.close_code is not None
+            await asyncio.wait_for(socket.wait_closed(), timeout=15)
+            assert socket.state == State.CLOSED
+            assert socket.close_code is not None
 
 
 @pytest.mark.asyncio
@@ -134,11 +140,12 @@ async def test_openenv_websocket_non_graceful_client_closure(websocket_test_imag
     """
     Simulate a non-graceful client-side closure (transport abort) and verify closure state.
     """
-    async with create_http_client(
-        name=f"openenv-ws-client-abort-{test_id}",
-        request_timeout_in_seconds=600,
-    ) as client:
-        async with client.with_server(
+    async with (
+        create_http_client(
+            name=f"openenv-ws-client-abort-{test_id}",
+            request_timeout_in_seconds=600,
+        ) as client,
+        client.with_server(
             image_tag=websocket_test_image,
             server_name=f"openenv-ws-client-abort-{test_id}",
             runtime_class_name="gvisor",
@@ -146,18 +153,19 @@ async def test_openenv_websocket_non_graceful_client_closure(websocket_test_imag
             reuse_strategy=ServerReuseStrategy.NONE,
             close_action=ServerCloseAction.STOP,
             server_kind=ServerKind.OPENENV,
-        ) as server:
-            ws_url = _ws_url_from_openenv_url(server.openenv_url)
+        ) as server,
+    ):
+        ws_url = _ws_url_from_openenv_url(server.openenv_url)
 
-            async with websockets.connect(ws_url) as socket:
+        async with websockets.connect(ws_url) as socket:
+            await socket.send("ping")
+            assert await socket.recv() == "pong"
+
+            assert socket.transport is not None
+            socket.transport.abort()
+
+            await asyncio.wait_for(socket.wait_closed(), timeout=15)
+            assert socket.state == State.CLOSED
+
+            with pytest.raises(ConnectionClosed):
                 await socket.send("ping")
-                assert await socket.recv() == "pong"
-
-                assert socket.transport is not None
-                socket.transport.abort()
-
-                await asyncio.wait_for(socket.wait_closed(), timeout=15)
-                assert socket.state == State.CLOSED
-
-                with pytest.raises(ConnectionClosed):
-                    await socket.send("ping")

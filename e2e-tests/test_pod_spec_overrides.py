@@ -28,8 +28,9 @@ async def test_secret_volume_mount_and_env_from(test_image, test_id):
     string_data = {"SECRET_TOKEN": "s3cr3t-token-value", "API_BASE": "https://api.example.test"}
     k8s_client.create_secret(namespace=DEFAULT_NAMESPACE, name=secret_name, string_data=string_data)
     try:
-        async with create_http_client(name=f"podspec-{test_id}", nodes_count=0) as client:
-            async with client.with_server(
+        async with (
+            create_http_client(name=f"podspec-{test_id}", nodes_count=0) as client,
+            client.with_server(
                 image_tag=test_image,
                 server_name=f"secret-{test_id}",
                 runtime_class_name="gvisor",
@@ -39,16 +40,17 @@ async def test_secret_volume_mount_and_env_from(test_image, test_id):
                     KubernetesVolumeMount(name="agent-secret", mount_path="/etc/agent-secret", read_only=True)
                 ],
                 env_from=[KubernetesEnvFromSource(secret_ref=SecretEnvSource(name=secret_name))],
-            ) as server:
-                # Mounted as files, one per secret key.
-                mounted = await server.execute_bash(script="cat /etc/agent-secret/SECRET_TOKEN")
-                assert mounted.exit_code == 0, mounted.stderr
-                assert mounted.stdout.strip() == "s3cr3t-token-value"
+            ) as server,
+        ):
+            # Mounted as files, one per secret key.
+            mounted = await server.execute_bash(script="cat /etc/agent-secret/SECRET_TOKEN")
+            assert mounted.exit_code == 0, mounted.stderr
+            assert mounted.stdout.strip() == "s3cr3t-token-value"
 
-                # Imported as environment variables.
-                env = await server.execute_bash(script='printf "%s" "$API_BASE"')
-                assert env.exit_code == 0, env.stderr
-                assert env.stdout.strip() == "https://api.example.test"
+            # Imported as environment variables.
+            env = await server.execute_bash(script='printf "%s" "$API_BASE"')
+            assert env.exit_code == 0, env.stderr
+            assert env.stdout.strip() == "https://api.example.test"
     finally:
         k8s_client.delete_secret(namespace=DEFAULT_NAMESPACE, name=secret_name)
 
@@ -59,25 +61,27 @@ async def test_service_account_name(test_image, test_id):
     sa_name = f"e2e-sa-{test_id}"
     k8s_client.create_service_account(namespace=DEFAULT_NAMESPACE, name=sa_name)
     try:
-        async with create_http_client(name=f"podspec-{test_id}", nodes_count=0) as client:
-            async with client.with_server(
+        async with (
+            create_http_client(name=f"podspec-{test_id}", nodes_count=0) as client,
+            client.with_server(
                 image_tag=test_image,
                 server_name=f"sa-{test_id}",
                 runtime_class_name="gvisor",
                 server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
                 service_account_name=sa_name,
-            ) as server:
-                # Server is up...
-                ready = await server.execute_bash(script="true")
-                assert ready.exit_code == 0, ready.stderr
+            ) as server,
+        ):
+            # Server is up...
+            ready = await server.execute_bash(script="true")
+            assert ready.exit_code == 0, ready.stderr
 
-                # ...and its pod runs under the requested ServiceAccount.
-                pods = k8s_client.list_pods(
-                    namespace=DEFAULT_NAMESPACE, label_selector="app.kubernetes.io/component=sandbox"
-                )
-                assert any(pod.spec.service_account_name == sa_name for pod in pods), (
-                    f"no sandbox pod runs under ServiceAccount {sa_name}"
-                )
+            # ...and its pod runs under the requested ServiceAccount.
+            pods = k8s_client.list_pods(
+                namespace=DEFAULT_NAMESPACE, label_selector="app.kubernetes.io/component=sandbox"
+            )
+            assert any(pod.spec.service_account_name == sa_name for pod in pods), (
+                f"no sandbox pod runs under ServiceAccount {sa_name}"
+            )
     finally:
         k8s_client.delete_service_account(namespace=DEFAULT_NAMESPACE, name=sa_name)
 
@@ -85,8 +89,9 @@ async def test_service_account_name(test_image, test_id):
 @pytest.mark.asyncio
 async def test_pod_overrides_host_aliases(test_image, test_id):
     """pod_overrides applies arbitrary pod-level fields (here hostAliases -> /etc/hosts)."""
-    async with create_http_client(name=f"podspec-{test_id}", nodes_count=0) as client:
-        async with client.with_server(
+    async with (
+        create_http_client(name=f"podspec-{test_id}", nodes_count=0) as client,
+        client.with_server(
             image_tag=test_image,
             server_name=f"override-{test_id}",
             runtime_class_name="gvisor",
@@ -94,8 +99,9 @@ async def test_pod_overrides_host_aliases(test_image, test_id):
             pod_overrides=KubernetesPodOverrides(
                 host_aliases=[KubernetesHostAlias(ip="10.123.45.67", hostnames=["agent.internal.test"])]
             ),
-        ) as server:
-            result = await server.execute_bash(script="cat /etc/hosts")
-            assert result.exit_code == 0, result.stderr
-            assert "10.123.45.67" in result.stdout
-            assert "agent.internal.test" in result.stdout
+        ) as server,
+    ):
+        result = await server.execute_bash(script="cat /etc/hosts")
+        assert result.exit_code == 0, result.stderr
+        assert "10.123.45.67" in result.stdout
+        assert "agent.internal.test" in result.stdout

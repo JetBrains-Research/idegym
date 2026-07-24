@@ -1,0 +1,139 @@
+name: Changelog
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version to generate (without the leading v, e.g. 0.11.0). The vX.Y.Z tag must exist."
+        required: true
+      previous:
+        description: "Previous version to diff against (optional; auto-detected from tags when omitted)."
+        required: false
+
+# contents: write   -> push the changelog branch and edit/create the GitHub Release
+# pull-requests: write -> open the CHANGELOG.md pull request
+# models: read      -> draft the Highlights via GitHub Models (built-in GITHUB_TOKEN, no secret)
+permissions:
+  contents: write
+  pull-requests: write
+  models: read
+
+jobs:
+  changelog:
+    name: Generate changelog
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: main
+          # Full history + tags are required to diff the release range.
+          fetch-depth: 0
+
+      - name: Resolve version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME}"
+          fi
+          echo "VERSION=${VERSION#v}" >> "$GITHUB_ENV"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.3.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Build Highlights prompt
+        id: prep
+        env:
+          PREVIOUS: ${{ inputs.previous }}
+        run: |
+          ARGS=("$VERSION" --emit-highlights-prompt highlights-input.md)
+          if [ -n "$PREVIOUS" ]; then
+            ARGS+=(--previous "$PREVIOUS")
+          fi
+          uv run scripts/generate_changelog.py "${ARGS[@]}"
+          # Non-empty prompt -> there are substantive changes worth summarising.
+          if [ -s highlights-input.md ]; then echo "draft=true" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Draft Highlights (GitHub Models)
+        id: highlights
+        if: steps.prep.outputs.draft == 'true'
+        uses: actions/ai-inference@v1
+        with:
+          # Runs on GitHub Models via the built-in GITHUB_TOKEN (models: read). No secret.
+          model: openai/gpt-4o
+          max-completion-tokens: 400
+          system-prompt: |
+            You write the 'Highlights' paragraph for a software release changelog.
+            Given the merged changes, write 2-4 sentences of plain prose summarising the
+            most meaningful, user-facing features and changes. Synthesise themes rather
+            than listing every change. Do not mention routine dependency bumps; mention a
+            dependency only if a major runtime dependency changed. No headings, no bullet
+            points, no marketing language — just factual prose a maintainer would write.
+          prompt-file: highlights-input.md
+
+      - name: Save drafted Highlights
+        if: steps.prep.outputs.draft == 'true'
+        env:
+          RESPONSE: ${{ steps.highlights.outputs.response }}
+        run: printf '%s\n' "$RESPONSE" > highlights.md
+
+      - name: Generate CHANGELOG and release notes
+        env:
+          PREVIOUS: ${{ inputs.previous }}
+        run: |
+          ARGS=("$VERSION" --force --release-notes-out release-notes.md)
+          if [ -n "$PREVIOUS" ]; then
+            ARGS+=(--previous "$PREVIOUS")
+          fi
+          if [ -f highlights.md ]; then
+            ARGS+=(--highlights-file highlights.md)
+          fi
+          uv run scripts/generate_changelog.py "${ARGS[@]}"
+
+      - name: Sync GitHub Release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v${VERSION}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Updating notes for existing release $TAG."
+            gh release edit "$TAG" --notes-file release-notes.md
+          else
+            echo "Creating release $TAG."
+            gh release create "$TAG" --title "$TAG" --notes-file release-notes.md
+          fi
+
+      - name: Open CHANGELOG pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # --porcelain catches both modified and not-yet-tracked CHANGELOG.md.
+          if [ -z "$(git status --porcelain -- CHANGELOG.md)" ]; then
+            echo "CHANGELOG.md unchanged; nothing to open a PR for."
+            exit 0
+          fi
+          BRANCH="changelog/v${VERSION}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Make an existing remote branch (from a previous run) visible so
+          # --force-with-lease can verify the lease on this fresh checkout.
+          git fetch origin "$BRANCH" 2>/dev/null || true
+          git switch -c "$BRANCH"
+          git add CHANGELOG.md
+          git commit -m "[changelog] add ${VERSION} section"
+          git push --force-with-lease -u origin "$BRANCH"
+          if gh pr view "$BRANCH" >/dev/null 2>&1; then
+            echo "PR for $BRANCH already exists; branch updated."
+          else
+            gh pr create \
+              --base main \
+              --head "$BRANCH" \
+              --title "[changelog] Update CHANGELOG.md for ${VERSION}" \
+              --body "Automated changelog for \`v${VERSION}\`, generated by \`scripts/generate_changelog.py\`. Review the \`### Highlights\` paragraph and edit if needed before merging."
+          fi

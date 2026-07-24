@@ -1,6 +1,7 @@
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from traceback import format_tb
-from typing import Mapping, Optional
+from typing import Optional
 
 from starlette.background import BackgroundTask
 from starlette.responses import JSONResponse

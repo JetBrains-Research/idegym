@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from glob import glob
 from logging import ERROR, INFO, LogRecord, StreamHandler
 from logging import Formatter as BaseFormatter
@@ -7,7 +7,7 @@ from logging import getLogger as get_logger
 from os import X_OK, access, execlp
 from pathlib import Path
 from subprocess import CalledProcessError, run
-from sys import argv, stdout
+from sys import argv, exit, stdout
 from typing import Optional
 
 
@@ -21,7 +21,7 @@ class Formatter(BaseFormatter):
 
     @staticmethod
     def _converter(*_):
-        return datetime.now(timezone.utc).timetuple()
+        return datetime.now(UTC).timetuple()
 
     converter = _converter
     default_time_format = "%Y-%m-%dT%H:%M:%S"

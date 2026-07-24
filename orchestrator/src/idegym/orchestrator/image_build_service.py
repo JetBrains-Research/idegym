@@ -104,8 +104,8 @@ class ImageBuildService:
             try:
                 async with get_db_session() as db:
                     await update_job_status(db, job_name, status=Status.FAILURE, tag=tag, request_id=request_id)
-            except Exception as db_error:
-                logger.exception(f"Failed to update job status to FAILURE for job '{job_name}': {db_error}")
+            except Exception:
+                logger.exception(f"Failed to update job status to FAILURE for job '{job_name}'")
 
     async def build_and_push_images(self, path: Path) -> list[str]:
         job_names = []

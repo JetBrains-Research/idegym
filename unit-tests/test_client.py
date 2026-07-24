@@ -12,7 +12,7 @@ def _make_server(**kwargs) -> IdeGYMServer:
     http_utils = MagicMock()
     http_utils.validate_client_id.side_effect = lambda cid: cid
     http_utils.base_url = "http://localhost:8000"
-    defaults = dict(server_id=1, http_utils=http_utils)
+    defaults = {"server_id": 1, "http_utils": http_utils}
     defaults.update(kwargs)
     return IdeGYMServer(**defaults)
 

@@ -150,6 +150,7 @@ any directory. Instead, **ship the file inside your plugin package** and declare
 from importlib.resources.abc import Traversable
 from idegym.plugins.plugin_utils import plugin_asset
 
+
 class MyPlugin(PluginBase):
     def render(self, ctx: BuildContext) -> str:
         return "COPY my_plugin/start.sh /usr/local/bin/start.sh"
@@ -177,9 +178,8 @@ to the source tree for editable installs.
 ### Registering with `@image_plugin`
 
 ```python
-@image_plugin("my-plugin")   # "my-plugin" is the YAML `type` field
-class MyPlugin(PluginBase):
-    ...
+@image_plugin("my-plugin")  # "my-plugin" is the YAML `type` field
+class MyPlugin(PluginBase): ...
 ```
 
 The decorator registers the class in `_PLUGIN_REGISTRY`. The name must be unique across all
@@ -212,6 +212,7 @@ class MyPlugin:
     @classmethod
     def get_server_router(cls):
         from my_package.router import router  # deferred import avoids circular deps
+
         return router
 ```
 
@@ -241,8 +242,7 @@ async def _get_my_service() -> MyService:
 
 
 @router.post("/my-plugin/action")
-async def do_action(service: MyService = Depends(_get_my_service)):
-    ...
+async def do_action(service: MyService = Depends(_get_my_service)): ...
 ```
 
 The server then registers the real service:
@@ -420,9 +420,9 @@ The `PyCharm` plugin does this automatically when added to an image:
 
 ```python
 image = (
-    image
-    .with_plugin(PyCharm(version="2026.1.1", user="appuser"))   # adds "pycharm" to the list
-    .with_plugin(IdeGYMServer.from_local(root=from_root()))      # writes plugins.json
+    image.with_plugin(PyCharm(version="2026.1.1", user="appuser")).with_plugin(  # adds "pycharm" to the list
+        IdeGYMServer.from_local(root=from_root())
+    )  # writes plugins.json
 )
 ```
 
@@ -471,6 +471,7 @@ class MyServerPlugin:
     @classmethod
     def get_server_router(cls):
         from my_package.router import router
+
         return router
 ```
 
@@ -538,7 +539,7 @@ image = (
 )
 
 # After building and starting the server:
-status = await server.my_plugin.status()   # → {"ok": True}
+status = await server.my_plugin.status()  # → {"ok": True}
 ```
 
 ---

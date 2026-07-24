@@ -11,7 +11,7 @@ import contextlib
 import json
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Optional
 
@@ -54,7 +54,7 @@ _GLOB_MAGIC = ("*", "?", "[")
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _new_call_id() -> str:
@@ -134,7 +134,7 @@ class ToolRuntime:
                     persistence_dir=persistence,
                     env_persistence_dir=env_persistence,
                 )
-            except Exception as ex:  # pragma: no cover - only with OpenHands present
+            except Exception as ex:  # noqa: BLE001  # record adapter build error and continue  # pragma: no cover - only with OpenHands present
                 self._adapter_errors[family.value] = str(ex)
                 continue
             for tool in tools:
@@ -576,7 +576,7 @@ class ToolRuntime:
                 if used + size > budget:
                     try:
                         raw = base64.b64decode(block.data)
-                    except Exception:
+                    except Exception:  # noqa: BLE001  # fall back to raw bytes on decode failure
                         raw = block.data.encode("utf-8")
                     descriptor = self.artifacts.save(raw, media_type=block.mime_type or "image/png", filename="image")
                     result.artifacts.append(descriptor)
@@ -704,5 +704,5 @@ def _plugin_version() -> str:
         import idegym.plugins.openhands
 
         return idegym.plugins.openhands.__version__
-    except Exception:
+    except Exception:  # noqa: BLE001  # version lookup is best-effort
         return "unknown"

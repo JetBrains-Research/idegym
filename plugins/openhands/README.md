@@ -80,6 +80,7 @@ when `openhands-tools` is absent (dev/CI) so the service still runs and is testa
 # idegym-plugins), the same way the pycharm/idea plugins are used. The dedicated venv installs the
 # plugin runtime from that in-image source; no extra copy of the plugin source is needed.
 from idegym.plugins.openhands.image import OpenHands
+
 image = image.with_plugin(OpenHands())
 
 # typed client
@@ -87,8 +88,8 @@ await server.openhands.health()
 await server.openhands.call_tool("grep", {"pattern": "TODO", "path": "."})
 term = await server.openhands.terminal(name="build", backend="tmux")
 await term.execute("cd services/api && source .venv/bin/activate")
-await term.execute("python -q")          # running=true on a soft timeout
-await term.input("print(41 + 1)")        # -> 42
+await term.execute("python -q")  # running=true on a soft timeout
+await term.input("print(41 + 1)")  # -> 42
 await term.input("C-d")
 ```
 

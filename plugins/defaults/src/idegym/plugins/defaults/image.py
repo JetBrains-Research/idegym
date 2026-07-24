@@ -523,8 +523,10 @@ class Project(PluginBase):
         group = self.group or owner
         commands = [
             f"mkdir -p {quote(ctx.project_root)}",
-            "download $IDEGYM_PROJECT_ARCHIVE_URL $IDEGYM_PROJECT_ARCHIVE_PATH "
-            "--auth-type ${IDEGYM_AUTH_TYPE:-} --auth-token ${IDEGYM_AUTH_TOKEN:-}",
+            (
+                "download $IDEGYM_PROJECT_ARCHIVE_URL $IDEGYM_PROJECT_ARCHIVE_PATH "
+                "--auth-type ${IDEGYM_AUTH_TYPE:-} --auth-token ${IDEGYM_AUTH_TOKEN:-}"
+            ),
             "extract $IDEGYM_PROJECT_ARCHIVE_PATH $IDEGYM_PROJECT_ROOT",
         ]
         if owner is not None:

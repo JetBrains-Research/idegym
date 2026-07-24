@@ -74,19 +74,21 @@ async def test_custom_plugin_context_file_is_copied_into_image(test_id):
     image_tag = str(built.repo_tags[0])
     minikube_load_image(image_tag, timeout=120)
 
-    async with create_http_client(
-        name=f"custom-plugin-ctx-{test_id}",
-        nodes_count=0,
-        request_timeout_in_seconds=300,
-    ) as client:
-        async with client.with_server(
+    async with (
+        create_http_client(
+            name=f"custom-plugin-ctx-{test_id}",
+            nodes_count=0,
+            request_timeout_in_seconds=300,
+        ) as client,
+        client.with_server(
             image_tag=image_tag,
             server_name=f"custom-plugin-ctx-server-{test_id}",
             runtime_class_name="gvisor",
             run_as_root=True,
             resources=_DEFAULT_RESOURCES,
             server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
-        ) as server:
-            result = await server.execute_bash(script=f"cat {_MARKER_PATH}", command_timeout=60.0)
-            assert result.exit_code == 0, f"Staged asset missing in image: {result.stderr}"
-            assert _MARKER_CONTENT in result.stdout, f"Unexpected asset content: {result.stdout!r}"
+        ) as server,
+    ):
+        result = await server.execute_bash(script=f"cat {_MARKER_PATH}", command_timeout=60.0)
+        assert result.exit_code == 0, f"Staged asset missing in image: {result.stderr}"
+        assert _MARKER_CONTENT in result.stdout, f"Unexpected asset content: {result.stdout!r}"

@@ -3,7 +3,7 @@
 import asyncio
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Optional
 
 from idegym.plugins.openhands.api.models import TerminalBackend, TerminalDescriptor, TerminalState
@@ -11,7 +11,7 @@ from idegym.plugins.openhands.runtime.terminal.backend import TerminalBackendSes
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 @dataclass

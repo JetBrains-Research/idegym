@@ -68,17 +68,19 @@ def _build_image(test_id: str) -> str:
 @asynccontextmanager
 async def _server(test_id: str, suffix: str):
     image_tag = _build_image(test_id)
-    async with create_http_client(
-        name=f"openhands-{suffix}-{test_id}", nodes_count=0, request_timeout_in_seconds=600
-    ) as client:
-        async with client.with_server(
+    async with (
+        create_http_client(
+            name=f"openhands-{suffix}-{test_id}", nodes_count=0, request_timeout_in_seconds=600
+        ) as client,
+        client.with_server(
             image_tag=image_tag,
             server_name=f"openhands-{suffix}-server-{test_id}",
             run_as_root=True,
             resources=_RESOURCES,
             server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
-        ) as server:
-            yield server
+        ) as server,
+    ):
+        yield server
 
 
 async def test_openhands_discovery_and_surfaces(test_id):

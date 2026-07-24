@@ -10,8 +10,9 @@ import asyncio
 import contextlib
 import shutil
 import uuid
-from datetime import datetime, timezone
-from typing import Callable, Optional
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import Optional
 
 from idegym.plugins.openhands.api.errors import ErrorCode, ServiceError
 from idegym.plugins.openhands.api.models import (
@@ -36,17 +37,17 @@ _DEFAULT_ID = "default"
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class _Reservation:
     """A single-flight slot for an in-progress ``create``: joiners await the same startup."""
 
-    __slots__ = ("event", "handle", "error")
+    __slots__ = ("error", "event", "handle")
 
     def __init__(self) -> None:
         self.event = asyncio.Event()
-        self.handle: Optional["TerminalHandle"] = None
+        self.handle: Optional[TerminalHandle] = None
         self.error: Optional[BaseException] = None
 
     def resolve(self, handle: "TerminalHandle") -> None:

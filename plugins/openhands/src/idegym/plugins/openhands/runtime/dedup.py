@@ -17,7 +17,8 @@ import asyncio
 import hashlib
 import json
 from collections import OrderedDict
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from idegym.plugins.openhands.api.errors import ErrorCode, ServiceError
 
@@ -29,7 +30,7 @@ def canonical_hash(payload: dict[str, Any]) -> str:
 
 
 class _Entry:
-    __slots__ = ("hash", "done", "result", "error")
+    __slots__ = ("done", "error", "hash", "result")
 
     def __init__(self, body_hash: str) -> None:
         self.hash = body_hash
@@ -40,7 +41,7 @@ class _Entry:
 
 class RequestDeduplicator:
     def __init__(self, max_size: int) -> None:
-        self._entries: "OrderedDict[str, _Entry]" = OrderedDict()
+        self._entries: OrderedDict[str, _Entry] = OrderedDict()
         self._lock = asyncio.Lock()
         self._max = max(1, max_size)
 

@@ -7,7 +7,7 @@ everything else to ``isError`` tool results.
 """
 
 from enum import StrEnum
-from typing import Any, Optional
+from typing import Any, Optional, Self
 
 
 class ErrorCode(StrEnum):
@@ -21,7 +21,7 @@ class ErrorCode(StrEnum):
     # http_status is attached to each member in __new__; declared here for type-checkers.
     http_status: int
 
-    def __new__(cls, value: str, http_status: int = 500) -> "ErrorCode":
+    def __new__(cls, value: str, http_status: int = 500) -> Self:
         obj = str.__new__(cls, value)
         obj._value_ = value
         obj.http_status = http_status

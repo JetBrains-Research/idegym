@@ -91,8 +91,9 @@ For endpoints without a typed wrapper, the **escape hatch** is `forward()`:
 ```python
 from idegym.api.tools.bash import BashCommandRequest
 
-response = await server.forward(method="POST", path="tools/bash",
-                                body=BashCommandRequest(command="echo hi", timeout=30.0))
+response = await server.forward(
+    method="POST", path="tools/bash", body=BashCommandRequest(command="echo hi", timeout=30.0)
+)
 ```
 
 It delegates to the same `ForwardingOperations` every typed method uses, accepts any
