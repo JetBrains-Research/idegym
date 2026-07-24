@@ -21,7 +21,7 @@ class CpuQuantity:
 
     PATTERN: ClassVar[Pattern] = compile(r"^(\d*\.?\d+)(m)?$")
 
-    def __init__(self, *, cores: float = 0, millicores: int = 0):
+    def __init__(self, *, cores: int | float = 0, millicores: int = 0):
         total = round(cores * 1000) + millicores
         if total < 0:
             raise ValueError("CpuQuantity cannot be negative")
@@ -67,7 +67,7 @@ class CpuQuantity:
             case _:
                 return False
 
-    def __lt__(self, other: Union["CpuQuantity", float, str]) -> bool | NotImplementedType:
+    def __lt__(self, other: Union["CpuQuantity", int, float, str]) -> bool | NotImplementedType:
         match other:
             case CpuQuantity():
                 return self._millicores < other._millicores
@@ -89,7 +89,7 @@ class CpuQuantity:
         return hash(self._millicores)
 
     @classmethod
-    def validate(cls, value: Union["CpuQuantity", float, str]) -> "CpuQuantity":
+    def validate(cls, value: Union["CpuQuantity", int, float, str]) -> "CpuQuantity":
         match value:
             case cls():
                 return value

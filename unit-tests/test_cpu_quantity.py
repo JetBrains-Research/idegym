@@ -79,7 +79,7 @@ def test_cpu_quantity_constructor_negative():
         param(CpuQuantity(cores=1), id="cpu-quantity"),
     ],
 )
-def test_cpu_quantity_equality(value: CpuQuantity | float | str):
+def test_cpu_quantity_equality(value: CpuQuantity | int | float | str):
     assert CpuQuantity(cores=1) == value
 
 
@@ -104,7 +104,7 @@ def test_cpu_quantity_equality_incompatible_type(value: object):
         param(CpuQuantity(), id="cpu-quantity"),
     ],
 )
-def test_cpu_quantity_comparison(value: CpuQuantity | float | str):
+def test_cpu_quantity_comparison(value: CpuQuantity | int | float | str):
     assert CpuQuantity(cores=1) > value
 
 

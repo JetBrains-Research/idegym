@@ -148,15 +148,16 @@ class HTTPUtils:
         operation_id: int,
         success_response_model: Optional[type[S]] = None,
         error_response_model: Optional[type[E]] = None,
-        polling_config: PollingConfig = PollingConfig(),  # noqa: B008  # PollingConfig is immutable
+        polling_config: Optional[PollingConfig] = None,
     ) -> S | E | Optional[str]:
         """
         Poll ``/api/operations/status/{operation_id}`` until the operation reaches a terminal state.
 
         Returns an instance of ``success_response_model`` on success, ``error_response_model`` on
         failure or cancellation, or the raw result string if no model is provided.
-        Raises ``asyncio.TimeoutError`` if ``polling_config.wait_timeout_in_sec`` is exceeded.
+        Raises ``TimeoutError`` if ``polling_config.wait_timeout_in_sec`` is exceeded.
         """
+        polling_config = polling_config or PollingConfig()
         logger.debug(f"Polling async operation status with ID {operation_id}")
 
         async with asyncio.timeout(polling_config.wait_timeout_in_sec):

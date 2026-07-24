@@ -117,7 +117,9 @@ extend-select = ["I"]
 # UP045 would rewrite Optional[X] -> X | None; keep the project's Optional[X] convention.
 # UP040 would turn `X: TypeAlias = ...` into `type X = ...`, but several of these aliases
 # (e.g. Duration) are instantiated at runtime, and a `type` statement is not callable.
-ignore = ["UP045", "UP040"]
+# PYI041 collapses `int | float` to `float`; keep `int` explicit in the documented numeric
+# APIs (e.g. CpuQuantity) so signatures match the accepted inputs and the Pydantic schema.
+ignore = ["UP045", "UP040", "PYI041"]
 
 [tool.ruff.lint.flake8-bugbear]
 # Idiomatic/immutable callables that are safe as argument defaults (suppresses B008):
