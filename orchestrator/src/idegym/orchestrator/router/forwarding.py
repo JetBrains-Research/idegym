@@ -212,7 +212,7 @@ async def forward_request_internally(
 
 
 async def update_server_heartbeat_on_call(path: str, server_id: int):
-    if path.startswith("api/tools") or path.startswith("api/rewards"):
+    if path.startswith(("api/tools", "api/rewards")):
         logger.info(f"Updating heartbeat for server ID {server_id} on tool or reward call")
         await update_server_status(server_id=server_id, availability_status=AvailabilityStatus.ALIVE)
 

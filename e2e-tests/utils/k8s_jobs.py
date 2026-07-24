@@ -64,7 +64,7 @@ async def _wait_for_job_completion(batch: BatchV1Api, job_name: str, namespace: 
                         return False
             finally:
                 await w.close()
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning(f"Job {job_name} timed out after {timeout}s")
         return False
     except Exception as e:

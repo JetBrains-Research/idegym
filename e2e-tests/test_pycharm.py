@@ -98,51 +98,53 @@ async def test_pycharm_inspect_produces_results(test_id):
     image_tag = str(built.repo_tags[0])
     minikube_load_image(image_tag=image_tag, timeout=600)
 
-    async with create_http_client(
-        name=f"pycharm-inspect-{test_id}",
-        nodes_count=0,
-        request_timeout_in_seconds=600,
-    ) as client:
-        async with client.with_server(
+    async with (
+        create_http_client(
+            name=f"pycharm-inspect-{test_id}",
+            nodes_count=0,
+            request_timeout_in_seconds=600,
+        ) as client,
+        client.with_server(
             image_tag=image_tag,
             server_name=f"pycharm-inspect-server-{test_id}",
             run_as_root=True,
             resources=_PYCHARM_RESOURCES,
             server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
             polling_config=PollingConfig(wait_timeout_in_sec=600),
-        ) as server:
-            setup = await server.execute_bash(script=_INSPECT_SETUP_SCRIPT)
-            assert setup.exit_code == 0, f"Setup failed:\n{setup.stdout}\n{setup.stderr}"
+        ) as server,
+    ):
+        setup = await server.execute_bash(script=_INSPECT_SETUP_SCRIPT)
+        assert setup.exit_code == 0, f"Setup failed:\n{setup.stdout}\n{setup.stderr}"
 
-            result = await server.pycharm.inspect(
-                project_path="/root/work",
-                profile_path="/root/work/.idea/inspectionProfiles/Default.xml",
-                output_dir="/tmp/pycharm-inspect-out",
-                timeout=540.0,
-                request_timeout=600,
-            )
-            assert result.exit_code == 0, (
-                f"inspect.sh exited {result.exit_code}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
-            )
+        result = await server.pycharm.inspect(
+            project_path="/root/work",
+            profile_path="/root/work/.idea/inspectionProfiles/Default.xml",
+            output_dir="/tmp/pycharm-inspect-out",
+            timeout=540.0,
+            request_timeout=600,
+        )
+        assert result.exit_code == 0, (
+            f"inspect.sh exited {result.exit_code}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+        )
 
-            # Verify result files were written and contain XML inspection output
-            listing = await server.execute_bash("ls /tmp/pycharm-inspect-out/")
-            assert listing.exit_code == 0, f"Output directory missing: {listing.stderr}"
-            files_written = listing.stdout.strip().split()
-            assert files_written, "Expected inspect.sh to write result files in /tmp/pycharm-inspect-out/"
+        # Verify result files were written and contain XML inspection output
+        listing = await server.execute_bash("ls /tmp/pycharm-inspect-out/")
+        assert listing.exit_code == 0, f"Output directory missing: {listing.stderr}"
+        files_written = listing.stdout.strip().split()
+        assert files_written, "Expected inspect.sh to write result files in /tmp/pycharm-inspect-out/"
 
-            # Verify that buggy.py issues were detected
-            buggy_check = await server.execute_bash("grep -l 'buggy.py' /tmp/pycharm-inspect-out/*.xml || true")
-            assert buggy_check.exit_code == 0, f"Failed to search for buggy.py: {buggy_check.stderr}"
-            buggy_files = [f for f in buggy_check.stdout.strip().split("\n") if f]
-            assert buggy_files, "Expected at least one inspection result file to reference buggy.py with issues"
+        # Verify that buggy.py issues were detected
+        buggy_check = await server.execute_bash("grep -l 'buggy.py' /tmp/pycharm-inspect-out/*.xml || true")
+        assert buggy_check.exit_code == 0, f"Failed to search for buggy.py: {buggy_check.stderr}"
+        buggy_files = [f for f in buggy_check.stdout.strip().split("\n") if f]
+        assert buggy_files, "Expected at least one inspection result file to reference buggy.py with issues"
 
-            # Read one of the files that contains buggy.py issues
-            first_buggy_file = buggy_files[0].split("/")[-1]
-            content = await server.execute_bash(f"cat /tmp/pycharm-inspect-out/{first_buggy_file}")
-            assert content.exit_code == 0, f"Failed to read {first_buggy_file}: {content.stderr}"
-            assert "buggy.py" in content.stdout, f"Expected buggy.py in {first_buggy_file}"
-            assert "<problem>" in content.stdout, f"Expected <problem> XML tags in {first_buggy_file}"
+        # Read one of the files that contains buggy.py issues
+        first_buggy_file = buggy_files[0].split("/")[-1]
+        content = await server.execute_bash(f"cat /tmp/pycharm-inspect-out/{first_buggy_file}")
+        assert content.exit_code == 0, f"Failed to read {first_buggy_file}: {content.stderr}"
+        assert "buggy.py" in content.stdout, f"Expected buggy.py in {first_buggy_file}"
+        assert "<problem>" in content.stdout, f"Expected <problem> XML tags in {first_buggy_file}"
 
 
 @pytest.mark.ide_integrations
@@ -181,25 +183,27 @@ async def test_pycharm_mcp_server_starts(test_id):
     image_tag = str(built.repo_tags[0])
     minikube_load_image(image_tag=image_tag, timeout=600)
 
-    async with create_http_client(
-        name=f"pycharm-mcp-e2e-{test_id}",
-        nodes_count=0,
-        request_timeout_in_seconds=600,
-    ) as client:
-        async with client.with_server(
+    async with (
+        create_http_client(
+            name=f"pycharm-mcp-e2e-{test_id}",
+            nodes_count=0,
+            request_timeout_in_seconds=600,
+        ) as client,
+        client.with_server(
             image_tag=image_tag,
             server_name=f"pycharm-mcp-server-{test_id}",
             run_as_root=True,
             resources=_PYCHARM_RESOURCES,
             server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
-        ) as server:
-            # Poll MCP endpoint from inside the container (180s budget = 60 × 3s).
-            result = await server.execute_bash(
-                script=_WAIT_MCP_SCRIPT,
-                command_timeout=190.0,
-            )
+        ) as server,
+    ):
+        # Poll MCP endpoint from inside the container (180s budget = 60 × 3s).
+        result = await server.execute_bash(
+            script=_WAIT_MCP_SCRIPT,
+            command_timeout=190.0,
+        )
 
-            assert result.exit_code == 0, (
-                f"MCP server did not become ready.\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
-            )
-            assert "SUCCESS" in result.stdout, f"Expected 'SUCCESS' in output.\nstdout:\n{result.stdout}"
+        assert result.exit_code == 0, (
+            f"MCP server did not become ready.\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+        )
+        assert "SUCCESS" in result.stdout, f"Expected 'SUCCESS' in output.\nstdout:\n{result.stdout}"

@@ -16,19 +16,19 @@ for _ep in _entry_points(group="idegym.plugins.image"):
     except Exception:
         _logger.warning("Failed to load image plugin %r", _ep.name, exc_info=True)
 
-from idegym.api.docker import BaseImage  # noqa: E402
-from idegym.api.image_build import ImageBuildSpec  # noqa: E402
-from idegym.api.plugin import (  # noqa: E402
+from idegym.api.docker import BaseImage
+from idegym.api.image_build import ImageBuildSpec
+from idegym.api.plugin import (
     MCP_UPSTREAMS_DIR,
     SAFE_PLUGIN_NAME_RE,
     BuildContext,
     PluginBase,
     get_plugin_type_name,
 )
-from idegym.api.type import OCIImageName  # noqa: E402
-from idegym.image.docker_api import IdeGYMDockerAPI  # noqa: E402
-from idegym.image.serialization import deserialize_plugin, dump_images, load_images, serialize_plugin  # noqa: E402
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_serializer, field_validator  # noqa: E402
+from idegym.api.type import OCIImageName
+from idegym.image.docker_api import IdeGYMDockerAPI
+from idegym.image.serialization import deserialize_plugin, dump_images, load_images, serialize_plugin
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_serializer, field_validator
 
 # TypeAdapter reuses the OCIImageName constraints without duplicating the regex.
 # Needed because model_copy() bypasses Pydantic field validation.
@@ -241,16 +241,14 @@ class Image(BaseModel):
         )
 
     def _render_project_archive_env(self) -> str:
-        return "\n".join(
-            [
-                "ARG IDEGYM_PROJECT_ARCHIVE_URL",
-                "ARG IDEGYM_PROJECT_ARCHIVE_PATH",
-                "ARG IDEGYM_AUTH_TOKEN",
-                "ARG IDEGYM_AUTH_TYPE",
-                "",
-                'ENV IDEGYM_PROJECT_ARCHIVE_URL="$IDEGYM_PROJECT_ARCHIVE_URL"',
-                'ENV IDEGYM_PROJECT_ARCHIVE_PATH="$IDEGYM_PROJECT_ARCHIVE_PATH"',
-            ]
+        return (
+            "ARG IDEGYM_PROJECT_ARCHIVE_URL\n"
+            "ARG IDEGYM_PROJECT_ARCHIVE_PATH\n"
+            "ARG IDEGYM_AUTH_TOKEN\n"
+            "ARG IDEGYM_AUTH_TYPE\n"
+            "\n"
+            'ENV IDEGYM_PROJECT_ARCHIVE_URL="$IDEGYM_PROJECT_ARCHIVE_URL"\n'
+            'ENV IDEGYM_PROJECT_ARCHIVE_PATH="$IDEGYM_PROJECT_ARCHIVE_PATH"'
         )
 
     def _render_dockerfile(

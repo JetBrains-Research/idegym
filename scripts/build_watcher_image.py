@@ -7,11 +7,11 @@
 # ]
 # ///
 from argparse import ArgumentParser, Namespace
+from collections.abc import Iterable
 from pathlib import Path
 from shutil import which
 from subprocess import run
 from sys import stderr, stdout
-from typing import Iterable
 
 from from_root import from_root
 from python_on_whales import DockerClient

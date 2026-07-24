@@ -9,7 +9,7 @@ from argparse import ArgumentParser, Namespace
 from os import chmod, fspath
 from pathlib import Path
 from shutil import copyfileobj
-from sys import stderr, stdout
+from sys import exit, stderr, stdout
 from tarfile import TarFile
 from zipfile import ZipFile
 

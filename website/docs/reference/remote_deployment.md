@@ -596,6 +596,7 @@ import asyncio
 from idegym.client.client import IdeGYMClient
 from idegym.api.auth import BasicAuth
 
+
 async def main():
     async with IdeGYMClient(
         orchestrator_url="https://idegym.yourdomain.com",
@@ -605,6 +606,7 @@ async def main():
     ) as client:
         response = await client.health_check()
         print(response.status)  # → "healthy"
+
 
 asyncio.run(main())
 ```

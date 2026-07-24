@@ -1,5 +1,6 @@
 from functools import total_ordering
 from re import Pattern, compile
+from types import NotImplementedType
 from typing import Any, ClassVar, Union
 
 from kubernetes.utils import parse_quantity
@@ -66,7 +67,7 @@ class CpuQuantity:
             case _:
                 return False
 
-    def __lt__(self, other: Union["CpuQuantity", int, float, str]) -> bool:
+    def __lt__(self, other: Union["CpuQuantity", int, float, str]) -> bool | NotImplementedType:
         match other:
             case CpuQuantity():
                 return self._millicores < other._millicores
@@ -74,8 +75,7 @@ class CpuQuantity:
                 return self._millicores < round(other * 1000)
             case str():
                 return self._millicores < CpuQuantity.parse(other)._millicores
-            case _:
-                return NotImplemented
+        return NotImplemented
 
     def __str__(self) -> str:
         if self._millicores % 1000 == 0:
@@ -97,8 +97,7 @@ class CpuQuantity:
                 return cls(cores=value)
             case str():
                 return cls.parse(value)
-            case _:
-                raise ValueError(f"Cannot convert {value} to {cls.__name__}")
+        raise ValueError(f"Cannot convert {value} to {cls.__name__}")
 
     @classmethod
     def __get_pydantic_core_schema__(

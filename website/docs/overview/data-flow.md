@@ -49,12 +49,14 @@ from idegym.plugins.defaults.image import User, Project, Permissions
 image = (
     Image.from_base("ghcr.io/jetbrains-research/idegym/server-debian-bookworm-20250520-slim:latest")
     .with_plugin(User(username="devuser", uid=2000, gid=2000, sudo=True))
-    .with_plugin(Project.from_git(
-        url="https://github.com/owner/my-repo.git",
-        ref="abc123",
-        owner="devuser",
-        target="/home/devuser/project",
-    ))
+    .with_plugin(
+        Project.from_git(
+            url="https://github.com/owner/my-repo.git",
+            ref="abc123",
+            owner="devuser",
+            target="/home/devuser/project",
+        )
+    )
     .with_runtime(runtime_class_name="gvisor", resources={...})
 )
 ```
@@ -86,8 +88,7 @@ image and boots **Supervisor → FastAPI server** (and any in-pod IDE process). 
 `gvisor` runtime class, the container runs in a syscall-filtering sandbox.
 
 ```python
-async with client.with_server(image_tag=image_tag, server_name="my-server",
-                              runtime_class_name="gvisor") as server:
+async with client.with_server(image_tag=image_tag, server_name="my-server", runtime_class_name="gvisor") as server:
     ...
 ```
 

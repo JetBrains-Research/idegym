@@ -172,7 +172,6 @@ def test_stage_context_files_preserves_preexisting_parent_dirs(tmp_path):
 def test_stage_context_files_rejects_paths_escaping_the_context(tmp_path, dest):
     # A destination must stay inside the build context: absolute paths or `..` are rejected
     # before any write, so a plugin cannot clobber files outside the caller's context.
-    with ExitStack() as stack:
-        with pytest.raises(ValueError, match="relative path within the build context"):
-            DockerService._stage_context_files(str(tmp_path), {dest: b"asset"}, stack)
+    with ExitStack() as stack, pytest.raises(ValueError, match="relative path within the build context"):
+        DockerService._stage_context_files(str(tmp_path), {dest: b"asset"}, stack)
     assert list(tmp_path.iterdir()) == []  # nothing written

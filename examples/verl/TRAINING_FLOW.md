@@ -172,14 +172,14 @@ Dataclass describing a single code-generation task:
 ```python
 @dataclass
 class ItemToRun:
-    idx: int            # sample index
-    dp_id: str          # data point ID
-    file_path: str      # file in Django repo
+    idx: int  # sample index
+    dp_id: str  # data point ID
+    file_path: str  # file in Django repo
     replace_content: str  # code to insert
-    method_name: str    # function name
-    start_line: int     # 1-indexed start line
-    end_line: int       # 1-indexed end line (inclusive)
-    tests: list[str]    # test paths to run
+    method_name: str  # function name
+    start_line: int  # 1-indexed start line
+    end_line: int  # 1-indexed end line (inclusive)
+    tests: list[str]  # test paths to run
 ```
 
 ---

@@ -13,7 +13,7 @@ import os
 # `testcontainers` import.
 os.environ.setdefault("TESTCONTAINERS_RYUK_DISABLED", "true")
 
-import pytest  # noqa: E402
+import pytest
 
 _PG_IMAGE = "postgres:16"
 

@@ -3,7 +3,7 @@ import math
 import random
 from asyncio import CancelledError, sleep
 from json import JSONDecodeError, loads
-from typing import Any, Optional, Type, TypeVar, Union
+from typing import Any, Optional, TypeVar
 from uuid import UUID
 
 from httpx import AsyncClient, HTTPStatusError
@@ -118,9 +118,9 @@ class HTTPUtils:
             response.raise_for_status()
             return response.json() if content else {}
 
-        except CancelledError as ex:
+        except CancelledError:
             logger.warning(f"Request cancelled: url={url}")
-            raise ex
+            raise
 
         except HTTPStatusError as ex:
             message = (
@@ -132,31 +132,32 @@ class HTTPUtils:
             logger.error(message)
             raise RuntimeError(message)
 
-        except JSONDecodeError as ex:
-            logger.exception(f"Failed to parse JSON response: url={url} error='{str(ex)}' data='{response.text}' '")
-            raise ex
+        except JSONDecodeError:
+            logger.exception(f"Failed to parse JSON response: url={url} data={response.text!r}")
+            raise
 
-        except Exception as ex:
-            logger.exception(f"Request error: url={url} type='{ex.__class__.__name__}' error='{str(ex)}'")
-            raise ex
+        except Exception:
+            logger.exception(f"Request error: url={url}")
+            raise
 
-    def parse_response(self, response_raw: dict[str, Any], model_class: Type[S]) -> S:
+    def parse_response(self, response_raw: dict[str, Any], model_class: type[S]) -> S:
         return model_class.model_validate(response_raw)
 
     async def wait_for_async_operation_to_end(
         self,
         operation_id: int,
-        success_response_model: Type[S] = None,
-        error_response_model: Type[E] = None,
-        polling_config: PollingConfig = PollingConfig(),
-    ) -> Union[S, E, Optional[str]]:
+        success_response_model: Optional[type[S]] = None,
+        error_response_model: Optional[type[E]] = None,
+        polling_config: Optional[PollingConfig] = None,
+    ) -> S | E | Optional[str]:
         """
         Poll ``/api/operations/status/{operation_id}`` until the operation reaches a terminal state.
 
         Returns an instance of ``success_response_model`` on success, ``error_response_model`` on
         failure or cancellation, or the raw result string if no model is provided.
-        Raises ``asyncio.TimeoutError`` if ``polling_config.wait_timeout_in_sec`` is exceeded.
+        Raises ``TimeoutError`` if ``polling_config.wait_timeout_in_sec`` is exceeded.
         """
+        polling_config = polling_config or PollingConfig()
         logger.debug(f"Polling async operation status with ID {operation_id}")
 
         async with asyncio.timeout(polling_config.wait_timeout_in_sec):
@@ -197,15 +198,15 @@ class HTTPUtils:
         return result + random.uniform(0.01, 0.05)
 
     def _parse_async_operation_response(
-        self, result: Optional[str], short_status: AsyncOperationStatus, response_model: Type[S] = None
-    ) -> Union[S, Optional[str]]:
+        self, result: Optional[str], short_status: AsyncOperationStatus, response_model: Optional[type[S]] = None
+    ) -> S | Optional[str]:
         if response_model is not None and result is None:
             raise RuntimeError(f"Async operation {short_status} but result is missing")
 
         if response_model:
             try:
                 result_dict = loads(result)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001  # surface any result-parse failure as a RuntimeError
                 raise RuntimeError(f"Failed to parse async operation result: {type(e).__name__}: {e}")
 
             return response_model.model_validate(result_dict)

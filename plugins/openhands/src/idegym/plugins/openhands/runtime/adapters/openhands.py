@@ -45,7 +45,7 @@ class OpenHandsToolAdapter(ToolAdapter):
         if callable(dump):
             try:
                 structured = dump(mode="json")
-            except Exception:
+            except Exception:  # noqa: BLE001  # structured dump is best-effort
                 structured = {}
 
         return AdapterRun(content=content, structured=structured, is_error=bool(getattr(obs, "is_error", False)))

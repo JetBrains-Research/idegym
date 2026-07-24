@@ -35,18 +35,18 @@ def _config() -> Config:
 
 
 def _request(**overrides) -> StartServerRequest:
-    defaults = dict(
-        client_id=_CLIENT_ID,
-        image_tag=_IMAGE,
-        server_name="snap-server",
-        namespace="idegym",
-        runtime_class_name="gvisor",
-        run_as_root=False,
-        service_port=80,
-        container_port=8000,
-        server_kind=ServerKind.IDEGYM,
-        server_start_wait_timeout_in_seconds=30,
-    )
+    defaults = {
+        "client_id": _CLIENT_ID,
+        "image_tag": _IMAGE,
+        "server_name": "snap-server",
+        "namespace": "idegym",
+        "runtime_class_name": "gvisor",
+        "run_as_root": False,
+        "service_port": 80,
+        "container_port": 8000,
+        "server_kind": ServerKind.IDEGYM,
+        "server_start_wait_timeout_in_seconds": 30,
+    }
     defaults.update(overrides)
     return StartServerRequest(**defaults)
 

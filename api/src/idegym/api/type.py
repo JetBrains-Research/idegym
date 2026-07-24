@@ -1,6 +1,6 @@
 from datetime import timedelta
 from enum import StrEnum
-from typing import Annotated, Literal, Type, TypeAlias
+from typing import Annotated, Literal, TypeAlias
 
 from pydantic import AnyHttpUrl, BeforeValidator, IPvAnyAddress, StringConstraints, TypeAdapter
 
@@ -60,7 +60,7 @@ KubernetesLabelValue = Annotated[
 
 
 KubernetesNodeSelector: TypeAlias = dict[KubernetesLabelKey, KubernetesLabelValue]
-AuthType: Type[str] = Literal["Basic", "Bearer", "Token"]
+AuthType: TypeAlias = Literal["Basic", "Bearer", "Token"]
 Duration: TypeAlias = timedelta
 LogLevel: TypeAlias = int
-LogLevelName: Type[str] = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+LogLevelName: TypeAlias = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]

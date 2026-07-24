@@ -23,6 +23,7 @@ uv add idegym-client
 import asyncio
 from idegym.client.client import IdeGYMClient
 
+
 async def main():
     async with IdeGYMClient(
         orchestrator_url="https://idegym.yourdomain.com",
@@ -35,6 +36,7 @@ async def main():
         ) as server:
             result = await server.execute_bash(script="echo hello")
             print(result.stdout)  # → hello
+
 
 asyncio.run(main())
 ```
@@ -92,14 +94,14 @@ Start a server and yield an `IdeGYMServer`, then stop or finish it on exit.
 async with client.with_server(
     image_tag="registry.example.com/my-env:latest",
     server_name="my-server",
-    namespace=None,                          # defaults to client namespace
+    namespace=None,  # defaults to client namespace
     runtime_class_name="gvisor",
     run_as_root=False,
-    resources=None,                          # KubernetesResources
+    resources=None,  # KubernetesResources
     node_selector=None,
     server_start_wait_timeout_in_seconds=60,
     reuse_strategy=ServerReuseStrategy.RESET,
-    close_action=ServerCloseAction.FINISH,   # FINISH or STOP
+    close_action=ServerCloseAction.FINISH,  # FINISH or STOP
 ) as server:
     ...
 ```
@@ -139,8 +141,8 @@ from pathlib import Path
 
 summary = await client.build_and_push_images(
     path=Path("image.yaml"),
-    timeout=600,        # seconds; None = no timeout
-    poll_interval=10,   # seconds between status polls
+    timeout=600,  # seconds; None = no timeout
+    poll_interval=10,  # seconds between status polls
 )
 
 if summary.failed_jobs > 0:
@@ -170,14 +172,14 @@ Run a bash script in the environment:
 ```python
 result = await server.execute_bash(
     script="python -c 'print(1+1)'",
-    command_timeout=600.0,                  # seconds
-    graceful_termination_timeout=2.0,       # seconds
-    request_timeout=None,                   # HTTP timeout (uses client default)
+    command_timeout=600.0,  # seconds
+    graceful_termination_timeout=2.0,  # seconds
+    request_timeout=None,  # HTTP timeout (uses client default)
 )
 
-print(result.exit_code)   # 0
-print(result.stdout)      # "2\n"
-print(result.stderr)      # ""
+print(result.exit_code)  # 0
+print(result.stdout)  # "2\n"
+print(result.stderr)  # ""
 ```
 
 ### `reset_project(...)`
@@ -392,7 +394,7 @@ result = await server.compilation_reward(
     compilation_script="cd /home/devuser/project && python -m py_compile main.py",
     compilation_timeout=600.0,
 )
-print(result.success)   # True / False
+print(result.success)  # True / False
 ```
 
 ### `setup_reward(setup_check_script, ...)`
@@ -416,9 +418,9 @@ result = await server.test_reward(
     test_script="cd /project && python -m pytest --tb=short",
     test_timeout=600.0,
 )
-print(result.passed)    # number of passing tests
-print(result.failed)    # number of failing tests
-print(result.output)    # full test output
+print(result.passed)  # number of passing tests
+print(result.failed)  # number of failing tests
+print(result.output)  # full test output
 ```
 
 ---
@@ -477,6 +479,7 @@ from idegym.client.client import IdeGYMClient
 from idegym.image.builder import Image
 from idegym.plugins.defaults.image import User, Project
 
+
 async def train_step(client: IdeGYMClient, image_tag: str, patch: str) -> float:
     """Apply a patch and return a test-pass reward."""
     async with client.with_server(
@@ -511,6 +514,7 @@ async def main():
         image_tag = "registry.example.com/my-env:latest"
         reward = await train_step(client, image_tag, patch="--- ...")
         print(f"Reward: {reward:.2f}")
+
 
 asyncio.run(main())
 ```

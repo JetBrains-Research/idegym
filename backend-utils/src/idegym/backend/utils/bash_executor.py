@@ -2,7 +2,6 @@ import asyncio
 import os
 import shlex
 import signal
-from asyncio import TimeoutError as AsyncTimeoutError
 from asyncio.subprocess import Process
 from importlib.resources import files
 from pathlib import Path
@@ -30,7 +29,7 @@ async def terminate_process_group(process: Process, graceful_termination_timeout
         os.killpg(process.pid, signal.SIGTERM)
         await asyncio.wait_for(process.wait(), timeout=graceful_termination_timeout)
         logger.info(f"Process group {process.pid} terminated gracefully")
-    except AsyncTimeoutError:
+    except TimeoutError:
         os.killpg(process.pid, signal.SIGKILL)
         await process.wait()
         logger.info(f"Process group {process.pid} was forcefully killed")
@@ -79,7 +78,7 @@ class BashExecutor:
 
             exit_code = process.returncode
 
-        except AsyncTimeoutError:
+        except TimeoutError:
             logger.warning(f"Command execution timed out after {timeout} seconds")
             await terminate_process_group(process, graceful_termination_timeout)
 

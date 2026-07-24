@@ -49,11 +49,12 @@ class ForwardingOperations:
         if isinstance(response, ForwardRequestResponse):
             try:
                 response_dict = loads(response.body or "{}")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001  # surface any body-parse failure as a RuntimeError
                 raise RuntimeError(f"Failed to parse forwarded response body: {type(e).__name__}: {e}")
             return response_dict
         else:
             if response.status_code == HTTPStatus.TOO_EARLY.value:
                 raise InspectionsNotReadyException()
 
-            raise RuntimeError(f"Failed to forward request {method} {url}: {response.model_dump()}")
+            # Branching on a response union, not validating an argument's type — RuntimeError is correct.
+            raise RuntimeError(f"Failed to forward request {method} {url}: {response.model_dump()}")  # noqa: TRY004

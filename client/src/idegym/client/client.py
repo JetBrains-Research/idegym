@@ -300,8 +300,8 @@ class IdeGYMClient:
 
         try:
             yield server
-        except Exception as e:
-            logger.exception(f"Exception while working with server: {e}")
+        except Exception:
+            logger.exception("Exception while working with server")
             raise
         finally:
             if close_action == ServerCloseAction.STOP:
@@ -318,8 +318,8 @@ class IdeGYMClient:
         try:
             logger.info(f"Stopping IdeGYM server: id={server.server_id}")
             return await server._stop_server(polling_config=polling_config)
-        except Exception as e:
-            logger.exception(f"Exception while stopping server id={server.server_id}: {e}")
+        except Exception:
+            logger.exception(f"Exception while stopping server id={server.server_id}")
             raise
 
     @retry_with_backoff(attempts=3)
@@ -330,8 +330,8 @@ class IdeGYMClient:
         try:
             logger.info(f"Finishing IdeGYM server: id={server.server_id}")
             return await server._finish_server()
-        except Exception as e:
-            logger.exception(f"Exception while finishing server id={server.server_id}: {e}")
+        except Exception:
+            logger.exception(f"Exception while finishing server id={server.server_id}")
             raise
 
     # TODO: distinguish 400s and 500s in terms of retry
@@ -392,7 +392,8 @@ class IdeGYMClient:
         )
 
         if isinstance(server_response, ErrorResponse):
-            raise RuntimeError(f"Failed to start server: {server_response.model_dump()}")
+            # Branching on a response union, not validating an argument's type — RuntimeError is correct.
+            raise RuntimeError(f"Failed to start server: {server_response.model_dump()}")  # noqa: TRY004
         elif isinstance(server_response, StartServerResponse) and server_response.server_id:
             return IdeGYMServer(
                 server_id=server_response.server_id,

@@ -196,12 +196,8 @@ async def perform_cleanup_operations(
 
 async def _wait_for_jitter():
     # Randomized jitter to avoid synchronized retries across replicas when the lock is contended.
-    jitter = 0.5
-    try:
-        jitter = random.uniform(0.2, 1.0)
-    except Exception:
-        pass
-    logger.info("Cleanup is already running in another process. Skipping this iteration. Adding jitter %.2fs" % jitter)
+    jitter = random.uniform(0.2, 1.0)
+    logger.info(f"Cleanup is already running in another process. Skipping this iteration. Adding jitter {jitter:.2f}s")
     await asyncio.sleep(jitter)
 
 

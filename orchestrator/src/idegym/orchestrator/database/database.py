@@ -28,7 +28,7 @@ from opentelemetry.instrumentation.asyncpg import AsyncPGInstrumentor
 from opentelemetry.instrumentation.psycopg2 import Psycopg2Instrumentor
 from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 from sqlalchemy import Text, delete, func, select, text, update
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine  # noqa: N812
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 from sqlalchemy.ext.asyncio import async_sessionmaker as AsyncSessionMaker
 
 logger = get_logger(__name__)
@@ -109,7 +109,7 @@ async def init_db(db_url: str, config: SQLAlchemyConfig, clean_database: bool = 
                             logger.info(
                                 f"Still waiting for migrations... (current: {current_version}, expected: {expected_version}, {elapsed}s elapsed)"
                             )
-                except Exception:
+                except Exception:  # noqa: BLE001  # migration-wait poll tolerates transient errors
                     if elapsed % 10 == 0:
                         logger.info(f"Still waiting for migrations... ({elapsed}s elapsed)")
                     continue
@@ -214,10 +214,7 @@ async def need_to_spin_up_nodes(db: AsyncSession, client_id: UUID) -> bool:
     clients_result = await db.execute(clients_query)
     clients = clients_result.scalars().all()
 
-    if len(clients) > 0:
-        return False
-
-    return True
+    return not clients
 
 
 async def need_to_release_nodes(db: AsyncSession, client_id: UUID) -> Optional[ClientNodes]:
@@ -344,10 +341,10 @@ async def has_pending_start_server_operations(
                     and request_data.get("runtime_class_name") == container_runtime
                     and request_data.get("run_as_root") == run_as_root
                     and request_data.get("server_kind") == server_kind
-                ):
                     # If server_name is specified, it must match too
-                    if server_name is None or request_data.get("server_name") == server_name:
-                        return True
+                    and (server_name is None or request_data.get("server_name") == server_name)
+                ):
+                    return True
             except (json.JSONDecodeError, KeyError):
                 continue
 
@@ -805,7 +802,7 @@ async def acquire_advisory_lock(db: AsyncSession, lock_id: int) -> bool:
         else:
             logger.info(f"Advisory lock {lock_id} is already taken by another process")
         return acquired
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001  # advisory-lock acquire is best-effort
         logger.error(f"Failed to acquire advisory lock {lock_id}: {e}")
         return False
 
@@ -820,7 +817,7 @@ async def release_advisory_lock(db: AsyncSession, lock_id: int) -> bool:
         else:
             logger.warning(f"Failed to release advisory lock {lock_id} - may not have been held by this session")
         return released
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001  # advisory-lock release is best-effort
         logger.error(f"Failed to release advisory lock {lock_id}: {e}")
         return False
 

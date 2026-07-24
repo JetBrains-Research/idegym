@@ -1,9 +1,10 @@
 import json
 from asyncio import CancelledError, gather, sleep, timeout
+from collections.abc import AsyncGenerator, Awaitable, Callable, Iterable
 from contextlib import asynccontextmanager
 from os import environ as env
 from random import getrandbits
-from typing import Any, AsyncGenerator, Awaitable, Callable, Iterable, Optional, Union, cast
+from typing import Any, Optional, cast
 
 from idegym.api import __version__
 from idegym.api.download import DownloadRequest
@@ -79,7 +80,7 @@ from kubernetes_asyncio.config import (
 
 KubernetesV1Apis = tuple[AppsV1Api, BatchV1Api, CoreV1Api, PolicyV1Api, CustomObjectsApi]
 
-V1ResourceList = Union[V1ConfigMapList, V1DeploymentList, V1PodDisruptionBudgetList, V1ServiceList]
+V1ResourceList = V1ConfigMapList | V1DeploymentList | V1PodDisruptionBudgetList | V1ServiceList
 
 logger = get_logger(__name__)
 
@@ -167,7 +168,7 @@ def to_env_var(dictionary: dict[str, Any]) -> V1EnvVar:
 
     kwargs: dict[str, Any] = {}
 
-    if "secretKeyRef" in value_from and value_from["secretKeyRef"]:
+    if value_from.get("secretKeyRef"):
         secret_key_ref = value_from["secretKeyRef"]
         kwargs["secret_key_ref"] = V1SecretKeySelector(
             name=secret_key_ref.get("name"),
@@ -175,7 +176,7 @@ def to_env_var(dictionary: dict[str, Any]) -> V1EnvVar:
             optional=secret_key_ref.get("optional"),
         )
 
-    if "configMapKeyRef" in value_from and value_from["configMapKeyRef"]:
+    if value_from.get("configMapKeyRef"):
         config_map_key_ref = value_from["configMapKeyRef"]
         kwargs["config_map_key_ref"] = V1ConfigMapKeySelector(
             name=config_map_key_ref.get("name"),
@@ -183,14 +184,14 @@ def to_env_var(dictionary: dict[str, Any]) -> V1EnvVar:
             optional=config_map_key_ref.get("optional"),
         )
 
-    if "fieldRef" in value_from and value_from["fieldRef"]:
+    if value_from.get("fieldRef"):
         field_ref = value_from["fieldRef"]
         kwargs["field_ref"] = V1ObjectFieldSelector(
             field_path=field_ref.get("fieldPath"),
             api_version=field_ref.get("apiVersion"),
         )
 
-    if "resourceFieldRef" in value_from and value_from["resourceFieldRef"]:
+    if value_from.get("resourceFieldRef"):
         resource_field_from = value_from["resourceFieldRef"]
         kwargs["resource_field_ref"] = V1ResourceFieldSelector(
             resource=resource_field_from.get("resource"),
@@ -254,8 +255,8 @@ async def deploy_server(
     node_selector: Optional[dict[str, str]] = None,
     node_pool_taint_key: Optional[str] = None,
     node_pool_preference_weight: int = 100,
-    resources: Optional[Union[V1ResourceRequirements, dict[str, Any]]] = None,
-    environment_variables: Iterable[Union[V1EnvVar, dict[str, Any]]] = (),
+    resources: Optional[V1ResourceRequirements | dict[str, Any]] = None,
+    environment_variables: Iterable[V1EnvVar | dict[str, Any]] = (),
     volumes: Optional[Iterable[dict[str, Any]]] = None,
     volume_mounts: Optional[Iterable[dict[str, Any]]] = None,
     env_from: Optional[Iterable[dict[str, Any]]] = None,
@@ -505,7 +506,7 @@ async def wait_for_pods_ready(
             if has_unschedulable_pods:
                 consecutive_unschedulable += 1
                 if consecutive_unschedulable >= max_consecutive_unschedulable:
-                    raise Exception(
+                    raise RuntimeError(
                         f"Failed to start pods: Unschedulable condition detected {consecutive_unschedulable} times in a row"
                     )
             else:
@@ -516,7 +517,7 @@ async def wait_for_pods_ready(
                 logger.warning(f"Image pull error detected ({consecutive_image_pull_errors}/{max_image_pull_attempts})")
 
                 if consecutive_image_pull_errors >= max_image_pull_attempts:
-                    raise Exception(
+                    raise RuntimeError(
                         f"Failed to start pods: Image pull errors detected {max_image_pull_attempts} times in a row"
                     )
             else:
@@ -634,7 +635,7 @@ async def delete_with_retries(
                 backoff = 2**attempt
                 logger.warning(
                     f"Error deleting {resource_type} '{resource_name}': "
-                    f"{ex.__class__.__name__}: {str(ex)}. "
+                    f"{ex.__class__.__name__}: {ex!s}. "
                     f"Retrying in {backoff} seconds..."
                 )
                 await sleep(backoff)
@@ -670,7 +671,7 @@ async def exists_with_retries(
                 backoff = 2**attempt
                 logger.warning(
                     f"Error querying {resource_type} '{resource_name}': "
-                    f"{ex.__class__.__name__}: {str(ex)}. "
+                    f"{ex.__class__.__name__}: {ex!s}. "
                     f"Retrying in {backoff} seconds..."
                 )
                 await sleep(backoff)
@@ -736,7 +737,7 @@ async def restart_pods(name: str, namespace: str, wait_timeout: int = 60, max_re
     recreates them from the existing Deployment spec.
     """
     try:
-        async with async_kube_api() as (apps, _, core, _, _):
+        async with async_kube_api() as (_apps, _, core, _, _):
             label_selector = f"app={name}"
             pods = (await core.list_namespaced_pod(namespace=namespace, label_selector=label_selector)).items
 
@@ -767,7 +768,7 @@ async def build_and_push_image_with_kaniko(
     labels: Optional[dict[str, str]] = None,
     ttl_seconds_after_finished: int = 300,
     runtime_class_name: Optional[str] = None,
-    resources: Optional[Union[V1ResourceRequirements, dict[str, Any]]] = None,
+    resources: Optional[V1ResourceRequirements | dict[str, Any]] = None,
     insecure_registry: bool = False,
     node_pool_taint_key: Optional[str] = None,
     node_pool_preference_weight: int = 100,
@@ -1023,6 +1024,6 @@ async def get_job_status(job_name: str, namespace: str) -> Status:
             return Status.FAILURE
 
         return Status.IN_PROGRESS
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001  # report job FAILURE on any error
         logger.error(f"Error getting job status: {e}")
         return Status.FAILURE

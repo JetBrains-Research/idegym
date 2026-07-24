@@ -257,7 +257,7 @@ def render_dashboard_error(message: str, back_url: str = "/", log_message: str |
                 logger.exception(log_message or message)
                 context = {
                     "message": message,
-                    "details": f"{type(e).__name__}: {str(e)}",
+                    "details": f"{type(e).__name__}: {e!s}",
                     "back_url": back_url,
                 }
                 if req is not None:
@@ -271,7 +271,7 @@ def render_dashboard_error(message: str, back_url: str = "/", log_message: str |
                     return HTMLResponse(
                         status_code=500,
                         content=(
-                            f"<html><body><h1>Error</h1><p>{message}</p><pre>{type(e).__name__}: {str(e)}</pre></body></html>"
+                            f"<html><body><h1>Error</h1><p>{message}</p><pre>{type(e).__name__}: {e!s}</pre></body></html>"
                         ),
                     )
 

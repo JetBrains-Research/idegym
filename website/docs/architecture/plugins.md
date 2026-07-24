@@ -115,10 +115,12 @@ that installs mcp-steroid:
 from idegym.plugins.plugin_utils import PluginSource
 from idegym.plugins.idea.image import Idea
 
-Idea(external_plugins=(
-    PluginSource(url="https://example.com/my-plugin.zip"),
-    PluginSource(url="https://registry.example.com/private.zip", auth_env="MY_TOKEN"),
-))
+Idea(
+    external_plugins=(
+        PluginSource(url="https://example.com/my-plugin.zip"),
+        PluginSource(url="https://registry.example.com/private.zip", auth_env="MY_TOKEN"),
+    )
+)
 ```
 
 For a download behind authentication, set `auth_env` to the name of a build-time environment

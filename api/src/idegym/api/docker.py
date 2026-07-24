@@ -65,7 +65,10 @@ class ContainerConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_cpu_constraints(self):
-        if self.cpu_rt_runtime is not None and self.cpu_rt_period is not None:
-            if self.cpu_rt_runtime > self.cpu_rt_period:
-                raise ValueError("'cpu_rt_runtime' must be less than or equal to 'cpu_rt_period'")
+        if (
+            self.cpu_rt_runtime is not None
+            and self.cpu_rt_period is not None
+            and self.cpu_rt_runtime > self.cpu_rt_period
+        ):
+            raise ValueError("'cpu_rt_runtime' must be less than or equal to 'cpu_rt_period'")
         return self

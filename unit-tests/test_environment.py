@@ -16,7 +16,7 @@ def test_empty_environment(mocker: MockerFixture, tmp_path: Path):
     mocker.patch.object(
         target=env,
         attribute=f"{env.copy.__name__}",
-        side_effect=lambda: {},
+        side_effect=dict,
     )
     assert env.copy() == cleanenv()
 
