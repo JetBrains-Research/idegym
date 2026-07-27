@@ -132,6 +132,10 @@ See [examples/README.md](examples/README.md) for available integrations and setu
 We welcome contributions! Please open an issue or pull request on
 [GitHub](https://github.com/JetBrains-Research/idegym).
 
+Read [AGENTS.md](AGENTS.md) first — it collects the repository's coding standards, testing
+rules, and the invariants that are easy to trip over. It applies to coding agents and humans
+alike, and is expected to be updated by whoever makes it inaccurate.
+
 Before submitting a pull request:
 1. Run `uv run ruff format && uv run ruff check` to fix style issues
 2. Run `uv run pytest -m "unit or integration"` to verify tests pass
