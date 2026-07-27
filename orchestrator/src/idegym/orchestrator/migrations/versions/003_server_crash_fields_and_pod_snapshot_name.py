@@ -1,8 +1,12 @@
-"""Add max_restarts and details columns to servers
+"""Add server crash fields, pod_snapshot_name to snapshots, and snapshot_id to servers
+
+Merges two revisions that were authored in parallel and both landed as 003
+(003_server_crash_fields and 003_pod_snapshot_name); they already shared this
+revision's 003_up.sql / 003_down.sql pair.
 
 Revision ID: 003
 Revises: 002
-Create Date: 2026-06-12
+Create Date: 2026-06-11
 
 """
 
