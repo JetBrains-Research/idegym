@@ -287,8 +287,8 @@ User-facing docs live in [`website/docs/`](website/docs/) and are published to G
   `docs`, `lint`, `e2e`). PRs are squash-merged, so the subject becomes the changelog entry
   and gets `(#N)` appended automatically.
 - **PR titles** carry the tracked issue's ID in square brackets, separated from the title by
-  a single space: `[ISSUE-1234] Summary`. Keep the `Resolves:` line in the PR template
-  pointing at the same issue.
+  a single space. The PR template names the exact prefix and carries a matching `Resolves:`
+  line — keep both pointing at the same issue.
 - **Keep the diff in scope.** Drive-by reformatting, unrelated renames, and opportunistic
   `uv.lock` churn make a review much more expensive. Find something unrelated and broken?
   Note it in the PR description rather than fixing it in the same change.
