@@ -87,8 +87,9 @@ pre-commit install
 ## 3. Python coding standards
 
 1. **`Optional[X]`, not `X | None`.** Non-optional generics use the builtins: `dict[str, Any]`,
-   `list[str]`. This is why `UP045` is in the ruff ignore list — it is a deliberate choice,
-   not an oversight.
+   `list[str]`. The `UP045` ignore in `pyproject.toml` stops ruff rewriting `Optional[X]`, but
+   nothing enforces the choice mechanically, so a handful of `X | None` annotations do exist
+   in the sources. They are drift, not precedent — the house style is `Optional[X]`.
 2. **Annotate public functions** — parameters and return type. Internal helpers may omit
    annotations only when the type is obvious from a one-line body.
 3. **Absolute imports everywhere.** There are zero relative imports in the package sources;
