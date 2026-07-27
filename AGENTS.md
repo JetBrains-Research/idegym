@@ -243,7 +243,11 @@ cached image and the change will appear not to work. Add the new input to `image
 - Declare them via `PluginBase.get_build_secrets()`; they are passed as `--build-arg`,
   never as `ENV` (an `ENV` persists in the image layer).
 - Wrap the consuming command so `set -x` cannot echo it:
-  `{ set +x; } 2>/dev/null … { set -x; } 2>/dev/null`.
+  ```bash
+  { set +x; } 2>/dev/null
+  <command that reads the secret>
+  { set -x; } 2>/dev/null
+  ```
 - Never interpolate a credential into a URL in a Dockerfile — the URL is stored verbatim.
 
 ### CI, lint, and dependency configuration

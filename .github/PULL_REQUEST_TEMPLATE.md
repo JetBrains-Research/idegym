@@ -17,5 +17,5 @@ Resolves: JBRes-<!-- Add the ticket number here. -->
 
 - [ ] `uv run ruff check` and `uv run ruff format` are clean (CI does not check formatting).
 - [ ] Tests cover the change at the lowest suite that can express it (`unit` > `integration` > `e2e`).
-- [ ] [`AGENTS.md`](../AGENTS.md) is still accurate — updated here if this PR changes a
+- [ ] [`AGENTS.md`](AGENTS.md) is still accurate — updated here if this PR changes a
       convention, the layout, the lint/test setup, or adds an invariant worth knowing.
