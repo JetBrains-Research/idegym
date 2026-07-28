@@ -10,3 +10,12 @@ Resolves: JBRes-<!-- Add the ticket number here. -->
     Remember to include the full YouTrack ticket ID in the PR title,
     surrounded with square brackets and separated from the title with a single space.
 -->
+
+## Checklist
+
+<!-- See AGENTS.md for the conventions behind these. Strike out what does not apply. -->
+
+- [ ] `uv run ruff check` and `uv run ruff format --check` both pass (CI does not check formatting).
+- [ ] Tests cover the change at the lowest suite that can express it (`unit` > `integration` > `e2e`).
+- [ ] [`AGENTS.md`](AGENTS.md) is still accurate — updated here if this PR changes a
+      convention, the layout, the lint/test setup, or adds an invariant worth knowing.
