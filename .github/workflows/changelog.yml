@@ -64,10 +64,11 @@ jobs:
         id: highlights
         if: steps.prep.outputs.draft == 'true'
         uses: actions/ai-inference@v1
+        continue-on-error: true
         with:
           # Runs on GitHub Models via the built-in GITHUB_TOKEN (models: read). No secret.
           model: openai/gpt-4o
-          max-completion-tokens: 400
+          max-tokens: 400
           system-prompt: |
             You write the 'Highlights' paragraph for a software release changelog.
             Given the merged changes, write 2-4 sentences of plain prose summarising the
@@ -78,7 +79,7 @@ jobs:
           prompt-file: highlights-input.md
 
       - name: Save drafted Highlights
-        if: steps.prep.outputs.draft == 'true'
+        if: steps.prep.outputs.draft == 'true' && steps.highlights.outcome == 'success'
         env:
           RESPONSE: ${{ steps.highlights.outputs.response }}
         run: printf '%s\n' "$RESPONSE" > highlights.md

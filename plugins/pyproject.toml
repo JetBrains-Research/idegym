@@ -87,6 +87,16 @@ dev-mode-dirs = [
 # open-project zip is per-IDE. `plugin_asset()` reads them via importlib.resources; the local build
 # driver stages them into the Docker build context, and the Kaniko path resolves the same
 # `COPY plugins/<name>/...` paths against a git checkout of this repo at the orchestrator version.
+# Explicitly include non-Python assets in the sdist so they are present when the wheel is
+# built from the sdist (uv build / pip wheel builds wheel from sdist, not from source).
+# The wheel force-include paths are resolved relative to the sdist root, so the sdist must
+# carry the files at the same relative paths that the wheel config references.
+[tool.hatch.build.targets.sdist.force-include]
+"plugin-utils/scripts" = "plugin-utils/scripts"
+"idea/project-opener/project-opener.zip" = "idea/project-opener/project-opener.zip"
+"pycharm/project-opener/project-opener.zip" = "pycharm/project-opener/project-opener.zip"
+"openhands/scripts" = "openhands/scripts"
+
 [tool.hatch.build.targets.wheel.force-include]
 "plugin-utils/scripts" = "idegym/plugins/plugin_utils/scripts"
 "idea/project-opener/project-opener.zip" = "idegym/plugins/idea/project-opener/project-opener.zip"
