@@ -18,8 +18,11 @@ history between two tags into a curated `Keep a Changelog`_ section:
   script does **not** call an LLM itself: ``--emit-highlights-prompt`` writes the
   prompt for an external model and ``--highlights-file`` reads the drafted text
   back — the two halves that :mod:`scripts.draft_highlights` chains around Claude
-  Code. Without it a placeholder naming that script is written, so unattended
-  generation in CI always succeeds.
+  Code. Without it a placeholder naming that script is written.
+
+The release range ends at ``vX.Y.Z`` and starts at the last version the changelog
+already documents, so a tagged release that never got a section is folded into the
+next one instead of being lost.
 
 The whole script is deterministic and I/O-free apart from git and the local
 filesystem, so its logic can be unit tested without a network.
@@ -40,6 +43,7 @@ import re
 import subprocess
 import sys
 from argparse import ArgumentParser, Namespace
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -47,8 +51,7 @@ from typing import Optional
 DEFAULT_REPO = "JetBrains-Research/idegym"
 DEFAULT_CHANGELOG = "CHANGELOG.md"
 
-# Left in place of the paragraph when nobody has drafted one yet. CI never drafts, so this
-# is what a freshly generated section ships with — it has to say what to do about that.
+# Stands in for the paragraph until someone drafts one, so it names the command that does.
 HIGHLIGHTS_PLACEHOLDER_TEMPLATE = (
     "_TODO: summarise the headline changes of this release. Draft this paragraph with "
     "`uv run scripts/draft_highlights.py {version}` (uses Claude Code), or write it by hand._"
@@ -393,6 +396,14 @@ def _version_key(version: str) -> tuple[int, ...]:
     return tuple(int(p) for p in re.findall(r"\d+", version)) or (0,)
 
 
+def documented_versions(document: Optional[str]) -> list[str]:
+    """Return the versions that already have a ``## [version]`` section, newest first."""
+    if not document:
+        return []
+    versions = [m.group("version") for m in _SECTION_RE.finditer(document)]
+    return sorted(versions, key=_version_key, reverse=True)
+
+
 def _split_body_and_links(document: str) -> tuple[str, list[str]]:
     """Split a changelog into its body and the trailing reference-link lines."""
     lines = document.splitlines()
@@ -512,9 +523,24 @@ def list_version_tags() -> list[str]:
     return sorted(versions, key=_version_key, reverse=True)
 
 
-def previous_version(version: str, tags: list[str]) -> Optional[str]:
-    """Return the highest tagged version strictly below ``version``."""
+def previous_version(version: str, tags: list[str], documented: Sequence[str] = ()) -> Optional[str]:
+    """Return the release the new section should be diffed against.
+
+    The last **documented** version wins over the last tagged one. A tag can exist for a
+    release that was never published or whose section was never written — v0.11.0 was
+    tagged, failed to release, and got no changelog entry — and diffing v0.11.1 against
+    that tag would silently drop everything v0.11.0 carried. Anchoring on the changelog
+    instead makes the next section cover the gap, so no merged change is lost.
+
+    A documented version with no matching tag cannot bound a ``git log`` range, so it is
+    skipped; when the changelog documents nothing usable below ``version`` this falls back
+    to the highest tag below it.
+    """
     target = _version_key(version)
+    tagged = set(tags)
+    from_changelog = [v for v in documented if v in tagged and _version_key(v) < target]
+    if from_changelog:
+        return max(from_changelog, key=_version_key)
     lower = [t for t in tags if _version_key(t) < target]
     return max(lower, key=_version_key) if lower else None
 
@@ -551,7 +577,8 @@ def _parse_args(argv: Optional[list[str]] = None) -> Namespace:
     parser.add_argument("version", help="Release version without the leading 'v' (e.g. 0.11.0).")
     parser.add_argument(
         "--previous",
-        help="Previous release version to diff against (e.g. 0.10.0). Auto-detected from tags if omitted.",
+        help="Previous release version to diff against (e.g. 0.10.0). Defaults to the last version "
+        "documented in the changelog, falling back to the preceding tag.",
     )
     parser.add_argument("--date", help="Release date (YYYY-MM-DD). Defaults to the tag's committer date.")
     parser.add_argument("--repo", default=DEFAULT_REPO, help=f"owner/name of the repository (default: {DEFAULT_REPO}).")
@@ -588,16 +615,29 @@ def main(argv: Optional[list[str]] = None) -> int:
     args = _parse_args(argv)
     version = args.version.lstrip("v")
 
+    path = Path(args.changelog)
+    document = path.read_text(encoding="utf-8") if path.exists() else None
+
     tags = list_version_tags()
-    previous = args.previous.lstrip("v") if args.previous else previous_version(version, tags)
+    if args.previous:
+        previous = args.previous.lstrip("v")
+    else:
+        previous = previous_version(version, tags, documented_versions(document))
+        preceding_tag = previous_version(version, tags)
+        if previous != preceding_tag:
+            # The range spans a tagged release that never made it into the changelog.
+            sys.stderr.write(
+                f"Diffing from {previous} (last version in {path}) rather than the "
+                f"preceding tag v{preceding_tag}, whose changes are undocumented.\n"
+            )
     date = args.date or tag_date(version)
 
     subjects = collect_subjects(previous, version)
     changes = build_release_changes(version, date, subjects)
 
     if args.emit_highlights_prompt:
-        # First pass: hand the change list to an external model (scripts/draft_highlights.py
-        # feeds it to Claude Code). An empty file signals "nothing worth summarising".
+        # First pass: hand the change list to an external model. An empty file signals
+        # "nothing worth summarising".
         Path(args.emit_highlights_prompt).write_text(highlights_prompt(changes), encoding="utf-8")
         return 0
 
@@ -614,8 +654,6 @@ def main(argv: Optional[list[str]] = None) -> int:
         sys.stdout.write(section)
         return 0
 
-    path = Path(args.changelog)
-    document = path.read_text(encoding="utf-8") if path.exists() else None
     updated = upsert_section(document, section, version, args.repo, force=args.force)
     path.write_text(updated, encoding="utf-8")
 

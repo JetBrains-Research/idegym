@@ -13,6 +13,7 @@ from scripts.generate_changelog import (
     ReleaseChanges,
     build_release_changes,
     categorize,
+    documented_versions,
     highlights_placeholder,
     highlights_prompt,
     is_significant_dependency,
@@ -332,6 +333,48 @@ def test_previous_version_none_for_first_release():
 def test_previous_version_ignores_higher_tags():
     tags = ["0.10.0", "0.9.0", "0.8.0"]
     assert previous_version("0.9.0", tags) == "0.8.0"
+
+
+def test_previous_version_skips_a_tagged_release_that_was_never_documented():
+    # v0.11.0 was tagged but never released or written up, so 0.11.1 must reach back to
+    # 0.10.0 — the last documented version — and fold the skipped release in.
+    tags = ["0.11.1", "0.11.0", "0.10.0"]
+    assert previous_version("0.11.1", tags, documented=["0.10.0"]) == "0.10.0"
+
+
+def test_previous_version_uses_the_preceding_tag_once_it_is_documented():
+    tags = ["0.11.1", "0.11.0", "0.10.0"]
+    assert previous_version("0.11.1", tags, documented=["0.11.0", "0.10.0"]) == "0.11.0"
+
+
+def test_previous_version_ignores_documented_versions_above_the_target():
+    # Backfilling an old release: the newer sections above it must not become the range start.
+    tags = ["0.10.0", "0.9.0", "0.8.0"]
+    assert previous_version("0.9.0", tags, documented=["0.10.0"]) == "0.8.0"
+
+
+def test_previous_version_ignores_documented_versions_without_a_tag():
+    # A hand-written section for an untagged version cannot bound a git log range.
+    tags = ["0.11.1", "0.10.0"]
+    assert previous_version("0.11.1", tags, documented=["0.11.0", "0.10.0"]) == "0.10.0"
+
+
+def test_previous_version_falls_back_to_tags_for_an_empty_changelog():
+    tags = ["0.10.0", "0.9.0"]
+    assert previous_version("0.10.0", tags, documented=[]) == "0.9.0"
+
+
+# --------------------------------------------------------------------------- #
+# documented_versions
+# --------------------------------------------------------------------------- #
+def test_documented_versions_are_returned_newest_first():
+    document = "# Changelog\n\n## [0.9.0] - 2026-01-01\n\n## [0.11.0] - 2026-03-01\n\n## [0.10.0] - 2026-02-01\n"
+    assert documented_versions(document) == ["0.11.0", "0.10.0", "0.9.0"]
+
+
+@pytest.mark.parametrize("document", [None, "", "# Changelog\n\nNo sections yet.\n"])
+def test_documented_versions_empty_without_sections(document):
+    assert documented_versions(document) == []
 
 
 def test_highlights_prompt_lists_changes():

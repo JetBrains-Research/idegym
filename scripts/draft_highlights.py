@@ -5,12 +5,11 @@
 # ///
 """Draft the ``Highlights`` paragraph of a release changelog with Claude Code.
 
-The changelog workflow runs unattended and has no LLM available, so it emits the
-``### Highlights`` placeholder that :mod:`scripts.generate_changelog` writes. A
-maintainer fills the paragraph in afterwards by running this script, which chains the
-two halves the generator already exposes — ``--emit-highlights-prompt`` writes the list
-of merged changes, ``--highlights-file`` reads the drafted prose back — around a
-one-shot ``claude --print`` call, and rewrites the version's section in ``CHANGELOG.md``.
+:mod:`scripts.generate_changelog` writes a placeholder under ``### Highlights``; a
+maintainer replaces it by running this script, which chains the two halves the generator
+already exposes — ``--emit-highlights-prompt`` writes the list of merged changes,
+``--highlights-file`` reads the drafted prose back — around a one-shot ``claude --print``
+call, and rewrites the version's section in ``CHANGELOG.md``.
 
 This assumes a working Claude Code CLI: ``claude`` on ``PATH``, already signed in. No
 API key, token, or secret is read here. ``--sync-release`` additionally pushes the
@@ -149,7 +148,8 @@ def _parse_args(argv: Optional[list[str]] = None) -> Namespace:
     parser.add_argument("version", help="Release version without the leading 'v' (e.g. 0.11.0).")
     parser.add_argument(
         "--previous",
-        help="Previous release version to diff against (e.g. 0.10.0). Auto-detected from tags if omitted.",
+        help="Previous release version to diff against (e.g. 0.10.0). Defaults to the last version "
+        "documented in the changelog, falling back to the preceding tag.",
     )
     parser.add_argument("--model", help="Model to draft with (e.g. opus). Defaults to the Claude Code default.")
     # --print writes nothing, so there would be no regenerated notes to sync.
