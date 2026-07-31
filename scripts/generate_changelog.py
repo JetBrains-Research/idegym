@@ -16,9 +16,10 @@ history between two tags into a curated `Keep a Changelog`_ section:
   *significant* (major-version) upgrades surfaced above the fold,
 * an optional ``Highlights`` paragraph summarises the meaningful changes. This
   script does **not** call an LLM itself: ``--emit-highlights-prompt`` writes the
-  prompt for an external model (the workflow drafts it via GitHub Models), and
-  ``--highlights-file`` reads the drafted text back. Without it a manual-fill
-  placeholder is written, so generation always succeeds.
+  prompt for an external model and ``--highlights-file`` reads the drafted text
+  back — the two halves that :mod:`scripts.draft_highlights` chains around Claude
+  Code. Without it a placeholder naming that script is written, so unattended
+  generation in CI always succeeds.
 
 The whole script is deterministic and I/O-free apart from git and the local
 filesystem, so its logic can be unit tested without a network.
@@ -45,7 +46,13 @@ from typing import Optional
 
 DEFAULT_REPO = "JetBrains-Research/idegym"
 DEFAULT_CHANGELOG = "CHANGELOG.md"
-HIGHLIGHTS_PLACEHOLDER = "_TODO: summarise the headline changes of this release._"
+
+# Left in place of the paragraph when nobody has drafted one yet. CI never drafts, so this
+# is what a freshly generated section ships with — it has to say what to do about that.
+HIGHLIGHTS_PLACEHOLDER_TEMPLATE = (
+    "_TODO: summarise the headline changes of this release. Draft this paragraph with "
+    "`uv run scripts/draft_highlights.py {version}` (uses Claude Code), or write it by hand._"
+)
 
 # Plain bullet-list categories, in render order. Highlights (always emitted) and
 # Dependencies (collapsed <details> block) are rendered separately and are not keys here.
@@ -272,6 +279,11 @@ def is_significant_dependency(pr: PullRequest) -> bool:
 # --------------------------------------------------------------------------- #
 # Rendering (pure)
 # --------------------------------------------------------------------------- #
+def highlights_placeholder(version: str) -> str:
+    """The message that stands in for a Highlights paragraph nobody has drafted yet."""
+    return HIGHLIGHTS_PLACEHOLDER_TEMPLATE.format(version=version)
+
+
 def _pr_link(repo: str, number: int) -> str:
     return f"[#{number}](https://github.com/{repo}/pull/{number})"
 
@@ -335,7 +347,7 @@ def render_section(changes: ReleaseChanges, repo: str, highlights: Optional[str]
 
     lines.append("### Highlights")
     lines.append("")
-    lines.append(highlights.strip() if highlights and highlights.strip() else HIGHLIGHTS_PLACEHOLDER)
+    lines.append(highlights.strip() if highlights and highlights.strip() else highlights_placeholder(changes.version))
     lines.append("")
 
     for key, title in CATEGORY_TITLES.items():
@@ -369,7 +381,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Sections are generated from merged pull requests by
 [`scripts/generate_changelog.py`](scripts/generate_changelog.py); the `Highlights`
-paragraph is drafted by an LLM (via GitHub Models) and may be edited by hand.
+paragraph is drafted separately by a maintainer with
+[`scripts/draft_highlights.py`](scripts/draft_highlights.py) and may be edited by hand.
 """
 
 _SECTION_RE = re.compile(r"^## \[(?P<version>[^\]]+)\]", re.MULTILINE)
@@ -460,7 +473,7 @@ def upsert_section(document: Optional[str], section: str, version: str, repo: st
 
 
 # --------------------------------------------------------------------------- #
-# Highlights prompt (drafted externally, e.g. by GitHub Models in the workflow)
+# Highlights prompt (drafted externally by scripts/draft_highlights.py)
 # --------------------------------------------------------------------------- #
 def highlights_prompt(changes: ReleaseChanges) -> str:
     """Render the LLM prompt describing the release's meaningful changes.
@@ -583,8 +596,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     changes = build_release_changes(version, date, subjects)
 
     if args.emit_highlights_prompt:
-        # First pass: hand the change list to an external model (e.g. GitHub Models
-        # in CI). An empty file signals "nothing worth summarising" — skip the draft.
+        # First pass: hand the change list to an external model (scripts/draft_highlights.py
+        # feeds it to Claude Code). An empty file signals "nothing worth summarising".
         Path(args.emit_highlights_prompt).write_text(highlights_prompt(changes), encoding="utf-8")
         return 0
 

@@ -6,7 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Sections are generated from merged pull requests by
 [`scripts/generate_changelog.py`](scripts/generate_changelog.py); the `Highlights`
-paragraph is drafted by an LLM (via GitHub Models) and may be edited by hand.
+paragraph is drafted separately by a maintainer with
+[`scripts/draft_highlights.py`](scripts/draft_highlights.py) and may be edited by hand.
 
 ## [0.10.0] - 2026-06-18
 

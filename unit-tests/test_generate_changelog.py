@@ -10,10 +10,10 @@ import pytest
 
 from scripts.generate_changelog import (
     CATEGORY_TITLES,
-    HIGHLIGHTS_PLACEHOLDER,
     ReleaseChanges,
     build_release_changes,
     categorize,
+    highlights_placeholder,
     highlights_prompt,
     is_significant_dependency,
     parse_pull_request,
@@ -231,7 +231,9 @@ def test_render_section_includes_links_and_placeholder():
     )
     section = render_section(changes, REPO, highlights=None)
     assert section.startswith("## [0.10.0] - 2026-06-18")
-    assert HIGHLIGHTS_PLACEHOLDER in section
+    # The placeholder names the version, so it can be copy-pasted as a command.
+    assert highlights_placeholder("0.10.0") in section
+    assert "scripts/draft_highlights.py 0.10.0" in section
     assert "### Features" in section
     # Tickets are plain-text references, not hyperlinks to the internal tracker.
     assert "(JBRes-9332, [#102](https://github.com/JetBrains-Research/idegym/pull/102))" in section
@@ -242,7 +244,7 @@ def test_render_section_uses_highlights_when_provided():
     changes = build_release_changes("0.10.0", "2026-06-18", [("[JBRes-1] Thing (#1)", "a")])
     section = render_section(changes, REPO, highlights="MCP support lands this release.")
     assert "MCP support lands this release." in section
-    assert HIGHLIGHTS_PLACEHOLDER not in section
+    assert highlights_placeholder("0.10.0") not in section
 
 
 def test_render_section_omits_empty_categories():
