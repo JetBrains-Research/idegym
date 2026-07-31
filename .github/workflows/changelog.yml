@@ -9,7 +9,7 @@ on:
         description: "Release version to generate (without the leading v, e.g. 0.11.0). The vX.Y.Z tag must exist."
         required: true
       previous:
-        description: "Previous version to diff against (optional; auto-detected from tags when omitted)."
+        description: "Previous version to diff against (optional; defaults to the last version documented in CHANGELOG.md, falling back to the preceding tag)."
         required: false
 
 # contents: write   -> push the changelog branch and edit/create the GitHub Release

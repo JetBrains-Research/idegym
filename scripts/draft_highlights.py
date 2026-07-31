@@ -131,12 +131,22 @@ def draft(prompt: str, model: Optional[str]) -> str:
 
 
 def sync_release(version: str, notes: Path, cwd: Path) -> None:
-    """Replace the notes of the existing ``vX.Y.Z`` GitHub Release with the regenerated ones."""
+    """Replace the notes of the existing ``vX.Y.Z`` GitHub Release with the regenerated ones.
+
+    Runs last, after ``CHANGELOG.md`` has already been rewritten, so a failure here leaves
+    the local edit intact — the message says so, since only the release needs re-syncing.
+    """
     tag = f"v{version}"
     try:
         subprocess.run(["gh", "release", "edit", tag, "--notes-file", str(notes)], check=True, cwd=cwd)
     except FileNotFoundError as exc:
         raise SystemExit("`gh` is not on PATH; install the GitHub CLI or drop --sync-release.") from exc
+    except subprocess.CalledProcessError as exc:
+        # gh writes its own diagnostic to stderr; do not bury it under a traceback.
+        raise SystemExit(
+            f"`gh release edit {tag}` failed with status {exc.returncode}. CHANGELOG.md was still "
+            f"updated — only the GitHub Release notes are out of sync; fix the error above and re-run."
+        ) from exc
     print(f"Updated the release notes of {tag}.")
 
 

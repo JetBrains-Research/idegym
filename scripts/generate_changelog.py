@@ -31,7 +31,7 @@ filesystem, so its logic can be unit tested without a network.
 
 Usage::
 
-    scripts/generate_changelog.py 0.11.0                     # auto-detect previous tag
+    scripts/generate_changelog.py 0.11.0                     # auto-detect the range
     scripts/generate_changelog.py 0.11.0 --previous 0.10.0   # explicit range
     scripts/generate_changelog.py 0.11.0 --print             # stdout, don't touch the file
     scripts/generate_changelog.py 0.11.0 --highlights-file hl.txt  # use a pre-drafted Highlights
