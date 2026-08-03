@@ -8,6 +8,137 @@ Sections are generated from merged pull requests by
 [`scripts/generate_changelog.py`](scripts/generate_changelog.py); the `Highlights`
 paragraph is drafted by an LLM (via GitHub Models) and may be edited by hand.
 
+## [0.11.1] - 2026-07-30
+
+### Highlights
+
+Image building gains a backend abstraction with a GKE Cloud Build implementation alongside Kaniko,
+and plugin images can now be built without cloning the idegym repository. IDE images become more
+configurable: external IntelliJ IDEA and PyCharm plugins can be supplied through a dedicated knob,
+IDEA can run against a virtual display, and a new agentless OpenHands tools plugin exposes its
+tooling over REST and MCP with a typed client. On the orchestration side, pod crashes are detected
+and surfaced with a restart budget, servers can be restored from a specific pod snapshot via a
+snapshot tag, and callers can specify more of the pod spec. This release also adds a Docusaurus
+presentation and architecture website, curated changelog and release automation, fixes for local
+builds and deployment on Linux, and a narrower PyPI publishing set with the IDE plugin packages
+merged together.
+
+### Features
+
+- Add AGENTS.md with repository conventions and coding standards (JBRes-10127, [#272](https://github.com/JetBrains-Research/idegym/pull/272))
+- merge the two duplicate 003 alembic revisions ([#271](https://github.com/JetBrains-Research/idegym/pull/271))
+- Upgrade ruff to 0.16 and adopt its expanded rule set ([#267](https://github.com/JetBrains-Research/idegym/pull/267))
+- Curated CHANGELOG.md + release automation (JBRes-9953, [#258](https://github.com/JetBrains-Research/idegym/pull/258))
+- Agentless OpenHands tools plugin (REST + MCP + typed client) (JBRes-9808, [#230](https://github.com/JetBrains-Research/idegym/pull/230))
+- Run IDEA with a virtual display (headless flag) (JBRes-10122, [#231](https://github.com/JetBrains-Research/idegym/pull/231))
+- Build plugin images without cloning the idegym repo (JBRes-10055, [#204](https://github.com/JetBrains-Research/idegym/pull/204))
+- External IDE plugins knob for IDEA and PyCharm images (JBRes-10058, [#206](https://github.com/JetBrains-Research/idegym/pull/206))
+- Abstract the image build backend + add a GKE Cloud Build implementation (JBRes-9799, [#181](https://github.com/JetBrains-Research/idegym/pull/181))
+- IdeGYM presentation & architecture website (Docusaurus + GitHub Pages) (JBRes-9938, [#202](https://github.com/JetBrains-Research/idegym/pull/202))
+- restore a server from a specific pod snapshot via snapshot-tag (JBRes-9632, [#159](https://github.com/JetBrains-Research/idegym/pull/159))
+- Limit PyPI publishing and merge plugin packages (JBRes-9740, [#161](https://github.com/JetBrains-Research/idegym/pull/161))
+- handle pod crash events: detect crashes, surface reason, restart budget (JBRes-9066, [#162](https://github.com/JetBrains-Research/idegym/pull/162))
+- Allow users to specify more specs for pods (JBRes-9717, [#160](https://github.com/JetBrains-Research/idegym/pull/160))
+
+### Bug Fixes
+
+- : fix package building ([#273](https://github.com/JetBrains-Research/idegym/pull/273))
+- Make generate_changelog.py executable to fix EXE001 ([#270](https://github.com/JetBrains-Research/idegym/pull/270))
+- mcp-steroid headless fixes + reflect recent features in the website ([#229](https://github.com/JetBrains-Research/idegym/pull/229))
+- Fix local/remote deployment on Linux + local builds (JBRes-10057, [#205](https://github.com/JetBrains-Research/idegym/pull/205))
+- Fix mcp-steroid version regex and IDE start-script naming ([#170](https://github.com/JetBrains-Research/idegym/pull/170))
+
+### Documentation
+
+- fix stale IdeGYM import paths in documentation ([#177](https://github.com/JetBrains-Research/idegym/pull/177))
+
+### Infrastructure
+
+- Add security-only npm Dependabot config for /website and improve auto-merge diagnostics ([#252](https://github.com/JetBrains-Research/idegym/pull/252))
+- Group Dependabot examples + Docker routine updates into single PRs ([#247](https://github.com/JetBrains-Research/idegym/pull/247))
+- Reduce Dependabot update noise (JBRes-9943, [#228](https://github.com/JetBrains-Research/idegym/pull/228))
+
+### Dependencies
+
+<details>
+<summary>73 routine dependency updates</summary>
+
+- Bump python in /orchestrator ([#259](https://github.com/JetBrains-Research/idegym/pull/259))
+- Update fastapi[standard] requirement ([#266](https://github.com/JetBrains-Research/idegym/pull/266))
+- Bump the actions-minor-patch group across 1 directory with 3 updates ([#261](https://github.com/JetBrains-Research/idegym/pull/261))
+- Bump the python-other-minor-patch group with 2 updates ([#265](https://github.com/JetBrains-Research/idegym/pull/265))
+- Bump pre-commit ([#269](https://github.com/JetBrains-Research/idegym/pull/269))
+- Bump greenlet in the python-database-minor-patch group ([#263](https://github.com/JetBrains-Research/idegym/pull/263))
+- Bump anyio in the python-web-stack-minor-patch group ([#262](https://github.com/JetBrains-Research/idegym/pull/262))
+- Bump postcss ([#268](https://github.com/JetBrains-Research/idegym/pull/268))
+- Bump the observability-minor-patch group ([#260](https://github.com/JetBrains-Research/idegym/pull/260))
+- Bump pillow ([#251](https://github.com/JetBrains-Research/idegym/pull/251))
+- `body-parser`: 1.20.5 → 1.20.6 ([#250](https://github.com/JetBrains-Research/idegym/pull/250))
+- `webpack-dev-server`: 5.2.5 → 5.2.6 ([#249](https://github.com/JetBrains-Research/idegym/pull/249))
+- `dompurify`: 3.4.11 → 3.4.12 ([#253](https://github.com/JetBrains-Research/idegym/pull/253))
+- `svgo`: 3.3.3 → 3.3.4 ([#254](https://github.com/JetBrains-Research/idegym/pull/254))
+- `fast-uri`: 3.1.3 → 3.1.4 ([#255](https://github.com/JetBrains-Research/idegym/pull/255))
+- Bump pyasn1 ([#256](https://github.com/JetBrains-Research/idegym/pull/256))
+- `fast-xml-parser`: 5.9.3 → 5.10.1 ([#257](https://github.com/JetBrains-Research/idegym/pull/257))
+- Bump the python-other-minor-patch group with 2 updates ([#248](https://github.com/JetBrains-Research/idegym/pull/248))
+- Update opentelemetry-sdk requirement in /examples ([#240](https://github.com/JetBrains-Research/idegym/pull/240))
+- Bump ruff ([#244](https://github.com/JetBrains-Research/idegym/pull/244))
+- Bump the python-observability-minor-patch group across 1 directory with 12 updates ([#243](https://github.com/JetBrains-Research/idegym/pull/243))
+- Bump uvicorn ([#239](https://github.com/JetBrains-Research/idegym/pull/239))
+- Bump postgresql ([#237](https://github.com/JetBrains-Research/idegym/pull/237))
+- Update opentelemetry-exporter-otlp requirement in /examples ([#241](https://github.com/JetBrains-Research/idegym/pull/241))
+- Bump python in /watcher ([#235](https://github.com/JetBrains-Research/idegym/pull/235))
+- Bump prometheus ([#236](https://github.com/JetBrains-Research/idegym/pull/236))
+- Bump the actions-minor-patch group with 2 updates ([#238](https://github.com/JetBrains-Research/idegym/pull/238))
+- Update opentelemetry-instrumentation-httpx requirement ([#242](https://github.com/JetBrains-Research/idegym/pull/242))
+- Bump kubernetes in the python-platform-minor-patch group ([#245](https://github.com/JetBrains-Research/idegym/pull/245))
+- Bump the python-other-minor-patch group with 4 updates ([#246](https://github.com/JetBrains-Research/idegym/pull/246))
+- `gradio`: 6.15.0 → 6.15.1 ([#232](https://github.com/JetBrains-Research/idegym/pull/232))
+- `mcp`: 1.27.0 → 1.28.1 ([#233](https://github.com/JetBrains-Research/idegym/pull/233))
+- `mcp`: 1.27.0 → 1.28.1 ([#234](https://github.com/JetBrains-Research/idegym/pull/234))
+- `fastapi[standard]` → >=0.139.0 ([#226](https://github.com/JetBrains-Research/idegym/pull/226))
+- Bump the observability group across 1 directory with 2 updates ([#221](https://github.com/JetBrains-Research/idegym/pull/221))
+- Bump the astral group with 2 updates ([#218](https://github.com/JetBrains-Research/idegym/pull/218))
+- Bump the docker group with 4 updates ([#219](https://github.com/JetBrains-Research/idegym/pull/219))
+- `dorny/paths-filter`: 4.0.1 → 4.0.2 ([#220](https://github.com/JetBrains-Research/idegym/pull/220))
+- `postgresql`: 18.7.11 → 18.7.13 ([#222](https://github.com/JetBrains-Research/idegym/pull/222))
+- `hydra-core`: 1.3.3 → 1.3.4 ([#223](https://github.com/JetBrains-Research/idegym/pull/223))
+- `uvicorn`: 0.49.0 → 0.50.1 ([#224](https://github.com/JetBrains-Research/idegym/pull/224))
+- `anyio`: 4.13.0 → 4.14.1 ([#225](https://github.com/JetBrains-Research/idegym/pull/225))
+- `greenlet`: 3.5.2 → 3.5.3 ([#227](https://github.com/JetBrains-Research/idegym/pull/227))
+- Bump grafana ([#210](https://github.com/JetBrains-Research/idegym/pull/210))
+- `gradio`: 6.12.0 → 6.15.0 ([#203](https://github.com/JetBrains-Research/idegym/pull/203))
+- `astral-sh/ruff-action`: 3 → 4.0.0 ([#207](https://github.com/JetBrains-Research/idegym/pull/207))
+- `docker/setup-buildx-action`: 4 → 4.1.0 ([#208](https://github.com/JetBrains-Research/idegym/pull/208))
+- `dorny/paths-filter`: 4 → 4.0.1 ([#209](https://github.com/JetBrains-Research/idegym/pull/209))
+- `postgresql`: 18.7.8 → 18.7.11 ([#211](https://github.com/JetBrains-Research/idegym/pull/211))
+- Bump the opentelemetry group with 12 updates ([#212](https://github.com/JetBrains-Research/idegym/pull/212))
+- `dependency-injector`: 4.49.0 → 4.49.1 ([#213](https://github.com/JetBrains-Research/idegym/pull/213))
+- `ruff`: 0.15.18 → 0.15.20 ([#214](https://github.com/JetBrains-Research/idegym/pull/214))
+- `alembic`: 1.18.4 → 1.18.5 ([#215](https://github.com/JetBrains-Research/idegym/pull/215))
+- `joserfc`: 1.6.7 → 1.6.8 ([#217](https://github.com/JetBrains-Research/idegym/pull/217))
+- `actions/checkout`: 6.0.3 → 7.0.0 ([#193](https://github.com/JetBrains-Research/idegym/pull/193))
+- `postgresql`: 18.7.6 → 18.7.8 ([#194](https://github.com/JetBrains-Research/idegym/pull/194))
+- Bump python in /orchestrator in the python group ([#195](https://github.com/JetBrains-Research/idegym/pull/195))
+- `pytest`: 9.1.0 → 9.1.1 ([#196](https://github.com/JetBrains-Research/idegym/pull/196))
+- `greenlet`: 3.5.1 → 3.5.2 ([#197](https://github.com/JetBrains-Research/idegym/pull/197))
+- `ruff`: 0.15.17 → 0.15.18 ([#198](https://github.com/JetBrains-Research/idegym/pull/198))
+- `hydra-core`: 1.3.2 → 1.3.3 ([#199](https://github.com/JetBrains-Research/idegym/pull/199))
+- `sqlalchemy`: 2.0.50 → 2.0.51 ([#200](https://github.com/JetBrains-Research/idegym/pull/200))
+- `joserfc`: 1.6.4 → 1.6.7 ([#201](https://github.com/JetBrains-Research/idegym/pull/201))
+- `pytest`: 9.0.3 → 9.1.0 ([#186](https://github.com/JetBrains-Research/idegym/pull/186))
+- Bump the observability group across 1 directory with 3 updates ([#184](https://github.com/JetBrains-Research/idegym/pull/184))
+- `actions/checkout`: 6 → 6.0.3 ([#183](https://github.com/JetBrains-Research/idegym/pull/183))
+- `postgresql`: 18.7.3 → 18.7.6 ([#185](https://github.com/JetBrains-Research/idegym/pull/185))
+- `tqdm`: 4.67.3 → 4.68.2 ([#187](https://github.com/JetBrains-Research/idegym/pull/187))
+- `junitparser`: 5.0.0 → 5.0.1 ([#188](https://github.com/JetBrains-Research/idegym/pull/188))
+- `kubernetes`: 36.0.1 → 36.0.2 ([#189](https://github.com/JetBrains-Research/idegym/pull/189))
+- `ruff`: 0.15.16 → 0.15.17 ([#190](https://github.com/JetBrains-Research/idegym/pull/190))
+- `pydantic-settings`: 2.13.1 → 2.14.2 ([#191](https://github.com/JetBrains-Research/idegym/pull/191))
+- `pydantic-settings`: 2.14.0 → 2.14.2 ([#192](https://github.com/JetBrains-Research/idegym/pull/192))
+
+</details>
+
 ## [0.10.0] - 2026-06-18
 
 ### Highlights
@@ -267,6 +398,7 @@ Notable upgrades:
 
 </details>
 
+[0.11.1]: https://github.com/JetBrains-Research/idegym/compare/v0.10.0...v0.11.1
 [0.10.0]: https://github.com/JetBrains-Research/idegym/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/JetBrains-Research/idegym/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/JetBrains-Research/idegym/releases/tag/v0.8.0
