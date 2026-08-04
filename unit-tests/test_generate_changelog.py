@@ -10,10 +10,11 @@ import pytest
 
 from scripts.generate_changelog import (
     CATEGORY_TITLES,
-    HIGHLIGHTS_PLACEHOLDER,
     ReleaseChanges,
     build_release_changes,
     categorize,
+    documented_versions,
+    highlights_placeholder,
     highlights_prompt,
     is_significant_dependency,
     parse_pull_request,
@@ -231,7 +232,9 @@ def test_render_section_includes_links_and_placeholder():
     )
     section = render_section(changes, REPO, highlights=None)
     assert section.startswith("## [0.10.0] - 2026-06-18")
-    assert HIGHLIGHTS_PLACEHOLDER in section
+    # The placeholder names the version, so it can be copy-pasted as a command.
+    assert highlights_placeholder("0.10.0") in section
+    assert "scripts/draft_highlights.py 0.10.0" in section
     assert "### Features" in section
     # Tickets are plain-text references, not hyperlinks to the internal tracker.
     assert "(JBRes-9332, [#102](https://github.com/JetBrains-Research/idegym/pull/102))" in section
@@ -242,7 +245,7 @@ def test_render_section_uses_highlights_when_provided():
     changes = build_release_changes("0.10.0", "2026-06-18", [("[JBRes-1] Thing (#1)", "a")])
     section = render_section(changes, REPO, highlights="MCP support lands this release.")
     assert "MCP support lands this release." in section
-    assert HIGHLIGHTS_PLACEHOLDER not in section
+    assert highlights_placeholder("0.10.0") not in section
 
 
 def test_render_section_omits_empty_categories():
@@ -330,6 +333,48 @@ def test_previous_version_none_for_first_release():
 def test_previous_version_ignores_higher_tags():
     tags = ["0.10.0", "0.9.0", "0.8.0"]
     assert previous_version("0.9.0", tags) == "0.8.0"
+
+
+def test_previous_version_skips_a_tagged_release_that_was_never_documented():
+    # v0.11.0 was tagged but never released or written up, so 0.11.1 must reach back to
+    # 0.10.0 — the last documented version — and fold the skipped release in.
+    tags = ["0.11.1", "0.11.0", "0.10.0"]
+    assert previous_version("0.11.1", tags, documented=["0.10.0"]) == "0.10.0"
+
+
+def test_previous_version_uses_the_preceding_tag_once_it_is_documented():
+    tags = ["0.11.1", "0.11.0", "0.10.0"]
+    assert previous_version("0.11.1", tags, documented=["0.11.0", "0.10.0"]) == "0.11.0"
+
+
+def test_previous_version_ignores_documented_versions_above_the_target():
+    # Backfilling an old release: the newer sections above it must not become the range start.
+    tags = ["0.10.0", "0.9.0", "0.8.0"]
+    assert previous_version("0.9.0", tags, documented=["0.10.0"]) == "0.8.0"
+
+
+def test_previous_version_ignores_documented_versions_without_a_tag():
+    # A hand-written section for an untagged version cannot bound a git log range.
+    tags = ["0.11.1", "0.10.0"]
+    assert previous_version("0.11.1", tags, documented=["0.11.0", "0.10.0"]) == "0.10.0"
+
+
+def test_previous_version_falls_back_to_tags_for_an_empty_changelog():
+    tags = ["0.10.0", "0.9.0"]
+    assert previous_version("0.10.0", tags, documented=[]) == "0.9.0"
+
+
+# --------------------------------------------------------------------------- #
+# documented_versions
+# --------------------------------------------------------------------------- #
+def test_documented_versions_are_returned_newest_first():
+    document = "# Changelog\n\n## [0.9.0] - 2026-01-01\n\n## [0.11.0] - 2026-03-01\n\n## [0.10.0] - 2026-02-01\n"
+    assert documented_versions(document) == ["0.11.0", "0.10.0", "0.9.0"]
+
+
+@pytest.mark.parametrize("document", [None, "", "# Changelog\n\nNo sections yet.\n"])
+def test_documented_versions_empty_without_sections(document):
+    assert documented_versions(document) == []
 
 
 def test_highlights_prompt_lists_changes():
