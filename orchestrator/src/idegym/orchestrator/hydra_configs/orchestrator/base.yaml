@@ -31,6 +31,7 @@ database:
   password: ${oc.env:POSTGRES_PASSWORD, "postgres"}
   db: ${oc.env:POSTGRES_DB, "idegym"}
   clean_database: ${oc.env:IDEGYM_CLEAN_DATABASE, "False"}
+  schema_revision: ${oc.env:IDEGYM_DATABASE_SCHEMA_REVISION, null}
 
 sqlalchemy:
   pool_size: ${oc.env:IDEGYM_SQLALCHEMY_POOL_SIZE, "20"}

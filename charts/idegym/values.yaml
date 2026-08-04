@@ -99,6 +99,12 @@ database:
   port:
   username:
   password:
+  # The exact Alembic revision this release's images migrate to. The orchestrator refuses
+  # to start when it disagrees with its own migration head, and `scripts/rollback.py` reads
+  # it back from the target release to decide what to downgrade to — so a chart release
+  # that adds a migration must bump it in the same change. See
+  # website/docs/reference/database_rollback.md.
+  schemaRevision: "003"
 
 service:
   type: ClusterIP

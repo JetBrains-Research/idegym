@@ -15,5 +15,6 @@ DROP TABLE IF EXISTS servers;
 -- Drop clients table
 DROP TABLE IF EXISTS clients;
 
--- Drop alembic_version table
-DROP TABLE IF EXISTS alembic_version;
+-- alembic_version is deliberately left alone: Alembic owns it and issues the
+-- DELETE that unsets revision 001 in this same transaction. Dropping it here
+-- makes that statement fail and aborts the whole downgrade.

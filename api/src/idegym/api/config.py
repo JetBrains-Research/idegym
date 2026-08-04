@@ -63,6 +63,13 @@ class DatabaseConfig(BaseModel):
     password: str = Field(default="postgres")
     db: str = Field(default="idegym")
     clean_database: bool = Field(description="Drop and recreate all tables on startup", default=False)
+    schema_revision: Optional[str] = Field(
+        description=(
+            "Alembic revision this release expects, as declared by the chart. Checked against the "
+            "image's migration head on startup, and read back from the release when rolling back"
+        ),
+        default=None,
+    )
 
     @property
     def url(self) -> str:

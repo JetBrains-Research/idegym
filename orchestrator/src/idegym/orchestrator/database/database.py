@@ -70,10 +70,19 @@ def connect_db_engine(db_url: str, config: SQLAlchemyConfig) -> AsyncEngine:
     return db_engine
 
 
-async def init_db(db_url: str, config: SQLAlchemyConfig, clean_database: bool = False):
+async def init_db(
+    db_url: str,
+    config: SQLAlchemyConfig,
+    clean_database: bool = False,
+    declared_schema_revision: Optional[str] = None,
+):
     db_engine = connect_db_engine(db_url, config)
 
     migration_manager = MigrationManager(engine=db_engine, db_url=db_url)
+    # Before anything is migrated: a release whose declared revision does not match this
+    # image would send a later rollback to the wrong revision, so refuse to start instead.
+    migration_manager.verify_declared_revision(declared_schema_revision)
+
     if clean_database:
         logger.warning("Database cleanup requested before migrations")
         await migration_manager.clean_database()
@@ -88,7 +97,7 @@ async def init_db(db_url: str, config: SQLAlchemyConfig, clean_database: bool = 
         max_wait_time = 300
         poll_interval = 1
 
-        expected_version = migration_manager.get_expected_version()
+        expected_version = migration_manager.head_revision()
         loop = asyncio.get_running_loop()
         start_time = loop.time()
 

@@ -61,6 +61,20 @@ kubectl port-forward svc/idegym 8000:80 -n idegym
 curl http://localhost:8000/health   # → {"status":"healthy"}
 ```
 
+## Upgrades and rollback
+
+The orchestrator owns the database schema: it runs Alembic migrations on startup, forward
+only. Each release therefore declares the exact revision its images expect
+(`database.schemaRevision`), and refuses to start if that disagrees with the migrations it
+actually contains.
+
+Because Helm only restores Kubernetes resources, a bare `helm rollback` leaves the schema on
+the newer revision — which the older image may not even know about. Roll back with
+[`scripts/rollback.py`](https://github.com/JetBrains-Research/idegym/blob/main/scripts/rollback.py)
+instead: it compares what the two releases declare and, when the target expects an older
+revision, stops both database writers and downgrades the schema with the *currently deployed*
+image before handing over to Helm. See [Database Rollback](/reference/database_rollback).
+
 ## Sandboxing with gVisor
 
 Environment pods run untrusted code, so they're meant to run under the
@@ -126,3 +140,4 @@ the `Mcp-Session-Id` header and run one worker per pod.
 | [Getting Started](/reference/getting_started) | Local dev setup + running tests |
 | [Local Deployment](/reference/local_deployment) | Full stack on Minikube — macOS or Linux (GHCR or local builds) |
 | [Remote Deployment](/reference/remote_deployment) | Production Kubernetes, secrets, node pools, snapshots |
+| [Database Rollback](/reference/database_rollback) | Rolling a release back, schema included; writing reversible migrations |

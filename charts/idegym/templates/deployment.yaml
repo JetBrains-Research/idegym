@@ -117,6 +117,8 @@ spec:
               value: "jetbrains.com/idegym"
             - name: IDEGYM_NODE_POOL_PREFERENCE_WEIGHT
               value: "100"
+            - name: IDEGYM_DATABASE_SCHEMA_REVISION
+              value: {{ required "database.schemaRevision must name the Alembic revision this release expects" .Values.database.schemaRevision | quote }}
             {{- include "idegym.databaseEnv" . | nindent 12 }}
             {{- with .Values.deployment.extraEnv }}
             {{- toYaml . | nindent 12 }}

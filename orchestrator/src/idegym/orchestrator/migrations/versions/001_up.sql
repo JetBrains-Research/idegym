@@ -83,8 +83,5 @@ CREATE TABLE IF NOT EXISTS async_operations (
     finished_at BIGINT
 );
 
--- Create alembic_version table if it doesn't exist
-CREATE TABLE IF NOT EXISTS alembic_version (
-    version_num VARCHAR(32) NOT NULL,
-    CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num)
-);
+-- alembic_version is not created here: Alembic creates and stamps its own version
+-- table before the first revision runs. See the note in 001_down.sql.
