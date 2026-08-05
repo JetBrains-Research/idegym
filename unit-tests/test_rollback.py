@@ -165,9 +165,10 @@ def cluster(mocker):
         },
     )
     mocker.patch("scripts.rollback.release_deployments", return_value=(ORCHESTRATOR_DEPLOYMENT, WATCHER_DEPLOYMENT))
-    mocker.patch("scripts.rollback.exec_in_deployment", return_value=(0, "downgrade 003 -> 002 via 003"))
+    mocker.patch("scripts.rollback.exec_in_deployment", return_value=(0, "003"))
     mocker.patch("scripts.rollback.wait_for_no_pods")
     mocker.patch("scripts.rollback.create_job")
+    mocker.patch("scripts.rollback.delete_job")
     return mocker
 
 
@@ -179,7 +180,8 @@ def test_a_failed_downgrade_never_reaches_helm(cluster, capsys):
     """
     run = cluster.patch("scripts.rollback.run", return_value="")
     cluster.patch("scripts.rollback.scale")
-    cluster.patch("scripts.rollback.wait_for_job", return_value=False)
+    # The preflight Job succeeds; the downgrade that follows it does not.
+    cluster.patch("scripts.rollback.wait_for_job", side_effect=[True, False])
 
     assert main(["--release", "idegym", "--namespace", "idegym", "--revision", "6", "--yes"]) == 1
     assert not [call for call in run.call_args_list if "rollback" in call.args[0]]
@@ -194,6 +196,18 @@ def test_a_successful_downgrade_stops_the_writers_first(cluster):
     assert main(["--release", "idegym", "--namespace", "idegym", "--revision", "6", "--yes"]) == 0
     assert [call.args for call in scale.call_args_list] == [("idegym", "idegym", 0), ("idegym-watcher", "idegym", 0)]
     assert [call for call in run.call_args_list if "rollback" in call.args[0]]
+
+
+def test_the_preflight_runs_before_any_writer_stops(cluster):
+    """Ordering: the source image is asked whether it can migrate while it is still serving."""
+    calls: list[str] = []
+    cluster.patch("scripts.rollback.create_job", side_effect=lambda job: calls.append(job["metadata"]["name"]))
+    cluster.patch("scripts.rollback.scale", side_effect=lambda *_: calls.append("scale"))
+    cluster.patch("scripts.rollback.run", return_value="")
+    cluster.patch("scripts.rollback.wait_for_job", return_value=True)
+
+    assert main(["--release", "idegym", "--namespace", "idegym", "--revision", "6", "--yes"]) == 0
+    assert calls == ["idegym-migrate-check-002", "scale", "scale", "idegym-migrate-002"]
 
 
 def test_a_matching_schema_rolls_back_without_stopping_anything(cluster, capsys):
@@ -211,24 +225,32 @@ def test_a_matching_schema_rolls_back_without_stopping_anything(cluster, capsys)
     assert "schema was already at 003" in capsys.readouterr().out
 
 
-def test_dry_run_changes_nothing(cluster):
+def test_dry_run_touches_neither_the_release_nor_the_writers(cluster):
+    """Only the preflight runs, and the Job it uses to ask the image is cleaned up."""
     run = cluster.patch("scripts.rollback.run", return_value="")
     scale = cluster.patch("scripts.rollback.scale")
     create_job = cluster.patch("scripts.rollback.create_job")
+    delete_job = cluster.patch("scripts.rollback.delete_job")
+    cluster.patch("scripts.rollback.wait_for_job", return_value=True)
 
     assert main(["--release", "idegym", "--namespace", "idegym", "--revision", "6", "--dry-run"]) == 0
     run.assert_not_called()
     scale.assert_not_called()
-    create_job.assert_not_called()
+    assert create_job.call_count == 1
+    assert create_job.call_args.args[0]["spec"]["template"]["spec"]["containers"][0]["command"][-1] == "--dry-run"
+    delete_job.assert_called_once()
 
 
-def test_a_source_image_that_cannot_downgrade_aborts_before_anything_stops(cluster, capsys):
-    cluster.patch("scripts.rollback.exec_in_deployment", return_value=(1, "error: revision '002' is not one of ..."))
+def test_a_source_image_that_cannot_migrate_aborts_before_anything_stops(cluster, capsys):
+    """The preflight is what makes rolling back with the wrong image a no-op, not a mess."""
+    cluster.patch("scripts.rollback.wait_for_job", return_value=False)
     scale = cluster.patch("scripts.rollback.scale")
+    run = cluster.patch("scripts.rollback.run", return_value="")
 
     assert main(["--release", "idegym", "--namespace", "idegym", "--revision", "6", "--yes"]) == 1
     scale.assert_not_called()
-    assert "cannot downgrade to 002" in capsys.readouterr().err
+    run.assert_not_called()
+    assert "cannot migrate to 002" in capsys.readouterr().err
 
 
 def test_rolling_back_to_the_current_revision_is_refused(cluster, capsys):

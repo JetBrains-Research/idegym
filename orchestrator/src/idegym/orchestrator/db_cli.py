@@ -82,6 +82,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         # The message is the operator-facing half of the failure; the traceback is noise.
         print(f"error: {e}", file=sys.stderr)
         return EXIT_ERROR
+    except TimeoutError:
+        # A migration that outran its timeout may still be applying; say so rather than
+        # reporting it as a connection problem (TimeoutError is an OSError).
+        print("error: the migration did not finish in time; check the schema before retrying", file=sys.stderr)
+        return EXIT_ERROR
     except (OSError, SQLAlchemyError) as e:
         database = config.orchestrator.database
         print(f"error: cannot use the database at {database.host}:{database.port}/{database.db}: {e}", file=sys.stderr)

@@ -55,7 +55,10 @@ uv run python scripts/rollback.py \
 ```
 
 The dry run prints both schema revisions, the image that would run the downgrade, and — when a
-downgrade is needed — the plan the **deployed** image reports for it. It changes nothing.
+downgrade is needed — the plan that image itself reports. That preflight runs as a short-lived
+Job on the deployed image rather than `kubectl exec`, because a rollback usually follows a
+failed rollout, when no pod of that image may be healthy enough to exec into. It reads the
+schema and is deleted afterwards; the release, the schema, and both writers are untouched.
 
 Then run it for real (drop `--dry-run`). A schema downgrade asks for confirmation unless you
 pass `--yes`:
@@ -87,7 +90,7 @@ sequenceDiagram
     participant DB as PostgreSQL
     participant H as Helm
 
-    Op->>K: ask the live image whether it can downgrade (dry run)
+    Op->>K: Job: migrate --dry-run (source image) — can it make the move?
     Op->>K: scale orchestrator + watcher to 0
     K-->>Op: no IdeGYM process can write
     Op->>K: Job: migrate --target <older> (source image)

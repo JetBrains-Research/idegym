@@ -107,7 +107,7 @@ def find_history_entry(history: list[dict[str, Any]], revision: int) -> dict[str
     raise RollbackError(f"Revision {revision} is not in the release history (have: {known})")
 
 
-def declared_schema_revision(values: dict[str, Any]) -> str:
+def declared_schema_revision(values: dict[str, Any], role: str = "target") -> str:
     """Read ``database.schemaRevision`` out of a release's computed values.
 
     Absent means the release predates this mechanism, and nothing recorded which revision
@@ -117,7 +117,7 @@ def declared_schema_revision(values: dict[str, Any]) -> str:
     revision = (values.get("database") or {}).get("schemaRevision")
     if not revision:
         raise RollbackError(
-            "The target release does not declare database.schemaRevision, so its expected schema "
+            f"The {role} release does not declare database.schemaRevision, so its expected schema "
             "revision is unknown. Pass --target-schema-revision to state it explicitly"
         )
     return str(revision)
@@ -171,16 +171,29 @@ def orchestrator_container(deployment: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_migration_job(
-    name: str, namespace: str, deployment: dict[str, Any], target_revision: str, deadline_seconds: int
+    name: str,
+    namespace: str,
+    deployment: dict[str, Any],
+    target_revision: str,
+    deadline_seconds: int,
+    *,
+    dry_run: bool = False,
 ) -> dict[str, Any]:
-    """A one-shot Job that downgrades the schema using the currently deployed image.
+    """A one-shot Job that migrates the schema using the currently deployed image.
 
     The image and environment are copied from the live orchestrator, which is the point:
     the target release's image predates the migrations being reverted and cannot run them.
     ``backoffLimit: 0`` keeps a failed downgrade from being retried against a half-migrated
     schema.
+
+    With ``dry_run`` the Job only resolves and prints the plan, which is how the preflight
+    asks the source image whether it can make the move — the image in the Deployment spec,
+    not whichever pod happens to be up.
     """
     container = orchestrator_container(deployment)
+    arguments = [*MIGRATION_CLI, "migrate", "--target", target_revision, "--allow-downgrade"]
+    if dry_run:
+        arguments.append("--dry-run")
     pod_spec: dict[str, Any] = {
         key: value for key, value in deployment["spec"]["template"]["spec"].items() if key in INHERITED_POD_SPEC_KEYS
     }
@@ -192,7 +205,7 @@ def build_migration_job(
                 "image": container["image"],
                 "imagePullPolicy": container.get("imagePullPolicy", "IfNotPresent"),
                 "env": container.get("env", []),
-                "command": [*MIGRATION_CLI, "migrate", "--target", target_revision, "--allow-downgrade"],
+                "command": arguments,
             }
         ],
     }
@@ -226,6 +239,14 @@ def create_job(job: dict[str, Any]) -> None:
                 f"(`kubectl logs job/{name} -n {job['metadata']['namespace']}`), then delete it to retry"
             )
         raise RollbackError(f"Could not create Job {name}: {detail}")
+
+
+def delete_job(name: str, namespace: str) -> None:
+    subprocess.run(
+        ["kubectl", "delete", "job", name, "--namespace", namespace, "--ignore-not-found"],
+        capture_output=True,
+        check=False,
+    )
 
 
 def wait_for_job(name: str, namespace: str, timeout_seconds: int) -> bool:
@@ -291,6 +312,26 @@ def replica_count(deployment: dict[str, Any]) -> int:
     return int(deployment["spec"].get("replicas", 1))
 
 
+def preflight_downgrade(deployment: dict[str, Any], namespace: str, target_revision: str, timeout_seconds: int) -> None:
+    """Ask the source image whether it can reach ``target_revision``, changing nothing.
+
+    Runs as a Job rather than ``kubectl exec`` on purpose: a rollback usually follows a
+    failed rollout, when no pod of the new image may be healthy enough to exec into — and
+    a pod of the *previous* image would answer the question wrongly. The Job runs exactly
+    the image the downgrade will use, resolves the plan, and prints it.
+    """
+    name = f"{deployment['metadata']['name']}-migrate-check-{target_revision}"
+    create_job(build_migration_job(name, namespace, deployment, target_revision, timeout_seconds, dry_run=True))
+    try:
+        if not wait_for_job(name, namespace, timeout_seconds):
+            raise RollbackError(
+                f"The deployed image cannot migrate to {target_revision} (see the Job logs above). "
+                "Nothing was stopped and the release is untouched"
+            )
+    finally:
+        delete_job(name, namespace)
+
+
 def _parse_args(argv: Optional[list[str]]) -> Namespace:
     parser = ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--release", required=True, help="Helm release name")
@@ -312,7 +353,12 @@ def _parse_args(argv: Optional[list[str]]) -> Namespace:
 
 def confirm(plan: str) -> bool:
     print(f"\n{plan}\n")
-    return input("Type 'yes' to continue: ").strip().lower() == "yes"
+    try:
+        return input("Type 'yes' to continue: ").strip().lower() == "yes"
+    except EOFError:
+        # Nothing on stdin to answer with — a pipeline has to opt in with --yes.
+        print("No terminal to confirm on; pass --yes to approve the downgrade.", file=sys.stderr)
+        return False
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -334,7 +380,7 @@ def _rollback(args: Namespace, release: str, namespace: str, timeout: int) -> in
     history = run_json([*helm(["history"], release, namespace), "--output", "json"])
     target = find_history_entry(history, args.revision)
 
-    source_schema = declared_schema_revision(release_values(release, namespace))
+    source_schema = declared_schema_revision(release_values(release, namespace), role="deployed")
     target_schema = args.target_schema_revision or declared_schema_revision(
         release_values(release, namespace, args.revision)
     )
@@ -353,17 +399,10 @@ def _rollback(args: Namespace, release: str, namespace: str, timeout: int) -> in
     )
 
     if downgrade_needed:
-        # The live image is the only one that has the migrations being reverted; ask it
-        # whether it can make the move before anything is stopped.
-        code, output = exec_in_deployment(
-            orchestrator_name, namespace, [*MIGRATION_CLI, "migrate", "--target", target_schema, "--dry-run"]
-        )
-        if code != 0:
-            raise RollbackError(f"The deployed image cannot downgrade to {target_schema}: {output}")
-        print(f"  plan reported by the deployed image: {output.splitlines()[-1]}")
+        preflight_downgrade(orchestrator, namespace, target_schema, timeout)
 
     if args.dry_run:
-        print("\n--dry-run: nothing was changed.")
+        print("\n--dry-run: the release, the schema, and both writers are untouched.")
         return 0
 
     if downgrade_needed and not args.yes:
@@ -402,6 +441,10 @@ def _rollback(args: Namespace, release: str, namespace: str, timeout: int) -> in
             f"Inspect the Job above, then either fix the cause and re-run, or restore a backup.\n"
             f"To bring the current release back up as it was:\n{restore_hint}"
         )
+
+    # Its logs are printed above, and leaving it would make the next rollback to this
+    # revision collide with a name that already exists. A *failed* Job is kept on purpose.
+    delete_job(job_name, namespace)
 
     print(f"\nSchema is at {target_schema}; handing over to Helm.")
     try:
