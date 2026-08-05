@@ -47,6 +47,17 @@ from typing import Any, Optional
 # a sidecar someone added.
 ORCHESTRATOR_CONTAINER = "orchestrator"
 
+# The chart's own name, and how its two Deployments are told apart from the subcharts that
+# share the release. `idegym.selectorLabels` puts `nameOverride | chart name` in this label,
+# and the watcher's is that plus the suffix.
+APP_NAME_LABEL = "app.kubernetes.io/name"
+CHART_NAME = "idegym"
+WATCHER_NAME_SUFFIX = "-watcher"
+
+# Kubernetes copies a Job's name into a label on the pods it creates, so it cannot exceed the
+# 63-character label limit.
+MAX_JOB_NAME_LENGTH = 63
+
 # Pod-spec keys the migration Job inherits from the orchestrator Deployment. The Job runs the
 # orchestrator image on the same node pool with the same identity, so scheduling and access
 # stay whatever the release configured rather than being restated here.
@@ -130,13 +141,23 @@ def release_values(release: str, namespace: str, revision: Optional[int] = None)
     return run_json(command) or {}
 
 
-def release_deployments(release: str, namespace: str) -> tuple[dict[str, Any], Optional[dict[str, Any]]]:
+def deployments_named(items: list[dict[str, Any]], app_name: str) -> list[dict[str, Any]]:
+    return [item for item in items if (item["metadata"].get("labels") or {}).get(APP_NAME_LABEL) == app_name]
+
+
+def release_deployments(
+    release: str, namespace: str, values: dict[str, Any]
+) -> tuple[dict[str, Any], Optional[dict[str, Any]]]:
     """Return the release's (orchestrator, watcher) Deployments — its two database writers.
 
-    Found by the release's instance label rather than by rebuilding the chart's fullname
-    template, so ``fullnameOverride`` and ``nameOverride`` need no special handling. The
-    watcher is optional (``watcher.enabled``).
+    Matched on the chart's own selector labels rather than by rebuilding the fullname
+    template, so ``fullnameOverride`` needs no special handling. The instance label alone is
+    not enough: every enabled subchart — grafana, prometheus, postgresql — is part of the
+    same release and carries it too. ``app.kubernetes.io/name`` is what separates them, and
+    it follows ``nameOverride`` rather than the resource names. The watcher is optional
+    (``watcher.enabled``).
     """
+    app_name = values.get("nameOverride") or CHART_NAME
     listing = run_json(
         [
             "kubectl",
@@ -151,15 +172,27 @@ def release_deployments(release: str, namespace: str) -> tuple[dict[str, Any], O
         ]
     )
     deployments = listing.get("items", [])
-    watchers = [item for item in deployments if item["metadata"]["name"].endswith("-watcher")]
-    others = [item for item in deployments if item not in watchers]
+    orchestrators = deployments_named(deployments, app_name)
+    watchers = deployments_named(deployments, f"{app_name}{WATCHER_NAME_SUFFIX}")
 
-    if len(others) != 1:
+    if len(orchestrators) != 1:
         found = ", ".join(sorted(item["metadata"]["name"] for item in deployments)) or "none"
         raise RollbackError(
-            f"Expected exactly one orchestrator Deployment for release {release} in {namespace}, found: {found}"
+            f"Expected exactly one Deployment labelled {APP_NAME_LABEL}={app_name} in release {release} "
+            f"({namespace}); the release's Deployments are: {found}"
         )
-    return others[0], watchers[0] if watchers else None
+    return orchestrators[0], watchers[0] if watchers else None
+
+
+def migration_job_name(deployment_name: str, suffix: str) -> str:
+    """Fit ``<deployment>-<suffix>`` into the Job name limit by trimming the deployment part.
+
+    ``idegym.fullname`` is itself truncated to 63 characters, so a long release name would
+    otherwise produce a name the API server rejects — and the rollback would fail on its own
+    Job rather than on anything to do with the schema.
+    """
+    keep = max(1, MAX_JOB_NAME_LENGTH - len(suffix) - 1)
+    return f"{deployment_name[:keep].rstrip('-')}-{suffix}"
 
 
 def orchestrator_container(deployment: dict[str, Any]) -> dict[str, Any]:
@@ -277,12 +310,16 @@ def wait_for_job(name: str, namespace: str, timeout_seconds: int) -> bool:
     return succeeded
 
 
-def exec_in_deployment(name: str, namespace: str, command: list[str]) -> tuple[int, str]:
-    """Run a command in one of the Deployment's pods, returning its exit code and output."""
+def exec_in_deployment(name: str, namespace: str, command: list[str]) -> tuple[int, str, str]:
+    """Run a command in one of the Deployment's pods; returns its exit code, stdout, stderr.
+
+    The two streams stay apart because the container logs to stderr as well as printing its
+    answer to stdout, so a caller reading a value has to look at stdout alone.
+    """
     full = ["kubectl", "exec", f"deployment/{name}", "--namespace", namespace, "--", *command]
     print(f"$ {' '.join(full)}")
     result = subprocess.run(full, capture_output=True, text=True, check=False)
-    return result.returncode, (result.stdout + result.stderr).strip()
+    return result.returncode, result.stdout.strip(), result.stderr.strip()
 
 
 def scale(name: str, namespace: str, replicas: int) -> None:
@@ -320,7 +357,7 @@ def preflight_downgrade(deployment: dict[str, Any], namespace: str, target_revis
     a pod of the *previous* image would answer the question wrongly. The Job runs exactly
     the image the downgrade will use, resolves the plan, and prints it.
     """
-    name = f"{deployment['metadata']['name']}-migrate-check-{target_revision}"
+    name = migration_job_name(deployment["metadata"]["name"], f"migrate-check-{target_revision}")
     create_job(build_migration_job(name, namespace, deployment, target_revision, timeout_seconds, dry_run=True))
     try:
         if not wait_for_job(name, namespace, timeout_seconds):
@@ -380,12 +417,13 @@ def _rollback(args: Namespace, release: str, namespace: str, timeout: int) -> in
     history = run_json([*helm(["history"], release, namespace), "--output", "json"])
     target = find_history_entry(history, args.revision)
 
-    source_schema = declared_schema_revision(release_values(release, namespace), role="deployed")
+    deployed_values = release_values(release, namespace)
+    source_schema = declared_schema_revision(deployed_values, role="deployed")
     target_schema = args.target_schema_revision or declared_schema_revision(
         release_values(release, namespace, args.revision)
     )
 
-    orchestrator, watcher = release_deployments(release, namespace)
+    orchestrator, watcher = release_deployments(release, namespace, deployed_values)
     orchestrator_name = orchestrator["metadata"]["name"]
     writers = [orchestrator, *([watcher] if watcher else [])]
     downgrade_needed = source_schema != target_schema
@@ -432,7 +470,7 @@ def _rollback(args: Namespace, release: str, namespace: str, timeout: int) -> in
     for deployment in writers:
         wait_for_no_pods(deployment, namespace, timeout)
 
-    job_name = f"{orchestrator_name}-migrate-{target_schema}"
+    job_name = migration_job_name(orchestrator_name, f"migrate-{target_schema}")
     create_job(build_migration_job(job_name, namespace, orchestrator, target_schema, timeout))
     if not wait_for_job(job_name, namespace, timeout):
         raise RollbackError(
@@ -477,11 +515,11 @@ def _verify(orchestrator_name: str, namespace: str, expected_schema: str, writer
     ``/health`` — so this adds the two things it cannot see: the recorded schema revision,
     and that every writer came back.
     """
-    code, output = exec_in_deployment(
+    code, stdout, stderr = exec_in_deployment(
         orchestrator_name, namespace, [*MIGRATION_CLI, "schema", "verify", "--expect", expected_schema]
     )
     if code != 0:
-        raise RollbackError(f"The rolled-back release is not at schema revision {expected_schema}: {output}")
+        raise RollbackError(f"The rolled-back release is not at schema revision {expected_schema}: {stderr or stdout}")
 
     for deployment in writers:
         name = deployment["metadata"]["name"]

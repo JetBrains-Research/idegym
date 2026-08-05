@@ -6,16 +6,22 @@ revision: the older image may not contain that revision at all, and Alembic cann
 revision whose script it does not have.
 
 Rolling a release back therefore has to decide what to do about the schema. IdeGYM supports
-three answers, and they are not interchangeable.
+three answers, and they are not interchangeable — they differ in what they cost you in data:
 
-| Kind | What it does to data | When |
-|---|---|---|
-| **Application-only** | Nothing | The target release declares the same schema revision, or the newer schema is backwards compatible |
-| **Exact schema rollback** | Discards whatever the reverted revisions store | The target release declares an older revision |
-| **Restore a backup** | Discards *every* write since the backup | The downgrade failed or is not reversible |
+```mermaid
+flowchart TD
+    A["Roll release N+1 back to N"] --> B{"Do both releases declare the same database.schemaRevision?"}
+    B -->|yes| C["Application-only rollback: helm rollback alone, no data touched"]
+    B -->|"N declares an older revision"| D{"Does every revision in between have a down migration?"}
+    D -->|yes| E["Exact schema rollback: stop writers, downgrade, then helm rollback. The reverted revisions lose what they stored"]
+    D -->|no| F["Restore a backup: discards every write made since the dump"]
+```
 
-Everything below is an explicit operator action. Nothing restores a backup automatically —
-that would silently turn a code rollback into a point-in-time data rollback.
+`scripts/rollback.py` makes the first decision for you, from what the two releases declare, and
+refuses to continue if the second one comes out "no". The third row is a manual recovery path.
+
+Everything here is an explicit operator action. Nothing restores a backup automatically — that
+would silently turn a code rollback into a point-in-time data rollback.
 
 ---
 
@@ -85,20 +91,29 @@ When the target release declares an older revision, ordering is what keeps the r
 
 ```mermaid
 sequenceDiagram
+    autonumber
     participant Op as scripts/rollback.py
     participant K as Kubernetes
     participant DB as PostgreSQL
     participant H as Helm
 
-    Op->>K: Job: migrate --dry-run (source image) — can it make the move?
-    Op->>K: scale orchestrator + watcher to 0
-    K-->>Op: no IdeGYM process can write
-    Op->>K: Job: migrate --target <older> (source image)
-    K->>DB: Alembic downgrade under the advisory lock
-    DB-->>Op: schema at the target revision
+    Note over Op,H: Ask first, while everything is still running
+    Op->>K: Job on the deployed image, migrate --dry-run
+    K-->>Op: the plan resolves, nothing was changed
+
+    Note over Op,H: Maintenance window opens
+    Op->>K: scale orchestrator and watcher to 0
+    K-->>Op: no IdeGYM process can write any more
+
+    Note over Op,H: Move the schema
+    Op->>K: Job on the deployed image, migrate --target N
+    K->>DB: alembic downgrade, under the migration lock
+    DB-->>Op: schema is now at N
+
+    Note over Op,H: Hand over to Helm, then check
     Op->>H: helm rollback --wait --wait-for-jobs
-    H-->>Op: target release running
-    Op->>DB: verify the recorded revision
+    H-->>Op: release N is running, writers are back
+    Op->>DB: schema verify --expect N
 ```
 
 Three properties of that sequence matter:

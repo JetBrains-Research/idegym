@@ -8,11 +8,13 @@ orchestrator, and the ordering guarantee that a failed downgrade never reaches H
 import pytest
 
 from scripts.rollback import (
+    MAX_JOB_NAME_LENGTH,
     RollbackError,
     build_migration_job,
     declared_schema_revision,
     find_history_entry,
     main,
+    migration_job_name,
     orchestrator_container,
     release_deployments,
 )
@@ -23,7 +25,7 @@ HISTORY = [
 ]
 
 ORCHESTRATOR_DEPLOYMENT = {
-    "metadata": {"name": "idegym"},
+    "metadata": {"name": "idegym", "labels": {"app.kubernetes.io/name": "idegym"}},
     "spec": {
         "replicas": 4,
         "template": {
@@ -48,9 +50,16 @@ ORCHESTRATOR_DEPLOYMENT = {
 }
 
 WATCHER_DEPLOYMENT = {
-    "metadata": {"name": "idegym-watcher"},
+    "metadata": {"name": "idegym-watcher", "labels": {"app.kubernetes.io/name": "idegym-watcher"}},
     "spec": {"replicas": 1, "template": {"spec": {"containers": [{"name": "watcher", "image": "watcher:0.11.0"}]}}},
 }
+
+# Enabled subcharts belong to the same Helm release and carry the same instance label, so they
+# come back from the same `kubectl get deployments` query.
+SUBCHART_DEPLOYMENTS = [
+    {"metadata": {"name": "grafana", "labels": {"app.kubernetes.io/name": "grafana"}}, "spec": {}},
+    {"metadata": {"name": "prometheus", "labels": {"app.kubernetes.io/name": "prometheus"}}, "spec": {}},
+]
 
 
 def test_find_history_entry_returns_the_requested_revision():
@@ -73,29 +82,48 @@ def test_a_release_without_a_declared_revision_must_be_told_the_target(values):
         declared_schema_revision(values)
 
 
-def test_release_deployments_finds_both_writers(mocker):
-    mocker.patch("scripts.rollback.run_json", return_value={"items": [WATCHER_DEPLOYMENT, ORCHESTRATOR_DEPLOYMENT]})
+def test_release_deployments_ignores_the_subcharts_in_the_same_release(mocker):
+    """grafana, prometheus and postgresql share the release's instance label.
 
-    orchestrator, watcher = release_deployments("idegym", "idegym")
+    Selecting on that label alone picked them up too and aborted every rollback of a chart
+    with observability enabled.
+    """
+    mocker.patch(
+        "scripts.rollback.run_json",
+        return_value={"items": [*SUBCHART_DEPLOYMENTS, WATCHER_DEPLOYMENT, ORCHESTRATOR_DEPLOYMENT]},
+    )
+
+    orchestrator, watcher = release_deployments("idegym", "idegym", {})
 
     assert orchestrator["metadata"]["name"] == "idegym"
     assert watcher["metadata"]["name"] == "idegym-watcher"
 
 
+def test_release_deployments_follows_name_override(mocker):
+    """The label carries `nameOverride`, not the resource name, so the match must too."""
+    renamed = {"metadata": {"name": "gym-abc", "labels": {"app.kubernetes.io/name": "gym"}}, "spec": {}}
+    mocker.patch("scripts.rollback.run_json", return_value={"items": [*SUBCHART_DEPLOYMENTS, renamed]})
+
+    orchestrator, watcher = release_deployments("idegym", "idegym", {"nameOverride": "gym"})
+
+    assert orchestrator["metadata"]["name"] == "gym-abc"
+    assert watcher is None
+
+
 def test_release_deployments_tolerates_a_disabled_watcher(mocker):
     mocker.patch("scripts.rollback.run_json", return_value={"items": [ORCHESTRATOR_DEPLOYMENT]})
 
-    orchestrator, watcher = release_deployments("idegym", "idegym")
+    orchestrator, watcher = release_deployments("idegym", "idegym", {})
 
     assert orchestrator["metadata"]["name"] == "idegym"
     assert watcher is None
 
 
 def test_release_deployments_reports_what_it_found_when_ambiguous(mocker):
-    mocker.patch("scripts.rollback.run_json", return_value={"items": []})
+    mocker.patch("scripts.rollback.run_json", return_value={"items": SUBCHART_DEPLOYMENTS})
 
-    with pytest.raises(RollbackError, match="found: none"):
-        release_deployments("idegym", "idegym")
+    with pytest.raises(RollbackError, match="grafana, prometheus"):
+        release_deployments("idegym", "idegym", {})
 
 
 def test_orchestrator_container_is_picked_by_name():
@@ -141,6 +169,27 @@ def test_migration_job_is_not_retried():
     assert job["spec"]["activeDeadlineSeconds"] == 600
 
 
+def test_job_name_keeps_the_suffix_when_the_deployment_name_is_long():
+    """A long release name must not produce a Job the API server rejects."""
+    long_name = "a" * MAX_JOB_NAME_LENGTH
+
+    name = migration_job_name(long_name, "migrate-check-002")
+
+    assert len(name) == MAX_JOB_NAME_LENGTH
+    assert name.endswith("-migrate-check-002")
+
+
+def test_job_name_is_left_alone_when_it_already_fits():
+    assert migration_job_name("idegym", "migrate-002") == "idegym-migrate-002"
+
+
+def test_job_name_does_not_end_up_with_a_double_dash():
+    """Trimming must not leave the trailing hyphen of a name like `idegym-` in place."""
+    name = migration_job_name("idegym-" + "b" * MAX_JOB_NAME_LENGTH, "migrate-002")
+
+    assert "--" not in name
+
+
 def fake_run_json(command: list[str]):
     """Answer the two read-only queries ``main`` makes: release history and Deployments."""
     if "history" in command:
@@ -165,7 +214,7 @@ def cluster(mocker):
         },
     )
     mocker.patch("scripts.rollback.release_deployments", return_value=(ORCHESTRATOR_DEPLOYMENT, WATCHER_DEPLOYMENT))
-    mocker.patch("scripts.rollback.exec_in_deployment", return_value=(0, "003"))
+    mocker.patch("scripts.rollback.exec_in_deployment", return_value=(0, "003", ""))
     mocker.patch("scripts.rollback.wait_for_no_pods")
     mocker.patch("scripts.rollback.create_job")
     mocker.patch("scripts.rollback.delete_job")

@@ -15,7 +15,6 @@ live Deployment, the round trip with data in place, and the Helm handover.
 import json
 import subprocess
 
-import pytest
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 from from_root import from_root
@@ -38,8 +37,10 @@ from scripts.rollback import (
     create_job,
     current_helm_revision,
     declared_schema_revision,
+    delete_job,
     exec_in_deployment,
     main,
+    migration_job_name,
     release_deployments,
     release_values,
     replica_count,
@@ -85,14 +86,16 @@ def psql(sql: str) -> str:
 
 
 def cli_output(deployment_name: str, arguments: list[str]) -> str:
-    """Run the migration CLI in a live pod and return what it printed.
+    """Run the migration CLI in a live pod and return the value it printed.
 
-    The container logs structured JSON to stdout as well, so the value the command prints
-    is the last line.
+    The container logs structured JSON to stdout too, and the command prints its answer
+    last, so the value is the final non-empty line of stdout.
     """
-    code, output = exec_in_deployment(deployment_name, DEFAULT_NAMESPACE, [*MIGRATION_CLI, *arguments])
-    assert code == 0, f"{' '.join(arguments)} failed: {output}"
-    return output.splitlines()[-1].strip()
+    code, stdout, stderr = exec_in_deployment(deployment_name, DEFAULT_NAMESPACE, [*MIGRATION_CLI, *arguments])
+    assert code == 0, f"{' '.join(arguments)} failed: {stderr or stdout}"
+    lines = [line.strip() for line in stdout.splitlines() if line.strip()]
+    assert lines, f"{' '.join(arguments)} printed nothing (stderr: {stderr})"
+    return lines[-1]
 
 
 def run_migration_job(orchestrator: dict, target: str) -> None:
@@ -101,10 +104,8 @@ def run_migration_job(orchestrator: dict, target: str) -> None:
     ``build_migration_job`` always passes ``--allow-downgrade``; the CLI only consults it
     when the plan actually moves backwards, so the same builder serves both directions.
     """
-    name = f"{orchestrator['metadata']['name']}-migrate-{target}"
-    subprocess.run(
-        ["kubectl", "delete", "job", name, "--namespace", DEFAULT_NAMESPACE, "--ignore-not-found"], check=False
-    )
+    name = migration_job_name(orchestrator["metadata"]["name"], f"migrate-{target}")
+    delete_job(name, DEFAULT_NAMESPACE)
     create_job(build_migration_job(name, DEFAULT_NAMESPACE, orchestrator, target, STEP_TIMEOUT_SECONDS))
     assert wait_for_job(name, DEFAULT_NAMESPACE, STEP_TIMEOUT_SECONDS), f"migration Job {name} did not succeed"
 
@@ -143,15 +144,15 @@ def restore_writers(replicas_by_name: dict[str, int]) -> None:
     assert wait_for_pod_ready(WATCHER_APP_LABEL, timeout=STEP_TIMEOUT_SECONDS), "Watcher did not become ready again"
 
 
-@pytest.mark.e2e
 def test_release_declares_the_schema_revision_its_image_produces():
     """The invariant every exact rollback rests on.
 
     The chart value is what a rollback downgrades to, so a release whose declaration drifts
     from its image would send the next rollback to the wrong revision.
     """
-    declared = declared_schema_revision(release_values(HELM_RELEASE, DEFAULT_NAMESPACE))
-    orchestrator, _ = release_deployments(HELM_RELEASE, DEFAULT_NAMESPACE)
+    values = release_values(HELM_RELEASE, DEFAULT_NAMESPACE)
+    declared = declared_schema_revision(values)
+    orchestrator, _ = release_deployments(HELM_RELEASE, DEFAULT_NAMESPACE, values)
     orchestrator_name = orchestrator["metadata"]["name"]
 
     assert cli_output(orchestrator_name, ["schema", "head"]) == declared
@@ -159,7 +160,6 @@ def test_release_declares_the_schema_revision_its_image_produces():
     assert psql("SELECT version_num FROM alembic_version;") == declared
 
 
-@pytest.mark.e2e
 def test_schema_downgrades_and_comes_back_with_data_intact():
     """Walk the deployed schema back one revision and forward again, in-cluster.
 
@@ -171,7 +171,9 @@ def test_schema_downgrades_and_comes_back_with_data_intact():
     assert len(chain) >= 2, "need at least two revisions to exercise a downgrade"
     head, previous = chain[-1], chain[-2]
 
-    orchestrator, watcher = release_deployments(HELM_RELEASE, DEFAULT_NAMESPACE)
+    orchestrator, watcher = release_deployments(
+        HELM_RELEASE, DEFAULT_NAMESPACE, release_values(HELM_RELEASE, DEFAULT_NAMESPACE)
+    )
     writers = [orchestrator, *([watcher] if watcher else [])]
     original_replicas = {deployment["metadata"]["name"]: replica_count(deployment) for deployment in writers}
 
@@ -195,7 +197,6 @@ def test_schema_downgrades_and_comes_back_with_data_intact():
         restore_writers(original_replicas)
 
 
-@pytest.mark.e2e
 def test_application_only_rollback_leaves_the_schema_alone():
     """A rollback between releases that declare the same revision is a plain Helm rollback.
 
