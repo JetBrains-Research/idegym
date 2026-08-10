@@ -8,8 +8,13 @@ The round-trip against real PostgreSQL lives in
 
 import pytest
 from idegym.api.exceptions import MigrationError
-from idegym.orchestrator.db_cli import Command, SchemaCommand, build_parser
-from idegym.orchestrator.migration_manager import BASE_REVISION, MigrationDirection, MigrationManager
+from idegym.orchestrator.db_cli import Command, SchemaCommand, _run_migrate_command, build_parser
+from idegym.orchestrator.migration_manager import (
+    BASE_REVISION,
+    MigrationDirection,
+    MigrationManager,
+    MigrationPlan,
+)
 from sqlalchemy.ext.asyncio import create_async_engine
 
 
@@ -123,3 +128,32 @@ def test_every_top_level_command_is_accepted(command: Command):
     extra = ["--target", "003"] if command is Command.MIGRATE else [SchemaCommand.HEAD]
 
     assert build_parser().parse_args([command, *extra]).command == command
+
+
+def fake_manager(mocker, plan: MigrationPlan) -> MigrationManager:
+    """A manager that resolves to ``plan`` without a database."""
+    manager = mocker.MagicMock(spec=MigrationManager)
+    manager.get_current_revision = mocker.AsyncMock(return_value=plan.current)
+    manager.plan_migration.return_value = plan
+    return manager
+
+
+async def test_dry_run_prints_the_plan_as_its_answer(mocker, capsys):
+    """The plan is the command's output — it goes to stdout, on its own."""
+    plan = MigrationPlan(MigrationDirection.DOWNGRADE, "003", "002", ("003",))
+    args = build_parser().parse_args([Command.MIGRATE, "--target", "002", "--dry-run", "--allow-downgrade"])
+
+    assert await _run_migrate_command(args, fake_manager(mocker, plan)) == 0
+    assert capsys.readouterr().out.strip() == plan.describe()
+
+
+async def test_dry_run_advice_about_approval_stays_off_stdout(mocker, capsys):
+    """Guidance about a *future* invocation is not part of this one's answer."""
+    plan = MigrationPlan(MigrationDirection.DOWNGRADE, "003", "002", ("003",))
+    args = build_parser().parse_args([Command.MIGRATE, "--target", "002", "--dry-run"])
+
+    assert await _run_migrate_command(args, fake_manager(mocker, plan)) == 0
+
+    captured = capsys.readouterr()
+    assert captured.out.strip() == plan.describe()
+    assert "--allow-downgrade" in captured.err

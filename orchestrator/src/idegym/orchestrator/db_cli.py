@@ -141,11 +141,19 @@ async def _run_schema_command(args: Namespace, manager: MigrationManager) -> int
 
 
 async def _run_migrate_command(args: Namespace, manager: MigrationManager) -> int:
+    """Print the plan — resolved only, or resolved and applied.
+
+    The plan is this command's output, not a progress note: with ``--dry-run`` it is the
+    whole point of the invocation, and afterwards it is the record of what the migration
+    did. ``scripts/rollback.py`` shows it to the operator by printing the Job's logs, which
+    is how a downgrade gets read and approved before any writer is stopped.
+    """
     if args.dry_run:
         plan = manager.plan_migration(current=await manager.get_current_revision(), target=args.target)
         print(plan.describe())
         if plan.direction is MigrationDirection.DOWNGRADE and not args.allow_downgrade:
-            print("(would refuse to run without --allow-downgrade)")
+            # Advice about a future invocation, so not part of the answer.
+            print("note: running this for real would need --allow-downgrade", file=sys.stderr)
         return EXIT_OK
 
     plan = await manager.migrate_to(args.target, allow_downgrade=args.allow_downgrade)
