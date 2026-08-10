@@ -8,7 +8,7 @@ The round-trip against real PostgreSQL lives in
 
 import pytest
 from idegym.api.exceptions import MigrationError
-from idegym.orchestrator.db_cli import build_parser
+from idegym.orchestrator.db_cli import Command, SchemaCommand, build_parser
 from idegym.orchestrator.migration_manager import BASE_REVISION, MigrationDirection, MigrationManager
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -85,14 +85,14 @@ def test_migrate_requires_an_exact_target():
     parser = build_parser()
 
     with pytest.raises(SystemExit):
-        parser.parse_args(["migrate"])
+        parser.parse_args([Command.MIGRATE])
 
-    args = parser.parse_args(["migrate", "--target", "002", "--allow-downgrade"])
+    args = parser.parse_args([Command.MIGRATE, "--target", "002", "--allow-downgrade"])
     assert (args.target, args.allow_downgrade, args.dry_run) == ("002", True, False)
 
 
 def test_downgrade_approval_is_off_by_default():
-    args = build_parser().parse_args(["migrate", "--target", "002"])
+    args = build_parser().parse_args([Command.MIGRATE, "--target", "002"])
 
     assert args.allow_downgrade is False
 
@@ -101,13 +101,25 @@ def test_schema_verify_requires_an_expected_revision():
     parser = build_parser()
 
     with pytest.raises(SystemExit):
-        parser.parse_args(["schema", "verify"])
+        parser.parse_args([Command.SCHEMA, SchemaCommand.VERIFY])
 
-    assert parser.parse_args(["schema", "verify", "--expect", "003"]).expect == "003"
+    expect = parser.parse_args([Command.SCHEMA, SchemaCommand.VERIFY, "--expect", "003"]).expect
+    assert expect == "003"
 
 
-def test_schema_subcommands_are_named():
-    parser = build_parser()
+@pytest.mark.parametrize("subcommand", list(SchemaCommand))
+def test_every_schema_subcommand_is_accepted(subcommand: SchemaCommand):
+    """The enums name the CLI surface, so a member with no subparser is a typo, not a feature."""
+    extra = ["--expect", "003"] if subcommand is SchemaCommand.VERIFY else []
 
-    assert parser.parse_args(["schema", "current"]).schema_command == "current"
-    assert parser.parse_args(["schema", "head"]).schema_command == "head"
+    args = build_parser().parse_args([Command.SCHEMA, subcommand, *extra])
+
+    assert args.command == Command.SCHEMA
+    assert args.schema_command == subcommand
+
+
+@pytest.mark.parametrize("command", list(Command))
+def test_every_top_level_command_is_accepted(command: Command):
+    extra = ["--target", "003"] if command is Command.MIGRATE else [SchemaCommand.HEAD]
+
+    assert build_parser().parse_args([command, *extra]).command == command

@@ -30,6 +30,7 @@ Usage::
 import asyncio
 import sys
 from argparse import ArgumentParser, Namespace
+from enum import StrEnum
 from typing import Optional
 
 from idegym.api.config import Config
@@ -44,19 +45,32 @@ EXIT_OK = 0
 EXIT_ERROR = 1
 
 
+class Command(StrEnum):
+    """Top-level subcommands. Members double as the names argparse registers and matches."""
+
+    SCHEMA = "schema"
+    MIGRATE = "migrate"
+
+
+class SchemaCommand(StrEnum):
+    CURRENT = "current"
+    HEAD = "head"
+    VERIFY = "verify"
+
+
 def build_parser() -> ArgumentParser:
     parser = ArgumentParser(prog="idegym-db", description="Inspect and migrate the IdeGYM database schema.")
     subcommands = parser.add_subparsers(dest="command", required=True)
 
-    schema = subcommands.add_parser("schema", help="Inspect the schema revision").add_subparsers(
+    schema = subcommands.add_parser(Command.SCHEMA, help="Inspect the schema revision").add_subparsers(
         dest="schema_command", required=True
     )
-    schema.add_parser("current", help="Print the revision recorded in the database")
-    schema.add_parser("head", help="Print the newest revision this image contains")
-    verify = schema.add_parser("verify", help="Exit non-zero unless the database is at an exact revision")
+    schema.add_parser(SchemaCommand.CURRENT, help="Print the revision recorded in the database")
+    schema.add_parser(SchemaCommand.HEAD, help="Print the newest revision this image contains")
+    verify = schema.add_parser(SchemaCommand.VERIFY, help="Exit non-zero unless the database is at an exact revision")
     verify.add_argument("--expect", required=True, metavar="REVISION", help=f"Revision to require, or {BASE_REVISION}")
 
-    migrate = subcommands.add_parser("migrate", help="Migrate the schema to an exact revision")
+    migrate = subcommands.add_parser(Command.MIGRATE, help="Migrate the schema to an exact revision")
     migrate.add_argument(
         "--target",
         required=True,
@@ -104,7 +118,7 @@ async def _dispatch(args: Namespace, config: Config) -> int:
     engine = create_async_engine(database.url, pool_size=1, max_overflow=0)
     try:
         manager = MigrationManager(engine=engine, db_url=database.url)
-        if args.command == "schema":
+        if args.command == Command.SCHEMA:
             return await _run_schema_command(args, manager)
         return await _run_migrate_command(args, manager)
     finally:
@@ -112,17 +126,15 @@ async def _dispatch(args: Namespace, config: Config) -> int:
 
 
 async def _run_schema_command(args: Namespace, manager: MigrationManager) -> int:
-    if args.schema_command == "head":
+    if args.schema_command == SchemaCommand.HEAD:
         print(manager.head_revision())
         return EXIT_OK
 
+    # `current` and `verify` both report where the database is; only `verify` judges it.
     current = await manager.get_current_revision() or BASE_REVISION
-    if args.schema_command == "current":
-        print(current)
-        return EXIT_OK
-
     print(current)
-    if current != args.expect:
+
+    if args.schema_command == SchemaCommand.VERIFY and current != args.expect:
         print(f"error: database is at revision {current}, expected {args.expect}", file=sys.stderr)
         return EXIT_ERROR
     return EXIT_OK
