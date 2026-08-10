@@ -88,14 +88,12 @@ def psql(sql: str) -> str:
 def cli_output(deployment_name: str, arguments: list[str]) -> str:
     """Run the migration CLI in a live pod and return the value it printed.
 
-    The container logs structured JSON to stdout too, and the command prints its answer
-    last, so the value is the final non-empty line of stdout.
+    The CLI keeps its log records on stderr, so stdout is the answer on its own.
     """
     code, stdout, stderr = exec_in_deployment(deployment_name, DEFAULT_NAMESPACE, [*MIGRATION_CLI, *arguments])
     assert code == 0, f"{' '.join(arguments)} failed: {stderr or stdout}"
-    lines = [line.strip() for line in stdout.splitlines() if line.strip()]
-    assert lines, f"{' '.join(arguments)} printed nothing (stderr: {stderr})"
-    return lines[-1]
+    assert stdout, f"{' '.join(arguments)} printed nothing (stderr: {stderr})"
+    return stdout.strip()
 
 
 def run_migration_job(orchestrator: dict, target: str) -> None:

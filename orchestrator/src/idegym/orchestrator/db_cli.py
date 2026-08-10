@@ -11,6 +11,12 @@ Nothing here is safe to run against a live deployment on its own —
 directly only to inspect the schema, or when following the manual procedure in
 `Database Rollback <../../../website/docs/reference/database_rollback.md>`_.
 
+**Streams.** stdout carries the command's answer and nothing else, so ``schema current`` can
+be captured into a variable. Everything else goes to stderr: failures as a plain
+``error: ...`` line, and the migration's own progress — lock acquired, plan, lock released —
+as structlog records from :mod:`idegym.orchestrator.migration_manager`. A container runtime
+captures both streams, so ``kubectl logs`` on a migration Job shows the whole story.
+
 Usage::
 
     python -m idegym.orchestrator.db_cli schema current          # revision the database is at
@@ -31,11 +37,8 @@ from idegym.api.exceptions import MigrationError
 from idegym.backend.utils.logging import configure_logging, configure_sqlalchemy_logging
 from idegym.orchestrator.config import load_config
 from idegym.orchestrator.migration_manager import BASE_REVISION, MigrationDirection, MigrationManager
-from idegym.utils.logging import get_logger
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import create_async_engine
-
-logger = get_logger(__name__)
 
 EXIT_OK = 0
 EXIT_ERROR = 1
@@ -73,7 +76,9 @@ def build_parser() -> ArgumentParser:
 def main(argv: Optional[list[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     config = load_config()
-    configure_logging(config=config.logging)
+    # Logs go to stderr so stdout stays the command's answer and nothing else; both are
+    # captured by the container runtime, so a Job's logs show them together regardless.
+    configure_logging(config=config.logging, stream=sys.stderr)
     configure_sqlalchemy_logging(config=config.logging)
 
     try:
