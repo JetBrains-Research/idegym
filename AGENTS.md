@@ -101,7 +101,12 @@ pre-commit install
    everything imports it.
 5. **Configuration is nested Pydantic models** in `api/src/idegym/api/config.py`, composed
    into `Config`. Add a field with `Field(default=...)` and a `description=` when the name
-   is not self-explanatory; do not read `os.environ` ad hoc in service code.
+   is not self-explanatory; do not read `os.environ` ad hoc in service code. Inherit
+   `ConfigModel`, and give any field that must be settable at deploy time a
+   `validation_alias="IDEGYM_..."` — `load_config()` finds variables by walking the model
+   tree, so a field without one is not overridable. Add `validate_default=True` when a
+   validator normalises the value, or the default bypasses it. See
+   `backend-utils/src/idegym/backend/utils/settings.py`.
 6. **Logging goes through structlog:**
    ```python
    from idegym.utils.logging import get_logger

@@ -229,3 +229,40 @@ def test_loading_does_not_change_the_working_directory():
     before = getcwd()
     load_config(ALL_SECTIONS, source={"IDEGYM_PROJECT_ROOT": "relative/project"})
     assert getcwd() == before
+
+
+def test_server_bind_reads_the_server_section():
+    """Regression: the in-pod server bound `orchestrator.host/port`, a section it never loads,
+    so `IDEGYM_SERVER_HOST`/`IDEGYM_SERVER_PORT` had no effect on the listening socket."""
+    config = load_config(SERVER_SECTIONS, source={"IDEGYM_SERVER_HOST": "127.0.0.1", "IDEGYM_SERVER_PORT": "9200"})
+    assert (config.server.host, config.server.port) == ("127.0.0.1", 9200)
+    assert (config.orchestrator.host, config.orchestrator.port) == ("0.0.0.0", 8000)
+
+
+def test_every_field_is_environment_overridable():
+    """The Hydra YAML drifted from the model and left three fields with no override. The model is
+    now the only declaration, so this asserts the invariant that made that drift possible is gone."""
+    unbound = {path for path in flatten(Config()) if path not in environment_aliases()}
+    assert unbound == set()
+
+
+@mark.parametrize(
+    ("variable", "path", "value", "expected"),
+    [
+        param("IDEGYM_WATCHER_CRASH_DETECTION_ENABLED", "orchestrator.watcher.crash_detection_enabled", "False", False),
+        param(
+            "IDEGYM_POD_SNAPSHOT_COMPLETION_TIMEOUT",
+            "orchestrator.pod_snapshot.completion_timeout",
+            "PT5M",
+            Duration(minutes=5),
+        ),
+        param(
+            "IDEGYM_POD_SNAPSHOT_POLL_INTERVAL",
+            "orchestrator.pod_snapshot.poll_interval",
+            "PT10S",
+            Duration(seconds=10),
+        ),
+    ],
+)
+def test_previously_unbound_fields_now_read_the_environment(variable: str, path: str, value: str, expected: Any):
+    assert resolve(path, load_config(ORCHESTRATOR_SECTIONS, source={variable: value})) == expected

@@ -155,8 +155,8 @@ def main() -> None:
     server = UvicornServer(
         config=UvicornConfig(
             app=app,
-            host=config.orchestrator.host,
-            port=config.orchestrator.port,
+            host=config.server.host,
+            port=config.server.port,
             log_config=create_uvicorn_logging_config(
                 config=config.logging,
             ),

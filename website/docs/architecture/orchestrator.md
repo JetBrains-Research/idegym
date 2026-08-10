@@ -88,10 +88,12 @@ LOCKED` and advisory locks — to coordinate the watcher and request handlers sa
 
 ## Configuration
 
-Configuration is managed with [Hydra](https://hydra.cc/) (`load_config()` composes
-`hydra_configs/config`). Notable knobs include database connection, connection limits,
-asyncio debug/dump, the MCP `stateless_http` mode, and node-pool scheduling. See
-[deployment](/deployment) for the environment variables and Helm values that drive these.
+Configuration is nested Pydantic models in `api/src/idegym/api/config.py`; `load_config()`
+builds `Config` from the environment, and a variable that is unset leaves the field's default.
+Environment variables are the only override mechanism — no config files, no CLI arguments.
+Notable knobs include database connection, connection limits, asyncio debug/dump, the MCP
+`stateless_http` mode, and node-pool scheduling. See [deployment](/deployment) for the
+environment variables and Helm values that drive these.
 
 ## View source
 

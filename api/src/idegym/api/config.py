@@ -320,10 +320,12 @@ class PodSnapshotConfig(ConfigModel):
     completion_timeout: Duration = Field(
         description="Maximum time to wait for a PodSnapshotManualTrigger to reach a terminal status",
         default=Duration(minutes=2),
+        validation_alias="IDEGYM_POD_SNAPSHOT_COMPLETION_TIMEOUT",
     )
     poll_interval: Duration = Field(
         description="Interval between PodSnapshotManualTrigger status polls",
         default=Duration(seconds=2),
+        validation_alias="IDEGYM_POD_SNAPSHOT_POLL_INTERVAL",
     )
 
 
@@ -347,6 +349,7 @@ class WatcherConfig(ConfigModel):
     crash_detection_enabled: bool = Field(
         description="Detect crashed/OOMKilled/evicted server pods, mark them CRASHED, and tear them down",
         default=True,
+        validation_alias="IDEGYM_WATCHER_CRASH_DETECTION_ENABLED",
     )
     inactive_timeout: Duration = Field(
         description="Inactivity timeout after which idle servers/clients are cleaned up",
