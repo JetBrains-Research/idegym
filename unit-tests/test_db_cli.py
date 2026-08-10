@@ -1,9 +1,8 @@
-"""Unit tests for migration planning and the ``idegym-db`` argument surface.
+"""Migration planning and the ``idegym-db`` argument surface.
 
-Everything here is decided before a connection is opened, so it needs no database: the
-plan, the guards that stop a downgrade from happening by accident, and the CLI's contract.
-The round-trip against real PostgreSQL lives in
-``integration-tests/database/test_migration_roundtrip.py``.
+All decided before a connection is opened, so no database is needed: the plan, the guards
+against an accidental downgrade, and the CLI's contract. The round-trip against real
+PostgreSQL lives in ``integration-tests/database/test_migration_roundtrip.py``.
 """
 
 import pytest
@@ -69,9 +68,9 @@ def test_unknown_target_is_rejected(manager: MigrationManager):
 
 
 def test_database_on_an_unknown_revision_is_rejected(manager: MigrationManager):
-    """The signature of rolling back with an image older than the database.
+    """Rolling back with an image older than the database.
 
-    Alembic cannot traverse a revision it has no script for, so this has to fail with an
+    Alembic cannot traverse a revision it has no script for, so this fails with an
     explanation rather than a KeyError from inside Alembic.
     """
     with pytest.raises(MigrationError, match="use the image that introduced it"):
@@ -114,7 +113,7 @@ def test_schema_verify_requires_an_expected_revision():
 
 @pytest.mark.parametrize("subcommand", list(SchemaCommand))
 def test_every_schema_subcommand_is_accepted(subcommand: SchemaCommand):
-    """The enums name the CLI surface, so a member with no subparser is a typo, not a feature."""
+    """A member with no subparser is a typo, not a feature."""
     extra = ["--expect", "003"] if subcommand is SchemaCommand.VERIFY else []
 
     args = build_parser().parse_args([Command.SCHEMA, subcommand, *extra])
@@ -139,7 +138,7 @@ def fake_manager(mocker, plan: MigrationPlan) -> MigrationManager:
 
 
 async def test_dry_run_prints_the_plan_as_its_answer(mocker, capsys):
-    """The plan is the command's output — it goes to stdout, on its own."""
+    """The plan is the command's output, so it goes to stdout on its own."""
     plan = MigrationPlan(MigrationDirection.DOWNGRADE, "003", "002", ("003",))
     args = build_parser().parse_args([Command.MIGRATE, "--target", "002", "--dry-run", "--allow-downgrade"])
 

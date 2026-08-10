@@ -19,11 +19,11 @@ logger = get_logger(__name__)
 
 MIGRATION_LOCK_ID = 42239
 
-# Alembic's own name for "no revision applied"; a valid downgrade target, never a revision id.
+# Alembic's name for "no revision applied": a valid downgrade target, never a revision id.
 BASE_REVISION = "base"
 
-# Aliases Alembic accepts for the newest revision. Rollback must never use them: it targets
-# the exact revision the older release declared.
+# Aliases for the newest revision. A rollback must not use them — it targets the exact
+# revision the older release declared.
 HEAD_ALIASES = frozenset({"head", "heads"})
 
 
@@ -37,9 +37,8 @@ class MigrationDirection(StrEnum):
 class MigrationPlan:
     """What a migration would do, resolved before anything touches the database.
 
-    ``revisions`` lists the revisions in execution order — applied for an upgrade,
-    reverted for a downgrade — so an operator can see the blast radius of a downgrade
-    before approving it.
+    ``revisions`` is in execution order — applied for an upgrade, reverted for a downgrade —
+    so an operator sees the blast radius before approving one.
     """
 
     direction: MigrationDirection
@@ -111,13 +110,12 @@ class MigrationManager:
     async def _advisory_lock(self) -> AsyncIterator[Optional[AsyncConnection]]:
         """Try to take the migration lock, yielding the holding connection, or None.
 
-        The connection is handed to the caller rather than kept private because the pool
-        can be a single connection — the migration CLI runs with one — so anything the
-        lock holder needs to read has to reuse it instead of waiting for a second.
+        The connection is handed to the caller because the pool can be a single connection —
+        the CLI runs with one — so a read taken under the lock has to reuse it.
 
-        The lock only serialises IdeGYM processes against each other. It does not stop an
-        orchestrator or watcher that is already running from writing while the schema
-        changes, so a downgrade still requires those writers to be stopped first.
+        The lock only serialises IdeGYM processes against each other; it does not stop a
+        running orchestrator or watcher from writing, so a downgrade still needs those
+        stopped first.
         """
         async with self.engine.begin() as conn:
             result = await conn.execute(text("SELECT pg_try_advisory_lock(:lock_id)"), {"lock_id": MIGRATION_LOCK_ID})
@@ -149,19 +147,14 @@ class MigrationManager:
     async def migrate_to(self, target: str, *, allow_downgrade: bool = False) -> MigrationPlan:
         """Move the schema to exactly ``target``, in whichever direction that requires.
 
-        This is the deployment-rollback counterpart of :meth:`run_migrations`, which only
-        ever moves forward. Unlike startup migrations, a lock held by someone else is an
-        error rather than a reason to skip: the caller asked for a specific revision and
-        must not be told it succeeded when nothing ran.
+        The rollback counterpart of :meth:`run_migrations`, which only moves forward. A lock
+        held by someone else is an error rather than a reason to skip: the caller asked for a
+        specific revision and must not be told it succeeded when nothing ran.
 
-        The lock is taken before the revision is even read, so the plan cannot be resolved
-        against a schema that then moves under it. It can move for reasons that have
-        nothing to do with a new release: *every* orchestrator pod runs ``upgrade heads``
-        as it starts, so a crash-loop restart, an eviction, a node drain or a scale-up is
-        enough — as is a second operator running this command.
-
-        ``allow_downgrade`` has to be set explicitly for a backwards move, so a mistyped
-        target cannot silently drop columns.
+        The lock comes before the read, so no plan is resolved against a schema that then
+        moves under it — no new release required, since every orchestrator pod runs
+        ``upgrade heads`` as it starts. ``allow_downgrade`` must be set explicitly, so a
+        mistyped target cannot silently drop columns.
         """
         async with self._advisory_lock() as lock_connection:
             if lock_connection is None:
@@ -200,10 +193,9 @@ class MigrationManager:
     def plan_migration(self, current: Optional[str], target: str) -> MigrationPlan:
         """Resolve ``current -> target`` into a direction and the revisions it traverses.
 
-        Raises rather than guesses whenever the move is not well defined: an unknown
-        target, a database sitting on a revision this image does not contain (the
-        signature of rolling back with the wrong image), or a revision being reverted
-        that ships no down migration.
+        Raises rather than guesses when the move is not well defined: an unknown target, a
+        database on a revision this image does not contain (the signature of rolling back
+        with the wrong image), or a reverted revision with no down migration.
         """
         chain = self.revision_chain()
         resolved = self._resolve_target(target, chain)
@@ -224,9 +216,8 @@ class MigrationManager:
     def revision_chain(self) -> list[str]:
         """Revision ids ordered base -> head.
 
-        A rollback targets one exact revision, which only means something while the
-        history is a single unbranched line, so a merge point is rejected rather than
-        traversed in an arbitrary order.
+        An exact target only means something while the history is one unbranched line, so a
+        merge point is rejected rather than traversed in an arbitrary order.
         """
         self.head_revision()
         chain: list[str] = []
@@ -251,9 +242,9 @@ class MigrationManager:
     def verify_declared_revision(self, declared: Optional[str]) -> None:
         """Fail fast when the release declares a schema revision this image cannot produce.
 
-        The chart's ``database.schemaRevision`` is what a rollback downgrades to, so a
-        value that does not match the image's head would send a later rollback to the
-        wrong revision. Refusing to start turns that into a failed rollout instead.
+        ``database.schemaRevision`` is what a rollback downgrades to, so a value that does
+        not match the image's head would send a later rollback to the wrong revision.
+        Refusing to start turns that into a failed rollout instead.
         """
         if not declared:
             return
@@ -296,9 +287,9 @@ class MigrationManager:
     def _require_reversible(self, revisions: tuple[str, ...]) -> None:
         """Reject a downgrade whose revisions were never made reversible.
 
-        Migrations are SQL-first: every revision ships ``<rev>_down.sql`` beside its
-        module, an invariant ``unit-tests/test_migrations.py`` enforces. A missing file
-        therefore means the revision has no downgrade, not that it uses another mechanism.
+        Migrations are SQL-first — every revision ships ``<rev>_down.sql``, enforced by
+        ``unit-tests/test_migrations.py`` — so a missing file means no downgrade exists,
+        not that another mechanism is in use.
         """
         versions = Path(self._script_directory().versions)
         missing = [revision for revision in revisions if not (versions / f"{revision}_down.sql").is_file()]

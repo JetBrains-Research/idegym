@@ -13,7 +13,6 @@ class ResourceDeletionFailedException(IdeGYMException):
 class MigrationError(IdeGYMException):
     """Raised when a database migration cannot be planned or executed.
 
-    Carries an operator-facing message: it surfaces as the failure of a startup, of the
-    migration CLI, or of a rollback's downgrade step, and is what tells someone what to
-    do next.
+    The message is operator-facing: it surfaces as a failed startup, CLI run, or rollback
+    downgrade, and is what says what to do next.
     """

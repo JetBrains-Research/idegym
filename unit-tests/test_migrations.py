@@ -61,9 +61,8 @@ def test_every_revision_has_up_and_down_sql():
 def test_chart_declares_the_head_schema_revision():
     """The chart's declared revision is the exact target a rollback downgrades to.
 
-    Adding a migration without bumping it would leave the next rollback aiming at the
-    wrong revision, and the orchestrator refuses to start on the mismatch — so catch it
-    here rather than in a rollout.
+    A migration that does not bump it aims the next rollback at the wrong revision, and the
+    orchestrator refuses to start on the mismatch — so catch it here, not in a rollout.
     """
     values = yaml.safe_load(CHART_VALUES.read_text())
     assert values["database"]["schemaRevision"] == script_directory().get_heads()[0]
@@ -72,9 +71,8 @@ def test_chart_declares_the_head_schema_revision():
 def test_no_migration_manages_the_alembic_version_table():
     """Alembic owns ``alembic_version``.
 
-    A migration that drops it makes Alembic's own bookkeeping statement fail in the same
-    transaction, which aborts the downgrade — the reason ``downgrade base`` used to be
-    impossible.
+    Dropping it makes Alembic's own bookkeeping fail in the same transaction and aborts the
+    downgrade — the reason ``downgrade base`` used to be impossible.
     """
     for sql_file in sorted(VERSIONS.glob("*.sql")):
         statements = [line for line in sql_file.read_text().splitlines() if not line.strip().startswith("--")]

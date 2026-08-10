@@ -79,8 +79,8 @@ async def init_db(
     db_engine = connect_db_engine(db_url, config)
 
     migration_manager = MigrationManager(engine=db_engine, db_url=db_url)
-    # Before anything is migrated: a release whose declared revision does not match this
-    # image would send a later rollback to the wrong revision, so refuse to start instead.
+    # A declared revision that does not match this image would send a later rollback to the
+    # wrong one, so refuse to start rather than migrate.
     migration_manager.verify_declared_revision(declared_schema_revision)
 
     if clean_database:

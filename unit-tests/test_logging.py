@@ -1,9 +1,8 @@
 """Which stream ``configure_logging`` writes its records to.
 
-Services log to stdout, but ``idegym.orchestrator.db_cli`` prints values a caller captures
-there, so it sends its log records to stderr instead. That separation is what makes
-``REV=$(... db_cli schema current)`` return a revision rather than a revision buried in log
-lines, so it is worth a test of its own.
+Services log to stdout, but ``idegym.orchestrator.db_cli`` prints captured values there, so
+it logs to stderr instead. That separation is what makes ``REV=$(... schema current)`` a
+revision rather than a revision buried in log lines.
 """
 
 import logging

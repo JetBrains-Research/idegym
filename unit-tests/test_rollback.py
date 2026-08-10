@@ -1,8 +1,8 @@
 """Unit tests for ``scripts/rollback.py``.
 
-The cluster interaction is mocked; what is worth pinning down is the decision-making — how
-releases and Deployments are resolved, what the downgrade Job inherits from the live
-orchestrator, and the ordering guarantee that a failed downgrade never reaches Helm.
+The cluster calls are mocked; what is pinned down is the decision-making — how releases and
+Deployments are resolved, what the downgrade Job inherits, and the ordering guarantee that a
+failed downgrade never reaches Helm.
 """
 
 import pytest
@@ -54,8 +54,7 @@ WATCHER_DEPLOYMENT = {
     "spec": {"replicas": 1, "template": {"spec": {"containers": [{"name": "watcher", "image": "watcher:0.11.0"}]}}},
 }
 
-# Enabled subcharts belong to the same Helm release and carry the same instance label, so they
-# come back from the same `kubectl get deployments` query.
+# Enabled subcharts share the release's instance label, so the same query returns them too.
 SUBCHART_DEPLOYMENTS = [
     {"metadata": {"name": "grafana", "labels": {"app.kubernetes.io/name": "grafana"}}, "spec": {}},
     {"metadata": {"name": "prometheus", "labels": {"app.kubernetes.io/name": "prometheus"}}, "spec": {}},
@@ -83,11 +82,8 @@ def test_a_release_without_a_declared_revision_must_be_told_the_target(values):
 
 
 def test_release_deployments_ignores_the_subcharts_in_the_same_release(mocker):
-    """grafana, prometheus and postgresql share the release's instance label.
-
-    Selecting on that label alone picked them up too and aborted every rollback of a chart
-    with observability enabled.
-    """
+    """Selecting on the instance label alone picked these up and aborted every rollback of a
+    chart with observability enabled."""
     mocker.patch(
         "scripts.rollback.run_json",
         return_value={"items": [*SUBCHART_DEPLOYMENTS, WATCHER_DEPLOYMENT, ORCHESTRATOR_DEPLOYMENT]},
@@ -138,8 +134,7 @@ def test_orchestrator_container_missing_is_an_error():
 
 
 def test_migration_job_runs_the_live_image_and_environment():
-    """The target release's image predates the migrations being reverted, so the Job must
-    use the one currently deployed."""
+    """The target release's image cannot run the migrations being reverted."""
     job = build_migration_job("idegym-migrate-002", "idegym", ORCHESTRATOR_DEPLOYMENT, "002", 600)
 
     container = job["spec"]["template"]["spec"]["containers"][0]
@@ -222,11 +217,8 @@ def cluster(mocker):
 
 
 def test_a_failed_downgrade_never_reaches_helm(cluster, capsys):
-    """The ordering guarantee of the whole script.
-
-    Rolling the Kubernetes resources back on top of a half-reverted schema would leave the
-    old code facing a schema it cannot read, with no record of what went wrong.
-    """
+    """The ordering guarantee of the whole script: rolling the resources back onto a
+    half-reverted schema would leave the old code facing a schema it cannot read."""
     run = cluster.patch("scripts.rollback.run", return_value="")
     cluster.patch("scripts.rollback.scale")
     # The preflight Job succeeds; the downgrade that follows it does not.
@@ -260,7 +252,7 @@ def test_the_preflight_runs_before_any_writer_stops(cluster):
 
 
 def test_a_matching_schema_rolls_back_without_stopping_anything(cluster, capsys):
-    """An upgrade that did not change the schema needs no downgrade and no maintenance window."""
+    """An unchanged schema needs no downgrade and no maintenance window."""
     run = cluster.patch("scripts.rollback.run", return_value="")
     cluster.patch(
         "scripts.rollback.release_values",
@@ -275,7 +267,7 @@ def test_a_matching_schema_rolls_back_without_stopping_anything(cluster, capsys)
 
 
 def test_dry_run_touches_neither_the_release_nor_the_writers(cluster):
-    """Only the preflight runs, and the Job it uses to ask the image is cleaned up."""
+    """Only the preflight runs, and its Job is cleaned up."""
     run = cluster.patch("scripts.rollback.run", return_value="")
     scale = cluster.patch("scripts.rollback.scale")
     create_job = cluster.patch("scripts.rollback.create_job")
@@ -291,7 +283,7 @@ def test_dry_run_touches_neither_the_release_nor_the_writers(cluster):
 
 
 def test_a_source_image_that_cannot_migrate_aborts_before_anything_stops(cluster, capsys):
-    """The preflight is what makes rolling back with the wrong image a no-op, not a mess."""
+    """The preflight makes rolling back with the wrong image a no-op rather than a mess."""
     cluster.patch("scripts.rollback.wait_for_job", return_value=False)
     scale = cluster.patch("scripts.rollback.scale")
     run = cluster.patch("scripts.rollback.run", return_value="")

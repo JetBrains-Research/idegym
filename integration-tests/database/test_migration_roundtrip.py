@@ -1,13 +1,10 @@
 """Up/down round-trip coverage for every Alembic revision against real PostgreSQL.
 
 The rest of this suite builds the schema with ``Base.metadata.create_all``, so the
-migrations themselves were never executed by any test. They are now the mechanism a
-release rollback depends on, which makes an untested downgrade a deployment hazard rather
-than a latent one.
+migrations were never executed by any test — and a release rollback now depends on them.
 
 Each test gets a throwaway database inside the shared container: Alembic owns the whole
-schema here, including dropping it, which cannot share a database with the ORM-created one
-the other modules truncate.
+schema here, including dropping it, so it cannot share the ORM-created one.
 """
 
 from collections.abc import AsyncIterator, Iterator
@@ -143,8 +140,8 @@ SEEDS = {"001": seed_revision_001, "002": seed_revision_002, "003": seed_revisio
 async def test_round_trip_through_every_revision(manager: MigrationManager):
     """Walk base -> head one revision at a time with data in place, then walk back down.
 
-    Seeding at each revision is what makes the downgrades meaningful: an empty schema
-    reverts cleanly even when the SQL would fail on a populated one.
+    Seeding at each revision is what makes it meaningful: an empty schema reverts cleanly
+    even when the SQL would fail on a populated one.
     """
     engine = manager.engine
     chain = manager.revision_chain()
@@ -204,8 +201,8 @@ async def test_downgrading_only_the_last_revision_preserves_rows(manager: Migrat
 async def test_downgrade_to_base_leaves_alembic_bookkeeping_intact(manager: MigrationManager):
     """A migration must not drop ``alembic_version``.
 
-    Alembic deletes the revision row in the same transaction, so dropping the table there
-    aborts the whole downgrade — which is why this used to be impossible rather than lossy.
+    Alembic deletes the revision row in the same transaction, so dropping the table aborts
+    the whole downgrade — which is why this used to be impossible rather than lossy.
     """
     await manager.migrate_to("heads")
     await seed_revision_001(manager.engine)
@@ -219,8 +216,8 @@ async def test_downgrade_to_base_leaves_alembic_bookkeeping_intact(manager: Migr
 async def test_head_schema_matches_the_orm_models(manager: MigrationManager):
     """Every ORM table and column exists at head, in the database the migrations built.
 
-    A column added to ``models.py`` but not to a migration (or the reverse) otherwise only
-    surfaces at runtime, because the rest of the suite creates its schema from the models.
+    A column in ``models.py`` but not in a migration (or the reverse) otherwise surfaces
+    only at runtime, since the rest of the suite builds its schema from the models.
     """
     await manager.migrate_to("heads")
 
@@ -253,8 +250,8 @@ async def test_unknown_target_is_rejected_before_touching_the_schema(manager: Mi
 async def test_revision_this_image_does_not_contain_is_rejected(manager: MigrationManager):
     """The failure mode of rolling back with the wrong (older) image.
 
-    Alembic cannot traverse a revision it has no script for, so the error has to name the
-    situation rather than surface as a missing-revision KeyError.
+    Alembic cannot traverse a revision it has no script for, so the error has to name that
+    rather than surface as a missing-revision KeyError.
     """
     await manager.migrate_to("heads")
     await execute(manager.engine, "UPDATE alembic_version SET version_num = '004'")
@@ -266,10 +263,9 @@ async def test_revision_this_image_does_not_contain_is_rejected(manager: Migrati
 async def test_a_lock_held_elsewhere_stops_the_migration(manager: MigrationManager, migration_db_url: str):
     """Someone else migrating is a hard failure, not something to work around.
 
-    The lock is taken before the revision is read, so there is no window in which a plan is
-    resolved against a schema another process is moving — a starting orchestrator replica
-    runs `upgrade heads` whatever version it is, so that window would be reachable in a
-    plain pod restart.
+    The lock is taken before the revision is read, so no plan is ever resolved against a
+    schema another process is moving — reachable in a plain pod restart, since every
+    orchestrator runs `upgrade heads` as it starts.
     """
     holder = create_async_engine(migration_db_url, pool_size=1, max_overflow=0)
     try:

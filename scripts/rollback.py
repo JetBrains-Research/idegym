@@ -5,28 +5,23 @@
 # ///
 """Roll an IdeGYM release back, including its database schema.
 
-``helm rollback`` restores Kubernetes resources and nothing else. The orchestrator migrates
-the schema forward on startup, so after a failed upgrade the database is left on the newer
-revision: the older image may not contain it, and Alembic cannot traverse a revision whose
-script it does not have. This script sequences the parts Helm cannot.
+``helm rollback`` restores Kubernetes resources only, and the orchestrator migrates forward
+at startup, so a failed upgrade leaves the database on a revision the older image may not
+contain at all. This script sequences what Helm cannot.
 
-Two shapes of rollback, decided from the ``database.schemaRevision`` each release declares:
+The shape of the rollback follows the ``database.schemaRevision`` each release declares.
+Same revision: plain ``helm rollback``. Older revision: stop both writers, downgrade with
+the *currently deployed* image — the only one holding the migrations being reverted — and
+hand over to Helm only once that has succeeded.
 
-* **Same revision** — the upgrade did not change the schema. Plain ``helm rollback``.
-* **Older revision** — stop both database writers, downgrade to the target release's exact
-  revision *with the currently deployed image* (the only one that contains the migrations
-  being reverted), and only then hand over to ``helm rollback``. A failed downgrade never
-  reaches Helm and never restarts a writer.
-
-A downgrade discards whatever the reverted revisions stored — dropping a column drops its
-data. There is no automatic backup: take one first if the data matters, since nothing here
-can bring it back::
+A downgrade discards what the reverted revisions stored, and there is no automatic backup,
+so take one first if the data matters::
 
     kubectl exec -n <namespace> <postgres-pod> -- \
         pg_dump -U <user> -Fc <database> > idegym-pre-rollback.dump
 
-Requires ``helm`` and ``kubectl`` on PATH, pointed at the cluster, with permission to scale
-Deployments, create Jobs, and exec into pods.
+Needs ``helm`` and ``kubectl`` on PATH, with permission to scale Deployments, create Jobs,
+and exec into pods.
 
 Usage::
 
@@ -43,24 +38,20 @@ import time
 from argparse import ArgumentParser, Namespace
 from typing import Any, Optional
 
-# The chart names the orchestrator container this; every other container in the pod would be
-# a sidecar someone added.
+# The chart's name for this container; anything else in the pod is a sidecar.
 ORCHESTRATOR_CONTAINER = "orchestrator"
 
-# The chart's own name, and how its two Deployments are told apart from the subcharts that
-# share the release. `idegym.selectorLabels` puts `nameOverride | chart name` in this label,
-# and the watcher's is that plus the suffix.
+# Subcharts share the release's instance label, so the chart's own Deployments are found by
+# this one: `nameOverride | chart name`, plus the suffix for the watcher.
 APP_NAME_LABEL = "app.kubernetes.io/name"
 CHART_NAME = "idegym"
 WATCHER_NAME_SUFFIX = "-watcher"
 
-# Kubernetes copies a Job's name into a label on the pods it creates, so it cannot exceed the
-# 63-character label limit.
+# A Job's name becomes a label value on its pods, so the label limit bounds it.
 MAX_JOB_NAME_LENGTH = 63
 
-# Pod-spec keys the migration Job inherits from the orchestrator Deployment. The Job runs the
-# orchestrator image on the same node pool with the same identity, so scheduling and access
-# stay whatever the release configured rather than being restated here.
+# Inherited by the migration Job so it schedules and authenticates exactly like the
+# orchestrator, instead of restating the release's configuration here.
 INHERITED_POD_SPEC_KEYS = (
     "affinity",
     "imagePullSecrets",
@@ -121,9 +112,8 @@ def find_history_entry(history: list[dict[str, Any]], revision: int) -> dict[str
 def declared_schema_revision(values: dict[str, Any], role: str = "target") -> str:
     """Read ``database.schemaRevision`` out of a release's computed values.
 
-    Absent means the release predates this mechanism, and nothing recorded which revision
-    its images expect — the exact schema target cannot be guessed, so the operator has to
-    supply it.
+    Absent means the release predates the declaration, and an exact target cannot be
+    guessed, so the operator has to supply it.
     """
     revision = (values.get("database") or {}).get("schemaRevision")
     if not revision:
@@ -150,12 +140,9 @@ def release_deployments(
 ) -> tuple[dict[str, Any], Optional[dict[str, Any]]]:
     """Return the release's (orchestrator, watcher) Deployments — its two database writers.
 
-    Matched on the chart's own selector labels rather than by rebuilding the fullname
-    template, so ``fullnameOverride`` needs no special handling. The instance label alone is
-    not enough: every enabled subchart — grafana, prometheus, postgresql — is part of the
-    same release and carries it too. ``app.kubernetes.io/name`` is what separates them, and
-    it follows ``nameOverride`` rather than the resource names. The watcher is optional
-    (``watcher.enabled``).
+    Matched on the chart's selector labels rather than by rebuilding the fullname template,
+    so ``fullnameOverride`` needs no handling. The instance label alone is not enough: every
+    enabled subchart shares it. The watcher is optional (``watcher.enabled``).
     """
     app_name = values.get("nameOverride") or CHART_NAME
     listing = run_json(
@@ -188,8 +175,7 @@ def migration_job_name(deployment_name: str, suffix: str) -> str:
     """Fit ``<deployment>-<suffix>`` into the Job name limit by trimming the deployment part.
 
     ``idegym.fullname`` is itself truncated to 63 characters, so a long release name would
-    otherwise produce a name the API server rejects — and the rollback would fail on its own
-    Job rather than on anything to do with the schema.
+    otherwise fail the rollback on its own Job rather than on anything about the schema.
     """
     keep = max(1, MAX_JOB_NAME_LENGTH - len(suffix) - 1)
     return f"{deployment_name[:keep].rstrip('-')}-{suffix}"
@@ -214,14 +200,10 @@ def build_migration_job(
 ) -> dict[str, Any]:
     """A one-shot Job that migrates the schema using the currently deployed image.
 
-    The image and environment are copied from the live orchestrator, which is the point:
-    the target release's image predates the migrations being reverted and cannot run them.
-    ``backoffLimit: 0`` keeps a failed downgrade from being retried against a half-migrated
-    schema.
-
-    With ``dry_run`` the Job only resolves and prints the plan, which is how the preflight
-    asks the source image whether it can make the move — the image in the Deployment spec,
-    not whichever pod happens to be up.
+    Copying the image and environment from the live orchestrator is the point: the target
+    release's image predates the migrations being reverted and cannot run them.
+    ``backoffLimit: 0`` stops a failed downgrade being retried against a half-reverted
+    schema. ``dry_run`` resolves and prints the plan without applying it.
     """
     container = orchestrator_container(deployment)
     arguments = [*MIGRATION_CLI, "migrate", "--target", target_revision, "--allow-downgrade"]
@@ -311,10 +293,10 @@ def wait_for_job(name: str, namespace: str, timeout_seconds: int) -> bool:
 
 
 def exec_in_deployment(name: str, namespace: str, command: list[str]) -> tuple[int, str, str]:
-    """Run a command in one of the Deployment's pods; returns its exit code, stdout, stderr.
+    """Run a command in one of the Deployment's pods; returns exit code, stdout, stderr.
 
-    The two streams stay apart because the container logs to stderr as well as printing its
-    answer to stdout, so a caller reading a value has to look at stdout alone.
+    Kept apart because the container logs to stderr, so a caller reading a value wants
+    stdout alone.
     """
     full = ["kubectl", "exec", f"deployment/{name}", "--namespace", namespace, "--", *command]
     print(f"$ {' '.join(full)}")
@@ -329,7 +311,7 @@ def scale(name: str, namespace: str, replicas: int) -> None:
 def wait_for_no_pods(deployment: dict[str, Any], namespace: str, timeout_seconds: int) -> None:
     """Block until the Deployment reports no running replicas.
 
-    Scaling to zero returns immediately; the downgrade must not start while a writer is
+    Scaling to zero returns immediately, but the downgrade must not start while a writer is
     still finishing a request against the schema it is about to lose.
     """
     name = deployment["metadata"]["name"]
@@ -352,10 +334,9 @@ def replica_count(deployment: dict[str, Any]) -> int:
 def preflight_downgrade(deployment: dict[str, Any], namespace: str, target_revision: str, timeout_seconds: int) -> None:
     """Ask the source image whether it can reach ``target_revision``, changing nothing.
 
-    Runs as a Job rather than ``kubectl exec`` on purpose: a rollback usually follows a
-    failed rollout, when no pod of the new image may be healthy enough to exec into — and
-    a pod of the *previous* image would answer the question wrongly. The Job runs exactly
-    the image the downgrade will use, resolves the plan, and prints it.
+    A Job rather than ``kubectl exec``: a rollback usually follows a failed rollout, when no
+    pod of that image may be healthy enough to exec into — and a pod of the *previous* image
+    would answer wrongly.
     """
     name = migration_job_name(deployment["metadata"]["name"], f"migrate-check-{target_revision}")
     create_job(build_migration_job(name, namespace, deployment, target_revision, timeout_seconds, dry_run=True))
@@ -480,8 +461,8 @@ def _rollback(args: Namespace, release: str, namespace: str, timeout: int) -> in
             f"To bring the current release back up as it was:\n{restore_hint}"
         )
 
-    # Its logs are printed above, and leaving it would make the next rollback to this
-    # revision collide with a name that already exists. A *failed* Job is kept on purpose.
+    # Logs are printed above, and leaving it would collide with the next rollback to this
+    # revision. A *failed* Job is kept on purpose.
     delete_job(job_name, namespace)
 
     print(f"\nSchema is at {target_schema}; handing over to Helm.")
@@ -511,9 +492,8 @@ def _rollback(args: Namespace, release: str, namespace: str, timeout: int) -> in
 def _verify(orchestrator_name: str, namespace: str, expected_schema: str, writers: list[dict[str, Any]]) -> None:
     """Confirm the schema and the writers after Helm reports success.
 
-    ``helm rollback --wait`` already gates on the orchestrator's readiness probe, which is
-    ``/health`` — so this adds the two things it cannot see: the recorded schema revision,
-    and that every writer came back.
+    ``helm rollback --wait`` already gates on the ``/health`` readiness probe, so this adds
+    only what it cannot see: the recorded revision, and that every writer came back.
     """
     code, stdout, stderr = exec_in_deployment(
         orchestrator_name, namespace, [*MIGRATION_CLI, "schema", "verify", "--expect", expected_schema]

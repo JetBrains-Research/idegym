@@ -48,11 +48,10 @@ def _create_formatter(renderer: Processor, processors: list[Processor]) -> Proce
 
 
 def configure_logging(config: LoggingConfig = LoggingConfig(), stream: TextIO = stdout):
-    """Route structlog and the standard library's logging to ``stream`` and to a rotating file.
+    """Route structlog and stdlib logging to ``stream`` and to a rotating file.
 
-    Services log to stdout. A command-line entry point passes ``stderr`` instead, so that its
-    own stdout stays a clean value a caller can capture — the log lines are still emitted, and
-    a container runtime captures both streams either way.
+    Services log to stdout; a command-line entry point passes ``stderr`` so its own stdout
+    stays a value a caller can capture. A container runtime captures both either way.
     """
     renderer = JSONRenderer() if config.json_format else ConsoleRenderer()
     processors = JSONProcessors if config.json_format else ConsoleProcessors

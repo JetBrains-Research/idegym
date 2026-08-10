@@ -1,21 +1,18 @@
 """Command-line access to the orchestrator's database schema.
 
-The orchestrator only ever migrates forward, at startup. Rolling a release back needs the
-opposite: moving the schema to one *exact* revision, in a one-shot pod, with every IdeGYM
-writer stopped. This module is that entry point, and it reads the same Hydra/``POSTGRES_*``
-configuration as the service, so a Job that copies the orchestrator Deployment's
-environment needs no extra wiring.
+The orchestrator only migrates forward, at startup. Rolling a release back needs the
+opposite: an *exact* revision, in a one-shot pod, with every IdeGYM writer stopped. This is
+that entry point, and it reads the same Hydra/``POSTGRES_*`` configuration as the service,
+so a Job copying the orchestrator Deployment's environment needs no extra wiring.
 
-Nothing here is safe to run against a live deployment on its own —
-``scripts/rollback.py`` is what stops the writers and sequences the steps. Run this
-directly only to inspect the schema, or when following the manual procedure in
-`Database Rollback <../../../website/docs/reference/database_rollback.md>`_.
+Running it against a live deployment is not safe on its own — ``scripts/rollback.py`` stops
+the writers and sequences the steps. Use this directly to inspect the schema, or when
+following `Database Rollback <../../../website/docs/reference/database_rollback.md>`_.
 
-**Streams.** stdout carries the command's answer and nothing else, so ``schema current`` can
-be captured into a variable. Everything else goes to stderr: failures as a plain
-``error: ...`` line, and the migration's own progress — lock acquired, plan, lock released —
-as structlog records from :mod:`idegym.orchestrator.migration_manager`. A container runtime
-captures both streams, so ``kubectl logs`` on a migration Job shows the whole story.
+**Streams.** stdout is the command's answer and nothing else, so ``schema current`` can be
+captured into a variable. Everything else goes to stderr: failures as ``error: ...``, and
+the migration's progress as structlog records. A container runtime captures both, so
+``kubectl logs`` on a migration Job still shows the whole story.
 
 Usage::
 
@@ -90,8 +87,7 @@ def build_parser() -> ArgumentParser:
 def main(argv: Optional[list[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     config = load_config()
-    # Logs go to stderr so stdout stays the command's answer and nothing else; both are
-    # captured by the container runtime, so a Job's logs show them together regardless.
+    # Logs to stderr so stdout stays the answer; a Job's logs still show both.
     configure_logging(config=config.logging, stream=sys.stderr)
     configure_sqlalchemy_logging(config=config.logging)
 
@@ -144,9 +140,8 @@ async def _run_migrate_command(args: Namespace, manager: MigrationManager) -> in
     """Print the plan — resolved only, or resolved and applied.
 
     The plan is this command's output, not a progress note: with ``--dry-run`` it is the
-    whole point of the invocation, and afterwards it is the record of what the migration
-    did. ``scripts/rollback.py`` shows it to the operator by printing the Job's logs, which
-    is how a downgrade gets read and approved before any writer is stopped.
+    point of the invocation, and otherwise the record of what ran. ``scripts/rollback.py``
+    shows it by printing the Job's logs, which is how a downgrade is approved.
     """
     if args.dry_run:
         plan = manager.plan_migration(current=await manager.get_current_revision(), target=args.target)

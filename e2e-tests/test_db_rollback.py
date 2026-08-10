@@ -1,15 +1,13 @@
 """End-to-end coverage for release rollback, schema included.
 
-Exercises the two halves of `scripts/rollback.py` against a real cluster and a real
-release: the exact-revision schema move it performs with the deployed image and every
-writer stopped, and the plain application-only rollback it falls back to when the target
-release declares the same schema.
+Exercises both halves of `scripts/rollback.py` against a real cluster: the exact-revision
+schema move, with the deployed image and every writer stopped, and the application-only
+rollback it falls back to when the target release declares the same schema.
 
-The literal N -> N+1 -> N case cannot be staged here, because a single-image cluster has
-only one set of migrations: an orchestrator always migrates to its own head on startup, so
-no release in the history can hold the schema below it. What is covered instead is every
-mechanism that case relies on — the declared revision, the downgrade Job built from the
-live Deployment, the round trip with data in place, and the Helm handover.
+The literal N -> N+1 -> N case cannot be staged here — one image means one set of
+migrations, and any running orchestrator drags the schema back to its own head. Covered
+instead is every mechanism that case relies on: the declared revision, the downgrade Job
+built from the live Deployment, the round trip with data, and the Helm handover.
 """
 
 import json
@@ -97,10 +95,10 @@ def cli_output(deployment_name: str, arguments: list[str]) -> str:
 
 
 def run_migration_job(orchestrator: dict, target: str) -> None:
-    """Run the downgrade/upgrade Job `scripts/rollback.py` would run, and require success.
+    """Run the Job `scripts/rollback.py` would run, and require success.
 
-    ``build_migration_job`` always passes ``--allow-downgrade``; the CLI only consults it
-    when the plan actually moves backwards, so the same builder serves both directions.
+    ``build_migration_job`` always passes ``--allow-downgrade``, which the CLI consults only
+    when the plan moves backwards, so one builder serves both directions.
     """
     name = migration_job_name(orchestrator["metadata"]["name"], f"migrate-{target}")
     delete_job(name, DEFAULT_NAMESPACE)
@@ -143,11 +141,8 @@ def restore_writers(replicas_by_name: dict[str, int]) -> None:
 
 
 def test_release_declares_the_schema_revision_its_image_produces():
-    """The invariant every exact rollback rests on.
-
-    The chart value is what a rollback downgrades to, so a release whose declaration drifts
-    from its image would send the next rollback to the wrong revision.
-    """
+    """The invariant every exact rollback rests on: a declaration that drifts from its image
+    sends the next rollback to the wrong revision."""
     values = release_values(HELM_RELEASE, DEFAULT_NAMESPACE)
     declared = declared_schema_revision(values)
     orchestrator, _ = release_deployments(HELM_RELEASE, DEFAULT_NAMESPACE, values)
@@ -161,9 +156,8 @@ def test_release_declares_the_schema_revision_its_image_produces():
 def test_schema_downgrades_and_comes_back_with_data_intact():
     """Walk the deployed schema back one revision and forward again, in-cluster.
 
-    Rows are seeded into the tables revision 001 creates, so they survive any incremental
-    revision's downgrade; if a future revision's downgrade drops them, that is a
-    data-destroying downgrade this test should fail on.
+    Rows go into the tables revision 001 creates, so they survive an incremental revision's
+    downgrade; one that drops them is data-destroying and should fail here.
     """
     chain = revision_chain()
     assert len(chain) >= 2, "need at least two revisions to exercise a downgrade"
@@ -196,10 +190,9 @@ def test_schema_downgrades_and_comes_back_with_data_intact():
 
 
 def test_application_only_rollback_leaves_the_schema_alone():
-    """A rollback between releases that declare the same revision is a plain Helm rollback.
+    """Same declared revision means a plain Helm rollback: no writer stopped, no Job run.
 
-    No writer is stopped and no migration Job runs — the schema is already what the target
-    release expects, which is the routine case an expand/contract migration policy aims for.
+    This is the routine case an expand/contract migration policy aims for.
     """
     deployed = current_helm_revision(HELM_RELEASE, DEFAULT_NAMESPACE)
     subprocess.run(
