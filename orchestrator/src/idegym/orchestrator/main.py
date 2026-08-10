@@ -1,13 +1,11 @@
 from asyncio import create_task, gather, get_event_loop, sleep
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
 
 import uvicorn
 from fastapi import FastAPI
 from fastmcp.utilities.lifespan import combine_lifespans
 from httpx import AsyncClient, Limits, Timeout
-from hydra import compose, initialize_config_dir
 from idegym.api.config import Config
 from idegym.backend.utils.diagnostics import dump_tasks_periodically
 from idegym.backend.utils.instrumentation.uvicorn import UvicornInstrumentor
@@ -15,6 +13,7 @@ from idegym.backend.utils.kubernetes_client import load_kubernetes_config
 from idegym.backend.utils.logging import configure_logging, configure_sqlalchemy_logging
 from idegym.backend.utils.otel import configure_telemetry, system_metrics_config
 from idegym.backend.utils.starlette.middleware import AsyncioTaskContextMiddleware, TracingMiddleware
+from idegym.orchestrator.config import load_config
 from idegym.orchestrator.database.database import init_db
 from idegym.orchestrator.mcp import create_mcp_server
 from idegym.orchestrator.router import (
@@ -29,7 +28,6 @@ from idegym.orchestrator.router import (
 )
 from idegym.utils import __version__
 from idegym.utils.logging import get_logger
-from omegaconf import OmegaConf
 from opentelemetry.instrumentation.aiohttp_client import AioHttpClientInstrumentor
 from opentelemetry.instrumentation.asyncio import AsyncioInstrumentor
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
@@ -38,13 +36,6 @@ from opentelemetry.instrumentation.jinja2 import Jinja2Instrumentor
 from opentelemetry.instrumentation.system_metrics import SystemMetricsInstrumentor
 
 logger = get_logger("idegym.orchestrator")
-
-
-def load_config() -> Config:
-    with initialize_config_dir(version_base=None, config_dir=str(Path(__file__).parent / "hydra_configs")):
-        cfg = compose(config_name="config")
-    container: dict[str, Any] = OmegaConf.to_container(cfg=cfg, resolve=True)
-    return Config(**container)
 
 
 def configure_process(config: Config) -> None:
@@ -73,6 +64,7 @@ async def lifespan(app: FastAPI):
         db_url=config.orchestrator.database.url,
         config=config.orchestrator.sqlalchemy,
         clean_database=config.orchestrator.database.clean_database,
+        declared_schema_revision=config.orchestrator.database.schema_revision,
     )
 
     get_event_loop().set_debug(config.orchestrator.asyncio.debug)

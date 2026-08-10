@@ -8,8 +8,9 @@ from idegym.api.config import Config
 from idegym.api.health import HealthCheckResponse
 from idegym.backend.utils.kubernetes_client import load_kubernetes_config
 from idegym.backend.utils.logging import configure_logging
+from idegym.orchestrator.config import load_config
 from idegym.orchestrator.database.database import connect_db_engine
-from idegym.orchestrator.main import configure_process, load_config
+from idegym.orchestrator.main import configure_process
 from idegym.utils.logging import get_logger
 from idegym.watcher.cleanup import cleanup_inactive_pods
 from prometheus_client import REGISTRY

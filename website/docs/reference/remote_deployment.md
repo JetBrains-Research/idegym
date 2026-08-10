@@ -527,6 +527,23 @@ either `helm upgrade` (which restarts pods) or:
 kubectl rollout restart deployment/idegym -n idegym
 ```
 
+A release that adds a migration must bump `database.schemaRevision` in the same change — the
+orchestrator refuses to start when it disagrees with the migrations in its image.
+
+### Rolling back
+
+`helm rollback` restores Kubernetes resources only; the schema stays at the newer revision.
+Use `scripts/rollback.py`, which resolves the target release's declared revision and downgrades
+the schema first when it differs:
+
+```shell
+uv run python scripts/rollback.py \
+  --release idegym --namespace idegym --revision 7 --dry-run
+```
+
+See [Database Rollback](/reference/database_rollback) for the full procedure, what a downgrade
+discards, and how to take a dump first.
+
 ---
 
 ## Accessing Observability Tools
@@ -563,12 +580,19 @@ Open <http://localhost:9090>.
 
 ### Migrations
 
-The orchestrator runs Alembic migrations automatically on startup. To run them manually:
+The orchestrator runs Alembic migrations automatically on startup, up to the head its image
+contains. To inspect the schema, or to move it to an exact revision:
 
 ```shell
-kubectl exec -it deployment/idegym -n idegym -- \
-  uv run alembic upgrade head
+kubectl exec deployment/idegym -n idegym -- \
+  uv run python -m idegym.orchestrator.db_cli schema current
+
+kubectl exec deployment/idegym -n idegym -- \
+  uv run python -m idegym.orchestrator.db_cli migrate --target 003 --dry-run
 ```
+
+Only run `migrate` for real with every writer stopped — see
+[Database Rollback](/reference/database_rollback#the-migration-cli).
 
 ### Connecting to PostgreSQL
 

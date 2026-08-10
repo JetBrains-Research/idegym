@@ -202,21 +202,36 @@ with the wrong configuration, or one that never matches and is rebuilt every tim
 ### Database migrations
 
 Read [`orchestrator/src/idegym/orchestrator/migrations/README.md`](orchestrator/src/idegym/orchestrator/migrations/README.md)
-first, but read its paths with care — they are inaccurate. `alembic.ini` and `migrations/`
-both live under `orchestrator/src/idegym/orchestrator/`. Beyond that README:
+first — `alembic.ini` and `migrations/` both live under
+`orchestrator/src/idegym/orchestrator/`. Beyond that README:
 
-- **Migrations are not exercised by the test suite.** Integration DB tests build the schema
-  with `Base.metadata.create_all`, so a broken migration passes CI green and fails at
-  orchestrator startup. Apply it against a scratch database yourself.
+- **A migration is a four-file change.** Ship `<rev>_<slug>.py`, `<rev>_up.sql`,
+  `<rev>_down.sql`, and the matching `database.schemaRevision` bump in
+  `charts/idegym/values.yaml` — plus the SQLAlchemy model in
+  `orchestrator/src/idegym/orchestrator/database/models.py`. A column that exists in only one
+  of model and migration is the classic bug; a stale `schemaRevision` makes the orchestrator
+  refuse to start, since it is the exact revision a rollback downgrades to.
+- **Downgrades are executed, not decorative.** `scripts/rollback.py` runs
+  `<rev>_down.sql` to roll a release's schema back, so a down migration that only ever
+  compiled is a deployment hazard. Never create or drop `alembic_version` in a migration:
+  Alembic updates it in the same transaction, so touching it aborts the downgrade.
 - **Verify there is exactly one head** before opening the PR:
   ```bash
   uv run alembic -c orchestrator/src/idegym/orchestrator/alembic.ini heads
   ```
   Sequential three-digit revision IDs collide easily when two branches are open at once. If
-  you see two heads, renumber yours — do not merge them.
-- Ship the three files together (`<rev>_<slug>.py`, `<rev>_up.sql`, `<rev>_down.sql`) and
-  update the SQLAlchemy model in `orchestrator/src/idegym/orchestrator/database/models.py`
-  in the same commit. A column that exists in only one of the two is the classic bug here.
+  you see two heads, renumber yours — do not merge them. Exact-revision rollback needs the
+  history linear, so a merge revision is rejected outright.
+- **Run the round-trip suite**, which drives every revision up and down against a real
+  PostgreSQL container with data seeded at each step:
+  ```bash
+  uv run pytest integration-tests/database/test_migration_roundtrip.py
+  ```
+  It also asserts the head schema matches the ORM models — the rest of the DB suite builds its
+  schema with `Base.metadata.create_all` and would not notice the drift.
+
+The rollback workflow itself is documented in
+[`website/docs/reference/database_rollback.md`](website/docs/reference/database_rollback.md).
 
 ### Adding or changing a plugin
 
