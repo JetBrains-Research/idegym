@@ -280,6 +280,17 @@ class TracingAuthConfig(BasicAuth):
         default=None, exclude=True, validation_alias="IDEGYM_OTEL_TRACING_AUTH_PASSWORD"
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def accept_basic_auth(cls, value: Any) -> Any:
+        """Accept a plain ``BasicAuth``, which is what this field was typed as before the aliases
+        were introduced. Pydantic does not treat a base-model instance as its subclass, so without
+        this every ``IdeGYMClient`` construction — which builds a default ``TracingConfig`` from a
+        ``BasicAuth`` — would fail validation."""
+        if isinstance(value, BasicAuth) and not isinstance(value, cls):
+            return {"username": value.username, "password": value.password}
+        return value
+
 
 class TracingConfig(ConfigModel):
     endpoint: Optional[HttpUrl] = Field(
