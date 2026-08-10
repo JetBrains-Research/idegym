@@ -106,6 +106,14 @@ class DatabaseConfig(ConfigModel):
     clean_database: bool = Field(
         description="Drop and recreate all tables on startup", default=False, validation_alias="IDEGYM_CLEAN_DATABASE"
     )
+    schema_revision: Optional[str] = Field(
+        description=(
+            "Alembic revision this release expects, as declared by the chart. Checked against the "
+            "image's migration head on startup, and read back from the release when rolling back"
+        ),
+        default=None,
+        validation_alias="IDEGYM_DATABASE_SCHEMA_REVISION",
+    )
 
     @property
     def url(self) -> str:

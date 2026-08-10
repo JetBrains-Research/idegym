@@ -3,6 +3,7 @@ from logging import getLevelNamesMapping as get_level_names_mapping
 from logging import getLogger as create_or_get_logger
 from logging.handlers import RotatingFileHandler
 from sys import stdout
+from typing import TextIO
 
 from idegym.api.config import LoggingConfig
 from idegym.api.type import LogLevel as Level
@@ -46,7 +47,12 @@ def _create_formatter(renderer: Processor, processors: list[Processor]) -> Proce
     )
 
 
-def configure_logging(config: LoggingConfig = LoggingConfig()):
+def configure_logging(config: LoggingConfig = LoggingConfig(), stream: TextIO = stdout):
+    """Route structlog and stdlib logging to ``stream`` and to a rotating file.
+
+    Services log to stdout; a command-line entry point passes ``stderr`` so its own stdout
+    stays a value a caller can capture. A container runtime captures both either way.
+    """
     renderer = JSONRenderer() if config.json_format else ConsoleRenderer()
     processors = JSONProcessors if config.json_format else ConsoleProcessors
 
@@ -68,7 +74,7 @@ def configure_logging(config: LoggingConfig = LoggingConfig()):
         root_logger.removeHandler(handler)
         handler.close()
 
-    console_handler = StreamHandler(stdout)
+    console_handler = StreamHandler(stream)
     console_handler.setFormatter(_create_formatter(renderer=renderer, processors=processors))
     root_logger.addHandler(console_handler)
 

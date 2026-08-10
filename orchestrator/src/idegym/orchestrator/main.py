@@ -12,9 +12,8 @@ from idegym.backend.utils.instrumentation.uvicorn import UvicornInstrumentor
 from idegym.backend.utils.kubernetes_client import load_kubernetes_config
 from idegym.backend.utils.logging import configure_logging, configure_sqlalchemy_logging
 from idegym.backend.utils.otel import configure_telemetry, system_metrics_config
-from idegym.backend.utils.settings import ORCHESTRATOR_SECTIONS
-from idegym.backend.utils.settings import load_config as load_settings
 from idegym.backend.utils.starlette.middleware import AsyncioTaskContextMiddleware, TracingMiddleware
+from idegym.orchestrator.config import load_config
 from idegym.orchestrator.database.database import init_db
 from idegym.orchestrator.mcp import create_mcp_server
 from idegym.orchestrator.router import (
@@ -37,10 +36,6 @@ from opentelemetry.instrumentation.jinja2 import Jinja2Instrumentor
 from opentelemetry.instrumentation.system_metrics import SystemMetricsInstrumentor
 
 logger = get_logger("idegym.orchestrator")
-
-
-def load_config() -> Config:
-    return load_settings(sections=ORCHESTRATOR_SECTIONS)
 
 
 def configure_process(config: Config) -> None:
@@ -69,6 +64,7 @@ async def lifespan(app: FastAPI):
         db_url=config.orchestrator.database.url,
         config=config.orchestrator.sqlalchemy,
         clean_database=config.orchestrator.database.clean_database,
+        declared_schema_revision=config.orchestrator.database.schema_revision,
     )
 
     get_event_loop().set_debug(config.orchestrator.asyncio.debug)

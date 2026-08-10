@@ -44,6 +44,7 @@ const sidebars: SidebarsConfig = {
     'reference/mcp',
     'reference/local_deployment',
     'reference/remote_deployment',
+    'reference/database_rollback',
     'reference/http_error_codes',
     {
       type: 'category',
