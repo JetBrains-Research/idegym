@@ -47,8 +47,6 @@ class ServerConfig(ConfigModel):
 
 
 class LoggingConfig(ConfigModel):
-    # validate_default: `file_path` is normalised by a validator, which pydantic skips for
-    # defaults unless asked. The value must be identical whether or not the variable is set.
     model_config = ConfigDict(**ConfigModel.model_config, validate_default=True)
 
     level: LogLevelName = Field(default="INFO", validation_alias="IDEGYM_LOG_LEVEL")
@@ -72,7 +70,6 @@ class LoggingConfig(ConfigModel):
 
 
 class ProjectConfig(ConfigModel):
-    # validate_default: see LoggingConfig — `path` and `archive` are normalised by validators.
     model_config = ConfigDict(**ConfigModel.model_config, validate_default=True)
 
     path: str = Field(default=".project", validation_alias="IDEGYM_PROJECT_ROOT")
@@ -393,7 +390,6 @@ class WatcherConfig(ConfigModel):
 
 
 class OrchestratorConfig(ConfigModel):
-    # validate_default: see LoggingConfig — `prometheus_multiproc_dir` is normalised by a validator.
     model_config = ConfigDict(**ConfigModel.model_config, validate_default=True)
 
     host: IPvAddress = Field(default="0.0.0.0", validation_alias="IDEGYM_MANAGER_HOST")
