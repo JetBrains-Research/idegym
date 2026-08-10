@@ -17,7 +17,12 @@ from uuid import uuid4
 import pytest
 from idegym.api.exceptions import MigrationError
 from idegym.orchestrator.database.models import Base
-from idegym.orchestrator.migration_manager import BASE_REVISION, MigrationDirection, MigrationManager
+from idegym.orchestrator.migration_manager import (
+    BASE_REVISION,
+    MIGRATION_LOCK_ID,
+    MigrationDirection,
+    MigrationManager,
+)
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
@@ -256,3 +261,47 @@ async def test_revision_this_image_does_not_contain_is_rejected(manager: Migrati
 
     with pytest.raises(MigrationError, match="use the image that introduced it"):
         await manager.migrate_to("003", allow_downgrade=True)
+
+
+async def test_a_lock_held_elsewhere_stops_the_migration(manager: MigrationManager, migration_db_url: str):
+    """Someone else migrating is a hard failure, not something to work around.
+
+    The lock is taken before the revision is read, so there is no window in which a plan is
+    resolved against a schema another process is moving — a starting orchestrator replica
+    runs `upgrade heads` whatever version it is, so that window would be reachable in a
+    plain pod restart.
+    """
+    holder = create_async_engine(migration_db_url, pool_size=1, max_overflow=0)
+    try:
+        async with holder.begin() as conn:
+            acquired = await conn.execute(text("SELECT pg_try_advisory_lock(:id)"), {"id": MIGRATION_LOCK_ID})
+            assert acquired.scalar()
+
+            with pytest.raises(MigrationError, match="Another process holds the migration lock"):
+                await manager.migrate_to("heads")
+
+            await conn.execute(text("SELECT pg_advisory_unlock(:id)"), {"id": MIGRATION_LOCK_ID})
+    finally:
+        await holder.dispose()
+
+    # Released: the same call now goes through.
+    assert (await manager.migrate_to("heads")).direction is MigrationDirection.UPGRADE
+
+
+async def test_a_no_op_migration_also_waits_for_the_lock(manager: MigrationManager, migration_db_url: str):
+    """ "Already at the target" is only true if nobody is moving the schema right now."""
+    await manager.migrate_to("heads")
+
+    holder = create_async_engine(migration_db_url, pool_size=1, max_overflow=0)
+    try:
+        async with holder.begin() as conn:
+            await conn.execute(text("SELECT pg_try_advisory_lock(:id)"), {"id": MIGRATION_LOCK_ID})
+
+            with pytest.raises(MigrationError, match="Another process holds the migration lock"):
+                await manager.migrate_to("heads")
+
+            await conn.execute(text("SELECT pg_advisory_unlock(:id)"), {"id": MIGRATION_LOCK_ID})
+    finally:
+        await holder.dispose()
+
+    assert (await manager.migrate_to("heads")).direction is MigrationDirection.NOOP

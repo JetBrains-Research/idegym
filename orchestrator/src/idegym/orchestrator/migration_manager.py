@@ -154,37 +154,33 @@ class MigrationManager:
         error rather than a reason to skip: the caller asked for a specific revision and
         must not be told it succeeded when nothing ran.
 
+        The lock is taken before the revision is even read, so the plan cannot be resolved
+        against a schema that then moves under it. It can move for reasons that have
+        nothing to do with a new release: *every* orchestrator pod runs ``upgrade heads``
+        as it starts, so a crash-loop restart, an eviction, a node drain or a scale-up is
+        enough — as is a second operator running this command.
+
         ``allow_downgrade`` has to be set explicitly for a backwards move, so a mistyped
         target cannot silently drop columns.
         """
-        plan = self.plan_migration(current=await self.get_current_revision(), target=target)
-        if plan.direction is MigrationDirection.DOWNGRADE and not allow_downgrade:
-            raise MigrationError(
-                f"Refusing to {plan.describe()} without an explicit downgrade approval; "
-                "a downgrade may discard data written by the reverted revisions"
-            )
-
-        if plan.direction is MigrationDirection.NOOP:
-            logger.info("No migration needed", revision=plan.target)
-            return plan
-
         async with self._advisory_lock() as lock_connection:
             if lock_connection is None:
                 raise MigrationError(
                     "Another process holds the migration lock; a migration or rollback is already in progress"
                 )
+            logger.info("Acquired migration lock")
 
-            # The revision may have moved between planning and taking the lock — a starting
-            # orchestrator replica migrates on its own. Re-plan rather than apply a stale plan.
-            locked_current = await self._read_current_revision(lock_connection)
-            locked_plan = self.plan_migration(current=locked_current, target=target)
-            if locked_plan != plan:
+            plan = self.plan_migration(current=await self._read_current_revision(lock_connection), target=target)
+            if plan.direction is MigrationDirection.DOWNGRADE and not allow_downgrade:
                 raise MigrationError(
-                    f"Database revision changed while acquiring the migration lock "
-                    f"({plan.current} -> {locked_plan.current}); stop all writers and retry"
+                    f"Refusing to {plan.describe()} without an explicit downgrade approval; "
+                    "a downgrade may discard data written by the reverted revisions"
                 )
 
-            logger.info("Acquired migration lock", plan=plan.describe())
+            if plan.direction is MigrationDirection.NOOP:
+                logger.info("No migration needed", revision=plan.target)
+                return plan
+
             async with asyncio.timeout(self.timeout):
                 await asyncio.to_thread(self._run_alembic, plan)
 
