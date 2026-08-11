@@ -178,7 +178,7 @@ postgresql:
       adminPasswordKey: postgres-password
 ```
 
-The orchestrator and watcher read the same Secret automatically (their `POSTGRES_PASSWORD` resolves through
+The orchestrator and watcher read the same Secret automatically (their `IDEGYM_DATABASE_PASSWORD` resolves through
 the subchart's `secretName` / `userPasswordKey` helpers), so no separate `database.password` override is
 needed. Alternatively, set `postgresql.auth.password` inline via a values overlay — but then you must pass it
 on **every** `helm upgrade`, which is easy to forget; `existingSecret` is the safer default.

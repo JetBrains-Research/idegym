@@ -120,7 +120,7 @@ Written at base indentation; include with `nindent 12` into a container env list
 `{{- include "idegym.databaseEnv" . | nindent 12 }}`.
 */}}
 {{- define "idegym.databaseEnv" -}}
-- name: POSTGRES_DB
+- name: IDEGYM_DATABASE_DB
   {{- if .Values.database.name }}
   {{- include "idegym.envSource" .Values.database.name | nindent 2 }}
   {{- else if .Values.postgresql.enabled }}
@@ -128,7 +128,7 @@ Written at base indentation; include with `nindent 12` into a container env list
   {{- else }}
   {{- required "Database name must be specified!" .Values.database.name }}
   {{- end }}
-- name: POSTGRES_HOST
+- name: IDEGYM_DATABASE_HOST
   {{- if .Values.database.host }}
   {{- include "idegym.envSource" .Values.database.host | nindent 2 }}
   {{- else if .Values.postgresql.enabled }}
@@ -136,7 +136,7 @@ Written at base indentation; include with `nindent 12` into a container env list
   {{- else }}
   {{- required "Database host must be specified!" .Values.database.host }}
   {{- end }}
-- name: POSTGRES_PORT
+- name: IDEGYM_DATABASE_PORT
   {{- if .Values.database.port }}
   {{- include "idegym.envSource" .Values.database.port | nindent 2 }}
   {{- else if .Values.postgresql.enabled }}
@@ -144,7 +144,7 @@ Written at base indentation; include with `nindent 12` into a container env list
   {{- else }}
   {{- required "Database port must be specified!" .Values.database.port }}
   {{- end }}
-- name: POSTGRES_USER
+- name: IDEGYM_DATABASE_USER
   {{- if .Values.database.username }}
   {{- include "idegym.envSource" .Values.database.username | nindent 2 }}
   {{- else if .Values.postgresql.enabled }}
@@ -152,7 +152,7 @@ Written at base indentation; include with `nindent 12` into a container env list
   {{- else }}
   {{- required "Database username must be specified!" .Values.database.username }}
   {{- end }}
-- name: POSTGRES_PASSWORD
+- name: IDEGYM_DATABASE_PASSWORD
   {{- if .Values.database.password }}
   {{- include "idegym.envSource" .Values.database.password | nindent 2 }}
   {{- else if .Values.postgresql.enabled }}

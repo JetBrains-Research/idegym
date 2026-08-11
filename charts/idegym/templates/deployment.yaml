@@ -58,7 +58,7 @@ spec:
             - name: IDEGYM_LOG_JSON_FORMAT
               value: {{ quote .json | title }}
             {{- end }}
-            - name: IDEGYM_MANAGER_PORT
+            - name: IDEGYM_ORCHESTRATOR_PORT
               value: {{ .Values.service.containerPort | quote }}
             - name: IDEGYM_OTEL_ATTRIBUTES
               value: |-
@@ -81,7 +81,7 @@ spec:
                   key: "password"
                   optional: true
             {{- end }}
-            - name: IDEGYM_UVICORN_WORKERS
+            - name: IDEGYM_ORCHESTRATOR_WORKERS
               value: {{ .Values.deployment.uvicornWorkers | quote }}
             - name: IDEGYM_MCP_STATELESS_HTTP
               value: {{ .Values.deployment.mcp.statelessHttp | quote | title }}

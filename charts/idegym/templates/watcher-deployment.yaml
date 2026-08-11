@@ -59,7 +59,7 @@ spec:
             - name: IDEGYM_LOG_JSON_FORMAT
               value: {{ quote .json | title }}
             {{- end }}
-            - name: IDEGYM_MANAGER_PORT
+            - name: IDEGYM_ORCHESTRATOR_PORT
               value: {{ .Values.service.containerPort | quote }}
             - name: IDEGYM_OTEL_ATTRIBUTES
               value: |-
