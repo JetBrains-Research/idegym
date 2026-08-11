@@ -7,7 +7,7 @@ deployment:
     tracing:
       endpoint: http://tempo:4318/v1/traces
   extraEnv:
-    - name: IDEGYM_CLEAN_DATABASE
+    - name: IDEGYM_DATABASE_CLEAN
       value: "True"
     - name: KANIKO_INSECURE_REGISTRY
       value: "true"

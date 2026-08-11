@@ -164,7 +164,7 @@ class DatabaseConfig(ConfigModel):
     user: str = env(legacy=["POSTGRES_USER"], default="postgres")
     password: str = env(legacy=["POSTGRES_PASSWORD"], default="postgres")
     db: str = env(legacy=["POSTGRES_DB"], default="idegym")
-    clean_database: bool = env(
+    clean: bool = env(
         legacy=["IDEGYM_CLEAN_DATABASE"], description="Drop and recreate all tables on startup", default=False
     )
     schema_revision: Optional[str] = Field(
