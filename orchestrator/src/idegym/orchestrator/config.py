@@ -8,6 +8,6 @@ def load_config() -> Config:
 
     Apart from ``main`` so the migration CLI can read the same database settings without
     importing the FastAPI application and everything behind it. Binding
-    ``ORCHESTRATOR_SECTIONS`` here keeps the section set in one place for the three callers.
+    ``ORCHESTRATOR_SECTIONS`` here keeps the section set in one place.
     """
     return load_settings(sections=ORCHESTRATOR_SECTIONS)

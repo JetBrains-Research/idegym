@@ -20,6 +20,7 @@ logger = get_logger(__name__)
 __all__ = [
     "ORCHESTRATOR_SECTIONS",
     "SERVER_SECTIONS",
+    "WATCHER_SECTIONS",
     "deprecated_variables",
     "environment_aliases",
     "load_config",
@@ -28,6 +29,7 @@ __all__ = [
 # Which top-level sections each service reads. These replace the per-service Hydra `defaults:`
 ORCHESTRATOR_SECTIONS = frozenset({"logging", "otel", "orchestrator"})
 SERVER_SECTIONS = frozenset({"logging", "otel", "project", "server"})
+WATCHER_SECTIONS = frozenset({"logging", "otel", "orchestrator", "watcher"})
 
 
 def environment_aliases(model: type[BaseModel] = Config, prefix: str = "") -> dict[str, list[str]]:

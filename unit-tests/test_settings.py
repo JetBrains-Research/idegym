@@ -18,6 +18,7 @@ from idegym.api.type import Duration
 from idegym.backend.utils.settings import (
     ORCHESTRATOR_SECTIONS,
     SERVER_SECTIONS,
+    WATCHER_SECTIONS,
     deprecated_variables,
     environment_aliases,
     load_config,
@@ -74,12 +75,12 @@ HYDRA_DEFAULTS: dict[str, Any] = {
     "orchestrator.sqlalchemy.pool_recycle": 1800,
     "orchestrator.sqlalchemy.pool_size": 20,
     "orchestrator.sqlalchemy.pool_timeout": 1200,
-    "orchestrator.watcher.cleanup_interval": "0:01:00",
-    "orchestrator.watcher.crash_detection_enabled": True,
-    "orchestrator.watcher.finished_timeout": "0:05:00",
-    "orchestrator.watcher.inactive_timeout": "0:10:00",
-    "orchestrator.watcher.request_max_age": "14 days, 0:00:00",
-    "orchestrator.watcher.request_stale": "1 day, 0:00:00",
+    "watcher.cleanup_interval": "0:01:00",
+    "watcher.crash_detection_enabled": True,
+    "watcher.finished_timeout": "0:05:00",
+    "watcher.inactive_timeout": "0:10:00",
+    "watcher.request_max_age": "14 days, 0:00:00",
+    "watcher.request_stale": "1 day, 0:00:00",
     "orchestrator.workers": 1,
     "otel.attributes": "{}",
     "otel.service_name": None,
@@ -171,12 +172,12 @@ ENVIRONMENT_VARIABLES: dict[str, list[str]] = {
     "orchestrator.sqlalchemy.pool_recycle": ["IDEGYM_SQLALCHEMY_POOL_RECYCLE"],
     "orchestrator.sqlalchemy.pool_size": ["IDEGYM_SQLALCHEMY_POOL_SIZE"],
     "orchestrator.sqlalchemy.pool_timeout": ["IDEGYM_SQLALCHEMY_POOL_TIMEOUT"],
-    "orchestrator.watcher.cleanup_interval": ["IDEGYM_WATCHER_CLEANUP_INTERVAL"],
-    "orchestrator.watcher.crash_detection_enabled": ["IDEGYM_WATCHER_CRASH_DETECTION_ENABLED"],
-    "orchestrator.watcher.finished_timeout": ["IDEGYM_WATCHER_FINISHED_TIMEOUT"],
-    "orchestrator.watcher.inactive_timeout": ["IDEGYM_WATCHER_INACTIVE_TIMEOUT"],
-    "orchestrator.watcher.request_max_age": ["IDEGYM_WATCHER_REQUEST_MAX_AGE"],
-    "orchestrator.watcher.request_stale": ["IDEGYM_WATCHER_REQUEST_STALE"],
+    "watcher.cleanup_interval": ["IDEGYM_WATCHER_CLEANUP_INTERVAL"],
+    "watcher.crash_detection_enabled": ["IDEGYM_WATCHER_CRASH_DETECTION_ENABLED"],
+    "watcher.finished_timeout": ["IDEGYM_WATCHER_FINISHED_TIMEOUT"],
+    "watcher.inactive_timeout": ["IDEGYM_WATCHER_INACTIVE_TIMEOUT"],
+    "watcher.request_max_age": ["IDEGYM_WATCHER_REQUEST_MAX_AGE"],
+    "watcher.request_stale": ["IDEGYM_WATCHER_REQUEST_STALE"],
     "orchestrator.workers": ["IDEGYM_ORCHESTRATOR_WORKERS", "IDEGYM_UVICORN_WORKERS"],
     "otel.attributes": ["IDEGYM_OTEL_ATTRIBUTES"],
     "otel.service_name": ["IDEGYM_OTEL_SERVICE_NAME"],
@@ -215,7 +216,7 @@ LEGACY_SAMPLES = {
     "project.path": "/tmp/proj",
 }
 
-ALL_SECTIONS = ORCHESTRATOR_SECTIONS | SERVER_SECTIONS
+ALL_SECTIONS = ORCHESTRATOR_SECTIONS | SERVER_SECTIONS | WATCHER_SECTIONS
 
 # One representative variable per type that arrives as text from the environment, with the typed
 # value it must produce: {variable: (dotted path, raw text, expected)}.
@@ -227,7 +228,7 @@ SAMPLES = {
     "IDEGYM_RESOURCES_DEFAULT_CPU_REQUEST": ("orchestrator.resources.default_cpu_request", "2.5", 2.5),
     "IDEGYM_DATABASE_PASSWORD": ("orchestrator.database.password", "hunter2", "hunter2"),
     "IDEGYM_DATABASE_SCHEMA_REVISION": ("orchestrator.database.schema_revision", "003", "003"),
-    "IDEGYM_WATCHER_INACTIVE_TIMEOUT": ("orchestrator.watcher.inactive_timeout", "PT20M", Duration(minutes=20)),
+    "IDEGYM_WATCHER_INACTIVE_TIMEOUT": ("watcher.inactive_timeout", "PT20M", Duration(minutes=20)),
     "IDEGYM_MCP_STATELESS_HTTP": ("orchestrator.mcp.stateless_http", "False", False),
     "IDEGYM_CLOUDBUILD_DISK_SIZE_GB": ("orchestrator.build.cloudbuild_gke.disk_size_gb", "200", 200),
     "IDEGYM_SERVER_SHUTDOWN_DELAY": ("server.shutdown_delay", "PT45S", Duration(seconds=45)),
@@ -378,6 +379,18 @@ def test_sections_scope_which_variables_are_read():
     assert load_config(SERVER_SECTIONS, source=source).orchestrator.port == 8000
 
 
+def test_the_watcher_reads_its_own_section_and_the_orchestrator_it_shares_a_database_with():
+    """Every other watcher assertion here goes through the union of all sections, which would stay
+    green if `WATCHER_SECTIONS` dropped `watcher`. The only symptom would be `IDEGYM_WATCHER_*`
+    silently reverting to its default in the deployed watcher, so pin the service's own set."""
+    source = {"IDEGYM_WATCHER_CLEANUP_INTERVAL": "PT10S", "IDEGYM_DATABASE_HOST": "db.internal"}
+    config = load_config(WATCHER_SECTIONS, source=source)
+    assert config.watcher.cleanup_interval == Duration(seconds=10)
+    assert config.orchestrator.database.host == "db.internal"
+    # The orchestrator does not read the section, so its pods may leave the variable unset.
+    assert load_config(ORCHESTRATOR_SECTIONS, source=source).watcher.cleanup_interval == Duration(seconds=60)
+
+
 def test_unknown_section_is_rejected():
     with raises(ValueError, match="Unknown configuration sections"):
         load_config({"logging", "telemetry"})
@@ -457,7 +470,7 @@ def test_every_field_is_environment_overridable():
 @mark.parametrize(
     ("variable", "path", "value", "expected"),
     [
-        param("IDEGYM_WATCHER_CRASH_DETECTION_ENABLED", "orchestrator.watcher.crash_detection_enabled", "False", False),
+        param("IDEGYM_WATCHER_CRASH_DETECTION_ENABLED", "watcher.crash_detection_enabled", "False", False),
         param(
             "IDEGYM_POD_SNAPSHOT_COMPLETION_TIMEOUT",
             "orchestrator.pod_snapshot.completion_timeout",
@@ -473,4 +486,4 @@ def test_every_field_is_environment_overridable():
     ],
 )
 def test_previously_unbound_fields_now_read_the_environment(variable: str, path: str, value: str, expected: Any):
-    assert resolve(path, load_config(ORCHESTRATOR_SECTIONS, source={variable: value})) == expected
+    assert resolve(path, load_config(ALL_SECTIONS, source={variable: value})) == expected

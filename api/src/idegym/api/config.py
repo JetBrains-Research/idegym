@@ -421,7 +421,6 @@ class OrchestratorConfig(ConfigModel):
     resources: ResourcesConfig = Field(default_factory=ResourcesConfig)
     node_pool: NodePoolConfig = Field(default_factory=NodePoolConfig)
     build: BuildConfig = Field(default_factory=BuildConfig)
-    watcher: WatcherConfig = Field(default_factory=WatcherConfig)
     mcp: MCPConfig = Field(default_factory=MCPConfig)
     client_request_timeout: float = env(
         legacy=["IDEGYM_CLIENT_REQUEST_TIMEOUT"],
@@ -452,3 +451,4 @@ class Config(ConfigModel):
     project: ProjectConfig = Field(default_factory=ProjectConfig)
     otel: OTELConfig = Field(default_factory=OTELConfig)
     orchestrator: OrchestratorConfig = Field(default_factory=OrchestratorConfig)
+    watcher: WatcherConfig = Field(default_factory=WatcherConfig)
