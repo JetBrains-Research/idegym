@@ -1,21 +1,19 @@
 import json
 from contextlib import asynccontextmanager
 from importlib.metadata import entry_points as _entry_points
-from os.path import abspath, dirname, join
 from pathlib import Path
 
 from fastapi import FastAPI, status
 from fastapi.requests import Request
 from fastapi.responses import Response
 from fastmcp.utilities.lifespan import combine_lifespans
-from hydra import main as hydra
-from idegym.api.config import Config
 from idegym.api.paths import API_BASE_PATH
 from idegym.api.plugin import get_all_server_plugins
 from idegym.backend.utils.bash_executor import BashCommandExecutionTimeoutError
 from idegym.backend.utils.instrumentation.uvicorn import UvicornInstrumentor
 from idegym.backend.utils.logging import configure_logging, create_uvicorn_logging_config
 from idegym.backend.utils.otel import configure_telemetry, system_metrics_config
+from idegym.backend.utils.settings import SERVER_SECTIONS, load_config
 from idegym.backend.utils.starlette.middleware import (
     AsyncioTaskContextMiddleware,
     ShutdownMiddleware,
@@ -24,7 +22,6 @@ from idegym.backend.utils.starlette.middleware import (
 from idegym.backend.utils.starlette.responses import ErrorResponse
 from idegym.utils import __version__
 from idegym.utils.logging import get_logger
-from omegaconf import DictConfig, OmegaConf
 from opentelemetry.instrumentation.asyncio import AsyncioInstrumentor
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
@@ -146,14 +143,8 @@ async def exception(_request: Request, ex: Exception):
     return ErrorResponse(exception=ex)
 
 
-@hydra(
-    version_base=None,
-    config_path=join(dirname(abspath(__file__)), "hydra_configs"),
-    config_name="config",
-)
-def main(cfg: DictConfig):
-    container = OmegaConf.to_container(cfg=cfg, resolve=True)
-    config = Config(**container)
+def main() -> None:
+    config = load_config(sections=SERVER_SECTIONS)
     options = config.model_dump()
     app.container.config.from_dict(options=options)
     configure_logging(config=config.logging)
@@ -164,8 +155,8 @@ def main(cfg: DictConfig):
     server = UvicornServer(
         config=UvicornConfig(
             app=app,
-            host=config.orchestrator.host,
-            port=config.orchestrator.port,
+            host=config.server.host,
+            port=config.server.port,
             log_config=create_uvicorn_logging_config(
                 config=config.logging,
             ),

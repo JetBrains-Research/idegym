@@ -765,7 +765,7 @@ is the opaque string stored as `JobStatusRecord.job_name` and returned to client
 the Kubernetes Job name; for Cloud Build it is the build id), so the existing
 `/api/jobs/status/{job_name}` endpoint works for every backend.
 
-The backend is chosen via Hydra config (`orchestrator.build.backend`) / environment, **defaulting to
+The backend is chosen via `orchestrator.build.backend` (set by `IDEGYM_BUILD_BACKEND`), **defaulting to
 `kaniko`** so existing deployments are unchanged:
 
 | Variable | Description | Default |

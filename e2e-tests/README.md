@@ -207,7 +207,7 @@ The e2e suite runs against a single local Minikube cluster with these addons ena
 - `Namespace`: `idegym-local` (passed via `helm -n`)
 - `Image pull policy`: `IfNotPresent`
 - `Replicas` / `uvicornWorkers`: `1` (deterministic for tests)
-- `extraEnv`: `IDEGYM_CLEAN_DATABASE=True`, `KANIKO_INSECURE_REGISTRY=true`,
+- `extraEnv`: `IDEGYM_DATABASE_CLEAN=True`, `KANIKO_INSECURE_REGISTRY=true`,
   `DOCKER_REGISTRY=registry.kube-system.svc.cluster.local`
 - `Ingress`: `nginx` className, host `idegym-local.test`
 - `OTEL tracing endpoint`: `http://tempo:4318/v1/traces`

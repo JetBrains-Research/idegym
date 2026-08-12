@@ -63,7 +63,7 @@ async def lifespan(app: FastAPI):
     await init_db(
         db_url=config.orchestrator.database.url,
         config=config.orchestrator.sqlalchemy,
-        clean_database=config.orchestrator.database.clean_database,
+        clean_database=config.orchestrator.database.clean,
         declared_schema_revision=config.orchestrator.database.schema_revision,
     )
 

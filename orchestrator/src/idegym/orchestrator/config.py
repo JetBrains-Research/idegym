@@ -1,20 +1,13 @@
-from pathlib import Path
-from typing import Any
-
-from hydra import compose, initialize_config_dir
 from idegym.api.config import Config
-from omegaconf import OmegaConf
-
-HYDRA_CONFIG_DIR = Path(__file__).parent / "hydra_configs"
+from idegym.backend.utils.settings import ORCHESTRATOR_SECTIONS
+from idegym.backend.utils.settings import load_config as load_settings
 
 
 def load_config() -> Config:
-    """Compose the orchestrator's Hydra configuration into the shared :class:`Config` model.
+    """Build the orchestrator's :class:`Config` from the environment.
 
     Apart from ``main`` so the migration CLI can read the same database settings without
-    importing the FastAPI application and everything behind it.
+    importing the FastAPI application and everything behind it. Binding
+    ``ORCHESTRATOR_SECTIONS`` here keeps the section set in one place.
     """
-    with initialize_config_dir(version_base=None, config_dir=str(HYDRA_CONFIG_DIR)):
-        cfg = compose(config_name="config")
-    container: dict[str, Any] = OmegaConf.to_container(cfg=cfg, resolve=True)
-    return Config(**container)
+    return load_settings(sections=ORCHESTRATOR_SECTIONS)

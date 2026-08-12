@@ -645,11 +645,11 @@ The orchestrator ships a lightweight HTML dashboard for monitoring:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `POSTGRES_HOST` | `localhost` | Database host |
-| `POSTGRES_PORT` | `5432` | Database port |
-| `POSTGRES_USER` | `postgres` | Database user |
-| `POSTGRES_PASSWORD` | `postgres` | Database password |
-| `POSTGRES_DB` | `idegym` | Database name |
+| `IDEGYM_DATABASE_HOST` | `localhost` | Database host |
+| `IDEGYM_DATABASE_PORT` | `5432` | Database port |
+| `IDEGYM_DATABASE_USER` | `postgres` | Database user |
+| `IDEGYM_DATABASE_PASSWORD` | `postgres` | Database password |
+| `IDEGYM_DATABASE_DB` | `idegym` | Database name |
 
 ### Authentication
 
@@ -709,7 +709,7 @@ uv sync --all-packages --all-extras --all-groups
 uv run python -m idegym.orchestrator.main
 ```
 
-A PostgreSQL instance must be reachable at `POSTGRES_HOST:POSTGRES_PORT`. The Kubernetes client falls back to your local `~/.kube/config` when not running inside a cluster.
+A PostgreSQL instance must be reachable at `IDEGYM_DATABASE_HOST:IDEGYM_DATABASE_PORT`. The Kubernetes client falls back to your local `~/.kube/config` when not running inside a cluster.
 
 ### Testing
 

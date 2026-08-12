@@ -2,8 +2,8 @@
 
 The orchestrator only migrates forward, at startup. Rolling a release back needs the
 opposite: an *exact* revision, in a one-shot pod, with every IdeGYM writer stopped. This is
-that entry point, and it reads the same Hydra/``POSTGRES_*`` configuration as the service,
-so a Job copying the orchestrator Deployment's environment needs no extra wiring.
+that entry point, and it reads the same ``IDEGYM_DATABASE_*`` environment configuration as the
+service, so a Job copying the orchestrator Deployment's environment needs no extra wiring.
 
 Running it against a live deployment is not safe on its own — ``scripts/rollback.py`` stops
 the writers and sequences the steps. Use this directly to inspect the schema, or when

@@ -1,7 +1,7 @@
 """Generate OpenAPI schemas for the orchestrator and in-pod server.
 
 Builds minimal FastAPI apps that mount the real routers (without the heavy
-create_app() init: Hydra config, k8s, DB, telemetry) and dumps app.openapi().
+create_app() init: config, k8s, DB, telemetry) and dumps app.openapi().
 
 Run with the project venv:
     .venv/bin/python website/scripts/gen_openapi.py website/static/openapi
