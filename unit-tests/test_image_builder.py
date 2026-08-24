@@ -1967,6 +1967,7 @@ def test_pycharm_mcp_steroid_default_version():
         param("1.0.0", id="major-only-parts"),
         param("0.94", id="two-part"),
         param("0.100-409f23a2", id="two-part-with-hash"),
+        param("0.102.0-r-c68d8f15d", id="multi-segment-suffix"),
     ],
 )
 def test_pycharm_mcp_steroid_accepts_valid_version(version):
@@ -1979,7 +1980,8 @@ def test_pycharm_mcp_steroid_accepts_valid_version(version):
         param("0", id="major-only"),
         param("latest", id="non-numeric"),
         param("v0.94.0", id="v-prefix"),
-        param("0.94.0-SNAPSHOT", id="non-hex-suffix"),
+        param("0.94.0-SNAPSHOT", id="uppercase-suffix"),
+        param("0.94.0-", id="trailing-dash"),
     ],
 )
 def test_pycharm_mcp_steroid_rejects_invalid_version(version):
@@ -2085,6 +2087,7 @@ def test_idea_mcp_steroid_default_version():
         param("1.0.0", id="major-only-parts"),
         param("0.94", id="two-part"),
         param("0.100-409f23a2", id="two-part-with-hash"),
+        param("0.102.0-r-c68d8f15d", id="multi-segment-suffix"),
     ],
 )
 def test_idea_mcp_steroid_accepts_valid_version(version):
@@ -2097,7 +2100,8 @@ def test_idea_mcp_steroid_accepts_valid_version(version):
         param("0", id="major-only"),
         param("latest", id="non-numeric"),
         param("v0.94.0", id="v-prefix"),
-        param("0.94.0-SNAPSHOT", id="non-hex-suffix"),
+        param("0.94.0-SNAPSHOT", id="uppercase-suffix"),
+        param("0.94.0-", id="trailing-dash"),
     ],
 )
 def test_idea_mcp_steroid_rejects_invalid_version(version):

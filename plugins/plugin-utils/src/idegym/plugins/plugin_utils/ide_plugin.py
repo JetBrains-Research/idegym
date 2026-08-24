@@ -33,8 +33,11 @@ from pydantic import field_validator
 
 # JetBrains IDE version, e.g. 2026.1 or 2026.1.1.
 _VERSION_RE = re.compile(r"^\d{4}\.\d+(\.\d+)?$")
-# mcp-steroid release version, e.g. 0.94.0-8682a5ce or 0.100-409f23a2.
-_MCP_STEROID_VERSION_RE = re.compile(r"^\d+\.\d+(\.\d+)?(-[a-f0-9]+)?$")
+# mcp-steroid release version: a two- or three-part number followed by any number of
+# lowercase alphanumeric suffix segments, e.g. 0.94.0-8682a5ce, 0.100-409f23a2 or
+# 0.102.0-r-c68d8f15d. Upstream has changed the suffix shape more than once, so the segments
+# are not constrained beyond being lowercase — which still rejects ``0.94.0-SNAPSHOT``.
+_MCP_STEROID_VERSION_RE = re.compile(r"^\d+\.\d+(\.\d+)?(-[a-z0-9]+)*$")
 
 # The bundled JetBrains MCP plugin binds loopback-only; the start script runs a socat
 # bridge that re-listens on 0.0.0.0 so the server is reachable outside the container.
@@ -70,7 +73,8 @@ class JetBrainsIdePlugin(PluginBase):
             ``True`` and ``open_project`` resolves to ``False``, the IDE starts without a
             project and agents open one via the ``open-project`` MCP tool.
         mcp_steroid_version: mcp-steroid version. Format ``X.Y`` or ``X.Y.Z``, optionally
-            with a ``-HASH`` suffix (e.g. ``0.94.0-8682a5ce``). Defaults to the latest tested.
+            followed by lowercase alphanumeric suffix segments (e.g. ``0.94.0-8682a5ce`` or
+            ``0.102.0-r-c68d8f15d``). Defaults to the latest tested.
         external_plugins: Extra plugins to bake into the bundled plugins dir, in order.
             Each :class:`PluginSource` names a ``.zip`` URL; set ``auth_env`` for downloads
             behind authentication. Installed after mcp-steroid.
@@ -109,7 +113,8 @@ class JetBrainsIdePlugin(PluginBase):
     def _validate_mcp_steroid_version(cls, v: str) -> str:
         if not _MCP_STEROID_VERSION_RE.match(v):
             raise ValueError(
-                f"Invalid mcp-steroid version: {v!r}. Expected format: X.Y or X.Y.Z, optionally with a -HASH suffix"
+                f"Invalid mcp-steroid version: {v!r}. Expected format: X.Y or X.Y.Z, optionally followed by "
+                "lowercase alphanumeric -suffix segments"
             )
         return v
 
