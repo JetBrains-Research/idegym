@@ -2,6 +2,9 @@ import json
 from asyncio import CancelledError, gather, sleep, timeout
 from collections.abc import AsyncGenerator, Awaitable, Callable, Iterable
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
+from enum import StrEnum
+from math import inf
 from os import environ as env
 from random import getrandbits
 from time import monotonic
@@ -14,7 +17,7 @@ from idegym.api.exceptions import ResourceDeletionFailedException
 from idegym.api.orchestrator.servers import ServerKind
 from idegym.api.paths import API_BASE_PATH, ActuatorPath, OpenenvPath
 from idegym.api.status import Status
-from idegym.api.type import ConditionStatus
+from idegym.api.type import ConditionStatus, Duration
 from idegym.utils.dict import deep_merge
 from idegym.utils.functools import cached_async_result
 from idegym.utils.logging import get_logger
@@ -481,6 +484,24 @@ async def deploy_server(
         )
 
 
+def _seconds(value: float) -> str:
+    """A duration in seconds, readable at both ends of the range a budget can be set to.
+
+    ``:.0f`` renders every sub-second value as ``0s``, and ``:g`` alone renders a raw
+    ``monotonic()`` delta as ``0.0200401s``; rounding first gives ``0.02s`` and ``900s``.
+    """
+    return f"{round(value, 3):g}"
+
+
+def _budget_seconds(budget: Duration) -> float:
+    """A configured budget as seconds, where the documented "zero disables the limit" means ``inf``.
+
+    Turning it into infinity here rather than special-casing zero at each comparison keeps
+    ``max()`` honest: a disabled budget must stay disabled when another verdict offers a finite one.
+    """
+    return budget.total_seconds() or inf
+
+
 async def wait_for_pods_ready(
     label_selector: str,
     namespace: str,
@@ -492,51 +513,155 @@ async def wait_for_pods_ready(
     Poll until all matching pods are Running and ready.
 
     Fails fast if image pull errors occur `max_image_pull_attempts` times in a row, or if pods stay
-    Unschedulable for longer than ``scheduling.unschedulable_timeout``. That budget is a duration
-    rather than a number of polls because the thing being waited on — a node pool scaling up —
-    takes a time that has nothing to do with how often we look.
+    Unschedulable for longer than the budget their scheduling verdict earns them: pods start on
+    ``scheduling.unschedulable_timeout`` and, once that is spent, an autoscaler that says it is
+    already growing a node for them extends it to ``scheduling.provisioning_timeout``. The budget is
+    a duration rather than a number of polls because what is being waited on — a node booting —
+    takes a time that has nothing to do with how often we look, and it only ever grows: an
+    autoscaler that will not widen the pool says nothing about capacity a finishing pod is about to
+    free, so a refusal sharpens the error without shortening the wait.
     Raises asyncio.TimeoutError if `wait_timeout` seconds elapse without all pods becoming ready.
     """
     scheduling = scheduling or SchedulingConfig()
     poll_interval = scheduling.poll_interval.total_seconds()
-    unschedulable_timeout = scheduling.unschedulable_timeout.total_seconds()
     consecutive_image_pull_errors = 0
     unschedulable_since: Optional[float] = None
+    granted = _budget_seconds(scheduling.unschedulable_timeout)
+    scheduling_state = "not waiting on the scheduler"
 
-    async with timeout(wait_timeout):
-        while True:
-            pods_ready, has_image_pull_error, has_terminating_pods, has_unschedulable_pods = await pods_are_ready(
-                label_selector, namespace
-            )
+    try:
+        async with timeout(wait_timeout):
+            while True:
+                pods_ready, has_image_pull_error, has_terminating_pods, has_unschedulable_pods = await pods_are_ready(
+                    label_selector, namespace
+                )
 
-            if pods_ready and not has_terminating_pods:
-                logger.info(f"Pods with label '{label_selector}' are ready and stable.")
-                return
+                if pods_ready and not has_terminating_pods:
+                    logger.info(f"Pods with label '{label_selector}' are ready and stable.")
+                    return
 
-            if has_unschedulable_pods:
-                if unschedulable_since is None:
-                    unschedulable_since = monotonic()
-                unschedulable_for = monotonic() - unschedulable_since
-                if unschedulable_timeout and unschedulable_for >= unschedulable_timeout:
-                    raise RuntimeError(
-                        f"Failed to start pods: Unschedulable for {unschedulable_for:.0f}s, over the "
-                        f"{unschedulable_timeout:.0f}s limit (IDEGYM_SCHEDULING_UNSCHEDULABLE_TIMEOUT)"
+                if has_unschedulable_pods:
+                    if unschedulable_since is None:
+                        unschedulable_since = monotonic()
+                        granted = _budget_seconds(scheduling.unschedulable_timeout)
+                    unschedulable_for = monotonic() - unschedulable_since
+                    scheduling_state = f"unschedulable for {_seconds(unschedulable_for)}s"
+
+                    if unschedulable_for >= granted:
+                        # Only worth asking the autoscaler now. Its answer can only extend the
+                        # budget, so before this point it cannot change what we do — and asking on
+                        # every poll would mean hundreds of list calls per wait.
+                        verdict, detail = await node_scaling_verdict(label_selector, namespace)
+                        scheduling_state = f"{scheduling_state}, {verdict} ({detail or 'no autoscaler event'})"
+                        if verdict is NodeScalingVerdict.UNREADABLE:
+                            logger.warning(
+                                "Could not read the pods' scheduling events",
+                                namespace=namespace,
+                                reason=detail,
+                            )
+                        if verdict is NodeScalingVerdict.IN_FLIGHT:
+                            granted = max(granted, _budget_seconds(scheduling.provisioning_timeout))
+                        if unschedulable_for >= granted:
+                            raise RuntimeError(
+                                f"Failed to start pods: {scheduling_state}, over the {_seconds(granted)}s limit"
+                            )
+                else:
+                    unschedulable_since = None
+
+                if has_image_pull_error:
+                    consecutive_image_pull_errors += 1
+                    logger.warning(
+                        f"Image pull error detected ({consecutive_image_pull_errors}/{max_image_pull_attempts})"
                     )
-            else:
-                unschedulable_since = None
 
-            if has_image_pull_error:
-                consecutive_image_pull_errors += 1
-                logger.warning(f"Image pull error detected ({consecutive_image_pull_errors}/{max_image_pull_attempts})")
+                    if consecutive_image_pull_errors >= max_image_pull_attempts:
+                        raise RuntimeError(
+                            f"Failed to start pods: Image pull errors detected {max_image_pull_attempts} times in a row"
+                        )
+                else:
+                    consecutive_image_pull_errors = 0
 
-                if consecutive_image_pull_errors >= max_image_pull_attempts:
-                    raise RuntimeError(
-                        f"Failed to start pods: Image pull errors detected {max_image_pull_attempts} times in a row"
+                await sleep(poll_interval)
+    except TimeoutError:
+        # The budgets are routinely larger than a caller's overall timeout, so this — not the
+        # RuntimeError above — is how a pod that never schedules usually surfaces. Say what the
+        # scheduler was doing, or the failure is an unattributable timeout.
+        raise TimeoutError(
+            f"Pods with label '{label_selector}' were not ready within {wait_timeout}s ({scheduling_state})"
+        ) from None
+
+
+class NodeScalingVerdict(StrEnum):
+    """What the cluster autoscaler has said about pods it cannot place yet."""
+
+    IN_FLIGHT = "scale-up in flight"
+    REFUSED = "scale-up refused"
+    UNKNOWN = "no autoscaler verdict"
+    UNREADABLE = "autoscaler events unreadable"
+
+
+# Event reasons emitted on a pending pod by the cluster autoscaler (also GKE node auto-provisioning)
+# and by Karpenter. The scheduler's own `FailedScheduling` is deliberately absent: every unscheduled
+# pod gets one, including the ones a node is already booting for, so it carries no verdict.
+_SCALE_UP_IN_FLIGHT_REASONS = frozenset({"TriggeredScaleUp", "Nominated"})
+_SCALE_UP_REFUSED_REASONS = frozenset({"NotTriggerScaleUp"})
+
+
+async def node_scaling_verdict(label_selector: str, namespace: str) -> tuple[NodeScalingVerdict, Optional[str]]:
+    """
+    Ask the autoscaler, via the events on the matching pods, whether a node is on its way.
+
+    A pod stuck Unschedulable because a node pool is booting is a normal, slow success; one stuck
+    because the autoscaler has hit a limit or has no matching node group never resolves. Only the
+    autoscaler knows which, and it says so in an event rather than in the pod's conditions — so the
+    events are the only place this distinction can be read.
+
+    Returns the verdict and the message backing it. Events that cannot be read at all — a deployment
+    whose RBAC predates this — are their own ``UNREADABLE`` verdict rather than a silent ``UNKNOWN``:
+    the two earn the same budget, but only the caller knows whether it has already complained about
+    the missing permission, so reporting it is left to it.
+    """
+    async with async_kube_api() as (_, _, core, _, _):
+        pods = (await core.list_namespaced_pod(namespace=namespace, label_selector=label_selector)).items
+        verdicts: list[tuple[NodeScalingVerdict, Optional[str]]] = []
+        for pod in pods:
+            if pod.metadata.deletion_timestamp is not None or pod.spec.node_name:
+                continue
+            try:
+                events = (
+                    await core.list_namespaced_event(
+                        namespace=namespace, field_selector=f"involvedObject.name={pod.metadata.name}"
                     )
-            else:
-                consecutive_image_pull_errors = 0
+                ).items
+            except ApiException as error:
+                return NodeScalingVerdict.UNREADABLE, error.reason
+            verdicts.append(_latest_scaling_verdict(events))
 
-            await sleep(poll_interval)
+    # A single pod still waiting on a booting node keeps the whole group waiting, so an in-flight
+    # scale-up outranks a refusal: the refused pod may yet fit on the node the other one triggered.
+    for wanted in (NodeScalingVerdict.IN_FLIGHT, NodeScalingVerdict.REFUSED):
+        for verdict, detail in verdicts:
+            if verdict is wanted:
+                return verdict, detail
+    return NodeScalingVerdict.UNKNOWN, None
+
+
+def _latest_scaling_verdict(events: Iterable[Any]) -> tuple[NodeScalingVerdict, Optional[str]]:
+    """Verdict from the most recent autoscaler event among ``events``, ignoring everything else.
+
+    Recency decides: an autoscaler that first refused and then triggered a scale-up (a limit was
+    raised, another pod widened the node group) has changed its mind, and so must we.
+    """
+    scaling = [event for event in events if event.reason in _SCALE_UP_IN_FLIGHT_REASONS | _SCALE_UP_REFUSED_REASONS]
+    if not scaling:
+        return NodeScalingVerdict.UNKNOWN, None
+    latest = max(
+        scaling, key=lambda event: event.last_timestamp or event.event_time or datetime.min.replace(tzinfo=UTC)
+    )
+    verdict = (
+        NodeScalingVerdict.IN_FLIGHT if latest.reason in _SCALE_UP_IN_FLIGHT_REASONS else NodeScalingVerdict.REFUSED
+    )
+    return verdict, f"{latest.reason}: {latest.message}"
 
 
 async def pods_are_ready(label_selector: str, namespace: str) -> tuple[bool, bool, bool, bool]:

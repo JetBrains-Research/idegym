@@ -1,6 +1,5 @@
 import asyncio
 from os import environ as env
-from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Request, Response, status
@@ -62,7 +61,7 @@ async def register_client(request: RegisterClientRequest, low_level_request: Req
 async def register_client_with_node_pool(
     request: RegisterClientRequest,
     node_pool: NodePoolConfig,
-    scheduling: Optional[SchedulingConfig] = None,
+    scheduling: SchedulingConfig,
 ) -> RegisteredClientResponse:
     client, spin_up_nodes = await safely_register_new_client_in_db(
         name=request.name, nodes_count=request.nodes_count, namespace=request.namespace
@@ -137,7 +136,7 @@ async def _task_spin_up_client_nodes(
     namespace: str,
     async_operation_id: int,
     node_pool: NodePoolConfig,
-    scheduling: Optional[SchedulingConfig] = None,
+    scheduling: SchedulingConfig,
 ):
     logger.info(f"Spinning up nodes for client with ID {client.id} in namespace {namespace} in background")
     await update_operation_status(

@@ -8,6 +8,12 @@ rules:
   - apiGroups: [""]
     resources: ["pods", "services"]
     verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+  # Read-only: the readiness wait reads the autoscaler's events on a pending pod to tell a node
+  # that is still booting from one that will never arrive. Without this the wait still works, it
+  # just cannot make that distinction.
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
   - apiGroups: ["apps"]
     resources: ["deployments"]
     verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]

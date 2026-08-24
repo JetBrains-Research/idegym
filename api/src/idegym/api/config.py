@@ -212,7 +212,7 @@ class SchedulingConfig(ConfigModel):
 
     An Unschedulable pod usually means a node pool is scaling up, and how long that takes is a
     property of the cluster: a sysbox or gVisor node needs minutes where a warm pool needs
-    seconds. The budget is therefore expressed as a duration rather than a number of polls, so
+    seconds. The budgets are therefore expressed as durations rather than numbers of polls, so
     retuning ``poll_interval`` cannot silently change how patient the wait is.
     """
 
@@ -222,11 +222,16 @@ class SchedulingConfig(ConfigModel):
         description="Interval between pod readiness polls", gt=Duration(0), default=Duration(seconds=2)
     )
     unschedulable_timeout: Duration = Field(
-        description="How long pods may stay Unschedulable before the readiness wait fails. Zero waits for as "
-        "long as the caller's overall start timeout allows, which is what a cluster with slow node "
-        "provisioning and no capacity limit wants.",
+        description="How long pods may stay Unschedulable before the readiness wait fails, when no autoscaler "
+        "has promised them capacity. Zero waits for as long as the caller's overall start timeout allows.",
         ge=Duration(0),
         default=Duration(minutes=5),
+    )
+    provisioning_timeout: Duration = Field(
+        description="The same budget for pods the cluster autoscaler has already triggered a scale-up for. "
+        "Sized for how long a node takes to boot and join, which is the slow part of a sysbox or gVisor pool.",
+        ge=Duration(0),
+        default=Duration(minutes=15),
     )
 
 
