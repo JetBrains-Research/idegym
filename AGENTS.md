@@ -113,7 +113,11 @@ pre-commit install
    proves the old name still resolves. A legacy name that supplies a value is logged as
    deprecated at startup, so retire it once deployments have moved. Add
    `validate_default=True` when a validator normalises the value, or the default bypasses it.
-   See
+   *Adding* a field means two tables in that same test file, not one: `ENVIRONMENT_VARIABLES`
+   for its variable name and `HYDRA_DEFAULTS` for its default, which is compared as an exact
+   dict — a new field with no entry there fails the suite rather than being ignored. A
+   `Duration` field is set from the environment as an ISO-8601 duration (`PT10M`) or a
+   `H:MM:SS` string; a bare number of seconds is rejected. See
    `backend-utils/src/idegym/backend/utils/settings.py`.
 6. **Logging goes through structlog:**
    ```python
@@ -211,6 +215,12 @@ it belongs in `_HASH_FIELDS`
 (`orchestrator/src/idegym/orchestrator/snapshot_pipeline.py`); if it is purely runtime, it
 deliberately stays out. Getting this wrong means either a snapshot that is silently reused
 with the wrong configuration, or one that never matches and is rebuilt every time.
+
+A handler that needs `Config` reads it from `low_level_request.app.state.config` and delegates
+to a `<name>_with_config` twin holding the actual logic. The MCP tools in
+`orchestrator/src/idegym/orchestrator/mcp.py` call these functions directly rather than over
+HTTP, so they have no `Request` to inject — a handler that reaches for the config itself is
+unreachable from MCP. `start_server` / `start_server_with_config` is the model.
 
 ### Database migrations
 
