@@ -85,7 +85,7 @@ async def test_register_client_mcp_tool_calls_endpoint(mocker):
             "operation_id": None,
         },
     )
-    config = SimpleNamespace(orchestrator=SimpleNamespace(node_pool=object()))
+    config = SimpleNamespace(orchestrator=SimpleNamespace(node_pool=object(), scheduling=object()))
     mcp = create_mcp_server(config=config)
 
     result = await mcp.call_tool(MCPToolName.REGISTER_CLIENT, {"request": {"name": "mcp-client"}})

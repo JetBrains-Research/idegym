@@ -4,6 +4,7 @@ from typing import Optional
 from uuid import UUID
 
 from idegym.api import __version__
+from idegym.api.config import SchedulingConfig
 from idegym.backend.utils.kubernetes_client import (
     async_kube_api,
     build_node_affinity,
@@ -81,6 +82,7 @@ async def spin_up_or_update_nodes_for_client(
     node_pool_preference_weight: int = 100,
     runtime_class_name: Optional[str] = None,
     wait_timeout: int = 600,
+    scheduling: Optional[SchedulingConfig] = None,
 ):
     """
     Create or update a Deployment that holds nodes for a client.
@@ -239,6 +241,7 @@ async def spin_up_or_update_nodes_for_client(
             label_selector=f"app={name}",
             namespace=namespace,
             wait_timeout=wait_timeout,
+            scheduling=scheduling,
         )
         logger.info(f"All {nodes_count} nodes for client {client_name} are ready")
     else:

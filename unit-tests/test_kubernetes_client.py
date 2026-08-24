@@ -6,7 +6,9 @@ only for its (offline) camelCase deserializer.
 """
 
 import pytest
+from idegym.api.config import SchedulingConfig
 from idegym.api.orchestrator.servers import StartServerRequest
+from idegym.api.type import Duration
 from idegym.backend.utils import kubernetes_client as kc
 from kubernetes_asyncio.client import ApiClient
 
@@ -264,3 +266,106 @@ async def test_kaniko_secret_forwarding_does_not_clobber_job_name(mocker):
     mocker.patch.dict("os.environ", {"PLUGIN_TOKEN": "s3cr3t"}, clear=False)
     body = await _kaniko_job_body(mocker, secret_build_args=["PLUGIN_TOKEN"])
     assert body.metadata.name.startswith("kaniko-build-")
+
+
+# ---------------------------------------------------------------------------
+# wait_for_pods_ready: unschedulable tolerance
+# ---------------------------------------------------------------------------
+
+# (pods_ready, has_image_pull_error, has_terminating_pods, has_unschedulable_pods)
+_READY = (True, False, False, False)
+_UNSCHEDULABLE = (False, False, False, True)
+_PENDING = (False, False, False, False)
+_IMAGE_PULL_ERROR = (False, True, False, False)
+
+
+def _fast_scheduling(**overrides) -> SchedulingConfig:
+    """Scheduling config whose polls are effectively instantaneous, so the tests stay fast."""
+    return SchedulingConfig(poll_interval=Duration(milliseconds=1), **overrides)
+
+
+def _patch_pods_are_ready(mocker, *results):
+    return mocker.patch.object(kc, "pods_are_ready", mocker.AsyncMock(side_effect=list(results)))
+
+
+def _patch_pods_stuck(mocker, result):
+    """Patch the poll to keep returning ``result``, for the waits that are meant to give up."""
+    return mocker.patch.object(kc, "pods_are_ready", mocker.AsyncMock(return_value=result))
+
+
+async def test_wait_returns_once_pods_are_ready(mocker):
+    _patch_pods_are_ready(mocker, _PENDING, _READY)
+    await kc.wait_for_pods_ready(label_selector="app=srv", namespace="ns", scheduling=_fast_scheduling())
+
+
+async def test_wait_tolerates_many_unschedulable_polls_within_the_budget(mocker):
+    # Regression: the limit used to be 15 consecutive polls, so a node pool that takes minutes to
+    # scale up failed the wait long before its budget — however often we happened to poll.
+    poll = _patch_pods_are_ready(mocker, *([_UNSCHEDULABLE] * 40), _READY)
+    await kc.wait_for_pods_ready(
+        label_selector="app=srv",
+        namespace="ns",
+        scheduling=_fast_scheduling(unschedulable_timeout=Duration(minutes=5)),
+    )
+    assert poll.await_count == 41
+
+
+async def test_wait_fails_once_the_unschedulable_budget_is_spent(mocker):
+    _patch_pods_stuck(mocker, _UNSCHEDULABLE)
+    with pytest.raises(RuntimeError, match="Unschedulable"):
+        await kc.wait_for_pods_ready(
+            label_selector="app=srv",
+            namespace="ns",
+            scheduling=_fast_scheduling(unschedulable_timeout=Duration(milliseconds=20)),
+        )
+
+
+async def test_zero_unschedulable_timeout_waits_for_the_overall_timeout(mocker):
+    _patch_pods_stuck(mocker, _UNSCHEDULABLE)
+    with pytest.raises(TimeoutError):
+        await kc.wait_for_pods_ready(
+            label_selector="app=srv",
+            namespace="ns",
+            wait_timeout=1,
+            scheduling=_fast_scheduling(unschedulable_timeout=Duration(0)),
+        )
+
+
+async def test_becoming_schedulable_again_restarts_the_budget(mocker):
+    # A pod that lands on a node and is later evicted back to Pending must get a fresh budget,
+    # not inherit the time the previous scheduling attempt burned.
+    _patch_pods_are_ready(
+        mocker,
+        _UNSCHEDULABLE,
+        _UNSCHEDULABLE,
+        _PENDING,
+        *([_UNSCHEDULABLE] * 2),
+        _READY,
+    )
+    await kc.wait_for_pods_ready(
+        label_selector="app=srv",
+        namespace="ns",
+        scheduling=SchedulingConfig(poll_interval=Duration(milliseconds=20), unschedulable_timeout=Duration(seconds=1)),
+    )
+
+
+async def test_image_pull_errors_still_fail_fast(mocker):
+    _patch_pods_stuck(mocker, _IMAGE_PULL_ERROR)
+    with pytest.raises(RuntimeError, match="Image pull errors"):
+        await kc.wait_for_pods_ready(
+            label_selector="app=srv",
+            namespace="ns",
+            max_image_pull_attempts=3,
+            scheduling=_fast_scheduling(),
+        )
+
+
+async def test_poll_interval_is_taken_from_the_scheduling_config(mocker):
+    sleep = mocker.patch.object(kc, "sleep", mocker.AsyncMock())
+    _patch_pods_are_ready(mocker, _PENDING, _READY)
+    await kc.wait_for_pods_ready(
+        label_selector="app=srv",
+        namespace="ns",
+        scheduling=SchedulingConfig(poll_interval=Duration(seconds=7)),
+    )
+    sleep.assert_awaited_once_with(7.0)

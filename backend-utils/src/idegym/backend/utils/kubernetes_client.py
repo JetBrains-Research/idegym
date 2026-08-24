@@ -4,9 +4,11 @@ from collections.abc import AsyncGenerator, Awaitable, Callable, Iterable
 from contextlib import asynccontextmanager
 from os import environ as env
 from random import getrandbits
+from time import monotonic
 from typing import Any, Optional, cast
 
 from idegym.api import __version__
+from idegym.api.config import SchedulingConfig
 from idegym.api.download import DownloadRequest
 from idegym.api.exceptions import ResourceDeletionFailedException
 from idegym.api.orchestrator.servers import ServerKind
@@ -480,18 +482,26 @@ async def deploy_server(
 
 
 async def wait_for_pods_ready(
-    label_selector: str, namespace: str, wait_timeout: int = 60, max_image_pull_attempts: int = 3
+    label_selector: str,
+    namespace: str,
+    wait_timeout: int = 60,
+    max_image_pull_attempts: int = 3,
+    scheduling: Optional[SchedulingConfig] = None,
 ):
     """
     Poll until all matching pods are Running and ready.
 
-    Fails fast if image pull errors occur `max_image_pull_attempts` times in a row,
-    or if pods remain Unschedulable for ~30 seconds (~15 consecutive checks at 2 s interval).
+    Fails fast if image pull errors occur `max_image_pull_attempts` times in a row, or if pods stay
+    Unschedulable for longer than ``scheduling.unschedulable_timeout``. That budget is a duration
+    rather than a number of polls because the thing being waited on — a node pool scaling up —
+    takes a time that has nothing to do with how often we look.
     Raises asyncio.TimeoutError if `wait_timeout` seconds elapse without all pods becoming ready.
     """
+    scheduling = scheduling or SchedulingConfig()
+    poll_interval = scheduling.poll_interval.total_seconds()
+    unschedulable_timeout = scheduling.unschedulable_timeout.total_seconds()
     consecutive_image_pull_errors = 0
-    consecutive_unschedulable = 0
-    max_consecutive_unschedulable = 15  # ~30s at 2s poll interval
+    unschedulable_since: Optional[float] = None
 
     async with timeout(wait_timeout):
         while True:
@@ -504,13 +514,16 @@ async def wait_for_pods_ready(
                 return
 
             if has_unschedulable_pods:
-                consecutive_unschedulable += 1
-                if consecutive_unschedulable >= max_consecutive_unschedulable:
+                if unschedulable_since is None:
+                    unschedulable_since = monotonic()
+                unschedulable_for = monotonic() - unschedulable_since
+                if unschedulable_timeout and unschedulable_for >= unschedulable_timeout:
                     raise RuntimeError(
-                        f"Failed to start pods: Unschedulable condition detected {consecutive_unschedulable} times in a row"
+                        f"Failed to start pods: Unschedulable for {unschedulable_for:.0f}s, over the "
+                        f"{unschedulable_timeout:.0f}s limit (IDEGYM_SCHEDULING_UNSCHEDULABLE_TIMEOUT)"
                     )
             else:
-                consecutive_unschedulable = 0
+                unschedulable_since = None
 
             if has_image_pull_error:
                 consecutive_image_pull_errors += 1
@@ -523,7 +536,7 @@ async def wait_for_pods_ready(
             else:
                 consecutive_image_pull_errors = 0
 
-            await sleep(2)
+            await sleep(poll_interval)
 
 
 async def pods_are_ready(label_selector: str, namespace: str) -> tuple[bool, bool, bool, bool]:
@@ -729,7 +742,13 @@ async def clean_up_server(name: str, namespace: str, max_retries: int = 3):
             raise ResourceDeletionFailedException(f"Failed to clean up deployment: {name}")
 
 
-async def restart_pods(name: str, namespace: str, wait_timeout: int = 60, max_retries: int = 3):
+async def restart_pods(
+    name: str,
+    namespace: str,
+    wait_timeout: int = 60,
+    max_retries: int = 3,
+    scheduling: Optional[SchedulingConfig] = None,
+):
     """
     Restart pods for a deployment by deleting them individually and waiting for replacements.
 
@@ -750,7 +769,12 @@ async def restart_pods(name: str, namespace: str, wait_timeout: int = 60, max_re
                 logger.info(f"Deleting pod '{pod_name}' in namespace '{namespace}'")
                 await delete_with_retries(core.delete_namespaced_pod, "pod", pod_name, namespace, max_retries)
 
-            await wait_for_pods_ready(label_selector=label_selector, namespace=namespace, wait_timeout=wait_timeout)
+            await wait_for_pods_ready(
+                label_selector=label_selector,
+                namespace=namespace,
+                wait_timeout=wait_timeout,
+                scheduling=scheduling,
+            )
 
         logger.info(f"Successfully restarted pods for deployment '{name}' in namespace '{namespace}'")
 

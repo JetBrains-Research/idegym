@@ -373,6 +373,31 @@ Set these environment variables on the orchestrator deployment:
 When enabled, all dynamically created pods (sandbox servers, Kaniko image builds, and node holders)
 receive a preferred node affinity and toleration matching the configured key.
 
+### Clusters with slow node provisioning
+
+While a node pool scales up, the pods waiting for it report `PodScheduled=False` with reason
+`Unschedulable`. The orchestrator gives up on such a pod after a budget, so a genuinely
+unsatisfiable request fails with a clear error instead of hanging until the caller's
+`server_start_wait_timeout_in_seconds` expires. Node pools that boot slowly — sysbox and gVisor
+pools in particular — need that budget raised:
+
+| Variable                                  | Description                                                          | Default   |
+|-------------------------------------------|----------------------------------------------------------------------|-----------|
+| `IDEGYM_SCHEDULING_UNSCHEDULABLE_TIMEOUT` | How long pods may stay `Unschedulable` before the readiness wait fails | `PT5M`    |
+| `IDEGYM_SCHEDULING_POLL_INTERVAL`         | Interval between pod readiness polls                                 | `PT2S`    |
+
+Both accept an ISO-8601 duration (`PT10M`) or a `H:MM:SS` clock string (`0:10:00`); a bare number
+of seconds is *not* accepted. Setting `IDEGYM_SCHEDULING_UNSCHEDULABLE_TIMEOUT=PT0S` disables the
+early failure entirely, leaving the caller's own start timeout as the only bound — the right choice
+when the cluster can always eventually provide capacity. Set them through `deployment.extraEnv`:
+
+```yaml
+deployment:
+  extraEnv:
+    - name: IDEGYM_SCHEDULING_UNSCHEDULABLE_TIMEOUT
+      value: "PT10M"
+```
+
 ---
 
 ## Step 10: Pod Snapshots (GKE only, Optional)

@@ -207,6 +207,29 @@ class NodePoolConfig(ConfigModel):
     )
 
 
+class SchedulingConfig(ConfigModel):
+    """How long the readiness wait tolerates a pod the scheduler has not placed yet.
+
+    An Unschedulable pod usually means a node pool is scaling up, and how long that takes is a
+    property of the cluster: a sysbox or gVisor node needs minutes where a warm pool needs
+    seconds. The budget is therefore expressed as a duration rather than a number of polls, so
+    retuning ``poll_interval`` cannot silently change how patient the wait is.
+    """
+
+    env_segment = "SCHEDULING"
+
+    poll_interval: Duration = Field(
+        description="Interval between pod readiness polls", gt=Duration(0), default=Duration(seconds=2)
+    )
+    unschedulable_timeout: Duration = Field(
+        description="How long pods may stay Unschedulable before the readiness wait fails. Zero waits for as "
+        "long as the caller's overall start timeout allows, which is what a cluster with slow node "
+        "provisioning and no capacity limit wants.",
+        ge=Duration(0),
+        default=Duration(minutes=5),
+    )
+
+
 class CloudBuildGKEConfig(ConfigModel):
     """GKE Cloud Build backend settings. Only consulted when the build backend is
     `cloudbuild_gke`; `project_id`/`region`/`staging_bucket` are then required."""
@@ -420,6 +443,7 @@ class OrchestratorConfig(ConfigModel):
     asyncio: AsyncioConfig = Field(default_factory=AsyncioConfig)
     resources: ResourcesConfig = Field(default_factory=ResourcesConfig)
     node_pool: NodePoolConfig = Field(default_factory=NodePoolConfig)
+    scheduling: SchedulingConfig = Field(default_factory=SchedulingConfig)
     build: BuildConfig = Field(default_factory=BuildConfig)
     mcp: MCPConfig = Field(default_factory=MCPConfig)
     client_request_timeout: float = env(
