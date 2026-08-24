@@ -80,7 +80,7 @@ async def test_mcp_steroid_idea(test_id):
     Build pipeline:
       Project.from_local("e2e-tests/test_projects/java-project", target="/root/work")
       → Idea(open_project=False, mcp_steroid=True)
-      → Downloads mcp-steroid 0.94.0 ZIP from GitHub releases
+      → Downloads the pinned mcp-steroid ZIP from GitHub releases
       → Installs to ${IDE_DIR}/plugins/
       → Copies the start-ide entrypoint (mcp-steroid mode: waits for port 6315, not 64342)
 

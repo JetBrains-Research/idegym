@@ -1956,7 +1956,7 @@ def test_image_plugin_registry_maps_default_names_to_correct_classes():
 
 def test_pycharm_mcp_steroid_default_version():
     plugin = PyCharm(mcp_steroid=True)
-    assert plugin.mcp_steroid_version == "0.94.0-8682a5ce"
+    assert plugin.mcp_steroid_version == "0.102.0-r-c68d8f15d"
 
 
 @mark.parametrize(
@@ -1995,7 +1995,7 @@ def test_pycharm_mcp_steroid_render_downloads_plugin():
     fragment = plugin.render(ctx)
     assert "mcp-steroid" in fragment
     assert "jonnyzzz/mcp-steroid" in fragment
-    assert "0.94.0-8682a5ce.zip" in fragment
+    assert "0.102.0-r-c68d8f15d.zip" in fragment
     assert "${IDE_DIR}/plugins/" in fragment
 
 
@@ -2005,6 +2005,90 @@ def test_pycharm_mcp_steroid_render_uses_version_base_in_release_url():
     fragment = plugin.render(ctx)
     # Tag in the release URL is the semver base, not the full version string
     assert "download/v0.94.0/" in fragment
+
+
+def test_pycharm_mcp_steroid_render_uses_the_derived_release_tag():
+    plugin = PyCharm(mcp_steroid=True)
+    ctx = BuildContext(base="debian:bookworm-slim")
+    fragment = plugin.render(ctx)
+    # 0.102.0-r-c68d8f15d ships under tag v0.102, which the full number would get wrong
+    assert "download/v0.102/mcp-steroid-0.102.0-r-c68d8f15d.zip" in fragment
+    assert "download/v0.102.0/" not in fragment
+
+
+@mark.parametrize(
+    ("version", "tag"),
+    [
+        # Every release the upstream project has published in either suffix shape.
+        param("0.102.0-r-c68d8f15d", "v0.102", id="multi-segment-suffix-drops-the-patch"),
+        param("0.101-40690055", "v0.101", id="two-part-single-segment"),
+        param("0.100-409f23a2", "v0.100", id="three-digit-minor"),
+        param("0.95.0-b14969e1", "v0.95.0", id="single-segment-keeps-the-patch"),
+        param("0.94.0-8682a5ce", "v0.94.0", id="single-segment-keeps-the-patch-too"),
+        param("0.95.0", "v0.95.0", id="no-suffix"),
+    ],
+)
+def test_mcp_steroid_release_tag_follows_the_suffix_shape(version, tag):
+    plugin = PyCharm(mcp_steroid=True, mcp_steroid_version=version)
+    assert plugin.mcp_steroid_release_tag() == tag
+    assert plugin.mcp_steroid_download_url().endswith(f"/{tag}/mcp-steroid-{version}.zip")
+
+
+def test_pycharm_mcp_steroid_url_is_shell_quoted_in_the_run():
+    # The URL is caller-supplied and lands inside a RUN, so it must not be able to expand.
+    plugin = PyCharm(mcp_steroid=True, mcp_steroid_url="https://mirror.internal/$(id)/mcp-steroid.zip")
+    ctx = BuildContext(base="debian:bookworm-slim")
+    fragment = plugin.render(ctx)
+    assert "curl -fsSL 'https://mirror.internal/$(id)/mcp-steroid.zip'" in fragment
+    assert 'curl -fsSL "https://mirror.internal/$(id)' not in fragment
+
+
+def test_pycharm_mcp_steroid_header_names_the_url_actually_downloaded():
+    # The version field no longer decides the download, so the header may not quote it instead.
+    url = "https://mirror.internal/artifacts/mcp-steroid-0.103.0-r-deadbeef.zip"
+    plugin = PyCharm(mcp_steroid=True, mcp_steroid_version="0.94.0-8682a5ce", mcp_steroid_url=url)
+    ctx = BuildContext(base="debian:bookworm-slim")
+    fragment = plugin.render(ctx)
+    assert f"# Install mcp-steroid from {url}" in fragment
+    assert "0.94.0-8682a5ce" not in fragment
+
+
+def test_pycharm_mcp_steroid_url_none_by_default():
+    assert PyCharm(mcp_steroid=True).mcp_steroid_url is None
+
+
+def test_pycharm_mcp_steroid_explicit_url_replaces_derived_link():
+    url = "https://example.internal/artifacts/mcp-steroid-0.103.0-r-deadbeef.zip"
+    plugin = PyCharm(mcp_steroid=True, mcp_steroid_url=url)
+    ctx = BuildContext(base="debian:bookworm-slim")
+    fragment = plugin.render(ctx)
+    assert url in fragment
+    assert "jonnyzzz/mcp-steroid/releases" not in fragment
+
+
+def test_pycharm_mcp_steroid_explicit_url_wins_over_version():
+    url = "https://example.internal/artifacts/mcp-steroid.zip"
+    plugin = PyCharm(mcp_steroid=True, mcp_steroid_version="0.94.0-8682a5ce", mcp_steroid_url=url)
+    assert plugin.mcp_steroid_download_url() == url
+
+
+def test_pycharm_mcp_steroid_url_rejects_non_zip():
+    with raises(ValueError, match="mcp_steroid_url"):
+        PyCharm(mcp_steroid=True, mcp_steroid_url="https://example.internal/artifacts/mcp-steroid.tar.gz")
+
+
+@mark.parametrize(
+    "url",
+    [
+        param("mcp-steroid.zip", id="relative"),
+        param("htp://mirror.internal/mcp-steroid.zip", id="typo-scheme"),
+        param("file:///tmp/mcp-steroid.zip", id="not-http"),
+    ],
+)
+def test_pycharm_mcp_steroid_url_rejects_a_non_http_url(url):
+    # Caught at construction rather than minutes into the image build.
+    with raises(ValueError):
+        PyCharm(mcp_steroid=True, mcp_steroid_url=url)
 
 
 def test_pycharm_mcp_steroid_false_by_default():
@@ -2076,7 +2160,7 @@ def test_pycharm_get_mcp_upstream_returns_steroid_even_without_project():
 
 def test_idea_mcp_steroid_default_version():
     plugin = Idea(mcp_steroid=True)
-    assert plugin.mcp_steroid_version == "0.94.0-8682a5ce"
+    assert plugin.mcp_steroid_version == "0.102.0-r-c68d8f15d"
 
 
 @mark.parametrize(
@@ -2115,8 +2199,30 @@ def test_idea_mcp_steroid_render_downloads_plugin():
     fragment = plugin.render(ctx)
     assert "mcp-steroid" in fragment
     assert "jonnyzzz/mcp-steroid" in fragment
-    assert "0.94.0-8682a5ce.zip" in fragment
+    assert "0.102.0-r-c68d8f15d.zip" in fragment
     assert "${IDE_DIR}/plugins/" in fragment
+
+
+def test_idea_mcp_steroid_render_uses_mapped_release_tag():
+    plugin = Idea(mcp_steroid=True)
+    ctx = BuildContext(base="debian:bookworm-slim")
+    fragment = plugin.render(ctx)
+    assert "download/v0.102/mcp-steroid-0.102.0-r-c68d8f15d.zip" in fragment
+    assert "download/v0.102.0/" not in fragment
+
+
+def test_idea_mcp_steroid_explicit_url_replaces_derived_link():
+    url = "https://example.internal/artifacts/mcp-steroid-0.103.0-r-deadbeef.zip"
+    plugin = Idea(mcp_steroid=True, mcp_steroid_url=url)
+    ctx = BuildContext(base="debian:bookworm-slim")
+    fragment = plugin.render(ctx)
+    assert url in fragment
+    assert "jonnyzzz/mcp-steroid/releases" not in fragment
+
+
+def test_idea_mcp_steroid_url_rejects_non_zip():
+    with raises(ValueError, match="mcp_steroid_url"):
+        Idea(mcp_steroid=True, mcp_steroid_url="https://example.internal/artifacts/mcp-steroid.tar.gz")
 
 
 def test_idea_mcp_steroid_false_by_default():
