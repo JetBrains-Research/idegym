@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-from idegym.api.config import Config, NodePoolConfig, PodSnapshotConfig
+from idegym.api.config import Config, NodePoolConfig, PodSnapshotConfig, SameImageAffinityConfig
 from idegym.api.orchestrator.servers import ServerKind, StartServerRequest
 from idegym.api.status import Status
 from idegym.orchestrator.snapshot_pipeline import run_snapshot_pipeline_job
@@ -65,9 +65,9 @@ def _patch_all(mocker, *, deploy_error=None):
     mocker.patch("idegym.orchestrator.snapshot_pipeline.extract_resources_request", return_value=(1.0, 2.0))
 
     if deploy_error:
-        mocker.patch("idegym.orchestrator.snapshot_pipeline.deploy_server", side_effect=deploy_error)
+        deploy_server = mocker.patch("idegym.orchestrator.snapshot_pipeline.deploy_server", side_effect=deploy_error)
     else:
-        mocker.patch("idegym.orchestrator.snapshot_pipeline.deploy_server", return_value=None)
+        deploy_server = mocker.patch("idegym.orchestrator.snapshot_pipeline.deploy_server", return_value=None)
 
     mocker.patch("idegym.orchestrator.snapshot_pipeline.wait_for_pods_ready", return_value=None)
     mocker.patch("idegym.orchestrator.snapshot_pipeline.update_server_status", return_value=None)
@@ -90,6 +90,7 @@ def _patch_all(mocker, *, deploy_error=None):
         server=server,
         snapshot=snapshot,
         snapshot_svc=snapshot_svc,
+        deploy_server=deploy_server,
         create_snapshot=create_snapshot,
         update_job=update_job,
         update_succeeded=update_succeeded,
@@ -153,6 +154,17 @@ async def test_success_calls_snapshot_service(mocker):
     await run_snapshot_pipeline_job(job_id=str(uuid4()), request=_request(), config=_config())
 
     instance.snapshot_server.assert_awaited_once()
+
+
+async def test_success_passes_same_image_affinity_config_to_deployment(mocker):
+    mocks = _patch_all(mocker)
+    config = _config()
+    config.orchestrator.same_image_affinity = SameImageAffinityConfig(enabled=True, preference_weight=73)
+
+    await run_snapshot_pipeline_job(job_id=str(uuid4()), request=_request(), config=config)
+
+    assert mocks.deploy_server.await_args.kwargs["same_image_affinity_enabled"] is True
+    assert mocks.deploy_server.await_args.kwargs["same_image_affinity_preference_weight"] == 73
 
 
 async def test_success_persists_pod_snapshot_name(mocker):

@@ -70,6 +70,8 @@ HYDRA_DEFAULTS: dict[str, Any] = {
     "orchestrator.prometheus_multiproc_dir": join(gettempdir(), "idegym", "prometheus"),
     "orchestrator.resources.default_cpu_request": 1.0,
     "orchestrator.resources.default_ram_request": 2.0,
+    "orchestrator.same_image_affinity.enabled": False,
+    "orchestrator.same_image_affinity.preference_weight": 100,
     "orchestrator.sqlalchemy.max_overflow": 5,
     "orchestrator.sqlalchemy.pool_pre_ping": True,
     "orchestrator.sqlalchemy.pool_recycle": 1800,
@@ -167,6 +169,8 @@ ENVIRONMENT_VARIABLES: dict[str, list[str]] = {
         "IDEGYM_RESOURCES_DEFAULT_RAM_REQUEST",
         "IDEGYM_DEFAULT_RAM_REQUEST",
     ],
+    "orchestrator.same_image_affinity.enabled": ["IDEGYM_SAME_IMAGE_AFFINITY_ENABLED"],
+    "orchestrator.same_image_affinity.preference_weight": ["IDEGYM_SAME_IMAGE_AFFINITY_PREFERENCE_WEIGHT"],
     "orchestrator.sqlalchemy.max_overflow": ["IDEGYM_SQLALCHEMY_MAX_OVERFLOW"],
     "orchestrator.sqlalchemy.pool_pre_ping": ["IDEGYM_SQLALCHEMY_POOL_PRE_PING"],
     "orchestrator.sqlalchemy.pool_recycle": ["IDEGYM_SQLALCHEMY_POOL_RECYCLE"],
@@ -231,6 +235,7 @@ SAMPLES = {
     "IDEGYM_WATCHER_INACTIVE_TIMEOUT": ("watcher.inactive_timeout", "PT20M", Duration(minutes=20)),
     "IDEGYM_MCP_STATELESS_HTTP": ("orchestrator.mcp.stateless_http", "False", False),
     "IDEGYM_CLOUDBUILD_DISK_SIZE_GB": ("orchestrator.build.cloudbuild_gke.disk_size_gb", "200", 200),
+    "IDEGYM_SAME_IMAGE_AFFINITY_ENABLED": ("orchestrator.same_image_affinity.enabled", "True", True),
     "IDEGYM_SERVER_SHUTDOWN_DELAY": ("server.shutdown_delay", "PT45S", Duration(seconds=45)),
     "IDEGYM_PROJECT_PATH": ("project.path", "/tmp/proj", "/tmp/proj"),
 }
@@ -424,6 +429,12 @@ def test_unknown_key_is_rejected_rather_than_ignored():
     """Without extra="forbid" a misspelled key would silently leave the default in place."""
     with raises(ValidationError, match="Extra inputs are not permitted"):
         Config(orchestrator={"prot": 9100})
+
+
+@mark.parametrize("weight", [0, 101])
+def test_same_image_affinity_weight_is_bounded(weight: int):
+    with raises(ValidationError):
+        Config(orchestrator={"same_image_affinity": {"preference_weight": weight}})
 
 
 def test_cross_field_validation_still_applies_to_environment_values():
