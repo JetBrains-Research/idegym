@@ -1,3 +1,6 @@
+{{- if and .Values.deployment.maxSandboxesPerNode .Values.deployment.cleanupSandboxCapacity }}
+{{- fail "deployment.maxSandboxesPerNode and deployment.cleanupSandboxCapacity are mutually exclusive" }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -6,6 +9,11 @@ metadata:
     {{- include "idegym.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.deployment.replicas }}
+  {{- if or .Values.deployment.maxSandboxesPerNode .Values.deployment.cleanupSandboxCapacity }}
+  strategy:
+    type: Recreate
+    rollingUpdate: null
+  {{- end }}
   selector:
     matchLabels:
       {{- include "idegym.selectorLabels" . | nindent 6 }}
@@ -117,6 +125,18 @@ spec:
               value: "jetbrains.com/idegym"
             - name: IDEGYM_NODE_POOL_PREFERENCE_WEIGHT
               value: "100"
+            {{- if .Values.deployment.maxSandboxesPerNode }}
+            - name: IDEGYM_NODE_POOL_MAX_SANDBOXES_PER_NODE
+              value: {{ .Values.deployment.maxSandboxesPerNode | quote }}
+            {{- end }}
+            {{- if or .Values.deployment.maxSandboxesPerNode .Values.deployment.cleanupSandboxCapacity }}
+            - name: IDEGYM_NODE_POOL_SANDBOX_CAPACITY_OWNER
+              value: {{ printf "%s/%s" .Release.Namespace .Release.Name | quote }}
+            {{- end }}
+            {{- if .Values.deployment.cleanupSandboxCapacity }}
+            - name: IDEGYM_NODE_POOL_SANDBOX_CAPACITY_CLEANUP
+              value: "True"
+            {{- end }}
             - name: IDEGYM_DATABASE_SCHEMA_REVISION
               value: {{ required "database.schemaRevision must name the Alembic revision this release expects" .Values.database.schemaRevision | quote }}
             {{- include "idegym.databaseEnv" . | nindent 12 }}

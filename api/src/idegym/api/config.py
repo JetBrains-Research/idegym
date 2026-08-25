@@ -205,6 +205,28 @@ class NodePoolConfig(ConfigModel):
     preference_weight: int = Field(
         description="Weight (1-100) for preferring dedicated pool nodes", ge=1, le=100, default=100
     )
+    max_sandboxes_per_node: int = Field(
+        description="Hard scheduler-accounted sandbox pod limit on each node (0 disables the limit)",
+        ge=0,
+        le=2_147_483_647,
+        default=0,
+    )
+    sandbox_capacity_owner: Optional[str] = Field(
+        description="Stable cluster-global owner of the managed sandbox capacity",
+        default=None,
+    )
+    sandbox_capacity_cleanup: bool = Field(
+        description="Remove previously managed sandbox capacity after workloads are drained",
+        default=False,
+    )
+
+    @model_validator(mode="after")
+    def validate_sandbox_capacity(self):
+        if self.max_sandboxes_per_node and self.sandbox_capacity_cleanup:
+            raise ValueError("max_sandboxes_per_node and sandbox_capacity_cleanup are mutually exclusive")
+        if (self.max_sandboxes_per_node or self.sandbox_capacity_cleanup) and not self.sandbox_capacity_owner:
+            raise ValueError("sandbox_capacity_owner is required when capacity management is enabled")
+        return self
 
 
 class CloudBuildGKEConfig(ConfigModel):

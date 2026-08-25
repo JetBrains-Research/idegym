@@ -5,10 +5,26 @@ The Kubernetes API is mocked so the test runs without a cluster. A real ``ApiCli
 only for its (offline) camelCase deserializer.
 """
 
+from types import SimpleNamespace
+
 import pytest
 from idegym.api.orchestrator.servers import StartServerRequest
 from idegym.backend.utils import kubernetes_client as kc
-from kubernetes_asyncio.client import ApiClient
+from kubernetes_asyncio.client import ApiClient, V1Container, V1ObjectMeta, V1PodSpec, V1ResourceRequirements
+
+SANDBOX_CAPACITY_OWNER = "grazie/idegym"
+
+
+def _node(name, *, capacity=None, allocatable=None, owner=None, resource_version="1"):
+    annotations = {kc.SANDBOX_CAPACITY_OWNER_ANNOTATION: owner} if owner else None
+    return SimpleNamespace(
+        metadata=V1ObjectMeta(
+            name=name,
+            annotations=annotations,
+            resource_version=resource_version,
+        ),
+        status=SimpleNamespace(capacity=capacity or {}, allocatable=allocatable or {}),
+    )
 
 
 @pytest.fixture
@@ -39,11 +55,11 @@ def _patch_clients(mocker, api_client):
 
     clients = (apps, mocker.MagicMock(), core, policy, mocker.MagicMock())
     mocker.patch.object(kc, "create_clients", mocker.AsyncMock(return_value=clients))
-    return apps
+    return apps, core
 
 
 async def _deploy_and_get_pod_spec(mocker, api_client, **kwargs):
-    apps = _patch_clients(mocker, api_client)
+    apps, _ = _patch_clients(mocker, api_client)
     await kc.deploy_server(image_tag="img:latest", server_name="srv", namespace="ns", **kwargs)
     body = apps.create_namespaced_deployment.call_args.kwargs["body"]
     return body.spec.template.spec
@@ -56,6 +72,395 @@ async def test_deploy_without_overrides_leaves_pod_unchanged(mocker, api_client)
     assert pod.volumes is None
     assert container.volume_mounts is None
     assert container.env_from is None
+
+
+async def test_max_sandboxes_per_node_requests_scheduler_accounted_capacity(mocker, api_client):
+    prepare_capacity = mocker.patch.object(kc, "prepare_sandbox_node_capacity", mocker.AsyncMock())
+    apps, _ = _patch_clients(mocker, api_client)
+    await kc.deploy_server(
+        image_tag="img:latest",
+        server_name="srv",
+        namespace="ns",
+        max_sandboxes_per_node=20,
+        sandbox_capacity_owner=SANDBOX_CAPACITY_OWNER,
+        resources={"requests": {"cpu": "1"}, "limits": {"memory": "2Gi"}},
+    )
+    deployment = apps.create_namespaced_deployment.await_args.kwargs["body"]
+    template = deployment.spec.template
+    resources = template.spec.containers[0].resources
+
+    prepare_capacity.assert_awaited_once_with(20, SANDBOX_CAPACITY_OWNER)
+    assert resources.requests == {"cpu": "1", kc.SANDBOX_CAPACITY_RESOURCE: "1"}
+    assert resources.limits == {"memory": "2Gi", kc.SANDBOX_CAPACITY_RESOURCE: "1"}
+    assert template.metadata.labels[kc.SANDBOX_COMPONENT_LABEL] == kc.SANDBOX_COMPONENT_VALUE
+    assert deployment.spec.strategy.type == "Recreate"
+
+
+async def test_max_sandboxes_per_node_rejects_negative_limit(mocker, api_client):
+    with pytest.raises(ValueError, match="must be non-negative"):
+        await _deploy_and_get_pod_spec(mocker, api_client, max_sandboxes_per_node=-1)
+
+
+async def test_max_sandboxes_per_node_rejects_caller_managed_capacity(mocker, api_client):
+    mocker.patch.object(kc, "prepare_sandbox_node_capacity", mocker.AsyncMock())
+    with pytest.raises(ValueError, match="is managed"):
+        await _deploy_and_get_pod_spec(
+            mocker,
+            api_client,
+            max_sandboxes_per_node=20,
+            sandbox_capacity_owner=SANDBOX_CAPACITY_OWNER,
+            resources={"requests": {kc.SANDBOX_CAPACITY_RESOURCE: "2"}},
+        )
+
+
+@pytest.mark.parametrize("field", ["nodeName", "node_name", "schedulerName", "scheduler_name"])
+async def test_max_sandboxes_per_node_rejects_scheduler_bypass(mocker, api_client, field):
+    mocker.patch.object(kc, "prepare_sandbox_node_capacity", mocker.AsyncMock())
+    with pytest.raises(ValueError, match="must not bypass scheduling"):
+        await _deploy_and_get_pod_spec(
+            mocker,
+            api_client,
+            max_sandboxes_per_node=20,
+            sandbox_capacity_owner=SANDBOX_CAPACITY_OWNER,
+            pod_overrides={field: "bypass"},
+        )
+
+
+async def test_prepare_sandbox_node_capacity_rejects_legacy_workloads(mocker):
+    mocker.patch.object(kc, "_prepared_sandbox_capacity", None)
+    reconcile = mocker.patch.object(kc, "reconcile_sandbox_node_capacity", mocker.AsyncMock())
+    mocker.patch.object(
+        kc,
+        "find_legacy_sandbox_workloads",
+        mocker.AsyncMock(return_value=["Deployment ns/legacy", "Pod ns/legacy-abc"]),
+    )
+
+    with pytest.raises(RuntimeError, match="drain them first"):
+        await kc.prepare_sandbox_node_capacity(20, SANDBOX_CAPACITY_OWNER)
+
+    reconcile.assert_not_awaited()
+
+
+async def test_prepare_sandbox_node_capacity_validates_once_per_process(mocker):
+    mocker.patch.object(kc, "_prepared_sandbox_capacity", None)
+    find_legacy = mocker.patch.object(kc, "find_legacy_sandbox_workloads", mocker.AsyncMock(return_value=[]))
+    reconcile = mocker.patch.object(kc, "reconcile_sandbox_node_capacity", mocker.AsyncMock())
+
+    await kc.prepare_sandbox_node_capacity(20, SANDBOX_CAPACITY_OWNER)
+    await kc.prepare_sandbox_node_capacity(20, SANDBOX_CAPACITY_OWNER)
+
+    find_legacy.assert_awaited_once()
+    reconcile.assert_awaited_once_with(20, SANDBOX_CAPACITY_OWNER)
+
+
+async def test_find_legacy_sandbox_workloads_checks_templates_and_live_pods(mocker, api_client):
+    apps, core = _patch_clients(mocker, api_client)
+    legacy_spec = V1PodSpec(containers=[V1Container(name="server")])
+    capped_spec = V1PodSpec(
+        containers=[
+            V1Container(
+                name="server",
+                resources=V1ResourceRequirements(requests={kc.SANDBOX_CAPACITY_RESOURCE: "1"}),
+            )
+        ]
+    )
+    zero_spec = V1PodSpec(
+        containers=[
+            V1Container(
+                name="server",
+                resources=V1ResourceRequirements(requests={kc.SANDBOX_CAPACITY_RESOURCE: "0"}),
+            )
+        ]
+    )
+    apps.list_deployment_for_all_namespaces = mocker.AsyncMock(
+        return_value=SimpleNamespace(
+            items=[
+                SimpleNamespace(
+                    metadata=V1ObjectMeta(namespace="ns", name="legacy"),
+                    spec=SimpleNamespace(template=SimpleNamespace(spec=legacy_spec)),
+                ),
+                SimpleNamespace(
+                    metadata=V1ObjectMeta(namespace="ns", name="capped"),
+                    spec=SimpleNamespace(template=SimpleNamespace(spec=capped_spec)),
+                ),
+                SimpleNamespace(
+                    metadata=V1ObjectMeta(namespace="ns", name="zero-unit"),
+                    spec=SimpleNamespace(template=SimpleNamespace(spec=zero_spec)),
+                ),
+            ]
+        )
+    )
+    core.list_pod_for_all_namespaces = mocker.AsyncMock(
+        return_value=SimpleNamespace(
+            items=[
+                SimpleNamespace(
+                    metadata=V1ObjectMeta(namespace="ns", name="legacy-pod"),
+                    spec=legacy_spec,
+                    status=SimpleNamespace(phase="Running"),
+                ),
+                SimpleNamespace(
+                    metadata=V1ObjectMeta(namespace="ns", name="finished-pod"),
+                    spec=legacy_spec,
+                    status=SimpleNamespace(phase="Succeeded"),
+                ),
+            ]
+        )
+    )
+
+    assert await kc.find_legacy_sandbox_workloads() == [
+        "Deployment ns/legacy",
+        "Deployment ns/zero-unit",
+        "Pod ns/legacy-pod",
+    ]
+
+
+async def test_wait_for_sandbox_capacity_waits_for_allocatable(mocker):
+    core = mocker.MagicMock()
+    core.list_node = mocker.AsyncMock(
+        side_effect=[
+            SimpleNamespace(
+                items=[
+                    _node(
+                        "node-a",
+                        capacity={kc.SANDBOX_CAPACITY_RESOURCE: "20"},
+                        allocatable={kc.SANDBOX_CAPACITY_RESOURCE: "10"},
+                    )
+                ]
+            ),
+            SimpleNamespace(
+                items=[
+                    _node(
+                        "node-a",
+                        capacity={kc.SANDBOX_CAPACITY_RESOURCE: "20"},
+                        allocatable={kc.SANDBOX_CAPACITY_RESOURCE: "20"},
+                    )
+                ]
+            ),
+        ]
+    )
+    sleep = mocker.patch.object(kc, "sleep", mocker.AsyncMock())
+
+    await kc._wait_for_sandbox_capacity(core, {"node-a"}, 20, timeout_seconds=1)
+
+    sleep.assert_awaited_once()
+    assert core.list_node.await_count == 2
+
+
+async def test_wait_for_sandbox_capacity_has_bounded_timeout(mocker):
+    core = mocker.MagicMock()
+    core.list_node = mocker.AsyncMock(return_value=SimpleNamespace(items=[_node("node-a")]))
+
+    with pytest.raises(RuntimeError, match="Timed out"):
+        await kc._wait_for_sandbox_capacity(core, {"node-a"}, 20, timeout_seconds=0)
+
+
+async def test_wait_for_sandbox_capacity_ignores_deleted_nodes(mocker):
+    core = mocker.MagicMock()
+    core.list_node = mocker.AsyncMock(return_value=SimpleNamespace(items=[]))
+    sleep = mocker.patch.object(kc, "sleep", mocker.AsyncMock())
+
+    await kc._wait_for_sandbox_capacity(core, {"deleted-node"}, 20, timeout_seconds=1)
+
+    sleep.assert_not_awaited()
+
+
+async def test_reconcile_rejects_conflicting_capacity_owner(mocker, api_client):
+    _, core = _patch_clients(mocker, api_client)
+    core.list_node = mocker.AsyncMock(return_value=SimpleNamespace(items=[_node("node-a", owner="other/idegym")]))
+
+    with pytest.raises(RuntimeError, match="another IdeGYM installation"):
+        await kc.reconcile_sandbox_node_capacity(20, SANDBOX_CAPACITY_OWNER)
+
+
+async def test_claim_sandbox_capacity_owner_uses_atomic_anchor_patch(mocker):
+    core = mocker.MagicMock()
+    core.patch_node = mocker.AsyncMock()
+    nodes = [_node("node-b", resource_version="12"), _node("node-a", resource_version="11")]
+
+    await kc._claim_sandbox_capacity_owner(core, nodes, SANDBOX_CAPACITY_OWNER, 20)
+
+    call = core.patch_node.await_args.kwargs
+    assert call["name"] == "node-a"
+    assert call["body"][0] == {
+        "op": "test",
+        "path": "/metadata/resourceVersion",
+        "value": "11",
+    }
+    assert call["body"][1]["value"][kc.SANDBOX_CAPACITY_OWNER_ANNOTATION] == SANDBOX_CAPACITY_OWNER
+
+
+@pytest.mark.parametrize("status", [404, 422])
+async def test_claim_sandbox_capacity_owner_retries_stale_anchor(mocker, status):
+    core = mocker.MagicMock()
+    core.patch_node = mocker.AsyncMock(side_effect=[kc.ApiException(status=status), None])
+    first = _node("node-a", resource_version="11")
+    second = _node("node-a", resource_version="12")
+    core.list_node = mocker.AsyncMock(return_value=SimpleNamespace(items=[second]))
+
+    await kc._claim_sandbox_capacity_owner(core, [first], SANDBOX_CAPACITY_OWNER, 20)
+
+    assert core.patch_node.await_count == 2
+    assert core.patch_node.await_args.kwargs["body"][0]["value"] == "12"
+
+
+async def test_cleanup_sandbox_capacity_refuses_requesting_pods(mocker, api_client):
+    apps, core = _patch_clients(mocker, api_client)
+    apps.list_deployment_for_all_namespaces = mocker.AsyncMock(return_value=SimpleNamespace(items=[]))
+    requesting_spec = V1PodSpec(
+        containers=[
+            V1Container(
+                name="server",
+                resources=V1ResourceRequirements(requests={kc.SANDBOX_CAPACITY_RESOURCE: "1"}),
+            )
+        ]
+    )
+    core.list_pod_for_all_namespaces = mocker.AsyncMock(
+        return_value=SimpleNamespace(
+            items=[
+                SimpleNamespace(
+                    metadata=V1ObjectMeta(namespace="ns", name="sandbox"),
+                    spec=requesting_spec,
+                    status=SimpleNamespace(phase="Running"),
+                )
+            ]
+        )
+    )
+    owned = _node(
+        "node-a",
+        capacity={kc.SANDBOX_CAPACITY_RESOURCE: "20"},
+        allocatable={kc.SANDBOX_CAPACITY_RESOURCE: "20"},
+        owner=SANDBOX_CAPACITY_OWNER,
+    )
+    zeroed = _node(
+        "node-a",
+        capacity={kc.SANDBOX_CAPACITY_RESOURCE: "0"},
+        allocatable={kc.SANDBOX_CAPACITY_RESOURCE: "0"},
+        owner=SANDBOX_CAPACITY_OWNER,
+    )
+    owned.metadata.annotations[kc.SANDBOX_CAPACITY_LIMIT_ANNOTATION] = "20"
+    core.list_node = mocker.AsyncMock(side_effect=[SimpleNamespace(items=[owned]), SimpleNamespace(items=[zeroed])])
+    core.patch_node_status = mocker.AsyncMock()
+    core.patch_node = mocker.AsyncMock()
+
+    with pytest.raises(RuntimeError, match="requesting workloads exist"):
+        await kc.cleanup_sandbox_node_capacity(SANDBOX_CAPACITY_OWNER)
+
+    core.patch_node_status.assert_awaited_once()
+    core.patch_node.assert_not_awaited()
+
+
+async def test_cleanup_sandbox_capacity_zeros_nodes_and_releases_owner(mocker, api_client):
+    apps, core = _patch_clients(mocker, api_client)
+    apps.list_deployment_for_all_namespaces = mocker.AsyncMock(return_value=SimpleNamespace(items=[]))
+    core.list_pod_for_all_namespaces = mocker.AsyncMock(return_value=SimpleNamespace(items=[]))
+    owned = _node(
+        "node-a",
+        capacity={kc.SANDBOX_CAPACITY_RESOURCE: "20"},
+        allocatable={kc.SANDBOX_CAPACITY_RESOURCE: "20"},
+        owner=SANDBOX_CAPACITY_OWNER,
+    )
+    zeroed = _node(
+        "node-a",
+        capacity={kc.SANDBOX_CAPACITY_RESOURCE: "0"},
+        allocatable={kc.SANDBOX_CAPACITY_RESOURCE: "0"},
+        owner=SANDBOX_CAPACITY_OWNER,
+    )
+    owned.metadata.annotations[kc.SANDBOX_CAPACITY_LIMIT_ANNOTATION] = "20"
+    core.list_node = mocker.AsyncMock(side_effect=[SimpleNamespace(items=[owned]), SimpleNamespace(items=[zeroed])])
+    core.patch_node_status = mocker.AsyncMock()
+    core.patch_node = mocker.AsyncMock()
+
+    await kc.cleanup_sandbox_node_capacity(SANDBOX_CAPACITY_OWNER)
+
+    core.patch_node_status.assert_awaited_once()
+    assert core.patch_node_status.await_args.kwargs["body"][0]["value"] == "0"
+    core.patch_node.assert_awaited_once()
+    patch = core.patch_node.await_args.kwargs["body"]
+    assert patch[0]["op"] == "test"
+    assert patch[0]["value"] == SANDBOX_CAPACITY_OWNER
+    assert [operation["op"] for operation in patch[1:]] == ["remove", "remove"]
+
+
+async def test_release_sandbox_capacity_owner_does_not_erase_successor(mocker):
+    core = mocker.MagicMock()
+    core.patch_node = mocker.AsyncMock(side_effect=kc.ApiException(status=422))
+    original = _node("node-a", owner=SANDBOX_CAPACITY_OWNER)
+    successor = _node("node-a", owner="other/idegym")
+    core.list_node = mocker.AsyncMock(return_value=SimpleNamespace(items=[successor]))
+
+    with pytest.raises(RuntimeError, match="now owned by another"):
+        await kc._release_sandbox_capacity_owner(core, original, SANDBOX_CAPACITY_OWNER)
+
+    core.patch_node.assert_awaited_once()
+
+
+async def test_release_sandbox_capacity_owner_accepts_deleted_node(mocker):
+    core = mocker.MagicMock()
+    core.patch_node = mocker.AsyncMock(side_effect=kc.ApiException(status=404))
+
+    await kc._release_sandbox_capacity_owner(
+        core,
+        _node("deleted-node", owner=SANDBOX_CAPACITY_OWNER),
+        SANDBOX_CAPACITY_OWNER,
+    )
+
+    core.list_node.assert_not_called()
+
+
+async def test_reconcile_sandbox_node_capacity_patches_only_stale_nodes(mocker, api_client):
+    _, core = _patch_clients(mocker, api_client)
+    wait_for_capacity = mocker.patch.object(kc, "_wait_for_sandbox_capacity", mocker.AsyncMock())
+    core.list_node = mocker.AsyncMock(
+        return_value=SimpleNamespace(
+            items=[
+                SimpleNamespace(
+                    metadata=V1ObjectMeta(name="fresh"),
+                    status=SimpleNamespace(capacity={kc.SANDBOX_CAPACITY_RESOURCE: "20"}),
+                ),
+                SimpleNamespace(
+                    metadata=V1ObjectMeta(name="stale"),
+                    status=SimpleNamespace(capacity={}),
+                ),
+            ]
+        )
+    )
+    core.patch_node_status = mocker.AsyncMock()
+    core.patch_node = mocker.AsyncMock()
+
+    await kc.reconcile_sandbox_node_capacity(20, SANDBOX_CAPACITY_OWNER)
+
+    core.patch_node_status.assert_awaited_once_with(
+        name="stale",
+        body=[
+            {
+                "op": "add",
+                "path": "/status/capacity/idegym.jetbrains.com~1sandbox",
+                "value": "20",
+            }
+        ],
+        _content_type="application/json-patch+json",
+    )
+    wait_for_capacity.assert_awaited_once_with(core, {"fresh", "stale"}, 20)
+
+
+async def test_reconcile_updates_positive_cap_for_same_owner(mocker, api_client):
+    _, core = _patch_clients(mocker, api_client)
+    node = _node(
+        "node-a",
+        capacity={kc.SANDBOX_CAPACITY_RESOURCE: "20"},
+        allocatable={kc.SANDBOX_CAPACITY_RESOURCE: "20"},
+        owner=SANDBOX_CAPACITY_OWNER,
+    )
+    core.list_node = mocker.AsyncMock(return_value=SimpleNamespace(items=[node]))
+    core.patch_node = mocker.AsyncMock()
+    core.patch_node_status = mocker.AsyncMock()
+    mocker.patch.object(kc, "_wait_for_sandbox_capacity", mocker.AsyncMock())
+
+    await kc.reconcile_sandbox_node_capacity(10, SANDBOX_CAPACITY_OWNER)
+
+    assert core.patch_node_status.await_args.kwargs["body"][0]["value"] == "10"
+    annotations = core.patch_node.await_args.kwargs["body"]["metadata"]["annotations"]
+    assert annotations[kc.SANDBOX_CAPACITY_LIMIT_ANNOTATION] == "10"
 
 
 async def test_deploy_applies_typed_volumes_mounts_and_env_from(mocker, api_client):

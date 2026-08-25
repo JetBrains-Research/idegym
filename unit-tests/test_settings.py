@@ -12,7 +12,7 @@ from tempfile import gettempdir
 from typing import Any
 
 from idegym.api.auth import BasicAuth
-from idegym.api.config import Config, OTELConfig, TracingAuthConfig
+from idegym.api.config import Config, NodePoolConfig, OTELConfig, TracingAuthConfig
 from idegym.api.memory import MemoryQuantity
 from idegym.api.type import Duration
 from idegym.backend.utils.settings import (
@@ -60,7 +60,10 @@ HYDRA_DEFAULTS: dict[str, Any] = {
     "orchestrator.host": "0.0.0.0",
     "orchestrator.mcp.stateless_http": True,
     "orchestrator.node_pool.enabled": False,
+    "orchestrator.node_pool.max_sandboxes_per_node": 0,
     "orchestrator.node_pool.preference_weight": 100,
+    "orchestrator.node_pool.sandbox_capacity_cleanup": False,
+    "orchestrator.node_pool.sandbox_capacity_owner": None,
     "orchestrator.node_pool.taint_key": "jetbrains.com/idegym",
     "orchestrator.pod_snapshot.completion_timeout": "0:02:00",
     "orchestrator.pod_snapshot.enabled": False,
@@ -151,7 +154,10 @@ ENVIRONMENT_VARIABLES: dict[str, list[str]] = {
     "orchestrator.host": ["IDEGYM_ORCHESTRATOR_HOST", "IDEGYM_MANAGER_HOST"],
     "orchestrator.mcp.stateless_http": ["IDEGYM_MCP_STATELESS_HTTP"],
     "orchestrator.node_pool.enabled": ["IDEGYM_NODE_POOL_ENABLED"],
+    "orchestrator.node_pool.max_sandboxes_per_node": ["IDEGYM_NODE_POOL_MAX_SANDBOXES_PER_NODE"],
     "orchestrator.node_pool.preference_weight": ["IDEGYM_NODE_POOL_PREFERENCE_WEIGHT"],
+    "orchestrator.node_pool.sandbox_capacity_cleanup": ["IDEGYM_NODE_POOL_SANDBOX_CAPACITY_CLEANUP"],
+    "orchestrator.node_pool.sandbox_capacity_owner": ["IDEGYM_NODE_POOL_SANDBOX_CAPACITY_OWNER"],
     "orchestrator.node_pool.taint_key": ["IDEGYM_NODE_POOL_TAINT_KEY"],
     "orchestrator.pod_snapshot.completion_timeout": ["IDEGYM_POD_SNAPSHOT_COMPLETION_TIMEOUT"],
     "orchestrator.pod_snapshot.enabled": ["IDEGYM_POD_SNAPSHOT_ENABLED"],
@@ -192,6 +198,21 @@ ENVIRONMENT_VARIABLES: dict[str, list[str]] = {
     "server.response_buffer_size": ["IDEGYM_SERVER_RESPONSE_BUFFER_SIZE"],
     "server.shutdown_delay": ["IDEGYM_SERVER_SHUTDOWN_DELAY"],
 }
+
+
+def test_sandbox_capacity_management_requires_owner():
+    with raises(ValidationError, match="sandbox_capacity_owner is required"):
+        NodePoolConfig(max_sandboxes_per_node=20)
+
+
+def test_sandbox_capacity_cleanup_is_mutually_exclusive_with_cap():
+    with raises(ValidationError, match="mutually exclusive"):
+        NodePoolConfig(
+            max_sandboxes_per_node=20,
+            sandbox_capacity_cleanup=True,
+            sandbox_capacity_owner="grazie/idegym",
+        )
+
 
 # A non-default value per renamed field, used to prove the pre-rename name still reaches it.
 LEGACY_SAMPLES = {

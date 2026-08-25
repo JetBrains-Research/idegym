@@ -9,7 +9,12 @@ from httpx import AsyncClient, Limits, Timeout
 from idegym.api.config import Config
 from idegym.backend.utils.diagnostics import dump_tasks_periodically
 from idegym.backend.utils.instrumentation.uvicorn import UvicornInstrumentor
-from idegym.backend.utils.kubernetes_client import load_kubernetes_config
+from idegym.backend.utils.kubernetes_client import (
+    cleanup_sandbox_node_capacity,
+    load_kubernetes_config,
+    prepare_sandbox_node_capacity,
+    reconcile_sandbox_node_capacity_periodically,
+)
 from idegym.backend.utils.logging import configure_logging, configure_sqlalchemy_logging
 from idegym.backend.utils.otel import configure_telemetry, system_metrics_config
 from idegym.backend.utils.starlette.middleware import AsyncioTaskContextMiddleware, TracingMiddleware
@@ -67,6 +72,21 @@ async def lifespan(app: FastAPI):
         declared_schema_revision=config.orchestrator.database.schema_revision,
     )
 
+    node_pool = config.orchestrator.node_pool
+    max_sandboxes_per_node = node_pool.max_sandboxes_per_node
+    sandbox_capacity_owner = node_pool.sandbox_capacity_owner
+    sandbox_capacity_task = None
+    if max_sandboxes_per_node:
+        assert sandbox_capacity_owner is not None
+        await prepare_sandbox_node_capacity(max_sandboxes_per_node, sandbox_capacity_owner)
+        sandbox_capacity_task = create_task(
+            name="idegym-sandbox-capacity-reconciler",
+            coro=reconcile_sandbox_node_capacity_periodically(max_sandboxes_per_node, sandbox_capacity_owner),
+        )
+    elif node_pool.sandbox_capacity_cleanup:
+        assert sandbox_capacity_owner is not None
+        await cleanup_sandbox_node_capacity(sandbox_capacity_owner)
+
     get_event_loop().set_debug(config.orchestrator.asyncio.debug)
     coroutine_dump_task = create_task(
         name="idegym-coroutine-dump",
@@ -96,8 +116,12 @@ async def lifespan(app: FastAPI):
         logger.info("Closing HTTP client...")
     logger.info("HTTP client closed!")
 
-    coroutine_dump_task.cancel()
-    await gather(coroutine_dump_task)
+    background_tasks = [coroutine_dump_task]
+    if sandbox_capacity_task:
+        background_tasks.append(sandbox_capacity_task)
+    for task in background_tasks:
+        task.cancel()
+    await gather(*background_tasks, return_exceptions=True)
 
 
 def create_app() -> FastAPI:

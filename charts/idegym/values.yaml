@@ -11,6 +11,10 @@ deployment:
   otel:
     tracing: { }
   replicas: 4
+  # Hard sandbox limit on each node. Zero disables it.
+  maxSandboxesPerNode: 0
+  # One-shot cleanup mode after capped sandbox workloads have been drained.
+  cleanupSandboxCapacity: false
   # Safe to raise when mcp.statelessHttp is true. With session mode
   # (statelessHttp: false) this must stay at 1.
   uvicornWorkers: 1
