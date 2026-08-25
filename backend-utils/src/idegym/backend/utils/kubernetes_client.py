@@ -1,5 +1,5 @@
 import json
-from asyncio import CancelledError, gather, sleep, timeout
+from asyncio import CancelledError, Lock, gather, sleep, timeout
 from collections.abc import AsyncGenerator, Awaitable, Callable, Iterable
 from contextlib import asynccontextmanager
 from os import environ as env
@@ -16,6 +16,7 @@ from idegym.api.type import ConditionStatus
 from idegym.utils.dict import deep_merge
 from idegym.utils.functools import cached_async_result
 from idegym.utils.logging import get_logger
+from kubernetes.utils.quantity import parse_quantity
 from kubernetes_asyncio.client import (
     ApiClient,
     ApiException,
@@ -36,6 +37,7 @@ from kubernetes_asyncio.client import (
     V1Deployment,
     V1DeploymentList,
     V1DeploymentSpec,
+    V1DeploymentStrategy,
     V1EnvVar,
     V1EnvVarSource,
     V1HTTPGetAction,
@@ -83,6 +85,366 @@ KubernetesV1Apis = tuple[AppsV1Api, BatchV1Api, CoreV1Api, PolicyV1Api, CustomOb
 V1ResourceList = V1ConfigMapList | V1DeploymentList | V1PodDisruptionBudgetList | V1ServiceList
 
 logger = get_logger(__name__)
+
+SANDBOX_COMPONENT_LABEL = "app.kubernetes.io/component"
+SANDBOX_COMPONENT_VALUE = "sandbox"
+SANDBOX_CAPACITY_RESOURCE = "idegym.jetbrains.com/sandbox"
+SANDBOX_CAPACITY_OWNER_ANNOTATION = "idegym.jetbrains.com/sandbox-capacity-owner"
+SANDBOX_CAPACITY_LIMIT_ANNOTATION = "idegym.jetbrains.com/sandbox-capacity-limit"
+SANDBOX_CAPACITY_RECONCILE_INTERVAL_SECONDS = 30
+SANDBOX_CAPACITY_CONVERGENCE_TIMEOUT_SECONDS = 60
+SANDBOX_CAPACITY_CONVERGENCE_POLL_SECONDS = 1
+_prepared_sandbox_capacity: Optional[tuple[int, str]] = None
+_sandbox_capacity_prepare_lock = Lock()
+
+
+def _requests_sandbox_capacity(pod_spec: V1PodSpec) -> bool:
+    """Return whether any scheduled container reserves the managed sandbox resource."""
+    containers = [*(pod_spec.containers or []), *(pod_spec.init_containers or [])]
+    for container in containers:
+        requests = container.resources.requests if container.resources else None
+        value = requests.get(SANDBOX_CAPACITY_RESOURCE) if requests else None
+        if value is None:
+            continue
+        try:
+            if parse_quantity(value) >= 1:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
+def _add_sandbox_capacity_request(
+    resources: Optional[V1ResourceRequirements],
+) -> V1ResourceRequirements:
+    """Reserve one scheduler-accounted sandbox unit without changing caller resources."""
+    resources = resources or V1ResourceRequirements()
+    requests = dict(resources.requests or {})
+    limits = dict(resources.limits or {})
+    if SANDBOX_CAPACITY_RESOURCE in requests or SANDBOX_CAPACITY_RESOURCE in limits:
+        raise ValueError(f"{SANDBOX_CAPACITY_RESOURCE} is managed by max_sandboxes_per_node")
+
+    requests[SANDBOX_CAPACITY_RESOURCE] = "1"
+    limits[SANDBOX_CAPACITY_RESOURCE] = "1"
+    return V1ResourceRequirements(claims=resources.claims, requests=requests, limits=limits)
+
+
+async def find_legacy_sandbox_workloads() -> list[str]:
+    """Find live sandbox workloads that do not reserve managed capacity."""
+    selector = f"{SANDBOX_COMPONENT_LABEL}={SANDBOX_COMPONENT_VALUE}"
+    async with async_kube_api() as (apps, _, core, _, _):
+        deployments, pods = await gather(
+            apps.list_deployment_for_all_namespaces(label_selector=selector),
+            core.list_pod_for_all_namespaces(label_selector=selector),
+        )
+
+    legacy = {
+        f"Deployment {deployment.metadata.namespace}/{deployment.metadata.name}"
+        for deployment in deployments.items
+        if not _requests_sandbox_capacity(deployment.spec.template.spec)
+    }
+    legacy.update(
+        f"Pod {pod.metadata.namespace}/{pod.metadata.name}"
+        for pod in pods.items
+        if (not pod.status or pod.status.phase not in {"Succeeded", "Failed"})
+        and not _requests_sandbox_capacity(pod.spec)
+    )
+    return sorted(legacy)
+
+
+def _json_pointer(value: str) -> str:
+    return value.replace("~", "~0").replace("/", "~1")
+
+
+def _node_owner(node) -> Optional[str]:
+    return (node.metadata.annotations or {}).get(SANDBOX_CAPACITY_OWNER_ANNOTATION)
+
+
+def _resource_matches(resources, expected: int) -> bool:
+    value = (resources or {}).get(SANDBOX_CAPACITY_RESOURCE)
+    if value is None:
+        return expected == 0
+    try:
+        return parse_quantity(value) == expected
+    except (TypeError, ValueError):
+        return False
+
+
+def _assert_sandbox_capacity_owner(nodes, owner: str) -> None:
+    conflicting = sorted({value for node in nodes if (value := _node_owner(node)) and value != owner})
+    if conflicting:
+        raise RuntimeError(f"Sandbox capacity is owned by another IdeGYM installation: {', '.join(conflicting)}")
+
+
+async def _claim_sandbox_capacity_owner(core, nodes, owner: str, limit: int) -> None:
+    """Atomically establish one cluster-global owner using the first node as an anchor."""
+    for _ in range(5):
+        _assert_sandbox_capacity_owner(nodes, owner)
+        if any(_node_owner(node) == owner for node in nodes):
+            return
+        if not nodes:
+            raise RuntimeError("Cannot manage sandbox capacity because the cluster has no nodes")
+
+        anchor = min(nodes, key=lambda node: node.metadata.name)
+        patch = [{"op": "test", "path": "/metadata/resourceVersion", "value": anchor.metadata.resource_version}]
+        if anchor.metadata.annotations is None:
+            patch.append(
+                {
+                    "op": "add",
+                    "path": "/metadata/annotations",
+                    "value": {
+                        SANDBOX_CAPACITY_OWNER_ANNOTATION: owner,
+                        SANDBOX_CAPACITY_LIMIT_ANNOTATION: str(limit),
+                    },
+                }
+            )
+        else:
+            patch.extend(
+                [
+                    {
+                        "op": "add",
+                        "path": f"/metadata/annotations/{_json_pointer(SANDBOX_CAPACITY_OWNER_ANNOTATION)}",
+                        "value": owner,
+                    },
+                    {
+                        "op": "add",
+                        "path": f"/metadata/annotations/{_json_pointer(SANDBOX_CAPACITY_LIMIT_ANNOTATION)}",
+                        "value": str(limit),
+                    },
+                ]
+            )
+        try:
+            await core.patch_node(
+                name=anchor.metadata.name,
+                body=patch,
+                _content_type="application/json-patch+json",
+            )
+            return
+        except ApiException as error:
+            if error.status not in {404, 409, 422}:
+                raise
+            nodes = (await core.list_node()).items
+
+    raise RuntimeError("Could not claim sandbox capacity ownership after concurrent node updates")
+
+
+async def _wait_for_sandbox_capacity(
+    core,
+    node_names: set[str],
+    expected: int,
+    timeout_seconds: float = SANDBOX_CAPACITY_CONVERGENCE_TIMEOUT_SECONDS,
+) -> None:
+    """Wait until both capacity and scheduler-visible allocatable have converged."""
+    try:
+        async with timeout(timeout_seconds):
+            while True:
+                nodes = {node.metadata.name: node for node in (await core.list_node()).items}
+                if all(
+                    name not in nodes
+                    or (
+                        _resource_matches(nodes[name].status.capacity, expected)
+                        and _resource_matches(nodes[name].status.allocatable, expected)
+                    )
+                    for name in node_names
+                ):
+                    return
+                await sleep(SANDBOX_CAPACITY_CONVERGENCE_POLL_SECONDS)
+    except TimeoutError as error:
+        raise RuntimeError(
+            f"Timed out waiting for sandbox capacity and allocatable to converge to {expected}"
+        ) from error
+
+
+async def reconcile_sandbox_node_capacity(max_sandboxes_per_node: int, owner: str) -> None:
+    """Claim and advertise scheduler-accounted sandbox capacity on every current node."""
+    if max_sandboxes_per_node <= 0:
+        raise ValueError("max_sandboxes_per_node must be positive")
+    if not owner:
+        raise ValueError("sandbox capacity owner must be non-empty")
+
+    json_pointer_resource = _json_pointer(SANDBOX_CAPACITY_RESOURCE)
+    async with async_kube_api() as (_, _, core, _, _):
+        nodes = (await core.list_node()).items
+        await _claim_sandbox_capacity_owner(core, nodes, owner, max_sandboxes_per_node)
+        patches = []
+        for node in nodes:
+            patches.append(
+                core.patch_node(
+                    name=node.metadata.name,
+                    body={
+                        "metadata": {
+                            "annotations": {
+                                SANDBOX_CAPACITY_OWNER_ANNOTATION: owner,
+                                SANDBOX_CAPACITY_LIMIT_ANNOTATION: str(max_sandboxes_per_node),
+                            }
+                        }
+                    },
+                    _content_type="application/merge-patch+json",
+                )
+            )
+            if _resource_matches(node.status.capacity, max_sandboxes_per_node):
+                continue
+            patches.append(
+                core.patch_node_status(
+                    name=node.metadata.name,
+                    body=[
+                        {
+                            "op": "add",
+                            "path": f"/status/capacity/{json_pointer_resource}",
+                            "value": str(max_sandboxes_per_node),
+                        }
+                    ],
+                    _content_type="application/json-patch+json",
+                )
+            )
+
+        if patches:
+            await gather(*patches)
+        await _wait_for_sandbox_capacity(core, {node.metadata.name for node in nodes}, max_sandboxes_per_node)
+
+    logger.info(
+        "Reconciled sandbox capacity on Kubernetes nodes",
+        nodes=len(nodes),
+        updated_nodes=sum(not _resource_matches(node.status.capacity, max_sandboxes_per_node) for node in nodes),
+        max_sandboxes_per_node=max_sandboxes_per_node,
+        owner=owner,
+    )
+
+
+async def reconcile_sandbox_node_capacity_periodically(max_sandboxes_per_node: int, owner: str) -> None:
+    """Keep capacity present on nodes added after orchestrator startup."""
+    while True:
+        await sleep(SANDBOX_CAPACITY_RECONCILE_INTERVAL_SECONDS)
+        try:
+            await reconcile_sandbox_node_capacity(max_sandboxes_per_node, owner)
+        except CancelledError:
+            raise
+        except Exception:
+            logger.exception("Failed to reconcile sandbox node capacity")
+
+
+async def prepare_sandbox_node_capacity(max_sandboxes_per_node: int, owner: str) -> None:
+    """Reject unsafe enablement transitions and ensure nodes advertise capacity."""
+    global _prepared_sandbox_capacity
+    prepared = (max_sandboxes_per_node, owner)
+    if _prepared_sandbox_capacity == prepared:
+        return
+
+    async with _sandbox_capacity_prepare_lock:
+        if _prepared_sandbox_capacity == prepared:
+            return
+
+        legacy = await find_legacy_sandbox_workloads()
+        if legacy:
+            preview = ", ".join(legacy[:5])
+            suffix = f" and {len(legacy) - 5} more" if len(legacy) > 5 else ""
+            raise RuntimeError(
+                "Cannot enable max_sandboxes_per_node while sandbox workloads without capacity requests exist; "
+                f"drain them first: {preview}{suffix}"
+            )
+
+        await reconcile_sandbox_node_capacity(max_sandboxes_per_node, owner)
+        _prepared_sandbox_capacity = prepared
+
+
+async def cleanup_sandbox_node_capacity(owner: str) -> None:
+    """Safely zero managed capacity and release ownership after all requesters are drained."""
+    global _prepared_sandbox_capacity
+    if not owner:
+        raise ValueError("sandbox capacity owner must be non-empty")
+
+    async with async_kube_api() as (apps, _, core, _, _):
+        nodes = (await core.list_node()).items
+        _assert_sandbox_capacity_owner(nodes, owner)
+        if any(not _resource_matches(node.status.capacity, 0) for node in nodes) and not any(
+            _node_owner(node) == owner for node in nodes
+        ):
+            raise RuntimeError("Refusing to clean up unowned sandbox capacity")
+
+        capacity_patches = [
+            core.patch_node_status(
+                name=node.metadata.name,
+                body=[
+                    {
+                        "op": "add",
+                        "path": f"/status/capacity/{_json_pointer(SANDBOX_CAPACITY_RESOURCE)}",
+                        "value": "0",
+                    }
+                ],
+                _content_type="application/json-patch+json",
+            )
+            for node in nodes
+            if not _resource_matches(node.status.capacity, 0)
+        ]
+        if capacity_patches:
+            await gather(*capacity_patches)
+        await _wait_for_sandbox_capacity(core, {node.metadata.name for node in nodes}, 0)
+
+        selector = f"{SANDBOX_COMPONENT_LABEL}={SANDBOX_COMPONENT_VALUE}"
+        deployments, pods = await gather(
+            apps.list_deployment_for_all_namespaces(label_selector=selector),
+            core.list_pod_for_all_namespaces(),
+        )
+        requesting = {
+            f"Deployment {item.metadata.namespace}/{item.metadata.name}"
+            for item in deployments.items
+            if _requests_sandbox_capacity(item.spec.template.spec)
+        }
+        requesting.update(
+            f"Pod {item.metadata.namespace}/{item.metadata.name}"
+            for item in pods.items
+            if (not item.status or item.status.phase not in {"Succeeded", "Failed"})
+            and _requests_sandbox_capacity(item.spec)
+        )
+        if requesting:
+            preview = ", ".join(sorted(requesting)[:5])
+            suffix = f" and {len(requesting) - 5} more" if len(requesting) > 5 else ""
+            raise RuntimeError(f"Cannot clean up sandbox capacity while requesting workloads exist: {preview}{suffix}")
+
+        await gather(*(_release_sandbox_capacity_owner(core, node, owner) for node in nodes))
+
+    _prepared_sandbox_capacity = None
+    logger.info("Cleaned up sandbox node capacity", nodes=len(nodes), owner=owner)
+
+
+async def _release_sandbox_capacity_owner(core, node, owner: str) -> None:
+    """Release one node only while its owner still matches the cleanup installation."""
+    for _ in range(3):
+        annotations = node.metadata.annotations or {}
+        current_owner = annotations.get(SANDBOX_CAPACITY_OWNER_ANNOTATION)
+        if current_owner is None:
+            return
+        if current_owner != owner:
+            raise RuntimeError(f"Sandbox capacity is now owned by another IdeGYM installation: {current_owner}")
+
+        owner_path = f"/metadata/annotations/{_json_pointer(SANDBOX_CAPACITY_OWNER_ANNOTATION)}"
+        patch = [{"op": "test", "path": owner_path, "value": owner}]
+        if SANDBOX_CAPACITY_LIMIT_ANNOTATION in annotations:
+            patch.append(
+                {
+                    "op": "remove",
+                    "path": f"/metadata/annotations/{_json_pointer(SANDBOX_CAPACITY_LIMIT_ANNOTATION)}",
+                }
+            )
+        patch.append({"op": "remove", "path": owner_path})
+        try:
+            await core.patch_node(
+                name=node.metadata.name,
+                body=patch,
+                _content_type="application/json-patch+json",
+            )
+            return
+        except ApiException as error:
+            if error.status == 404:
+                return
+            if error.status not in {409, 422}:
+                raise
+            current_nodes = {item.metadata.name: item for item in (await core.list_node()).items}
+            if node.metadata.name not in current_nodes:
+                return
+            node = current_nodes[node.metadata.name]
+
+    raise RuntimeError(f"Could not release sandbox capacity ownership on node {node.metadata.name}")
 
 
 def build_node_affinity(taint_key: str, preference_weight: int) -> V1NodeAffinity:
@@ -255,6 +617,8 @@ async def deploy_server(
     node_selector: Optional[dict[str, str]] = None,
     node_pool_taint_key: Optional[str] = None,
     node_pool_preference_weight: int = 100,
+    max_sandboxes_per_node: int = 0,
+    sandbox_capacity_owner: Optional[str] = None,
     resources: Optional[V1ResourceRequirements | dict[str, Any]] = None,
     environment_variables: Iterable[V1EnvVar | dict[str, Any]] = (),
     volumes: Optional[Iterable[dict[str, Any]]] = None,
@@ -286,6 +650,14 @@ async def deploy_server(
     if isinstance(resources, dict):  # noinspection PyUnnecessaryCast
         dictionary = cast(dict, resources)
         resources = V1ResourceRequirements(**dictionary)
+
+    if max_sandboxes_per_node < 0:
+        raise ValueError("max_sandboxes_per_node must be non-negative")
+    if max_sandboxes_per_node:
+        if not sandbox_capacity_owner:
+            raise ValueError("sandbox_capacity_owner is required when max_sandboxes_per_node is enabled")
+        await prepare_sandbox_node_capacity(max_sandboxes_per_node, sandbox_capacity_owner)
+        resources = _add_sandbox_capacity_request(resources)
 
     env = [
         environment_variable if isinstance(environment_variable, V1EnvVar) else to_env_var(environment_variable)
@@ -331,7 +703,7 @@ async def deploy_server(
         annotations["podsnapshot.gke.io/ps-name"] = snapshot_tag
     match_labels = {
         "app": server_name,
-        "app.kubernetes.io/component": "sandbox",
+        SANDBOX_COMPONENT_LABEL: SANDBOX_COMPONENT_VALUE,
         "app.kubernetes.io/name": server_name,
         "app.kubernetes.io/part-of": "idegym",
     }
@@ -378,11 +750,21 @@ async def deploy_server(
         #   - drop null values so callers cannot delete a managed field by setting it to null;
         #   - the ServiceAccount is owned by `service_account_name` (so the snapshot ServiceAccount
         #     stays authoritative during snapshot preparation), never by pod_overrides;
+        #   - a hard node cap requires the Kubernetes scheduler, so nodeName and custom schedulers
+        #     cannot bypass its managed extended-resource accounting;
         #   - the managed "server" container may be augmented with sidecars but never replaced.
         overrides = {key: value for key, value in pod_overrides.items() if value is not None}
 
         if overrides.keys() & {"serviceAccountName", "service_account_name"}:
             raise ValueError("pod_overrides must not set serviceAccountName; use service_account_name instead")
+
+        if max_sandboxes_per_node and overrides.keys() & {
+            "nodeName",
+            "node_name",
+            "schedulerName",
+            "scheduler_name",
+        }:
+            raise ValueError("pod_overrides must not bypass scheduling while max_sandboxes_per_node is enabled")
 
         sidecars = overrides.get("containers")
         if sidecars is not None:
@@ -403,6 +785,7 @@ async def deploy_server(
         ),
         spec=V1DeploymentSpec(
             replicas=1,
+            strategy=V1DeploymentStrategy(type="Recreate") if max_sandboxes_per_node else None,
             selector=V1LabelSelector(
                 match_labels=match_labels,
             ),

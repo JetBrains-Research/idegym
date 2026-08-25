@@ -343,7 +343,48 @@ The Docker config should contain credentials for your registry:
 
 ---
 
-## Step 9: Dedicated Node Pools (Optional)
+## Step 9: Sandbox Limits and Dedicated Node Pools (Optional)
+
+Set `deployment.maxSandboxesPerNode` to a positive integer to enforce a hard sandbox
+limit on each node. A value of `0` disables it.
+
+IdeGYM advertises `idegym.jetbrains.com/sandbox` as a node-level Kubernetes extended
+resource with the configured capacity. Every managed sandbox requests one unit, so the
+standard scheduler enforces the ceiling across namespaces and concurrent starts. Allocated
+resources remain charged while pods terminate, preventing replacement overlap from
+temporarily exceeding the cap. The orchestrator periodically reconciles capacity so newly
+added nodes become eligible without manual patching. Startup waits until both node capacity
+and scheduler-visible allocatable capacity converge before serving requests.
+
+The chart identifies the capacity owner as `<release namespace>/<release name>` in node
+annotations. Only one IdeGYM release can manage this cluster-global resource at a time;
+another release fails safely instead of racing to publish a different limit.
+
+When the limit is enabled, sandbox Deployments use the `Recreate` strategy and reject pod
+overrides that bypass normal scheduling. The orchestrator Deployment also uses `Recreate`,
+ensuring all replicas observe a changed positive limit before accepting more starts. This
+introduces brief control-plane downtime during upgrades.
+
+Before first enabling the limit, drain Deployments and pods carrying the stable
+`app.kubernetes.io/component=sandbox` label that were created without the extended-resource
+request. IdeGYM validates this transition and rejects new sandbox starts until those legacy
+workloads are gone. Positive cap changes are safe because existing capped sandboxes already
+request one unit; lowering capacity blocks new scheduling until usage falls below the new
+value but does not evict already-running sandboxes above the new limit.
+
+To disable or uninstall the feature without leaving capacity advertised on nodes:
+
+1. Drain all capped sandbox Deployments and pods.
+2. Set `maxSandboxesPerNode: 0` and `cleanupSandboxCapacity: true`, then wait for the
+   orchestrator to start successfully. It zeroes capacity, waits for allocatable capacity
+   to converge, verifies that no live workload requests the resource, and atomically releases
+   the ownership annotations.
+3. Set `cleanupSandboxCapacity: false` or uninstall the release. This removes the temporary
+   cluster-wide RBAC used by cleanup.
+
+The guarantee covers sandboxes created by this IdeGYM installation and other pods that
+request the same extended resource. A direct pod creator with permission to bind pods and
+omit the managed request is outside this control boundary.
 
 You can isolate IdeGYM workloads onto dedicated nodes using a tainted node pool.
 When enabled, pods prefer dedicated nodes but fall back to regular ones if capacity is unavailable.
@@ -369,6 +410,9 @@ Set these environment variables on the orchestrator deployment:
 | `IDEGYM_NODE_POOL_ENABLED`           | Enable dedicated node pool scheduling                    | `False`                |
 | `IDEGYM_NODE_POOL_TAINT_KEY`         | Taint/label key on dedicated nodes                       | `jetbrains.com/idegym` |
 | `IDEGYM_NODE_POOL_PREFERENCE_WEIGHT` | Scheduling weight (1-100) for preferring dedicated nodes | `100`                  |
+| `IDEGYM_NODE_POOL_MAX_SANDBOXES_PER_NODE` | Hard scheduler-accounted sandbox limit per node; `0` disables it | `0`             |
+| `IDEGYM_NODE_POOL_SANDBOX_CAPACITY_OWNER` | Stable cluster-global capacity owner; the chart sets this automatically | unset |
+| `IDEGYM_NODE_POOL_SANDBOX_CAPACITY_CLEANUP` | Safely zero and release owned capacity after workloads are drained | `False` |
 
 When enabled, all dynamically created pods (sandbox servers, Kaniko image builds, and node holders)
 receive a preferred node affinity and toleration matching the configured key.

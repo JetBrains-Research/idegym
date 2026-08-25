@@ -57,7 +57,8 @@ flowchart TB
 - **Client lifecycle** — register a client (with optional node pre-provisioning), track
   heartbeats, and on stop/finish tear down or release its servers.
 - **Server lifecycle** — start (or **reuse** a matching finished server), stop, finish
-  (release for reuse), and restart environment pods, waiting for readiness.
+  (release for reuse), and restart environment pods, waiting for readiness. An optional
+  scheduler-accounted extended resource provides a hard per-node sandbox limit.
 - **Image builds** — accept image-builder YAML, compile each `Image` to a spec, and submit
   it through a **pluggable build backend** (Kaniko by default, or GKE Cloud Build) driven by
   a shared `ImageBuildService` (see [image builder](/architecture/image-builder#build-backends)).

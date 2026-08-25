@@ -14,3 +14,20 @@ roleRef:
   name: {{ include "idegym.fullname" . }}-node-reader
   apiGroup: rbac.authorization.k8s.io
 {{- end }}
+{{- if or .Values.deployment.maxSandboxesPerNode .Values.deployment.cleanupSandboxCapacity }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "idegym.fullname" . }}-sandbox-capacity
+  labels:
+    {{- include "idegym.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "idegym.deployment.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: {{ include "idegym.fullname" . }}-sandbox-capacity
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}

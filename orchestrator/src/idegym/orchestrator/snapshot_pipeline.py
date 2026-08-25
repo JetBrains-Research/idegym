@@ -95,6 +95,8 @@ async def run_snapshot_pipeline_job(
             node_selector=request.node_selector,
             node_pool_taint_key=node_pool.taint_key if node_pool.enabled else None,
             node_pool_preference_weight=node_pool.preference_weight,
+            max_sandboxes_per_node=node_pool.max_sandboxes_per_node,
+            sandbox_capacity_owner=node_pool.sandbox_capacity_owner,
             resources=resources,
             environment_variables=(),
             volumes=[volume.model_dump(by_alias=True, exclude_none=True) for volume in request.volumes],
