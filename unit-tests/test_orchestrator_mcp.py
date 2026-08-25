@@ -168,9 +168,31 @@ async def test_run_bash_command_mcp_tool_calls_forwarding_endpoint(mocker):
     assert isinstance(endpoint.await_args.kwargs["headers"], Headers)
     assert endpoint.await_args.kwargs["headers"]["content-type"] == "application/json"
     assert endpoint.await_args.kwargs["body"] == (
-        '{"command":"echo hello","timeout":600.0,"graceful_termination_timeout":2.0}'
+        '{"command":"echo hello","timeout":600.0,"graceful_termination_timeout":2.0,"max_output_bytes":1048576}'
     )
     assert result.structured_content == {"async_operation_id": 43}
+
+
+async def test_run_bash_command_mcp_tool_supports_unlimited_output(mocker):
+    endpoint = mocker.patch(
+        "idegym.orchestrator.mcp.forward_request_to_server",
+        return_value={"async_operation_id": 43},
+    )
+    mcp = create_mcp_server(get_http_client=lambda: object())
+
+    await mcp.call_tool(
+        MCPToolName.RUN_BASH_COMMAND,
+        {
+            "request": {
+                "client_id": str(uuid4()),
+                "server_id": 7,
+                "command": "echo hello",
+                "max_output_bytes": None,
+            },
+        },
+    )
+
+    assert '"max_output_bytes":null' in endpoint.await_args.kwargs["body"]
 
 
 async def test_run_bash_command_mcp_tool_requires_http_client():

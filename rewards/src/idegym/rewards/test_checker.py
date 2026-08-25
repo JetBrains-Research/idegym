@@ -17,12 +17,18 @@ class TestChecker:
         graceful_termination_timeout: float = 2.0,
     ) -> dict:
         _, _, exit_code = await self.bash_executor.execute_bash_command(
-            test_script, timeout, graceful_termination_timeout
+            command=test_script,
+            timeout=timeout,
+            graceful_termination_timeout=graceful_termination_timeout,
+            max_output_bytes=None,
         )
 
         find_command = "find . -type f -iname 'test-*.xml' -exec realpath {} \\;"
         report_files_stdout, _, _ = await self.bash_executor.execute_bash_command(
-            find_command, timeout, graceful_termination_timeout
+            command=find_command,
+            timeout=timeout,
+            graceful_termination_timeout=graceful_termination_timeout,
+            max_output_bytes=None,
         )
         report_files = self._extract_report_files(report_files_stdout)
 

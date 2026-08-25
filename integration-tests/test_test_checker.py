@@ -37,6 +37,9 @@ class TestTestChecker(IsolatedAsyncioTestCase):
 
         result = await self.test_checker.check_repository_tests(test_script)
 
+        for call in self.mock_bash_executor.execute_bash_command.await_args_list:
+            self.assertIsNone(call.kwargs["max_output_bytes"])
+
         expected_scores = {
             "total": 15,  # 10 + 5
             "passed": 11,  # (10 - (2 + 1 + 1)) + (5 - (0 + 0 + 0))

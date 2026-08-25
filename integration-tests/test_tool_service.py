@@ -2,6 +2,8 @@ from asyncio import Future
 from unittest import IsolatedAsyncioTestCase, main
 from unittest.mock import MagicMock
 
+from idegym.api.tools.bash import BashCommandRequest
+from idegym.tools.router import execute_bash_script
 from idegym.tools.tool_service import ToolService
 
 # TODO: Rewrite with pytest!
@@ -21,13 +23,23 @@ class TestToolService(IsolatedAsyncioTestCase):
         # Mocking async return value
         self.service.bash_executor.execute_bash_command.return_value = Future()
         self.service.bash_executor.execute_bash_command.return_value.set_result((stdout, stderr, 0))
-        parameters = {"command": "echo 'Hello'", "timeout": 600.0, "graceful_termination_timeout": 3.0}
+        parameters = {
+            "command": "echo 'Hello'",
+            "timeout": 600.0,
+            "graceful_termination_timeout": 3.0,
+            "max_output_bytes": None,
+        }
 
         # Await the async method call
         result = await self.service.execute_tool("bash", parameters)
 
         self.assertEqual(result, (stdout, stderr, 0))
-        self.service.bash_executor.execute_bash_command.assert_called_once_with("echo 'Hello'", 600.0, 3.0)
+        self.service.bash_executor.execute_bash_command.assert_called_once_with(
+            command="echo 'Hello'",
+            timeout=600.0,
+            graceful_termination_timeout=3.0,
+            max_output_bytes=None,
+        )
 
     async def test_execute_bash_tool_missing_command(self):
         parameters = {}
@@ -35,6 +47,26 @@ class TestToolService(IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError) as context:
             await self.service.execute_tool("bash", parameters)
         self.assertEqual(str(context.exception), "Missing 'command' in parameters for bash tool")
+
+    async def test_bash_router_propagates_output_limit(self):
+        self.service.execute_tool = MagicMock(return_value=Future())
+        self.service.execute_tool.return_value.set_result(("out", "", 0))
+
+        result = await execute_bash_script(
+            BashCommandRequest(command="echo hello", max_output_bytes=None),
+            self.service,
+        )
+
+        self.assertEqual(result.stdout, "out")
+        self.service.execute_tool.assert_called_once_with(
+            tool_name="bash",
+            parameters={
+                "command": "echo hello",
+                "timeout": 600.0,
+                "graceful_termination_timeout": 2.0,
+                "max_output_bytes": None,
+            },
+        )
 
     async def test_execute_file_tool_create_success(self):
         parameters = {"action": "create", "path": "/tmp/test.txt", "content": "Hello, world!"}

@@ -3,6 +3,7 @@
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
+from idegym.client.operations.tools import ToolsOperations
 from idegym.client.operations.utils import PollingConfig
 from idegym.client.server import IdeGYMServer
 
@@ -80,6 +81,37 @@ def test_forward_passes_body():
 
     _call_kwargs = server._forwarding.forward_request.call_args.kwargs
     assert _call_kwargs["body"] is body
+
+
+def test_execute_bash_propagates_unlimited_output_without_shifting_existing_arguments():
+    server = _make_server(server_id=7)
+    server.tools = MagicMock()
+    server.tools.execute_bash = AsyncMock(return_value=MagicMock())
+    polling = PollingConfig()
+
+    asyncio.run(server.execute_bash("echo hello", 30.0, 3.0, 45, polling, None))
+
+    server.tools.execute_bash.assert_awaited_once_with(
+        server_id=7,
+        script="echo hello",
+        command_timeout=30.0,
+        graceful_termination_timeout=3.0,
+        client_id=None,
+        request_timeout=45,
+        polling_config=polling,
+        max_output_bytes=None,
+    )
+
+
+def test_tools_operations_puts_output_limit_in_forwarded_request():
+    forwarding = MagicMock()
+    forwarding.forward_request = AsyncMock(return_value={"stdout": "", "stderr": "", "exit_code": 0})
+    tools = ToolsOperations(forward=forwarding)
+
+    asyncio.run(tools.execute_bash(7, "echo hello", max_output_bytes=2048))
+
+    request = forwarding.forward_request.await_args.args[3]
+    assert request.max_output_bytes == 2048
 
 
 # ---------------------------------------------------------------------------

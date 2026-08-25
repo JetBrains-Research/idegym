@@ -1,6 +1,7 @@
 from enum import StrEnum
 from typing import Any
 
+from idegym.api.tools.bash import DEFAULT_MAX_OUTPUT_BYTES
 from idegym.backend.utils.bash_executor import BashExecutor
 from idegym.tools.file_manager import FileManager
 
@@ -27,10 +28,14 @@ class ToolService:
                 command = parameters.get("command")
                 timeout = parameters.get("timeout", 600.0)
                 graceful_termination_timeout = parameters.get("graceful_termination_timeout", 2.0)
+                max_output_bytes = parameters.get("max_output_bytes", DEFAULT_MAX_OUTPUT_BYTES)
                 if not command:
                     raise ValueError("Missing 'command' in parameters for bash tool")
                 stdout, stderr, exit_code = await self.bash_executor.execute_bash_command(
-                    command, timeout, graceful_termination_timeout
+                    command=command,
+                    timeout=timeout,
+                    graceful_termination_timeout=graceful_termination_timeout,
+                    max_output_bytes=max_output_bytes,
                 )
                 return stdout, stderr, exit_code
             case ToolName.FILE:

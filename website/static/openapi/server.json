@@ -279,6 +279,20 @@
             "title": "Graceful Termination Timeout",
             "description": "Timeout in seconds for graceful process termination",
             "default": 2.0
+          },
+          "max_output_bytes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Output Bytes",
+            "description": "Maximum retained bytes for each output stream; null retains complete output",
+            "default": 1048576
           }
         },
         "type": "object",
