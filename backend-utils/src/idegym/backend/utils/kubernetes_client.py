@@ -15,6 +15,7 @@ from idegym.api.status import Status
 from idegym.api.type import ConditionStatus
 from idegym.utils.dict import deep_merge
 from idegym.utils.functools import cached_async_result
+from idegym.utils.hashing import sha256
 from idegym.utils.logging import get_logger
 from kubernetes_asyncio.client import (
     ApiClient,
@@ -51,6 +52,8 @@ from kubernetes_asyncio.client import (
     V1ObjectMeta,
     V1OwnerReference,
     V1Pod,
+    V1PodAffinity,
+    V1PodAffinityTerm,
     V1PodDisruptionBudget,
     V1PodDisruptionBudgetList,
     V1PodDisruptionBudgetSpec,
@@ -71,6 +74,7 @@ from kubernetes_asyncio.client import (
     V1Toleration,
     V1Volume,
     V1VolumeMount,
+    V1WeightedPodAffinityTerm,
 )
 from kubernetes_asyncio.config import (
     ConfigException,
@@ -83,6 +87,37 @@ KubernetesV1Apis = tuple[AppsV1Api, BatchV1Api, CoreV1Api, PolicyV1Api, CustomOb
 V1ResourceList = V1ConfigMapList | V1DeploymentList | V1PodDisruptionBudgetList | V1ServiceList
 
 logger = get_logger(__name__)
+
+SANDBOX_IMAGE_LABEL = "idegym.jetbrains.com/image-id"
+
+
+def sandbox_image_id(image_tag: str) -> str:
+    """Hash the exact image reference string, not its registry-resolved digest."""
+    return sha256(image_tag)[:32]
+
+
+def _add_same_image_affinity(affinity: Optional[V1Affinity], image_id: str, preference_weight: int) -> V1Affinity:
+    """Append same-image preference without replacing existing affinity rules."""
+    affinity = affinity or V1Affinity()
+    pod_affinity = affinity.pod_affinity or V1PodAffinity()
+    preferred = list(pod_affinity.preferred_during_scheduling_ignored_during_execution or ())
+    preferred.append(
+        V1WeightedPodAffinityTerm(
+            weight=preference_weight,
+            pod_affinity_term=V1PodAffinityTerm(
+                label_selector=V1LabelSelector(
+                    match_labels={
+                        "app.kubernetes.io/component": "sandbox",
+                        SANDBOX_IMAGE_LABEL: image_id,
+                    }
+                ),
+                topology_key="kubernetes.io/hostname",
+            ),
+        )
+    )
+    pod_affinity.preferred_during_scheduling_ignored_during_execution = preferred
+    affinity.pod_affinity = pod_affinity
+    return affinity
 
 
 def build_node_affinity(taint_key: str, preference_weight: int) -> V1NodeAffinity:
@@ -264,6 +299,8 @@ async def deploy_server(
     server_kind: ServerKind = ServerKind.IDEGYM,
     snapshot_id: Optional[str] = None,
     snapshot_tag: Optional[str] = None,
+    same_image_affinity_enabled: bool = False,
+    same_image_affinity_preference_weight: int = 100,
 ):
     """
     Create a Kubernetes Deployment, Service, and PodDisruptionBudget for a server.
@@ -340,6 +377,8 @@ async def deploy_server(
         "app.kubernetes.io/version": __version__,
         "idegym.jetbrains.com/snapshot-id": snapshot_id or server_name,
     }
+    if same_image_affinity_enabled:
+        labels[SANDBOX_IMAGE_LABEL] = sandbox_image_id(image_tag)
 
     toleration = (
         V1Toleration(
@@ -359,6 +398,13 @@ async def deploy_server(
         if node_pool_taint_key
         else None
     )
+
+    if same_image_affinity_enabled:
+        affinity = _add_same_image_affinity(
+            affinity,
+            image_id=labels[SANDBOX_IMAGE_LABEL],
+            preference_weight=same_image_affinity_preference_weight,
+        )
 
     pod_spec = V1PodSpec(
         containers=[container],

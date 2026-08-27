@@ -343,7 +343,28 @@ The Docker config should contain credentials for your registry:
 
 ---
 
-## Step 9: Dedicated Node Pools (Optional)
+## Step 9: Sandbox Placement and Dedicated Node Pools (Optional)
+
+Kubernetes' default ImageLocality scheduler plugin already favors nodes that cache a requested
+image. For simultaneous cold starts, before any node reports the image as cached, IdeGYM can
+optionally prefer placing pods with the same image reference on one host. This trades parallel
+pulls for one shared pull within each Kubernetes namespace and is intended for controlled burst
+workloads; leave it disabled for large clusters where inter-pod affinity cost or even spreading
+is more important.
+
+The policy hashes the exact textual image reference into a compact, label-safe value because
+references commonly contain characters such as `/`, `:`, and `@` that Kubernetes label values
+do not accept. It does not resolve a registry digest: a mutable reference such as `:latest`
+keeps the same hash when its contents change. Prefer immutable references when cache identity
+must track image contents. The affinity is a soft preference, so resource and scheduling
+constraints may still place a pod elsewhere.
+
+Configure the policy on the orchestrator:
+
+| Variable                                         | Description                                        | Default |
+|--------------------------------------------------|----------------------------------------------------|---------|
+| `IDEGYM_SAME_IMAGE_AFFINITY_ENABLED`             | Enable same-image preferred pod affinity           | `False` |
+| `IDEGYM_SAME_IMAGE_AFFINITY_PREFERENCE_WEIGHT`   | Scheduling weight for that preference (1-100)      | `100`   |
 
 You can isolate IdeGYM workloads onto dedicated nodes using a tainted node pool.
 When enabled, pods prefer dedicated nodes but fall back to regular ones if capacity is unavailable.

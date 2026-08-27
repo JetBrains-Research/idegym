@@ -282,6 +282,7 @@ async def _task_start_server(
             server_image_tag = server.image_tag
 
             node_pool: NodePoolConfig = config.orchestrator.node_pool
+            same_image_affinity = config.orchestrator.same_image_affinity
             pod_snapshot: PodSnapshotConfig = config.orchestrator.pod_snapshot
             otel_config: OTELConfig = config.otel
             environment_variables = [
@@ -364,6 +365,8 @@ async def _task_start_server(
                 server_kind=request.server_kind,
                 snapshot_id=request.snapshot.id if request.snapshot else None,
                 snapshot_tag=request.snapshot.tag if request.snapshot else None,
+                same_image_affinity_enabled=same_image_affinity.enabled,
+                same_image_affinity_preference_weight=same_image_affinity.preference_weight,
             )
 
             await wait_for_pods_ready(

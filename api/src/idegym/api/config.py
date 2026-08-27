@@ -207,6 +207,17 @@ class NodePoolConfig(ConfigModel):
     )
 
 
+class SameImageAffinityConfig(ConfigModel):
+    env_segment = "SAME_IMAGE_AFFINITY"
+
+    enabled: bool = Field(
+        description="Prefer placing sandbox pods with the same image reference together", default=False
+    )
+    preference_weight: int = Field(
+        description="Weight (1-100) for same-image preferred pod affinity", ge=1, le=100, default=100
+    )
+
+
 class CloudBuildGKEConfig(ConfigModel):
     """GKE Cloud Build backend settings. Only consulted when the build backend is
     `cloudbuild_gke`; `project_id`/`region`/`staging_bucket` are then required."""
@@ -420,6 +431,7 @@ class OrchestratorConfig(ConfigModel):
     asyncio: AsyncioConfig = Field(default_factory=AsyncioConfig)
     resources: ResourcesConfig = Field(default_factory=ResourcesConfig)
     node_pool: NodePoolConfig = Field(default_factory=NodePoolConfig)
+    same_image_affinity: SameImageAffinityConfig = Field(default_factory=SameImageAffinityConfig)
     build: BuildConfig = Field(default_factory=BuildConfig)
     mcp: MCPConfig = Field(default_factory=MCPConfig)
     client_request_timeout: float = env(

@@ -8,7 +8,14 @@ only for its (offline) camelCase deserializer.
 import pytest
 from idegym.api.orchestrator.servers import StartServerRequest
 from idegym.backend.utils import kubernetes_client as kc
-from kubernetes_asyncio.client import ApiClient
+from kubernetes_asyncio.client import (
+    ApiClient,
+    V1Affinity,
+    V1LabelSelector,
+    V1PodAffinity,
+    V1PodAffinityTerm,
+    V1WeightedPodAffinityTerm,
+)
 
 
 @pytest.fixture
@@ -56,6 +63,7 @@ async def test_deploy_without_overrides_leaves_pod_unchanged(mocker, api_client)
     assert pod.volumes is None
     assert container.volume_mounts is None
     assert container.env_from is None
+    assert pod.affinity is None
 
 
 async def test_deploy_applies_typed_volumes_mounts_and_env_from(mocker, api_client):
@@ -100,6 +108,94 @@ async def test_pod_overrides_concatenate_lists_keeping_managed_entries(mocker, a
     )
     toleration_keys = {t.key for t in pod.tolerations}
     assert toleration_keys == {"node-pool", "dedicated"}
+
+
+async def test_same_image_prefers_same_node(mocker, api_client):
+    apps = _patch_clients(mocker, api_client)
+    await kc.deploy_server(
+        image_tag="registry.example/task:123",
+        server_name="srv",
+        namespace="ns",
+        same_image_affinity_enabled=True,
+        same_image_affinity_preference_weight=73,
+    )
+    body = apps.create_namespaced_deployment.call_args.kwargs["body"]
+    template = body.spec.template
+    preferred = template.spec.affinity.pod_affinity.preferred_during_scheduling_ignored_during_execution[0]
+
+    image_id = kc.sandbox_image_id("registry.example/task:123")
+    assert template.metadata.labels[kc.SANDBOX_IMAGE_LABEL] == image_id
+    assert preferred.weight == 73
+    assert preferred.pod_affinity_term.topology_key == "kubernetes.io/hostname"
+    assert preferred.pod_affinity_term.label_selector.match_labels == {
+        "app.kubernetes.io/component": "sandbox",
+        kc.SANDBOX_IMAGE_LABEL: image_id,
+    }
+    assert template.spec.affinity.node_affinity is None
+
+
+async def test_same_image_affinity_is_disabled_by_default(mocker, api_client):
+    apps = _patch_clients(mocker, api_client)
+    await kc.deploy_server(image_tag="registry.example/task:123", server_name="srv", namespace="ns")
+
+    template = apps.create_namespaced_deployment.call_args.kwargs["body"].spec.template
+    assert kc.SANDBOX_IMAGE_LABEL not in template.metadata.labels
+    assert template.spec.affinity is None
+
+
+async def test_same_image_affinity_composes_with_pod_overrides(mocker, api_client):
+    pod = await _deploy_and_get_pod_spec(
+        mocker,
+        api_client,
+        node_pool_taint_key="node-pool",
+        same_image_affinity_enabled=True,
+        pod_overrides={
+            "affinity": {
+                "podAffinity": {
+                    "preferredDuringSchedulingIgnoredDuringExecution": [
+                        {
+                            "weight": 10,
+                            "podAffinityTerm": {
+                                "labelSelector": {"matchLabels": {"example.com/workload": "other"}},
+                                "topologyKey": "topology.kubernetes.io/zone",
+                            },
+                        }
+                    ]
+                }
+            }
+        },
+    )
+
+    preferred = pod.affinity.pod_affinity.preferred_during_scheduling_ignored_during_execution
+    assert sorted(term.weight for term in preferred) == [10, 100]
+    assert pod.affinity.node_affinity is not None
+
+
+def test_same_image_affinity_appends_to_existing_pod_affinity():
+    required = V1PodAffinityTerm(
+        label_selector=V1LabelSelector(match_labels={"example.com/required": "true"}),
+        topology_key="topology.kubernetes.io/zone",
+    )
+    existing_preference = V1WeightedPodAffinityTerm(
+        weight=10,
+        pod_affinity_term=V1PodAffinityTerm(
+            label_selector=V1LabelSelector(match_labels={"example.com/preferred": "true"}),
+            topology_key="topology.kubernetes.io/zone",
+        ),
+    )
+    affinity = V1Affinity(
+        pod_affinity=V1PodAffinity(
+            required_during_scheduling_ignored_during_execution=[required],
+            preferred_during_scheduling_ignored_during_execution=[existing_preference],
+        )
+    )
+
+    result = kc._add_same_image_affinity(affinity, image_id="image-hash", preference_weight=100)
+
+    assert result is affinity
+    assert result.pod_affinity.required_during_scheduling_ignored_during_execution == [required]
+    preferred = result.pod_affinity.preferred_during_scheduling_ignored_during_execution
+    assert sorted(term.weight for term in preferred) == [10, 100]
 
 
 async def test_pod_overrides_can_add_sidecar_without_dropping_server(mocker, api_client):

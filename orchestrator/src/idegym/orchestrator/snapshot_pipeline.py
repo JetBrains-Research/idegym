@@ -74,6 +74,7 @@ async def run_snapshot_pipeline_job(
         server_generated_name = server.generated_name
 
         node_pool = config.orchestrator.node_pool
+        same_image_affinity = config.orchestrator.same_image_affinity
         pod_snapshot = config.orchestrator.pod_snapshot
 
         if not pod_snapshot.enabled:
@@ -102,6 +103,8 @@ async def run_snapshot_pipeline_job(
             env_from=[source.model_dump(by_alias=True, exclude_none=True) for source in request.env_from],
             pod_overrides=request.pod_overrides.model_dump(by_alias=True, exclude_none=True),
             server_kind=request.server_kind,
+            same_image_affinity_enabled=same_image_affinity.enabled,
+            same_image_affinity_preference_weight=same_image_affinity.preference_weight,
         )
 
         await wait_for_pods_ready(
