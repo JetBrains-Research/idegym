@@ -516,8 +516,9 @@ async def wait_for_pods_ready(
     Unschedulable for longer than the budget their scheduling verdict earns them: pods start on
     ``scheduling.unschedulable_timeout`` and, once that is spent, an autoscaler that says it is
     already growing a node for them extends it to ``scheduling.provisioning_timeout``.
-   Raises asyncio.TimeoutError if `wait_timeout` seconds elapse without all pods becoming ready.
-   """
+
+    Raises asyncio.TimeoutError if `wait_timeout` seconds elapse without all pods becoming ready.
+    """
     scheduling = scheduling or SchedulingConfig()
     poll_interval = scheduling.poll_interval.total_seconds()
     consecutive_image_pull_errors = 0
