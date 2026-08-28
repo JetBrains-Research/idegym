@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
+import structlog
 from idegym.api.config import SchedulingConfig
 from idegym.api.orchestrator.servers import StartServerRequest
 from idegym.api.type import Duration
@@ -302,6 +303,18 @@ def _patch_verdict(mocker, verdict=kc.NodeScalingVerdict.UNKNOWN, detail=None):
     return mocker.patch.object(kc, "node_scaling_verdict", mocker.AsyncMock(return_value=(verdict, detail)))
 
 
+def _patch_logger(mocker):
+    """Rebind the module logger, so ``capture_logs`` can see what the wait emits.
+
+    ``configure_logging`` configures structlog with ``cache_logger_on_first_use``, so a
+    module-level logger that has already emitted under it is stuck with a bound logger for the
+    rest of the process. ``capture_logs`` only swaps the global processor chain, so it captures
+    nothing from that logger — and whether it is stuck depends on whether a test that calls
+    ``configure_logging`` happened to run first, which is up to ``pytest-randomly``.
+    """
+    return mocker.patch.object(kc, "logger", structlog.get_logger(kc.__name__))
+
+
 async def test_wait_returns_once_pods_are_ready(mocker):
     _patch_pods_are_ready(mocker, _PENDING, _READY)
     await kc.wait_for_pods_ready(label_selector="app=srv", namespace="ns", scheduling=_fast_scheduling())
@@ -547,6 +560,7 @@ async def test_unreadable_events_keep_the_short_budget_and_are_warned_about_once
     # unreadable verdict must not earn the pods the longer provisioning budget.
     poll = _patch_pods_stuck(mocker, _UNSCHEDULABLE)
     verdict = _patch_verdict(mocker, kc.NodeScalingVerdict.UNREADABLE, "Forbidden")
+    _patch_logger(mocker)
     with capture_logs() as logs, pytest.raises(RuntimeError, match="unreadable"):
         await kc.wait_for_pods_ready(
             label_selector="app=srv",
