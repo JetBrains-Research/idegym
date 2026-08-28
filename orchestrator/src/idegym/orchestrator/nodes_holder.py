@@ -83,16 +83,19 @@ async def spin_up_or_update_nodes_for_client(
     runtime_class_name: Optional[str] = None,
     wait_timeout: int = 600,
     scheduling: Optional[SchedulingConfig] = None,
-):
+) -> bool:
     """
     Create or update a Deployment that holds nodes for a client.
 
     Uses podAntiAffinity to spread pods across distinct nodes, and a PodDisruptionBudget
     to prevent the cluster autoscaler from evicting them.
+
+    Returns True once the nodes are in place (or there was nothing to do); failures surface
+    as exceptions.
     """
     if nodes_count <= 0:
         logger.debug(f"No nodes requested for client {client_name}, skipping.")
-        return
+        return True
 
     logger.info(f"Spinning up {nodes_count} nodes for client {client_name} in namespace {namespace}")
 
@@ -247,12 +250,14 @@ async def spin_up_or_update_nodes_for_client(
     else:
         logger.info(f"Skipping readiness wait for client {client_name} (nodes={nodes_count})")
 
+    return True
+
 
 async def release_nodes_for_client(
     client_name: str,
     namespace: str,
     max_retries: int = 3,
-):
+) -> bool:
     client_hash = md5(client_name)
     name = f"{component}-{client_hash}"
     logger.info(f"Releasing nodes for client {client_name} in namespace {namespace}")
@@ -272,7 +277,8 @@ async def release_nodes_for_client(
         return deleted
 
 
-async def change_number_of_spun_nodes(client_id: UUID, namespace: str):
+async def change_number_of_spun_nodes(client_id: UUID, namespace: str) -> bool:
+    """Bring a client's node holder in line with its current request. Returns True on failure."""
     client_nodes = await need_to_release_nodes_for_client(client_id=client_id)
 
     if client_nodes is None:
@@ -298,13 +304,13 @@ async def change_number_of_spun_nodes(client_id: UUID, namespace: str):
 
     if client_nodes.nodes > 0:
         try:
-            nodes_released = await spin_up_or_update_nodes_for_client(
+            nodes_updated = await spin_up_or_update_nodes_for_client(
                 client_name=client_nodes.name,
                 nodes_count=client_nodes.nodes,
                 namespace=namespace,
                 wait_timeout=0,
             )
-            if not nodes_released:
+            if not nodes_updated:
                 had_errors = True
         except Exception:
             logger.exception(f"Error updating client nodes for client ID {client_id}")
