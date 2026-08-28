@@ -515,13 +515,9 @@ async def wait_for_pods_ready(
     Fails fast if image pull errors occur `max_image_pull_attempts` times in a row, or if pods stay
     Unschedulable for longer than the budget their scheduling verdict earns them: pods start on
     ``scheduling.unschedulable_timeout`` and, once that is spent, an autoscaler that says it is
-    already growing a node for them extends it to ``scheduling.provisioning_timeout``. The budget is
-    a duration rather than a number of polls because what is being waited on — a node booting —
-    takes a time that has nothing to do with how often we look, and it only ever grows: an
-    autoscaler that will not widen the pool says nothing about capacity a finishing pod is about to
-    free, so a refusal sharpens the error without shortening the wait.
-    Raises asyncio.TimeoutError if `wait_timeout` seconds elapse without all pods becoming ready.
-    """
+    already growing a node for them extends it to ``scheduling.provisioning_timeout``.
+   Raises asyncio.TimeoutError if `wait_timeout` seconds elapse without all pods becoming ready.
+   """
     scheduling = scheduling or SchedulingConfig()
     poll_interval = scheduling.poll_interval.total_seconds()
     consecutive_image_pull_errors = 0
