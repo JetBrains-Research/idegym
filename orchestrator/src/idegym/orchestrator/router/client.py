@@ -3,7 +3,7 @@ from os import environ as env
 from uuid import UUID
 
 from fastapi import APIRouter, Request, Response, status
-from idegym.api.config import NodePoolConfig
+from idegym.api.config import NodePoolConfig, SchedulingConfig
 from idegym.api.orchestrator.clients import (
     AvailabilityStatus,
     FinishClientRequest,
@@ -50,6 +50,7 @@ async def register_client(request: RegisterClientRequest, low_level_request: Req
     response = await register_client_with_node_pool(
         request=request,
         node_pool=low_level_request.app.state.config.orchestrator.node_pool,
+        scheduling=low_level_request.app.state.config.orchestrator.scheduling,
     )
     if response.operation_id is not None:
         http_response.status_code = status.HTTP_202_ACCEPTED
@@ -60,6 +61,7 @@ async def register_client(request: RegisterClientRequest, low_level_request: Req
 async def register_client_with_node_pool(
     request: RegisterClientRequest,
     node_pool: NodePoolConfig,
+    scheduling: SchedulingConfig,
 ) -> RegisteredClientResponse:
     client, spin_up_nodes = await safely_register_new_client_in_db(
         name=request.name, nodes_count=request.nodes_count, namespace=request.namespace
@@ -80,6 +82,7 @@ async def register_client_with_node_pool(
             namespace=request.namespace,
             async_operation_id=async_operation_id,
             node_pool=node_pool,
+            scheduling=scheduling,
         )
     )
     return client_response.model_copy(update={"operation_id": async_operation_id})
@@ -133,6 +136,7 @@ async def _task_spin_up_client_nodes(
     namespace: str,
     async_operation_id: int,
     node_pool: NodePoolConfig,
+    scheduling: SchedulingConfig,
 ):
     logger.info(f"Spinning up nodes for client with ID {client.id} in namespace {namespace} in background")
     await update_operation_status(
@@ -146,6 +150,7 @@ async def _task_spin_up_client_nodes(
         nodes_count=nodes_count,
         node_pool_taint_key=node_pool.taint_key if node_pool.enabled else None,
         node_pool_preference_weight=node_pool.preference_weight,
+        scheduling=scheduling,
     )
     await update_operation_status(
         async_operation_id=async_operation_id,

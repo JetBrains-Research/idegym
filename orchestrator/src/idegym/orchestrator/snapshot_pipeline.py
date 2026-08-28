@@ -108,6 +108,7 @@ async def run_snapshot_pipeline_job(
             label_selector=f"app={server_generated_name}",
             namespace=request.namespace,
             wait_timeout=request.server_start_wait_timeout_in_seconds,
+            scheduling=config.orchestrator.scheduling,
         )
 
         await update_server_status(server_id=server_id, availability_status=AvailabilityStatus.ALIVE)

@@ -1,4 +1,4 @@
-# Install mcp-steroid {{ mcp_steroid_version }}
+# Install mcp-steroid from {{ mcp_steroid_url }}
 # https://github.com/jonnyzzz/mcp-steroid
 #
 # mcp-steroid provides 9 MCP tools running inside the IDE JVM:
@@ -9,9 +9,15 @@
 #
 # Compatible with IntelliJ-based IDEs build 253+ (2025.3+).
 # Binds to 127.0.0.1:6315 by default.
-{% set version_base = mcp_steroid_version.split('-')[0] %}
+#
+# The download link is resolved in Python (JetBrainsIdePlugin.mcp_steroid_download_url), so it is
+# either derived from the version or the explicit ``mcp_steroid_url`` override. It arrives already
+# shell-quoted: the URL is caller-supplied, and this RUN would otherwise expand a `$(...)` in it.
+# Put no credential in it — the URL is emitted into the Dockerfile verbatim and echoed by `set -x`.
+# An authenticated download belongs in ``external_plugins``, whose ``auth_env`` keeps the secret
+# out of both the image layer and the build log.
 RUN set -eux; \
-    curl -fsSL "https://github.com/jonnyzzz/mcp-steroid/releases/download/v{{ version_base }}/mcp-steroid-{{ mcp_steroid_version }}.zip" \
+    curl -fsSL {{ quoted_mcp_steroid_url }} \
         -o /tmp/mcp-steroid.zip; \
     unzip -qo /tmp/mcp-steroid.zip -d {{ plugins_dir }}/; \
     rm /tmp/mcp-steroid.zip

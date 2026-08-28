@@ -29,6 +29,18 @@ from pydantic import BaseModel, ConfigDict, field_validator
 _ENV_VAR_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
+def validate_zip_url(url: str, *, what: str = "Plugin URL") -> str:
+    """Return ``url`` unchanged, rejecting anything whose path is not a ``.zip`` archive.
+
+    An IDE plugin is installed by unzipping it into the bundled plugins directory, so a URL
+    pointing at anything else fails deep inside the image build. Shared with the IDE plugins'
+    ``mcp_steroid_url``, which is downloaded the same way.
+    """
+    if not urlsplit(url).path.lower().endswith(".zip"):
+        raise ValueError(f"{what} must point to a .zip archive: {url!r}")
+    return url
+
+
 class PluginSource(BaseModel):
     """A single external IDE plugin to install into ``${IDE_DIR}/plugins`` at build time.
 
@@ -55,9 +67,7 @@ class PluginSource(BaseModel):
     @field_validator("url")
     @classmethod
     def _validate_url(cls, v: str) -> str:
-        if not urlsplit(v).path.lower().endswith(".zip"):
-            raise ValueError(f"Plugin URL must point to a .zip archive: {v!r}")
-        return v
+        return validate_zip_url(v)
 
     @field_validator("auth_env")
     @classmethod

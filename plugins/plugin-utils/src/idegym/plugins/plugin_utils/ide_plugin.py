@@ -12,14 +12,17 @@ templates and prebuilt ``project-opener.zip``.
 import re
 from importlib.resources import files
 from importlib.resources.abc import Traversable
+from shlex import quote
 from typing import ClassVar, Optional
 
 from idegym.api.plugin import BuildContext, PluginBase
+from idegym.api.type import HttpUrl
 from idegym.plugins.plugin_utils.assets import ide_context_files
 from idegym.plugins.plugin_utils.external_plugins import (
     PluginSource,
     external_plugin_build_secrets,
     render_external_plugins,
+    validate_zip_url,
 )
 from idegym.plugins.plugin_utils.ide_config import (
     render_entrypoint_install,
@@ -33,8 +36,13 @@ from pydantic import field_validator
 
 # JetBrains IDE version, e.g. 2026.1 or 2026.1.1.
 _VERSION_RE = re.compile(r"^\d{4}\.\d+(\.\d+)?$")
-# mcp-steroid release version, e.g. 0.94.0-8682a5ce or 0.100-409f23a2.
-_MCP_STEROID_VERSION_RE = re.compile(r"^\d+\.\d+(\.\d+)?(-[a-f0-9]+)?$")
+# mcp-steroid release version: a two- or three-part number followed by any number of
+# lowercase alphanumeric suffix segments, e.g. 0.94.0-8682a5ce, 0.100-409f23a2 or
+# 0.102.0-r-c68d8f15d. Upstream has changed the suffix shape more than once, so the segments
+# are not constrained beyond being lowercase — which still rejects ``0.94.0-SNAPSHOT``.
+_MCP_STEROID_VERSION_RE = re.compile(r"^\d+\.\d+(\.\d+)?(-[a-z0-9]+)*$")
+
+MCP_STEROID_RELEASES = "https://github.com/jonnyzzz/mcp-steroid/releases/download"
 
 # The bundled JetBrains MCP plugin binds loopback-only; the start script runs a socat
 # bridge that re-listens on 0.0.0.0 so the server is reachable outside the container.
@@ -70,7 +78,12 @@ class JetBrainsIdePlugin(PluginBase):
             ``True`` and ``open_project`` resolves to ``False``, the IDE starts without a
             project and agents open one via the ``open-project`` MCP tool.
         mcp_steroid_version: mcp-steroid version. Format ``X.Y`` or ``X.Y.Z``, optionally
-            with a ``-HASH`` suffix (e.g. ``0.94.0-8682a5ce``). Defaults to the latest tested.
+            followed by lowercase alphanumeric suffix segments (e.g. ``0.94.0-8682a5ce`` or
+            ``0.102.0-r-c68d8f15d``). Defaults to the latest tested. Ignored for the download
+            itself when ``mcp_steroid_url`` is set.
+        mcp_steroid_url: Explicit ``.zip`` download link, bypassing the URL built from
+            ``mcp_steroid_version``. Set this when a release's tag does not follow the usual
+            shape, so a new build can be pinned without a code change here.
         external_plugins: Extra plugins to bake into the bundled plugins dir, in order.
             Each :class:`PluginSource` names a ``.zip`` URL; set ``auth_env`` for downloads
             behind authentication. Installed after mcp-steroid.
@@ -93,7 +106,8 @@ class JetBrainsIdePlugin(PluginBase):
     version: str = "2026.1.1"
     open_project: bool = True
     mcp_steroid: bool = False
-    mcp_steroid_version: str = "0.94.0-8682a5ce"
+    mcp_steroid_version: str = "0.102.0-r-c68d8f15d"
+    mcp_steroid_url: Optional[HttpUrl] = None
     external_plugins: tuple[PluginSource, ...] = ()
     user: Optional[str] = None
 
@@ -109,9 +123,30 @@ class JetBrainsIdePlugin(PluginBase):
     def _validate_mcp_steroid_version(cls, v: str) -> str:
         if not _MCP_STEROID_VERSION_RE.match(v):
             raise ValueError(
-                f"Invalid mcp-steroid version: {v!r}. Expected format: X.Y or X.Y.Z, optionally with a -HASH suffix"
+                f"Invalid mcp-steroid version: {v!r}. Expected format: X.Y or X.Y.Z, optionally followed by "
+                "lowercase alphanumeric -suffix segments"
             )
         return v
+
+    @field_validator("mcp_steroid_url")
+    @classmethod
+    def _validate_mcp_steroid_url(cls, v: Optional[str]) -> Optional[str]:
+        return v if v is None else validate_zip_url(v, what="mcp_steroid_url")
+
+    def mcp_steroid_release_tag(self) -> str:
+        """The upstream release tag holding ``mcp_steroid_version``'s artifact.
+
+        The tag is not simply ``v`` plus the version: ``v0.102`` ships
+        ``mcp-steroid-0.102.0-r-c68d8f15d.zip`` while ``v0.94.0`` ships
+        ``mcp-steroid-0.94.0-8682a5ce.zip``. Across every release so far the rule is the suffix
+        shape — the multi-segment suffix upstream moved to in 0.102 comes with a two-part
+        ``vMAJOR.MINOR`` tag, the older single-segment one with the full number. A release that
+        breaks the rule again needs ``mcp_steroid_url``, not a patch here.
+        """
+        number, *suffix = self.mcp_steroid_version.split("-")
+        if len(suffix) > 1:
+            return "v" + ".".join(number.split(".")[:2])
+        return f"v{number}"
 
     @field_validator("user")
     @classmethod
@@ -149,6 +184,16 @@ class JetBrainsIdePlugin(PluginBase):
         write them only for virtual-display builds (headless IDEA starts none of those components).
         """
         return True
+
+    def mcp_steroid_download_url(self) -> str:
+        """Where the mcp-steroid ZIP is fetched from at build time.
+
+        An explicit ``mcp_steroid_url`` wins; otherwise the link is built from
+        ``mcp_steroid_version`` and the release tag it maps to.
+        """
+        if self.mcp_steroid_url is not None:
+            return self.mcp_steroid_url
+        return f"{MCP_STEROID_RELEASES}/{self.mcp_steroid_release_tag()}/mcp-steroid-{self.mcp_steroid_version}.zip"
 
     def get_build_secrets(self, ctx: BuildContext) -> list[str]:
         return external_plugin_build_secrets(self.external_plugins)
@@ -196,7 +241,8 @@ class JetBrainsIdePlugin(PluginBase):
             parts.append(
                 self._render_shared(
                     "Dockerfile.mcp_steroid.j2",
-                    mcp_steroid_version=self.mcp_steroid_version,
+                    mcp_steroid_url=self.mcp_steroid_download_url(),
+                    quoted_mcp_steroid_url=quote(self.mcp_steroid_download_url()),
                     plugins_dir=self._PLUGINS_DIR,
                 )
             )

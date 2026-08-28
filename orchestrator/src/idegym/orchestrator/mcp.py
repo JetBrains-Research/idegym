@@ -34,8 +34,7 @@ from idegym.orchestrator.router.client import register_client_with_node_pool
 from idegym.orchestrator.router.client import stop_client as stop_client_endpoint
 from idegym.orchestrator.router.forwarding import build_server_host, forward_request_to_server
 from idegym.orchestrator.router.server import finish_server as finish_server_endpoint
-from idegym.orchestrator.router.server import restart_server as restart_server_endpoint
-from idegym.orchestrator.router.server import start_server_with_config
+from idegym.orchestrator.router.server import restart_server_with_config, start_server_with_config
 from idegym.orchestrator.router.server import stop_server_request as stop_server_endpoint
 from pydantic import BaseModel, Field
 from starlette.datastructures import Headers
@@ -120,8 +119,10 @@ def create_mcp_server(
     @mcp.tool(name=MCPToolName.REGISTER_CLIENT)
     async def register_client(request: RegisterClientRequest) -> RegisteredClientResponse:
         """Create a client record. If nodes_count is positive, pre-provision nodes asynchronously."""
-        node_pool = _require_config(config).orchestrator.node_pool
-        return await register_client_with_node_pool(request=request, node_pool=node_pool)
+        orchestrator = _require_config(config).orchestrator
+        return await register_client_with_node_pool(
+            request=request, node_pool=orchestrator.node_pool, scheduling=orchestrator.scheduling
+        )
 
     @mcp.tool(name=MCPToolName.STOP_CLIENT)
     async def stop_client(request: StopClientRequest) -> StopClientResponse:
@@ -151,7 +152,7 @@ def create_mcp_server(
     @mcp.tool(name=MCPToolName.RESTART_SERVER)
     async def restart_server(request: RestartServerRequest) -> ServerActionResponse:
         """Restart server pods and wait for them to become ready."""
-        return await restart_server_endpoint(request)
+        return await restart_server_with_config(request=request, config=_require_config(config))
 
     @mcp.tool(name=MCPToolName.BUILD_IMAGES_FROM_YAML)
     async def build_images_from_yaml(request: BuildFromYamlRequest) -> BuildFromYamlResponse:

@@ -5,7 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request, status
 from idegym.api.capabilities import CapabilitiesResponse
-from idegym.api.config import Config, NodePoolConfig, OTELConfig, PodSnapshotConfig
+from idegym.api.config import Config, NodePoolConfig, OTELConfig, PodSnapshotConfig, SchedulingConfig
 from idegym.api.orchestrator.clients import AvailabilityStatus
 from idegym.api.orchestrator.operations import AsyncOperationStatus, AsyncOperationType
 from idegym.api.orchestrator.servers import (
@@ -180,7 +180,17 @@ async def get_server_capabilities(server_id: int, client_id: UUID, low_level_req
 @executes_operation_in_background
 @router.post("/api/idegym-servers/restart", status_code=status.HTTP_202_ACCEPTED)
 @handle_server_exceptions("restarting IdeGYM server")
-async def restart_server(request: RestartServerRequest):
+async def restart_server(request: RestartServerRequest, low_level_request: Request):
+    return await restart_server_with_config(
+        request=request,
+        config=low_level_request.app.state.config,
+    )
+
+
+async def restart_server_with_config(
+    request: RestartServerRequest,
+    config: Config,
+) -> ServerActionResponse:
     server = await validate_server(client_id=request.client_id, server_id=request.server_id)
     async_operation_id = await create_async_operation(
         async_operation_type=AsyncOperationType.RESTART_SERVER,
@@ -195,6 +205,7 @@ async def restart_server(request: RestartServerRequest):
             namespace=server.namespace,
             server_start_wait_timeout_in_seconds=request.server_start_wait_timeout_in_seconds,
             async_operation_id=async_operation_id,
+            scheduling=config.orchestrator.scheduling,
         )
     )
     return ServerActionResponse(
@@ -245,6 +256,7 @@ async def _task_start_server(
                     name=existing_server.generated_name,
                     namespace=request.namespace,
                     wait_timeout=request.server_start_wait_timeout_in_seconds,
+                    scheduling=config.orchestrator.scheduling,
                 )
 
             await update_server_owner(server_id=existing_server.id, client_id=request.client_id)
@@ -370,6 +382,7 @@ async def _task_start_server(
                 label_selector=f"app={server_generated_name}",
                 namespace=request.namespace,
                 wait_timeout=request.server_start_wait_timeout_in_seconds,
+                scheduling=config.orchestrator.scheduling,
             )
 
         if not used_reset_reuse:
@@ -484,6 +497,7 @@ async def _task_restart_server(
     namespace: str,
     server_start_wait_timeout_in_seconds: int,
     async_operation_id: int,
+    scheduling: SchedulingConfig,
 ):
     await update_operation_status(
         async_operation_id=async_operation_id,
@@ -494,6 +508,7 @@ async def _task_restart_server(
         name=server_generated_name,
         namespace=namespace,
         wait_timeout=server_start_wait_timeout_in_seconds,
+        scheduling=scheduling,
     )
     await update_server_status(
         server_id=server_id,

@@ -373,6 +373,55 @@ Set these environment variables on the orchestrator deployment:
 When enabled, all dynamically created pods (sandbox servers, Kaniko image builds, and node holders)
 receive a preferred node affinity and toleration matching the configured key.
 
+### Clusters with slow node provisioning
+
+While a node pool scales up, the pods waiting for it report `PodScheduled=False` with reason
+`Unschedulable`. The orchestrator gives up on such a pod after a budget rather than polling forever.
+
+Every pod starts on `IDEGYM_SCHEDULING_UNSCHEDULABLE_TIMEOUT`. Only when that is spent does the
+orchestrator read the cluster autoscaler's events on the pod, because the answer can only *extend*
+the budget:
+
+- **`TriggeredScaleUp` / `Nominated`** — a node is booting for this pod, so the budget grows to
+  `IDEGYM_SCHEDULING_PROVISIONING_TIMEOUT`, sized for how long a node takes to join. Sysbox and
+  gVisor pools are the slow case here. Once granted, the longer budget stands even if the autoscaler
+  changes its mind while the node boots.
+- **`NotTriggerScaleUp`** — the autoscaler will not grow the pool (a node-group limit was reached, or
+  no group matches the pod). The budget is not extended and the failure quotes the autoscaler's own
+  message. A refusal deliberately does *not* fail the wait early: it says nothing about capacity a
+  finishing pod is about to free.
+- **No autoscaler event** — a cluster with no autoscaler at all, or one that has not decided yet.
+  Not extended either.
+
+Both budgets are usually longer than the caller's own `server_start_wait_timeout_in_seconds`
+(60 seconds by default), in which case that timeout fires first — so it, not the budget, is what
+bounds a start in practice. The resulting `TimeoutError` names the last scheduling state observed,
+so a pod that never got scheduled is still diagnosable from the failure alone. Raise the caller's
+timeout as well if you want a slow scale-up to actually be waited out.
+
+| Variable                                  | Description                                                              | Default |
+|-------------------------------------------|--------------------------------------------------------------------------|---------|
+| `IDEGYM_SCHEDULING_UNSCHEDULABLE_TIMEOUT` | Budget for a pod nobody has promised capacity to                         | `PT5M`  |
+| `IDEGYM_SCHEDULING_PROVISIONING_TIMEOUT`  | Budget for a pod the autoscaler is already growing a node for            | `PT15M` |
+| `IDEGYM_SCHEDULING_POLL_INTERVAL`         | Interval between pod readiness polls                                     | `PT2S`  |
+
+All three accept an ISO-8601 duration (`PT10M`) or a `H:MM:SS` clock string (`0:10:00`); a bare
+number of seconds is *not* accepted. Setting either budget to `PT0S` disables that early failure
+entirely, leaving the caller's own start timeout as the only bound. Set them through
+`deployment.extraEnv`:
+
+```yaml
+deployment:
+  extraEnv:
+    - name: IDEGYM_SCHEDULING_PROVISIONING_TIMEOUT
+      value: "PT20M"
+```
+
+Reading the events needs the `events` read permission the chart's Role grants, so a cluster running
+an older release needs `helm upgrade` before the distinction takes effect. Without the permission
+each wait logs one warning and falls back to the shorter budget — the same behaviour as a cluster
+with no autoscaler.
+
 ---
 
 ## Step 10: Pod Snapshots (GKE only, Optional)

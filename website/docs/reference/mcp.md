@@ -311,6 +311,21 @@ When `mcp_steroid=True`:
 - `get_mcp_upstream()` advertises port 6315 instead of 64342
 - If `open_project=False` (or no `Project` plugin in the pipeline), the IDE starts without a
   project — agents can open one at runtime via the `steroid_open_project` tool
-- The plugin version can be pinned with `mcp_steroid_version` (format: `X.Y` or `X.Y.Z`, optionally with a `-HASH` suffix — e.g. `0.94.0-8682a5ce` or `0.100-409f23a2`)
+- The plugin version can be pinned with `mcp_steroid_version` (format: `X.Y` or `X.Y.Z`, optionally followed by lowercase alphanumeric `-suffix` segments — e.g. `0.94.0-8682a5ce`, `0.100-409f23a2` or `0.102.0-r-c68d8f15d`)
+- `mcp_steroid_url` takes an explicit `.zip` download link and overrides the URL built from the
+  version. The release tag is inferred from the version's suffix shape — a multi-segment suffix
+  means a two-part tag (`0.102.0-r-c68d8f15d` → `v0.102`), a single-segment one the full number
+  (`0.94.0-8682a5ce` → `v0.94.0`) — so this is the escape hatch for a release that breaks that rule
+  again, and for serving the plugin from an internal mirror. Put no credential in the URL: it is
+  written into the Dockerfile verbatim. An authenticated download belongs in `external_plugins`,
+  whose `auth_env` keeps the secret out of the image layer and the build log.
+
+  ```python
+  PyCharm(
+      mcp_steroid=True,
+      mcp_steroid_version="0.102.0-r-c68d8f15d",
+      mcp_steroid_url="https://github.com/jonnyzzz/mcp-steroid/releases/download/v0.102/mcp-steroid-0.102.0-r-c68d8f15d.zip",
+  )
+  ```
 
 See [Tools Reference](tools.md#mcp-steroid-tools) for the full list of mcp-steroid tools and resources.
