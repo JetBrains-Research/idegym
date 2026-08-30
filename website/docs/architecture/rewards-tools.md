@@ -53,7 +53,7 @@ Every server ships the **tools** plugin, available on all images:
 
 | Tool | Endpoint | What it does |
 |---|---|---|
-| Bash | `POST /api/tools/bash` | Run a bash script; returns stdout/stderr/exit code |
+| Bash | `POST /api/tools/bash` | Run a bash script; returns bounded stdout/stderr and the exit code |
 | Create file | `POST /api/tools/file/create` | Create a file with given content |
 | Edit file | `POST /api/tools/file/edit` | Replace a 1-indexed, inclusive line range |
 | Patch file | `POST /api/tools/file/patch` | Apply a unified diff |
@@ -63,6 +63,12 @@ The three file tools are **also exposed as MCP tools** (`create_file`, `edit_fil
 `inspect` endpoint runs the full IntelliJ static-analysis pipeline, and **mcp-steroid**
 exposes the IntelliJ Platform API (PSI, refactoring, debugger, VCS) as MCP tools. See the
 [tools reference](/reference/tools).
+
+The Bash tool retains 1 MiB by default for each of stdout and stderr, split between the
+beginning and end of each stream. Callers can choose another positive byte limit or request
+complete output with `max_output_bytes=None`. A short marker reports omitted bytes when a
+stream is truncated; the marker itself is outside the per-stream limit. Output is still
+drained until completion or the execution timeout, preventing subprocess pipe deadlocks.
 
 ```python
 result = await server.execute_bash("python -m pytest -q")

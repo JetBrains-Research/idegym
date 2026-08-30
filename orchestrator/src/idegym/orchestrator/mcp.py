@@ -24,7 +24,7 @@ from idegym.api.orchestrator.servers import (
     StartServerResponse,
     StopServerRequest,
 )
-from idegym.api.tools.bash import BashCommandRequest
+from idegym.api.tools.bash import DEFAULT_MAX_OUTPUT_BYTES, BashCommandRequest
 from idegym.orchestrator.database.helpers import validate_server
 from idegym.orchestrator.router.async_operation import get_operation_status as get_operation_status_endpoint
 from idegym.orchestrator.router.build_images import build_and_push_with_config
@@ -65,6 +65,12 @@ class RunBashCommandToolRequest(BaseModel):
     graceful_termination_timeout: float = Field(
         default=2.0,
         description="Timeout in seconds for graceful process termination",
+    )
+    max_output_bytes: Optional[int] = Field(
+        default=DEFAULT_MAX_OUTPUT_BYTES,
+        ge=1,
+        strict=True,
+        description="Maximum retained bytes for each output stream; null retains complete output",
     )
 
 
@@ -189,6 +195,7 @@ def create_mcp_server(
             command=request.command,
             timeout=request.command_timeout,
             graceful_termination_timeout=request.graceful_termination_timeout,
+            max_output_bytes=request.max_output_bytes,
         )
         return await forward_request_to_server(
             client_id=request.client_id,

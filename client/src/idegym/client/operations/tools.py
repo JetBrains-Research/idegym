@@ -3,6 +3,7 @@ from uuid import UUID
 
 from idegym.api.paths import ToolsPath
 from idegym.api.tools.bash import (
+    DEFAULT_MAX_OUTPUT_BYTES,
     BashCommandRequest,
     BashCommandResponse,
 )
@@ -23,11 +24,13 @@ class ToolsOperations:
         client_id: Optional[UUID] = None,
         request_timeout: Optional[int] = None,
         polling_config: PollingConfig = PollingConfig(),
+        max_output_bytes: Optional[int] = DEFAULT_MAX_OUTPUT_BYTES,
     ) -> BashCommandResponse:
         request = BashCommandRequest(
             command=script,
             timeout=command_timeout,
             graceful_termination_timeout=graceful_termination_timeout,
+            max_output_bytes=max_output_bytes,
         )
         response_raw = await self._forward.forward_request(
             "POST", server_id, ToolsPath.BASH, request, client_id, request_timeout, polling_config

@@ -30,14 +30,21 @@ Execute a bash script inside the container.
 | `command` | string | — | Bash script to execute |
 | `timeout` | float | 600.0 | Maximum execution time in seconds |
 | `graceful_termination_timeout` | float | 2.0 | Seconds to wait for graceful process exit before SIGKILL |
+| `max_output_bytes` | integer or null | 1048576 | Maximum retained bytes per stream; `null` retains complete output |
 
 **Response:**
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `stdout` | string | Standard output |
-| `stderr` | string | Standard error |
+| `stdout` | string | Retained standard output |
+| `stderr` | string | Retained standard error |
 | `exit_code` | int | Exit code returned by the process |
+
+The default limit applies independently to stdout and stderr. Truncated output keeps its
+beginning and end and includes a marker with the number of omitted bytes; the marker itself
+is outside the configured limit. Set `max_output_bytes` to `null` only when complete output
+is required and its size is trusted. IdeGYM still drains all produced output until the command
+finishes or reaches its execution timeout so subprocess pipes cannot deadlock.
 
 **Via orchestrator MCP (`run_bash_command`):**
 
@@ -50,6 +57,7 @@ command = await mcp.call_tool(
             "server_id": server_id,
             "command": "python -c 'import sys; print(sys.version)'",
             "command_timeout": 30.0,
+            "max_output_bytes": 1048576,
         },
     },
 )

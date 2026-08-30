@@ -12,7 +12,7 @@ from idegym.api.project.reset import ResetResult
 from idegym.api.rewards.compilation import CompilationResult
 from idegym.api.rewards.setup import SetupResult
 from idegym.api.rewards.test import TestReport
-from idegym.api.tools.bash import BashCommandResponse
+from idegym.api.tools.bash import DEFAULT_MAX_OUTPUT_BYTES, BashCommandResponse
 from idegym.api.tools.file import FileResult
 from idegym.client.operations.files import FileOperations
 from idegym.client.operations.forwarding import ForwardingOperations
@@ -190,6 +190,7 @@ class IdeGYMServer:
         graceful_termination_timeout: float = 2.0,
         request_timeout: Optional[int] = None,
         polling_config: Optional[PollingConfig] = None,
+        max_output_bytes: Optional[int] = DEFAULT_MAX_OUTPUT_BYTES,
     ) -> BashCommandResponse:
         """Execute a bash script on the server."""
         return await self.tools.execute_bash(
@@ -200,6 +201,7 @@ class IdeGYMServer:
             client_id=self.client_id,
             request_timeout=request_timeout,
             polling_config=polling_config or self.polling_config,
+            max_output_bytes=max_output_bytes,
         )
 
     async def create_file(

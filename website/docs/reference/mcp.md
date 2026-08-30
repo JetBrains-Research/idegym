@@ -155,6 +155,7 @@ command = await mcp.call_tool(
             "server_id": server_id,
             "command": "python -c 'print(\"hello\")'",
             "command_timeout": 60.0,
+            "max_output_bytes": 1048576,
         },
     },
 )
@@ -167,6 +168,10 @@ print(bash_response["stdout"])
 print(bash_response["stderr"])
 print(bash_response["exit_code"])
 ```
+
+`max_output_bytes` limits retained stdout and stderr independently. It defaults to 1 MiB;
+set it to `null` only when complete output is required and its size is trusted. Truncated
+streams preserve their beginning and end with an omitted-byte marker.
 
 To keep a server available for reuse, call `finish_server`. A later `start_server` call with matching parameters and
 `reuse_strategy: "RESTART"` or `"RESET"` can reuse the same server.

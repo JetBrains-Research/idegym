@@ -175,12 +175,17 @@ result = await server.execute_bash(
     command_timeout=600.0,  # seconds
     graceful_termination_timeout=2.0,  # seconds
     request_timeout=None,  # HTTP timeout (uses client default)
+    max_output_bytes=1048576,  # retained bytes for each stream; None disables truncation
 )
 
 print(result.exit_code)  # 0
 print(result.stdout)  # "2\n"
 print(result.stderr)  # ""
 ```
+
+The default retains the beginning and end of stdout and stderr independently and inserts a
+marker when bytes are omitted. Use `max_output_bytes=None` when a caller must parse complete,
+trusted output.
 
 ### `reset_project(...)`
 
