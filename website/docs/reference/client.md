@@ -494,17 +494,40 @@ env_client = MyOpenEnvClient(base_url=url)
 
 ## Error Handling
 
-All client methods raise `RuntimeError` on failure (server start failed, build job failed, etc.).
-HTTP errors from the orchestrator are surfaced as exceptions with the response details included in
-the message.
+An HTTP failure raises a subclass of `IdeGYMHTTPError`, chosen by status code. The exception
+carries `status_code`, `body`, `method` and `url` as attributes, so a retry policy can branch on
+the failure instead of parsing the message.
 
 ```python
+from idegym.client import IdeGYMBusyError, IdeGYMHTTPError, IdeGYMNotFoundError
+
 try:
-    async with client.with_server(image_tag="nonexistent:latest") as server:
+    async with client.with_server(image_tag="registry.example.com/my-env:latest") as server:
         ...
-except RuntimeError as e:
-    print(f"Failed: {e}")
+except IdeGYMNotFoundError:
+    ...  # the sandbox is gone — start a new one
+except IdeGYMBusyError as e:
+    ...  # the control plane is rate-limiting — back off and retry
+except IdeGYMHTTPError as e:
+    print(f"Failed with {e.status_code}: {e.body}")
 ```
+
+| Exception | Statuses | What it means for a retry |
+|-----------|----------|---------------------------|
+| `IdeGYMBadRequestError` | 400, 422, other 4xx | The request is wrong; retrying it unchanged will not help |
+| `IdeGYMAuthError` | 401, 403 | Credentials are missing, wrong, or insufficient |
+| `IdeGYMNotFoundError` | 404, 410 | The client, server, or operation is gone — including a pod the orchestrator can no longer reach |
+| `IdeGYMTimeoutError` | 408, 504, client-side timeout | Safe to retry if the operation is idempotent |
+| `IdeGYMBusyError` | 429, 503 | Rate-limited or out of capacity; retry with backoff |
+| `IdeGYMCancelledError` | 499 | Cancelled before finishing, usually by a disconnect |
+| `IdeGYMServerError` | 5xx | The orchestrator or the sandbox failed |
+
+All of them subclass `IdeGYMHTTPError`, which subclasses both `IdeGYMException` and
+`RuntimeError`, and the message text is unchanged from before the typed exceptions existed — so
+an existing `except RuntimeError` still catches everything it used to.
+
+A `IdeGYMTimeoutError` with `status_code is None` is a client-side timeout: the request never
+reached a status. That is the case to distinguish from a 504, where the orchestrator answered.
 
 ---
 

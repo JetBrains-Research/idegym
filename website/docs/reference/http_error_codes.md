@@ -5,6 +5,19 @@ the **Orchestrator** (Kubernetes orchestration service) and the **IdeGYM Server*
 
 ---
 
+## Reading these codes from the Python client
+
+The client turns each of these into a typed exception rather than a bare `RuntimeError`:
+`IdeGYMNotFoundError` for 404 and 410, `IdeGYMBusyError` for 429 and 503, `IdeGYMTimeoutError`
+for 408 and 504, and so on. The status and body are attributes on the exception. The full
+mapping is in [Client Library — Error Handling](client.md#error-handling).
+
+A failure reported through an async operation's `result.status_code` is mapped the same way, so
+`429` on a background start-server operation raises the same `IdeGYMBusyError` as `429` on the
+synchronous request would.
+
+---
+
 ## Async Operation Pattern (Orchestrator)
 
 Most orchestrator endpoints that trigger long-running work are **asynchronous**: the HTTP response is returned immediately with `202 Accepted` and an `operation_id`, while the actual work runs in the background. The final outcome is retrieved by polling:
