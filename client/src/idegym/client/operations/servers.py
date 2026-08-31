@@ -39,6 +39,7 @@ from idegym.api.pod_spec import (
 from idegym.api.resources import KubernetesResources
 from idegym.api.status import Status
 from idegym.api.type import KubernetesNodeSelector, KubernetesObjectName, OCIImageName
+from idegym.client.exceptions import raise_for_error_response
 from idegym.client.operations.project import ProjectOperations
 from idegym.client.operations.utils import HTTPUtils, PollingConfig
 from idegym.utils.logging import get_logger
@@ -166,6 +167,12 @@ class ServerOperations:
         namespace: Optional[str] = None,
         polling_config: PollingConfig = PollingConfig(),
     ) -> ServerActionResponse:
+        """Stop a server and delete its Kubernetes resources.
+
+        Raises an :class:`~idegym.client.exceptions.IdeGYMHTTPError` if the delete fails, rather
+        than returning the failure — a caller that did not check used to record a live pod as
+        stopped and leak it.
+        """
         client_id = self._utils.validate_client_id(client_id)
         namespace = self._utils.validate_namespace(namespace)
         request = StopServerRequest(client_id=client_id, namespace=namespace, server_id=server_id)
@@ -173,12 +180,13 @@ class ServerOperations:
         response: ServerActionResponse = self._utils.parse_response(
             response_raw=response_raw, model_class=ServerActionResponse
         )
-        return await self._utils.wait_for_async_operation_to_end(
+        result = await self._utils.wait_for_async_operation_to_end(
             operation_id=response.operation_id,
             success_response_model=ServerActionResponse,
             error_response_model=ErrorResponse,
             polling_config=polling_config,
         )
+        return raise_for_error_response(result, f"Stopping server {server_id}")
 
     async def restart_server(
         self,
@@ -202,7 +210,7 @@ class ServerOperations:
         response: ServerActionResponse = self._utils.parse_response(
             response_raw=response_raw, model_class=ServerActionResponse
         )
-        return await self._utils.wait_for_async_operation_to_end(
+        result = await self._utils.wait_for_async_operation_to_end(
             operation_id=response.operation_id,
             success_response_model=ServerActionResponse,
             error_response_model=ErrorResponse,
@@ -214,6 +222,7 @@ class ServerOperations:
                 max_delay_for_exponential_wait_in_sec=polling_config.max_delay_for_exponential_wait_in_sec,
             ),
         )
+        return raise_for_error_response(result, f"Restarting server {server_id}")
 
     async def finish_server(
         self, server_id: int, client_id: Optional[UUID] = None, namespace: Optional[str] = None
