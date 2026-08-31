@@ -673,6 +673,54 @@ def test_image_yaml_round_trip_preserves_base_stage():
     assert Image.from_yaml(image.to_yaml()).base_stage == "builder"
 
 
+# ---------------------------------------------------------------------------
+# Local Docker driver
+# ---------------------------------------------------------------------------
+
+
+def test_local_build_rejects_a_staged_context_with_a_clear_message(mocker):
+    """A gs:// context needs cloud credentials this driver deliberately does not have.
+
+    Better a message naming the alternatives than a confusing COPY failure mid-build.
+    """
+    service = DockerService(client=mocker.MagicMock())
+    image = Image.from_dockerfile("FROM scratch\nCOPY a.sh /a.sh\n", context_uri="gs://bucket/ctx.tar.gz")
+    with raises(ValueError, match="cannot resolve the build context"):
+        service.build_image(image)
+
+
+def test_local_build_rejects_secret_manager_secrets_with_a_clear_message(mocker):
+    service = DockerService(client=mocker.MagicMock())
+    image = Image.from_dockerfile("FROM scratch\n").with_secrets(gh_token=_SECRET_RESOURCE)
+    with raises(ValueError, match="cannot resolve Secret Manager-backed secrets"):
+        service.build_image(image)
+
+
+def test_local_build_accepts_an_inline_base_and_forwards_build_args(mocker):
+    # An inline base needs nothing special locally -- it is just Dockerfile text.
+    client = mocker.MagicMock()
+    client.build.return_value = []
+    service = DockerService(client=client)
+    image = Image.from_dockerfile("FROM scratch\nARG FLAVOUR\n", name="env").with_build_args(FLAVOUR="slim")
+
+    service.build_image(image)
+
+    build_args = client.build.call_args.kwargs["build_args"]
+    assert build_args["FLAVOUR"] == "slim"
+    assert "IDEGYM_VERSION" in build_args
+
+
+def test_local_build_uses_a_caller_version_for_the_local_tag(mocker):
+    client = mocker.MagicMock()
+    client.build.return_value = []
+    service = DockerService(client=client)
+    image = Image.from_dockerfile("FROM scratch\n", name="env").with_destination(version="v42")
+
+    service.build_image(image)
+
+    assert client.build.call_args.kwargs["tags"] == [f"{DockerService.REGISTRY}/env:v42"]
+
+
 def test_image_yaml_round_trip_basic():
     image = Image.from_base("debian:bookworm-slim").named("test-image").run_commands("echo hello")
     yaml_str = image.to_yaml()

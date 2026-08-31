@@ -30,6 +30,29 @@ def isiterable(value: Any) -> bool:
     return isinstance(value, Iterable) and not isinstance(value, str)
 
 
+def _reject_cluster_only_features(spec) -> None:
+    """Refuse the parts of a spec that only a cluster backend can satisfy.
+
+    An inline ``base_dockerfile`` needs nothing special here — it is just Dockerfile text. But a
+    ``context_uri`` names an archive in object storage, and ``secrets`` names Secret Manager
+    resources; resolving either locally would mean cloud credentials this driver deliberately does
+    not have. Saying so beats a confusing ``COPY`` failure or an empty build arg.
+    """
+    if spec.context_uri is not None:
+        raise ValueError(
+            f"The local Docker build cannot resolve the build context {spec.context_uri!r}. Build with a "
+            "local context instead (COPY reads from 'context_path'), or submit this image to the "
+            "orchestrator, whose kaniko and cloudbuild_gke backends fetch a staged context."
+        )
+    if spec.secrets:
+        listed = ", ".join(sorted(spec.secrets))
+        raise ValueError(
+            f"The local Docker build cannot resolve Secret Manager-backed secrets ({listed}). Supply the "
+            "values through the environment as 'secret_build_args', or submit this image to the "
+            "orchestrator."
+        )
+
+
 class DockerService:
     CLIENT: Final[DockerClient] = DockerClient()
     REGISTRY: Final[str] = "ghcr.io/jetbrains-research/idegym"
@@ -78,9 +101,10 @@ class DockerService:
         image,
     ) -> DockerImage:
         compiled = image.to_spec()
+        _reject_cluster_only_features(compiled)
         return self.build(
             request=compiled.request,
-            image_version=compiled.image_version(),
+            image_version=compiled.version or compiled.image_version(),
             image_base=None,
             labels=compiled.labels,
             image_name=compiled.name,
@@ -89,6 +113,7 @@ class DockerService:
             platforms=compiled.platforms,
             dockerfile_content=compiled.dockerfile_content,
             secret_build_args=compiled.secret_build_args,
+            build_args=compiled.build_args,
         )
 
     def build(
@@ -106,6 +131,7 @@ class DockerService:
         platforms: Optional[list[str]] = None,
         dockerfile_content: Optional[str] = None,
         secret_build_args: Optional[list[str]] = None,
+        build_args: Optional[dict[str, str]] = None,
     ) -> DockerImage:
         commands = [] if commands is None else commands
         commands = "\n".join(commands) if isiterable(commands) else commands
@@ -128,6 +154,7 @@ class DockerService:
                 platforms=platforms,
                 rendered=rendered,
                 secret_build_args=secret_build_args,
+                build_args=build_args,
             )
 
     @staticmethod
@@ -194,6 +221,7 @@ class DockerService:
         platforms: Optional[list[str]],
         rendered: str,
         secret_build_args: Optional[list[str]] = None,
+        build_args: Optional[dict[str, str]] = None,
     ) -> DockerImage:
         with NamedTemporaryFile(mode="w", prefix="Dockerfile.", dir=temporary_dir, delete=True) as dockerfile:
             dockerfile.write(rendered)
@@ -204,10 +232,16 @@ class DockerService:
                 raise ValueError("Image name is required when build request is not provided")
 
             tag = f"{self._registry}/{resolved_image_name}:{image_version}"
-            build_args = {
-                "IDEGYM_REGISTRY": registry,
-                "IDEGYM_VERSION": service_version,
-            }
+            # Caller ARG values go in first so a generated name always wins a collision; the spec's
+            # reserved-prefix check makes that unreachable, but the ordering states the intent.
+            resolved_build_args: dict[str, Optional[str]] = dict(build_args or {})
+            resolved_build_args.update(
+                {
+                    "IDEGYM_REGISTRY": registry,
+                    "IDEGYM_VERSION": service_version,
+                }
+            )
+            build_args = resolved_build_args
             if request is not None:
                 build_args.update(
                     {
