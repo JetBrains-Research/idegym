@@ -234,3 +234,44 @@ async def test_reward_operations(test_image, test_id):
 
         result = await server.test_reward(test_script="python -c 'assert 1+1==2'")
         assert result.status == "success"
+
+
+@pytest.mark.asyncio
+async def test_start_reports_whether_the_server_was_reused(test_image, test_id):
+    """`reused` has to distinguish the three outcomes: fresh, taken over, and never-matching."""
+    async with create_http_client(name=f"reused-{test_id}", nodes_count=0) as client:
+        first = await client.start_server(
+            image_tag=test_image,
+            server_name=f"reused-{test_id}",
+            runtime_class_name="gvisor",
+            server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
+            reuse_strategy=ServerReuseStrategy.RESET,
+        )
+        assert first.reused is False
+        await client.finish_server(first)
+
+        second = await client.start_server(
+            image_tag=test_image,
+            server_name=f"reused-{test_id}",
+            runtime_class_name="gvisor",
+            server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
+            reuse_strategy=ServerReuseStrategy.RESET,
+        )
+        assert second.reused is True
+        assert second.server_id == first.server_id
+
+        # A server left STOPPED is never FINISHED, so a request that looks identical cannot reuse
+        # it — the configuration mistake `reused` exists to make visible.
+        await client.stop_server(second)
+        third = await client.start_server(
+            image_tag=test_image,
+            server_name=f"reused-{test_id}",
+            runtime_class_name="gvisor",
+            server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
+            reuse_strategy=ServerReuseStrategy.RESET,
+        )
+        try:
+            assert third.reused is False
+            assert third.server_id != second.server_id
+        finally:
+            await client.stop_server(third)
