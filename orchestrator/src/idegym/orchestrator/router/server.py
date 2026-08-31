@@ -495,11 +495,17 @@ async def _task_start_server(
                 server_id=server_id,
                 server_name=server_server_name,
                 image_tag=server_image_tag,
+                reused=existing_server is not None,
                 need_to_reset=used_reset_reuse,
             ),
         )
 
-        logger.info(f"Started IdeGYM server {server_generated_name} with ID {server_id}")
+        logger.info(
+            "Started IdeGYM server",
+            server=server_generated_name,
+            server_id=server_id,
+            reused=existing_server is not None,
+        )
 
     except CancelledError:
         logger.warning(

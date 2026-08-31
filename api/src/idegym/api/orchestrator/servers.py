@@ -53,7 +53,10 @@ class StartServerRequest(BaseModel):
     )
     server_name: KubernetesObjectName = Field(
         default="default-idegym-server",
-        description="Logical server name used as the Kubernetes resource name prefix and for matching reusable servers",
+        description=(
+            "Logical server name, used as the Kubernetes resource name prefix. It is one of the "
+            "seven fields reuse matches on, not the key: see 'reuse_strategy' for the full set."
+        ),
         examples=["my-server", "echo-env-server"],
     )
     runtime_class_name: Optional[str] = Field(
@@ -135,8 +138,13 @@ class StartServerRequest(BaseModel):
     reuse_strategy: ServerReuseStrategy = Field(
         default=ServerReuseStrategy.RESET,
         description=(
-            "What to do if a server with this name already exists: NONE recreates from scratch, "
-            "RESTART restarts it, RESET resets project state."
+            "Whether to take over an existing server instead of creating one: NONE always creates "
+            "from scratch, RESTART reuses one and restarts its pod, RESET reuses one and resets "
+            "the project state. Reuse runs only for RESTART and RESET, and a candidate must match "
+            "on all seven of: client name, image_tag, runtime_class_name, run_as_root, server_kind, "
+            "server_name (when set), and an availability of FINISHED. A server is FINISHED only "
+            "after finish_server; a client that always calls stop_server leaves its servers STOPPED, "
+            "so reuse never hits. StartServerResponse.reused reports what actually happened."
         ),
     )
     server_kind: ServerKind = Field(
@@ -213,6 +221,14 @@ class StartServerResponse(BaseModel):
     generated_name: Optional[str] = Field(default=None, description="Generated Kubernetes resource name")
     service_name: Optional[str] = Field(default=None, description="Kubernetes Service name for the server")
     image_tag: Optional[str] = Field(default=None)
+    reused: bool = Field(
+        default=False,
+        description=(
+            "True when an existing FINISHED server was taken over rather than a new one created. "
+            "Reuse depends on seven fields matching, so it is easy to configure a request that "
+            "silently never reuses; this reports what happened instead of leaving it to be inferred."
+        ),
+    )
     need_to_reset: bool = Field(default=False, description="True if the reused server requires a project reset")
 
 
