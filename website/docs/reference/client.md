@@ -485,10 +485,33 @@ env_client = MyOpenEnvClient(base_url=url)
 | `IDEGYM_AUTH_USERNAME` | Orchestrator username | — |
 | `IDEGYM_AUTH_PASSWORD` | Orchestrator password | — |
 | `IDEGYM_OTEL_SERVICE_NAME` | OpenTelemetry service name for traces | auto-generated |
-| `IDEGYM_OTEL_TRACING_ENDPOINT` | OTLP trace export endpoint | JetBrains internal Tempo |
+| `IDEGYM_OTEL_TRACING_ENDPOINT` | OTLP trace export endpoint | — (tracing off) |
 | `IDEGYM_OTEL_TRACING_TIMEOUT` | Trace export timeout in seconds | `10` |
 | `IDEGYM_OTEL_TRACING_AUTH_USERNAME` | Trace export auth username | — |
 | `IDEGYM_OTEL_TRACING_AUTH_PASSWORD` | Trace export auth password | — |
+
+### Tracing
+
+Tracing is off unless you give it an endpoint — there is no default collector, so a client
+constructed with no OpenTelemetry configuration exports nothing. Turn it on with the environment
+variable above, or with an explicit config:
+
+```python
+from idegym.api.config import OTELConfig, TracingConfig
+
+client = IdeGYMClient(
+    orchestrator_url="https://idegym.yourdomain.com",
+    name="my-training-run",
+    namespace="idegym",
+    otel_config=OTELConfig(
+        service_name="my-training-run",
+        tracing=TracingConfig(endpoint="https://collector.internal/v1/traces"),
+    ),
+)
+```
+
+An explicit `otel_config` is used as given; the environment variables are only consulted when
+none is passed.
 
 ---
 
