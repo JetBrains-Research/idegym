@@ -14,6 +14,7 @@ from idegym.api.orchestrator.clients import AvailabilityStatus
 from idegym.api.orchestrator.operations import AsyncOperationStatus, AsyncOperationType
 from idegym.api.status import Status
 from idegym.api.type import Duration
+from idegym.orchestrator.database.database import extend_idegym_server_keepalive
 from idegym.orchestrator.database.models import AsyncOperation, Client, IdeGYMServer, JobStatusRecord
 from idegym.watcher.cleanup import (
     check_orphaned_kaniko_jobs,
@@ -94,6 +95,83 @@ async def test_cleanup_servers_marks_inactive_server_killed(db: AsyncSession, mo
     reloaded = await _reload(db, IdeGYMServer, server_id)
     assert reloaded.availability == AvailabilityStatus.KILLED
     mock_k8s["clean_up_server"].assert_awaited_once()
+
+
+async def test_cleanup_servers_leaves_a_server_held_by_keepalive(db: AsyncSession, mock_k8s):
+    """The keepalive window is the client saying it still holds the server, idle or not."""
+    now = int(time.time() * 1000)
+    client = await _make_client(db, last_heartbeat_time=now)
+    server = IdeGYMServer(
+        client_id=client.id,
+        client_name=client.name,
+        server_name="srv",
+        generated_name=f"srv-{uuid4().hex[:8]}",
+        namespace="idegym",
+        last_heartbeat_time=now - 30 * 60 * 1000,
+        keepalive_until=now + 10 * 60 * 1000,
+        availability=AvailabilityStatus.ALIVE,
+    )
+    db.add(server)
+    await db.commit()
+    server_id = server.id
+
+    await cleanup_servers(
+        db,
+        current_time=now,
+        inactive_timeout=Duration(minutes=10),
+        finished_timeout=Duration(minutes=5),
+    )
+
+    reloaded = await _reload(db, IdeGYMServer, server_id)
+    assert reloaded.availability == AvailabilityStatus.ALIVE
+    mock_k8s["clean_up_server"].assert_not_awaited()
+
+
+async def test_extend_keepalive_only_ever_lengthens_the_window(db: AsyncSession):
+    """Two holders of one server must not be able to cut each other short."""
+    now = int(time.time() * 1000)
+    client = await _make_client(db, last_heartbeat_time=now)
+    server = IdeGYMServer(
+        client_id=client.id,
+        client_name=client.name,
+        server_name="srv",
+        generated_name=f"srv-{uuid4().hex[:8]}",
+        namespace="idegym",
+        last_heartbeat_time=now,
+        availability=AvailabilityStatus.ALIVE,
+    )
+    db.add(server)
+    await db.commit()
+
+    long_hold = await extend_idegym_server_keepalive(db, server.id, now + 60 * 60 * 1000)
+    short_hold = await extend_idegym_server_keepalive(db, server.id, now + 60 * 1000)
+
+    assert long_hold.keepalive_until == now + 60 * 60 * 1000
+    assert short_hold.keepalive_until == now + 60 * 60 * 1000
+
+
+async def test_extend_keepalive_does_not_revive_a_terminal_server(db: AsyncSession):
+    now = int(time.time() * 1000)
+    client = await _make_client(db, last_heartbeat_time=now)
+    server = IdeGYMServer(
+        client_id=client.id,
+        client_name=client.name,
+        server_name="srv",
+        generated_name=f"srv-{uuid4().hex[:8]}",
+        namespace="idegym",
+        last_heartbeat_time=now,
+        availability=AvailabilityStatus.KILLED,
+    )
+    db.add(server)
+    await db.commit()
+
+    result = await extend_idegym_server_keepalive(db, server.id, now + 60 * 60 * 1000)
+
+    assert result.keepalive_until is None
+
+
+async def test_extend_keepalive_reports_a_missing_server(db: AsyncSession):
+    assert await extend_idegym_server_keepalive(db, 999_999, 1) is None
 
 
 async def test_cleanup_clients_marks_inactive_client_killed(db: AsyncSession, mock_k8s):

@@ -134,7 +134,16 @@ async def seed_revision_003(engine: AsyncEngine) -> None:
     await execute(engine, "UPDATE snapshots SET pod_snapshot_name = 'pod-snapshot-1'")
 
 
-SEEDS = {"001": seed_revision_001, "002": seed_revision_002, "003": seed_revision_003}
+async def seed_revision_004(engine: AsyncEngine) -> None:
+    await execute(engine, "UPDATE servers SET keepalive_until = 1")
+
+
+SEEDS = {
+    "001": seed_revision_001,
+    "002": seed_revision_002,
+    "003": seed_revision_003,
+    "004": seed_revision_004,
+}
 
 
 async def test_round_trip_through_every_revision(manager: MigrationManager):
