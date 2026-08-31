@@ -214,7 +214,9 @@ Then ask: does the new field change what a *reused* or *restored* server looks l
 it belongs in `_HASH_FIELDS`
 (`orchestrator/src/idegym/orchestrator/snapshot_pipeline.py`); if it is purely runtime, it
 deliberately stays out. Getting this wrong means either a snapshot that is silently reused
-with the wrong configuration, or one that never matches and is rebuilt every time.
+with the wrong configuration, or one that never matches and is rebuilt every time. Metadata
+that describes *who asked* rather than *what is in* the environment — `labels`, `annotations` —
+stays out: a per-job value in the hash makes every snapshot a miss.
 
 A frozen payload string in `unit-tests/test_orchestrator_mcp.py` serialises a whole request
 model, so adding a field to `BashCommandRequest` or `StartServerRequest` fails that test until
@@ -274,6 +276,15 @@ Plugins are discovered through entry points, not imports. See
   read via `plugin_asset()`, never a path relative to `__file__`.
 - The keys returned by `get_context_files()` must match the `COPY` paths in the plugin's
   Dockerfile template; a unit test enforces this.
+
+### Kubernetes object metadata on a server
+
+`StartServerRequest.labels` and `.annotations` are merged *underneath* the labels IdeGYM sets
+itself, so a managed key always wins, and the request model rejects any attempt to set one
+(`MANAGED_LABEL_KEYS` / `MANAGED_LABEL_PREFIXES` in `api/src/idegym/api/orchestrator/servers.py`).
+Adding a new managed label means adding it there too — otherwise a caller can take over a key
+the Service selector, the PodDisruptionBudget, or the watcher's pod queries match on, and detach
+their own sandbox from the machinery that manages it.
 
 ### Anything that changes a built image
 
