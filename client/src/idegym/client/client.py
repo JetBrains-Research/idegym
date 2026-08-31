@@ -62,6 +62,11 @@ class ServerCloseAction(StrEnum):
 class IdeGYMClient:
     """
     HTTP client for interacting with the IdeGYM orchestrator and server APIs.
+
+    **This object is bound to the event loop that created it.** It owns an ``httpx`` session and
+    a heartbeat task, so every call has to be awaited on that same loop. If you drive sandboxes
+    from more than one loop, use :class:`~idegym.client.shared.SharedIdeGYMClient`, which owns a
+    loop in its own thread and lets any caller share one registration.
     """
 
     def __init__(
