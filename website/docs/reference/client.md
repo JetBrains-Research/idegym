@@ -132,6 +132,19 @@ await client.finish_server(server)  # release without stopping
 await client.stop_server(server)    # stop and delete
 ```
 
+`stop_server` and `restart_server` **raise** when the operation fails, like the rest of the
+API — they do not report failure as a return value. There is no return value to check, so a
+failed delete cannot be mistaken for a successful one and leak the pod:
+
+```python
+from idegym.client import IdeGYMHTTPError
+
+try:
+    await client.stop_server(server)
+except IdeGYMHTTPError as e:
+    ...  # the pod may still be running; the server is not stopped
+```
+
 #### Server reuse
 
 Reuse is attempted only for `RESTART` and `RESET`. A candidate is taken over only if **all** of
