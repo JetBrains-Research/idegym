@@ -169,7 +169,7 @@ class IdeGYMServer:
 
     async def restart_server(
         self,
-        server_start_wait_timeout_in_seconds: int = 60,
+        server_start_wait_timeout_in_seconds: int = 300,
         polling_config: Optional[PollingConfig] = None,
     ) -> ServerActionResponse:
         """Restart the server container."""

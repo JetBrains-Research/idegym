@@ -508,10 +508,50 @@ def _budget_seconds(budget: Duration) -> float:
     return budget.total_seconds() or inf
 
 
+# What the kubelet reports on a container that has not started yet. A pull in progress shows up
+# as ContainerCreating — there is no distinct "Pulling" waiting reason — which is why a slow pull
+# and a broken readiness probe are indistinguishable without looking at this.
+_PULL_IN_PROGRESS_REASONS = frozenset({"ContainerCreating", "PodInitializing"})
+_PULL_FAILED_REASONS = frozenset({"ImagePullBackOff", "ErrImagePull", "InvalidImageName"})
+
+
+async def describe_pod_startup(label_selector: str, namespace: str) -> str:
+    """Say what the pods are actually doing, so a readiness timeout is not an unattributable one.
+
+    "Not ready in time" reads as "the image's health endpoint is broken", which sends the reader
+    at the image when the truth is often that a multi-gigabyte image is still being pulled. This
+    separates the two: a container still waiting is a pull or a sandbox being created, a running
+    container that is not ready is a readiness probe that has not passed.
+    """
+    try:
+        pods = [pod for pod in await list_pods(label_selector, namespace) if pod.metadata.deletion_timestamp is None]
+    except Exception as error:  # noqa: BLE001  # a diagnostic must never replace the real failure
+        return f"pod state unavailable: {error}"
+
+    if not pods:
+        return "no pods matched"
+
+    pod = pods[0]
+    waiting = {
+        container.state.waiting.reason
+        for container in (pod.status.container_statuses or [])
+        if container.state and container.state.waiting and container.state.waiting.reason
+    }
+    if waiting & _PULL_FAILED_REASONS:
+        return f"the image could not be pulled ({', '.join(sorted(waiting))})"
+    if waiting & _PULL_IN_PROGRESS_REASONS:
+        return f"still pulling the image or creating the container ({', '.join(sorted(waiting))})"
+    if waiting:
+        return f"phase {pod.status.phase}, container waiting ({', '.join(sorted(waiting))})"
+    if pod.status.phase == "Running":
+        return "image pulled and container running, but its readiness probe has not passed"
+    return f"phase {pod.status.phase}"
+
+
 async def wait_for_pods_ready(
     label_selector: str,
     namespace: str,
-    wait_timeout: int = 60,
+    wait_timeout: int = 300,
     max_image_pull_attempts: int = 3,
     scheduling: Optional[SchedulingConfig] = None,
 ):
@@ -588,9 +628,12 @@ async def wait_for_pods_ready(
     except TimeoutError:
         # The budgets are routinely larger than a caller's overall timeout, so this — not the
         # RuntimeError above — is how a pod that never schedules usually surfaces. Say what the
-        # scheduler was doing, or the failure is an unattributable timeout.
+        # scheduler was doing and what the pod itself was doing, or the failure is an
+        # unattributable timeout that reads as a broken health endpoint.
+        startup_state = await describe_pod_startup(label_selector, namespace)
         raise TimeoutError(
-            f"Pods with label '{label_selector}' were not ready within {wait_timeout}s ({scheduling_state})"
+            f"Pods with label '{label_selector}' were not ready within {wait_timeout}s "
+            f"({scheduling_state}; {startup_state})"
         ) from None
 
 
