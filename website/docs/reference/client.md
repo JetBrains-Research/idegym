@@ -247,6 +247,47 @@ print(response.status)  # → "healthy"
 
 ---
 
+## Threads and event loops
+
+`IdeGYMClient` is **bound to the event loop that created it**. It owns an `httpx` session and a
+heartbeat task, so every call has to be awaited on that same loop. One asyncio program with one
+loop needs to know nothing more than this.
+
+It matters when a caller drives sandboxes from several loops — a synchronous facade with one
+loop per sandbox, for instance. Sharing one registration across them is not optional
+bookkeeping: **deregistering a client terminates every server it owns**, so two registrations in
+one process means either can tear down the other's sandboxes.
+
+`SharedIdeGYMClient` owns a loop in a dedicated thread and marshals every call onto it, so any
+thread — including one already running its own loop — can share the single registration:
+
+```python
+from idegym.client import SharedIdeGYMClient
+
+with SharedIdeGYMClient(
+    orchestrator_url="https://idegym.yourdomain.com",
+    name="my-training-run",
+    namespace="idegym",
+) as shared:
+    server = shared.run(lambda client: client.start_server(image_tag="registry.example.com/env:latest"))
+    result = shared.run(lambda _: server.execute_bash("echo hi"))
+    shared.run(lambda client: client.stop_server(server))
+```
+
+It takes the same arguments as `IdeGYMClient` and registers on entry, exactly as
+`async with IdeGYMClient(...)` would.
+
+| Method | Description |
+|--------|-------------|
+| `run(call, timeout=None)` | Run `call(client)` on the owned loop and return its result |
+| `submit(call)` | Schedule `call(client)` and return a `concurrent.futures.Future` |
+| `client` | The underlying `IdeGYMClient`; only touch it from inside a `call` |
+
+`call` takes the client and returns an awaitable, rather than being an awaitable itself, so the
+awaitable is created on the owning loop — nothing ever binds to the caller's.
+
+---
+
 ## `IdeGYMServer`
 
 Returned by `client.with_server()` or `client.start_server()`. Provides all operations on a running
