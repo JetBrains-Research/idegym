@@ -40,6 +40,9 @@ class TestToolService(IsolatedAsyncioTestCase):
             graceful_termination_timeout=3.0,
             max_output_bytes=None,
             strip_output=False,
+            cwd=None,
+            env=None,
+            user=None,
         )
 
     async def test_execute_bash_tool_forwards_strip_request(self):
@@ -75,6 +78,9 @@ class TestToolService(IsolatedAsyncioTestCase):
                 "graceful_termination_timeout": 2.0,
                 "max_output_bytes": None,
                 "strip_output": False,
+                "cwd": None,
+                "env": {},
+                "user": None,
             },
         )
 
