@@ -132,6 +132,23 @@ await client.finish_server(server)  # release without stopping
 await client.stop_server(server)    # stop and delete
 ```
 
+### `list_servers(include_terminal=False)` — what am I holding?
+
+```python
+for server in await client.list_servers():
+    print(server.server_id, server.availability, server.image_tag)
+```
+
+Scoped to this client's registration, newest first. Terminal servers (`STOPPED`, `KILLED`,
+`CRASHED`, …) are excluded unless `include_terminal=True`, so the default answers "what is
+still mine and running" — which is what makes cleaning up after a crashed run possible without
+cluster access.
+
+Each row carries `server_id`, `server_name`, `generated_name`, `namespace`, `availability`,
+`usable`, `image_tag`, `created_at`, `last_activity_at`, `keepalive_until` and `details`. There
+are no pod fields: listing them would mean one Kubernetes call per server. Use
+[`status()`](#status--is-this-server-usable) for the pod view of one server.
+
 ### `build_and_push_images(path, timeout, poll_interval)` — image builds
 
 Submit a YAML image definition for Kaniko build and wait for completion:
