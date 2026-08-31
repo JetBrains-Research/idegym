@@ -216,6 +216,10 @@ it belongs in `_HASH_FIELDS`
 deliberately stays out. Getting this wrong means either a snapshot that is silently reused
 with the wrong configuration, or one that never matches and is rebuilt every time.
 
+A frozen payload string in `unit-tests/test_orchestrator_mcp.py` serialises a whole request
+model, so adding a field to `BashCommandRequest` or `StartServerRequest` fails that test until
+the string is updated. That is the point — it is the only place the wire shape is written out.
+
 A handler that needs `Config` reads it from `low_level_request.app.state.config` and delegates
 to a `<name>_with_config` twin holding the actual logic. The MCP tools in
 `orchestrator/src/idegym/orchestrator/mcp.py` call these functions directly rather than over
