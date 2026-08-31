@@ -10,6 +10,7 @@ from idegym.api.orchestrator.servers import (
     FinishServerRequest,
     KeepaliveServerRequest,
     KeepaliveServerResponse,
+    ListServersResponse,
     RestartServerRequest,
     ServerActionResponse,
     ServerKind,
@@ -230,6 +231,18 @@ class ServerOperations:
             f"/api/idegym-servers/{server_id}/capabilities?client_id={client_id}",
         )
         return CapabilitiesResponse.model_validate(response_raw)
+
+    async def list_servers(
+        self, client_id: Optional[UUID] = None, include_terminal: bool = False
+    ) -> ListServersResponse:
+        """List the servers this client owns, newest first."""
+        client_id = self._utils.validate_client_id(client_id)
+        response_raw = await self._utils.make_request(
+            "GET",
+            "/api/idegym-servers",
+            params={"client_id": str(client_id), "include_terminal": include_terminal},
+        )
+        return ListServersResponse.model_validate(response_raw)
 
     async def keepalive_server(
         self,
