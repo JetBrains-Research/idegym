@@ -88,6 +88,36 @@ async def update_client_status(db: AsyncSession, client_id: UUID, availability_s
 
 
 @with_db_session
+async def get_owned_server(db: AsyncSession, client_id: UUID, server_id: int):
+    """Look up a server and check the client owns it, whatever state the server is in.
+
+    Unlike ``validate_server`` this accepts a finished, stopped or crashed server: an endpoint
+    that reports status has to be able to report exactly those.
+    """
+    return await _load_owned_server(db=db, client_id=client_id, server_id=server_id)
+
+
+async def _load_owned_server(db: AsyncSession, client_id: UUID, server_id: int):
+    client = await get_client(db, client_id)
+    if not client:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Client with ID {client_id} not found")
+
+    server = await get_idegym_server(db=db, server_id=server_id)
+    if not server:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"IdeGYM server with ID {server_id} not found"
+        )
+
+    if server.client_id != client_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"IdeGYM server with ID {server_id} is not associated with client ID {client_id}",
+        )
+
+    return server
+
+
+@with_db_session
 async def validate_server(db: AsyncSession, client_id: UUID, server_id: int):
     """Validate that the client owns the server and that it is in a usable state (ALIVE or REUSED)."""
     client = await get_client(db, client_id)

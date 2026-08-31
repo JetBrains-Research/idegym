@@ -218,6 +218,32 @@ class ServerRequestResponse(BaseModel):
     status: str
 
 
+class ServerStatusResponse(BaseModel):
+    """Everything needed to answer 'is this server usable right now', in one call.
+
+    Reading it does not count as activity, so polling it cannot keep a server alive by accident.
+    """
+
+    server_id: int = Field(description="Numeric IdeGYM server ID")
+    server_name: Optional[str] = Field(default=None, description="Logical server name from the start request")
+    generated_name: str = Field(description="Kubernetes resource name for the server")
+    namespace: str
+    availability: str = Field(description="Availability status recorded by the orchestrator, e.g. ALIVE or CRASHED")
+    usable: bool = Field(description="True when the server is in a state that accepts requests (ALIVE or REUSED)")
+    image_tag: Optional[str] = Field(default=None)
+    created_at: int = Field(description="Epoch milliseconds", ge=0)
+    last_activity_at: int = Field(
+        description="Epoch milliseconds of the last activity the orchestrator recorded for this server",
+        ge=0,
+    )
+    idle_seconds: float = Field(description="Seconds since 'last_activity_at'", ge=0)
+    pod_phase: Optional[str] = Field(
+        default=None, description="Kubernetes phase of the server pod, or null when no pod matches"
+    )
+    pod_ready: bool = Field(default=False, description="True when the pod is Running with all containers ready")
+    details: Optional[str] = Field(default=None, description="Failure reason recorded on a terminal status")
+
+
 class AliveServerInfo(BaseModel):
     id: int = Field(description="Numeric IdeGYM server ID")
     generated_name: str = Field(description="Kubernetes resource name for the server")

@@ -12,6 +12,7 @@ from idegym.api.orchestrator.servers import (
     ServerActionResponse,
     ServerKind,
     ServerReuseStrategy,
+    ServerStatusResponse,
     SnapshotRef,
     StartServerRequest,
     StartServerResponse,
@@ -227,6 +228,16 @@ class ServerOperations:
             f"/api/idegym-servers/{server_id}/capabilities?client_id={client_id}",
         )
         return CapabilitiesResponse.model_validate(response_raw)
+
+    async def get_server_status(self, server_id: int, client_id: Optional[UUID] = None) -> ServerStatusResponse:
+        """Report the server's availability, pod phase and idle time without touching it."""
+        client_id = self._utils.validate_client_id(client_id)
+        response_raw = await self._utils.make_request(
+            "GET",
+            f"/api/idegym-servers/{server_id}/status",
+            params={"client_id": str(client_id)},
+        )
+        return ServerStatusResponse.model_validate(response_raw)
 
     async def snapshot_server(
         self,
