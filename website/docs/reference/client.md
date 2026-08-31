@@ -115,7 +115,7 @@ async with client.with_server(
 | `resources` | Kubernetes resource requests/limits |
 | `node_selector` | Node affinity labels |
 | `server_start_wait_timeout_in_seconds` | How long to wait for the server pod to become ready |
-| `reuse_strategy` | What to do if a server with this name already exists: `NONE` (recreate the server from scratch), `RESTART` (restart the server), `RESET` (reset project state) |
+| `reuse_strategy` | Whether to take over an existing server: `NONE` (always create from scratch), `RESTART` (reuse and restart the pod), `RESET` (reuse and reset project state) — see [Server reuse](#server-reuse) |
 | `close_action` | `FINISH` — release the server but leave it running for the next client; `STOP` — stop and delete the server |
 
 ### `start_server(...)` / `stop_server(...)` / `finish_server(...)`
@@ -130,6 +130,37 @@ server = await client.start_server(image_tag=..., server_name=..., ...)
 await client.finish_server(server)  # release without stopping
 # or
 await client.stop_server(server)    # stop and delete
+```
+
+#### Server reuse
+
+Reuse is attempted only for `RESTART` and `RESET`. A candidate is taken over only if **all** of
+these match:
+
+| Field | Comes from |
+|-------|-----------|
+| client name | the `name` this client registered with |
+| `image_tag` | the start request |
+| `runtime_class_name` | the start request |
+| `run_as_root` | the start request |
+| `server_kind` | the start request |
+| `server_name` | the start request, when set |
+| availability is `FINISHED` | how the previous holder released it |
+
+`server_name` is one of seven filters, not the key — two requests with the same name but
+different images will not share a server.
+
+The last row is the one that catches people. A server becomes `FINISHED` only through
+`finish_server` (or `close_action=FINISH`, which `with_server` uses by default). A client that
+always calls `stop_server` leaves its servers `STOPPED`, and **reuse can then never hit** — the
+requests look identical and a new server is created every time.
+
+Because that is invisible from the outside, the start response says what happened:
+
+```python
+server = await client.start_server(..., reuse_strategy=ServerReuseStrategy.RESET)
+if not server.reused:
+    ...  # a fresh server; the project is already in its initial state
 ```
 
 ### `list_servers(include_terminal=False)` — what am I holding?

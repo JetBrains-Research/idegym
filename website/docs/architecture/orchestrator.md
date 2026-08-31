@@ -57,7 +57,12 @@ flowchart TB
 - **Client lifecycle** — register a client (with optional node pre-provisioning), track
   heartbeats, and on stop/finish tear down or release its servers.
 - **Server lifecycle** — start (or **reuse** a matching finished server), stop, finish
-  (release for reuse), and restart environment pods, waiting for readiness.
+  (release for reuse), and restart environment pods, waiting for readiness. Reuse matches on
+  seven fields, one of which is that the candidate is `FINISHED` — so a client that only ever
+  stops its servers never reuses one. The start response reports `reused` either way; see
+  [Server reuse](/reference/client#server-reuse).
+- **Server status and keepalive** — report a server's availability, pod phase and idle time,
+  and hold an idle-but-in-use server against the watcher's inactivity reaper on request.
 - **Image builds** — accept image-builder YAML, compile each `Image` to a spec, and submit
   it through a **pluggable build backend** (Kaniko by default, or GKE Cloud Build) driven by
   a shared `ImageBuildService` (see [image builder](/architecture/image-builder#build-backends)).
