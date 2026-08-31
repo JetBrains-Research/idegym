@@ -1,8 +1,9 @@
 import asyncio
+import contextlib
 import os
 import re
-import shlex
 import signal
+import tempfile
 from asyncio.subprocess import Process
 from collections import deque
 from importlib.resources import files
@@ -186,16 +187,43 @@ def _command_excerpt(command: str) -> str:
     return _log_excerpt(_redact_exports(command))
 
 
-def _shell_invocation(bash_command: str, user: Optional[str]) -> str:
-    """Build the shell line that runs the script, optionally dropping to another user.
+def _process_argv(script_path: str, user: Optional[str]) -> list[str]:
+    """Build the argv that runs the script file, optionally dropping to another user.
 
     ``runuser`` is used rather than ``su`` because it does not authenticate and keeps the
     caller's environment, which is what the ``env`` argument has already been merged into.
     """
-    invocation = f"bash -c {shlex.quote(bash_command)}"
+    invocation = ["bash", script_path]
     if user is None:
         return invocation
-    return f"runuser --preserve-environment -u {shlex.quote(user)} -- {invocation}"
+    return ["runuser", "--preserve-environment", "-u", user, "--", *invocation]
+
+
+def _write_script(script: str, readable_by_other_user: bool) -> str:
+    """Write the script to a temp file and return its path.
+
+    Passing the script as a ``bash -c`` argument capped it at Linux's ``MAX_ARG_STRLEN``
+    (128 KiB), and an oversized script failed with a bare ``E2BIG`` rather than anything a
+    caller could act on. A file has no such ceiling, and unlike feeding bash on stdin it leaves
+    the command's own stdin alone — a script read from stdin is consumed incrementally, so any
+    command inside it that reads stdin would swallow the rest of the script.
+    """
+    descriptor, path = tempfile.mkstemp(prefix="idegym-bash-", suffix=".sh")
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(script)
+        if readable_by_other_user:
+            # mkstemp creates 0600, which the target user of `runuser` could not read.
+            os.chmod(path, 0o644)
+    except BaseException:
+        _remove_script(path)
+        raise
+    return path
+
+
+def _remove_script(path: str) -> None:
+    with contextlib.suppress(OSError):
+        os.unlink(path)
 
 
 def _signal_process_group(process: Process, requested_signal: signal.Signals) -> bool:
@@ -295,7 +323,8 @@ class BashExecutor:
         to run as root, since it shells out through ``runuser``.
 
         Output is returned verbatim unless ``strip_output`` asks for surrounding
-        whitespace to be trimmed.
+        whitespace to be trimmed. The script itself is written to a temp file and run as
+        ``bash <file>``, so its size is not capped by the kernel's argument limit.
 
         Returns a tuple of (stdout, stderr, exit_code).
         Raises BashCommandExecutionTimeoutError if the timeout is exceeded.
@@ -313,14 +342,19 @@ class BashExecutor:
         logger.debug("Bash command", command=_command_excerpt(command))
 
         bash_command = f"source {__BASH_INIT_FILEPATH__} && {command}"
-        process = await asyncio.create_subprocess_shell(
-            cmd=_shell_invocation(bash_command, user),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=working_directory,
-            preexec_fn=os.setsid,
-            env=cleanenv() | (env or {}),
-        )
+        script_path = await asyncio.to_thread(_write_script, bash_command, user is not None)
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *_process_argv(script_path, user),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=working_directory,
+                preexec_fn=os.setsid,
+                env=cleanenv() | (env or {}),
+            )
+        except BaseException:
+            _remove_script(script_path)
+            raise
 
         communication_task = asyncio.create_task(
             _communicate_bounded(process, stdout_collector, stderr_collector),
@@ -345,6 +379,7 @@ class BashExecutor:
             await _finish_output_drain(process, communication_task)
             _close_output_pipes(process)
             await _reap_process(process)
+            _remove_script(script_path)
 
         if timed_out:
             logger.warning(

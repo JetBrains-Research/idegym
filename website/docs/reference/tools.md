@@ -59,9 +59,9 @@ have to generate correctly, and which spends the script's own size budget.
 ```python
 result = await server.execute_bash(
     "python -m pytest -q",
-    cwd="tests",                 # relative to the project directory
-    env={"PYTHONHASHSEED": "0"}, # merged over the cleaned environment
-    user="devuser",              # requires the server to run as root
+    cwd="tests",  # relative to the project directory
+    env={"PYTHONHASHSEED": "0"},  # merged over the cleaned environment
+    user="devuser",  # requires the server to run as root
 )
 ```
 
