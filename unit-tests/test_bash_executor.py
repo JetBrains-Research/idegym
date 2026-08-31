@@ -128,6 +128,31 @@ def test_decode_output_of_empty_stream_is_empty_either_way() -> None:
     assert bash_executor._decode_output(b"", strip=True) == ""
 
 
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("export TOKEN=s3cr3t", "export TOKEN=<redacted>"),
+        ("export TOKEN='s3 cr3t'", "export TOKEN=<redacted>"),
+        ('export TOKEN="s3 cr3t"', "export TOKEN=<redacted>"),
+        ("export EMPTY=", "export EMPTY=<redacted>"),
+        ("export A=1; export B=2 && echo done", "export A=<redacted>; export B=<redacted> && echo done"),
+        ("exporting TOKEN=keepme", "exporting TOKEN=keepme"),
+        ("TOKEN=keepme echo hi", "TOKEN=keepme echo hi"),
+    ],
+)
+def test_redact_exports_masks_only_the_assigned_value(command, expected) -> None:
+    assert bash_executor._redact_exports(command) == expected
+
+
+def test_command_excerpt_redacts_before_truncating() -> None:
+    command = "export TOKEN=" + "s" * 4000
+
+    excerpt = bash_executor._command_excerpt(command)
+
+    assert "s" * 20 not in excerpt
+    assert excerpt.startswith("export TOKEN=<redacted>")
+
+
 def test_log_excerpt_is_bounded_to_one_page() -> None:
     excerpt = bash_executor._log_excerpt("x" * 4000)
 
