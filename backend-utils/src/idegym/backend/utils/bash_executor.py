@@ -148,8 +148,17 @@ async def _reap_process(process: Process) -> None:
         )
 
 
-def _decode_output(output: bytes) -> str:
-    return output.decode("utf-8", errors="replace").rstrip() if output else ""
+def _decode_output(output: bytes, strip: bool = False) -> str:
+    """Decode one stream, replacing undecodable bytes so a binary write cannot fail the request.
+
+    Output is returned byte-for-byte otherwise: a trailing newline is part of a ``git diff`` and
+    ``printf 'x'`` must stay distinguishable from ``printf '  x  '``. ``strip`` is the opt-in for
+    callers that would otherwise trim the result themselves.
+    """
+    if not output:
+        return ""
+    text = output.decode("utf-8", errors="replace")
+    return text.strip() if strip else text
 
 
 def _log_excerpt(text: str) -> str:
@@ -224,6 +233,7 @@ class BashExecutor:
         timeout: Optional[float] = 600.0,
         graceful_termination_timeout: float = 2.0,
         max_output_bytes: Optional[int] = None,
+        strip_output: bool = False,
     ) -> tuple[str, str, int]:
         """
         Execute a bash command asynchronously.
@@ -232,6 +242,9 @@ class BashExecutor:
         bundled init script) in a clean subprocess environment with IdeGYM-specific
         variables stripped. The process is started in its own process group so the
         entire group can be killed on timeout.
+
+        Output is returned verbatim unless ``strip_output`` asks for surrounding
+        whitespace to be trimmed.
 
         Returns a tuple of (stdout, stderr, exit_code).
         Raises BashCommandExecutionTimeoutError if the timeout is exceeded.
@@ -285,8 +298,8 @@ class BashExecutor:
             )
             raise BashCommandExecutionTimeoutError(f"Command execution timed out after {timeout} seconds")
 
-        stdout_text = _decode_output(stdout_collector.retained())
-        stderr_text = _decode_output(stderr_collector.retained())
+        stdout_text = _decode_output(stdout_collector.retained(), strip=strip_output)
+        stderr_text = _decode_output(stderr_collector.retained(), strip=strip_output)
         exit_code = process.returncode
         if exit_code is None:
             raise RuntimeError("Bash process completed without an exit code")

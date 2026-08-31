@@ -17,6 +17,13 @@ class BashCommandRequest(BaseModel):
         strict=True,
         description="Maximum retained bytes for each output stream; null retains complete output",
     )
+    strip_output: bool = Field(
+        default=False,
+        description=(
+            "Trim leading and trailing whitespace from stdout and stderr. Off by default so that "
+            "output is byte-for-byte what the command wrote; undecodable bytes are still replaced."
+        ),
+    )
 
 
 class BashCommandResponse(BaseModel):
