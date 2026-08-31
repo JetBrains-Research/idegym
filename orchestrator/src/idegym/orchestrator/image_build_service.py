@@ -73,9 +73,19 @@ class ImageBuildService:
 
     async def monitor_image_building_job(self, handle: BuildHandle, tag: str, request_id: Optional[str] = None) -> None:
         job_name = handle.name
+        # Backend caveats about this build are recorded on the job so they survive the build: a
+        # warning logged at submit time is long gone by the time anyone asks about the image.
+        details = "\n".join(handle.warnings) or None
         try:
             async with get_db_session() as db:
-                await save_job_status(db, job_name, status=Status.IN_PROGRESS, tag=tag, request_id=request_id)
+                await save_job_status(
+                    db,
+                    job_name,
+                    status=Status.IN_PROGRESS,
+                    tag=tag,
+                    details=details,
+                    request_id=request_id,
+                )
 
             try:
                 async with timeout(self._job_timeout):

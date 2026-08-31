@@ -1,4 +1,10 @@
-"""Unit tests for the Kaniko git build context used by repo-COPY (idea/pycharm) images."""
+"""Unit tests for how the Kaniko backend turns an `ImageBuildSpec` into a Job.
+
+Covers the git build context used by repo-COPY (idea/pycharm) images, the caller-supplied
+``context_uri`` that competes for the same single ``--context`` slot, the up-front rejections that
+keep an unbuildable spec from becoming a Job, and the build-arg degradation Kaniko's lack of secret
+mounts forces on `secrets`.
+"""
 
 from types import SimpleNamespace
 
@@ -8,10 +14,13 @@ from idegym.backend.utils.image_builder.kaniko import (
     KanikoImageBuilder,
     _kaniko_git_context,
     _kaniko_git_ref,
+    validate_kaniko_spec,
 )
 from idegym.backend.utils.kubernetes_client import build_and_push_image_with_kaniko
 
 pytestmark = pytest.mark.unit
+
+_SECRET_RESOURCE = "projects/p/secrets/gh-token/versions/latest"
 
 
 # --- version -> git ref mapping --------------------------------------------------------
@@ -105,3 +114,150 @@ async def test_kaniko_builder_uses_git_context_for_images_with_assets(mocker):
 
 async def test_kaniko_builder_keeps_default_context_for_plain_images(mocker):
     assert await _single_image_context(mocker, {}) is None
+
+
+# --- a caller-supplied context_uri takes the single --context slot ---------------------
+
+
+async def _submit(mocker, spec, *, secret_manager_client=None):
+    build = mocker.patch(
+        "idegym.backend.utils.image_builder.kaniko.build_and_push_image_with_kaniko",
+        new=mocker.AsyncMock(return_value="kaniko-1"),
+    )
+    handle = await KanikoImageBuilder(secret_manager_client=secret_manager_client).submit_build(
+        "reg/img:v", spec, namespace="idegym", service_version="1.2.3"
+    )
+    return build.await_args.kwargs, handle
+
+
+async def test_kaniko_builder_uses_the_caller_context_uri(mocker):
+    spec = ImageBuildSpec(dockerfile_content="FROM scratch", context_uri="gs://bucket/ctx.tar.gz")
+    kwargs, _ = await _submit(mocker, spec)
+    assert kwargs["context"] == "gs://bucket/ctx.tar.gz"
+
+
+async def test_kaniko_job_passes_a_context_uri_through_as_the_context_arg(mocker):
+    args = await _kaniko_args(mocker, context="gs://bucket/ctx.tar.gz")
+    assert "--context=gs://bucket/ctx.tar.gz" in args
+    # The generated Dockerfile still comes from the ConfigMap mount, independent of the context.
+    assert "--dockerfile=/workspace/Dockerfile" in args
+
+
+@pytest.mark.parametrize("uri", ["gs://b/o.tar.gz", "s3://b/o.tar.gz", "https://example.com/o.tar.gz"])
+def test_validate_accepts_the_schemes_kaniko_fetches(uri):
+    validate_kaniko_spec(ImageBuildSpec(dockerfile_content="FROM scratch", context_uri=uri))
+
+
+def test_validate_rejects_a_scheme_kaniko_cannot_fetch():
+    spec = ImageBuildSpec(dockerfile_content="FROM scratch", context_uri="ftp://host/ctx.tar.gz")
+    with pytest.raises(ValueError, match="cannot fetch a 'ftp://' build context"):
+        validate_kaniko_spec(spec)
+
+
+def test_validate_rejects_a_context_uri_together_with_plugin_context_files():
+    """Kaniko has one --context; this image needs two sources, so say so instead of half-building.
+
+    The equivalent Cloud Build path overlays both, which is the documented divergence.
+    """
+    spec = ImageBuildSpec(
+        dockerfile_content="FROM scratch",
+        context_uri="gs://bucket/ctx.tar.gz",
+        context_files={"plugins/idea/scripts/x.sh": b"asset"},
+    )
+    with pytest.raises(ValueError, match="accepts a single --context"):
+        validate_kaniko_spec(spec)
+
+
+# --- BuildKit-only syntax is rejected before a Job exists ------------------------------
+
+
+@pytest.mark.parametrize(
+    "dockerfile",
+    [
+        "FROM scratch\nRUN --mount=type=secret,id=t cat /run/secrets/t\n",
+        "FROM scratch\nRUN <<EOF\necho hi\nEOF\n",
+        "FROM scratch\nCOPY --link /a /b\n",
+    ],
+)
+def test_validate_rejects_buildkit_only_syntax(dockerfile):
+    with pytest.raises(ValueError, match="BuildKit-only syntax"):
+        validate_kaniko_spec(ImageBuildSpec(dockerfile_content=dockerfile))
+
+
+def test_validate_error_names_the_offending_line():
+    spec = ImageBuildSpec(dockerfile_content="FROM scratch\nRUN true\nRUN --mount=type=cache,target=/c true\n")
+    with pytest.raises(ValueError, match="RUN --mount on line 3"):
+        validate_kaniko_spec(spec)
+
+
+def test_validate_accepts_a_plain_dockerfile():
+    validate_kaniko_spec(ImageBuildSpec(dockerfile_content="FROM debian\nRUN apt-get update\n"))
+
+
+async def test_submit_rejects_an_unbuildable_spec_before_creating_a_job(mocker):
+    build = mocker.patch(
+        "idegym.backend.utils.image_builder.kaniko.build_and_push_image_with_kaniko",
+        new=mocker.AsyncMock(return_value="kaniko-1"),
+    )
+    spec = ImageBuildSpec(dockerfile_content="FROM scratch\nRUN <<EOF\necho hi\nEOF\n")
+    with pytest.raises(ValueError, match="BuildKit-only syntax"):
+        await KanikoImageBuilder().submit_build("reg/img:v", spec, namespace="idegym", service_version="1.2.3")
+    build.assert_not_awaited()
+
+
+# --- build args and secrets -----------------------------------------------------------
+
+
+def _fake_secret_client(mocker, value: str = "s3cret"):
+    client = mocker.MagicMock()
+    client.access_secret_version = mocker.AsyncMock(
+        return_value=SimpleNamespace(payload=SimpleNamespace(data=value.encode()))
+    )
+    return client
+
+
+async def test_build_args_reach_the_builder(mocker):
+    spec = ImageBuildSpec(dockerfile_content="FROM scratch", build_args={"FLAVOUR": "slim"})
+    kwargs, _ = await _submit(mocker, spec)
+    assert kwargs["build_args"] == {"FLAVOUR": "slim"}
+
+
+async def test_build_args_become_kaniko_build_arg_flags(mocker):
+    args = await _kaniko_args(mocker, build_args={"FLAVOUR": "slim"})
+    assert "--build-arg=FLAVOUR=slim" in args
+
+
+async def test_secrets_are_resolved_and_degraded_to_build_args(mocker):
+    spec = ImageBuildSpec(dockerfile_content="FROM scratch", secrets={"gh_token": _SECRET_RESOURCE})
+    client = _fake_secret_client(mocker)
+    kwargs, handle = await _submit(mocker, spec, secret_manager_client=client)
+
+    client.access_secret_version.assert_awaited_once_with(name=_SECRET_RESOURCE)
+    assert kwargs["build_args"] == {"gh_token": "s3cret"}
+    # The exposure is recorded on the handle so it outlives the build's log output.
+    assert len(handle.warnings) == 1
+    assert "gh_token" in handle.warnings[0]
+    assert "image history" in handle.warnings[0]
+
+
+async def test_a_secret_without_a_version_is_pinned_to_latest(mocker):
+    spec = ImageBuildSpec(dockerfile_content="FROM scratch", secrets={"tok": "projects/p/secrets/s"})
+    client = _fake_secret_client(mocker)
+    await _submit(mocker, spec, secret_manager_client=client)
+    client.access_secret_version.assert_awaited_once_with(name="projects/p/secrets/s/versions/latest")
+
+
+async def test_build_args_and_secrets_are_merged(mocker):
+    spec = ImageBuildSpec(
+        dockerfile_content="FROM scratch",
+        build_args={"FLAVOUR": "slim"},
+        secrets={"gh_token": _SECRET_RESOURCE},
+    )
+    kwargs, _ = await _submit(mocker, spec, secret_manager_client=_fake_secret_client(mocker))
+    assert kwargs["build_args"] == {"FLAVOUR": "slim", "gh_token": "s3cret"}
+
+
+async def test_a_build_with_no_secrets_warns_about_nothing(mocker):
+    spec = ImageBuildSpec(dockerfile_content="FROM scratch", build_args={"FLAVOUR": "slim"})
+    _, handle = await _submit(mocker, spec)
+    assert handle.warnings == ()

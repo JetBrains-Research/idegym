@@ -545,6 +545,28 @@ def test_secret_ids_are_held_to_the_build_arg_name_rules():
         Image(base="debian:bookworm-slim", secrets={"bad id": _SECRET_RESOURCE})
 
 
+def test_a_name_in_both_build_args_and_secrets_is_rejected():
+    # Both become --build-arg on Kaniko, so the winner would depend on argument order.
+    with raises(ValueError, match="both 'build_args' and 'secrets'"):
+        Image(base="debian:bookworm-slim", build_args={"tok": "x"}, secrets={"tok": _SECRET_RESOURCE})
+
+
+def test_the_collision_guard_also_covers_the_fluent_setters():
+    image = Image.from_dockerfile("FROM scratch\n").with_build_args(tok="x")
+    with raises(ValueError, match="both 'build_args' and 'secrets'"):
+        image.with_secrets(tok=_SECRET_RESOURCE)
+
+
+def test_a_plugin_declared_secret_colliding_with_a_build_arg_is_rejected():
+    # secret_build_args are only known once the plugin pipeline runs, so the spec enforces this.
+    with raises(ValueError, match="both 'build_args' and 'secret_build_args'"):
+        ImageBuildSpec(
+            dockerfile_content="FROM scratch\n",
+            build_args={"MY_TOKEN": "x"},
+            secret_build_args=["MY_TOKEN"],
+        )
+
+
 # ---------------------------------------------------------------------------
 # Tag determinism
 # ---------------------------------------------------------------------------

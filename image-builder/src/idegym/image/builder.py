@@ -19,6 +19,7 @@ for _ep in _entry_points(group="idegym.plugins.image"):
 from idegym.api.docker import BaseImage
 from idegym.api.image_build import (
     ImageBuildSpec,
+    check_build_arg_collisions,
     validate_build_arg_names,
     validate_context_uri,
     validate_secret_mapping,
@@ -190,6 +191,13 @@ class Image(BaseModel):
         return validate_secret_mapping(value)
 
     @model_validator(mode="after")
+    def validate_build_arg_namespaces(self) -> Self:
+        # Plugin-declared secret_build_args are only known once to_spec() runs the pipeline, so the
+        # three-way check lives on ImageBuildSpec; this catches the two-way case at definition time.
+        check_build_arg_collisions(self.build_args, self.secrets, [])
+        return self
+
+    @model_validator(mode="after")
     def validate_base_definition(self) -> Self:
         """Enforce exactly-one-of ``base`` / ``base_dockerfile`` and reject unbuildable input.
 
@@ -338,7 +346,9 @@ class Image(BaseModel):
         base Dockerfile needs ``${VAR:-}``.
         """
         merged = {**self.build_args, **build_args}
-        return self.model_copy(update={"build_args": validate_build_arg_names(merged, field="Build arg")})
+        validate_build_arg_names(merged, field="Build arg")
+        check_build_arg_collisions(merged, self.secrets, [])
+        return self.model_copy(update={"build_args": merged})
 
     def with_secrets(self, **secrets: str) -> Self:
         """Return a copy with additional build secrets, given as Secret Manager resource names.
@@ -349,7 +359,9 @@ class Image(BaseModel):
         image history. A Dockerfile written against a mount is therefore Cloud-Build-only.
         """
         merged = {**self.secrets, **secrets}
-        return self.model_copy(update={"secrets": validate_secret_mapping(merged)})
+        validate_secret_mapping(merged)
+        check_build_arg_collisions(self.build_args, merged, [])
+        return self.model_copy(update={"secrets": merged})
 
     def with_runtime(
         self,

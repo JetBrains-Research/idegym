@@ -920,6 +920,7 @@ async def build_and_push_image_with_kaniko(
     node_pool_preference_weight: int = 100,
     secret_build_args: Optional[list[str]] = None,
     context: Optional[str] = None,
+    build_args: Optional[dict[str, str]] = None,
 ) -> str:
     """
     Build a Docker image using Kaniko in a Kubernetes Job and push it to a registry.
@@ -932,9 +933,15 @@ async def build_and_push_image_with_kaniko(
     `context` is the Kaniko build context. It defaults to `dir:///workspace` (only the mounted
     Dockerfile), which is all a download/inline-based build needs. Images whose Dockerfile
     `COPY`s files from the idegym repo (e.g. the idea/pycharm plugins) pass a git context such
-    as `git://github.com/JetBrains-Research/idegym.git#refs/tags/v1.2.3`; Kaniko still reads the
-    generated Dockerfile from the absolute `/workspace/Dockerfile` mount, so the `COPY` paths
-    resolve against the checkout.
+    as `git://github.com/JetBrains-Research/idegym.git#refs/tags/v1.2.3`, and an image with a
+    caller-staged context passes that URI (e.g. `gs://bucket/contexts/abc123.tar.gz`) instead.
+    In every case Kaniko still reads the generated Dockerfile from the absolute
+    `/workspace/Dockerfile` mount, independent of the context, so the `COPY` paths resolve
+    against whatever the context turns out to be.
+
+    `build_args` supplies values for ARGs the Dockerfile declares. Values are visible in the Job
+    spec and recorded in the image history, so a credential belongs in `secret_build_args` (or,
+    on the Cloud Build backend, a real BuildKit secret mount) rather than here.
 
     When `insecure_registry` is True the regcred secret volume is omitted and --insecure is
     passed to Kaniko, which allows pushing to plain-HTTP registries (e.g. in-cluster registries
@@ -971,6 +978,11 @@ async def build_and_push_image_with_kaniko(
         arg_value = env.get(arg_name)
         if arg_value:
             args.append(f"--build-arg={arg_name}={arg_value}")
+
+    # Caller-supplied ARG values, plus any Secret Manager-backed secrets the Kaniko backend had to
+    # degrade to build args. Names are validated on the spec, so neither can inject extra arguments.
+    for arg_name, arg_value in (build_args or {}).items():
+        args.append(f"--build-arg={arg_name}={arg_value}")
 
     if insecure_registry:
         args.append("--insecure")

@@ -94,5 +94,34 @@ async def test_monitor_loop_polls_until_terminal(mocker, builder):
 
     assert builder.get_status.await_count == 2
     saved.assert_awaited_once()
+    assert saved.await_args.kwargs["details"] is None
     # final update records SUCCESS
     assert updated.await_args.kwargs["status"] == Status.SUCCESS
+
+
+async def test_monitor_records_backend_warnings_on_the_job(mocker, builder):
+    """A caveat about the build has to outlive the build.
+
+    The Kaniko build-arg exposure is logged at submit time, which is long gone by the time anyone
+    looks up the image, so it is persisted as the job's details.
+    """
+    from idegym.api.status import Status
+
+    builder.get_status = AsyncMock(return_value=Status.SUCCESS)
+    saved = mocker.patch("idegym.orchestrator.image_build_service.save_job_status", new=AsyncMock())
+    mocker.patch("idegym.orchestrator.image_build_service.update_job_status", new=AsyncMock())
+
+    class _DummySession:
+        async def __aenter__(self):
+            return AsyncMock()
+
+        async def __aexit__(self, *exc):
+            return False
+
+    mocker.patch("idegym.orchestrator.image_build_service.get_db_session", return_value=_DummySession())
+
+    service = ImageBuildService(builder=builder)
+    handle = BuildHandle(name="job-xyz", warnings=("secrets were passed as build args", "second caveat"))
+    await service.monitor_image_building_job(handle, tag="t", request_id="r")
+
+    assert saved.await_args.kwargs["details"] == "secrets were passed as build args\nsecond caveat"

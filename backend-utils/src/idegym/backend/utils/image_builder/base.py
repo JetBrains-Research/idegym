@@ -12,11 +12,17 @@ class BuildHandle:
     `name` is the string the orchestrator persists as ``JobStatusRecord.job_name`` and
     returns to clients to query status later, so it must be unique and stable for the
     lifetime of the build. Backends may subclass to carry extra fields (project, region,
-    namespace, ...) needed by `ImageBuilder.get_status`; only `name` crosses the
-    persistence/API boundary.
+    namespace, ...) needed by `ImageBuilder.get_status`; only `name` and `warnings` cross
+    the persistence/API boundary.
+
+    `warnings` carries backend-specific caveats about *this* build that outlive it — a
+    build-time log line is gone by the time anyone asks about the resulting image, so the
+    orchestrator records these on the job so they stay visible after the fact. The
+    build-arg exposure a Kaniko build with `secrets` incurs is the motivating case.
     """
 
     name: str
+    warnings: tuple[str, ...] = ()
 
 
 class ImageBuilder(ABC):

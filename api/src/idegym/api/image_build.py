@@ -7,7 +7,7 @@ from typing import Optional
 from idegym.api.download import DownloadRequest
 from idegym.api.resources import KubernetesResources
 from idegym.utils.hashing import md5
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class BuildBackend(StrEnum):
@@ -73,6 +73,30 @@ def validate_build_arg_names(mapping: dict[str, str], *, field: str) -> dict[str
                 "which belongs to build args the image builder generates."
             )
     return mapping
+
+
+def check_build_arg_collisions(
+    build_args: dict[str, str],
+    secrets: dict[str, str],
+    secret_build_args: list[str],
+) -> None:
+    """Reject a name claimed by more than one build-arg source.
+
+    All three end up as ``--build-arg`` on at least one backend, so a name appearing in two of them
+    would emit the instruction twice and leave which value wins up to argument order — silently, and
+    differently per backend.
+    """
+
+    def _collide(first: str, second: str, names: set[str]) -> None:
+        if names:
+            raise ValueError(
+                f"{', '.join(sorted(names))} is set in both '{first}' and '{second}'. "
+                "Each build arg name may come from only one source."
+            )
+
+    _collide("build_args", "secrets", set(build_args) & set(secrets))
+    _collide("build_args", "secret_build_args", set(build_args) & set(secret_build_args))
+    _collide("secrets", "secret_build_args", set(secrets) & set(secret_build_args))
 
 
 def validate_secret_mapping(mapping: dict[str, str]) -> dict[str, str]:
@@ -155,6 +179,11 @@ class ImageBuildSpec(BaseModel):
     @classmethod
     def check_secrets(cls, value: dict[str, str]) -> dict[str, str]:
         return validate_secret_mapping(value)
+
+    @model_validator(mode="after")
+    def validate_build_arg_namespaces(self):
+        check_build_arg_collisions(self.build_args, self.secrets, self.secret_build_args)
+        return self
 
     def image_version(self) -> str:
         identifiers = []
