@@ -1,0 +1,32 @@
+# Builds an environment whose base is an inline multi-stage Dockerfile rather than a
+# pre-published image reference. Exercises the whole merge on a real Kaniko build:
+#
+#   * two user stages, with a COPY --from between them, which must survive aliasing untouched;
+#   * an ENV set in the base stage, which the generated idegym stage must inherit via
+#     FROM <alias> -- this is what makes an inline base equivalent to publishing the base
+#     and referencing it by tag;
+#   * a commands block running against that inherited configuration.
+images:
+  - name: inline-base-env
+    base_dockerfile: |
+      FROM registry.kube-system.svc.cluster.local/server-debian-bookworm-20250520-slim:latest AS toolchain
+      RUN set -eux; \
+          mkdir -p /artifacts; \
+          printf '%s\n' 'built-in-an-earlier-stage' > /artifacts/marker.txt
+
+      FROM registry.kube-system.svc.cluster.local/server-debian-bookworm-20250520-slim:latest
+      COPY --from=toolchain /artifacts/marker.txt /opt/inline-base-marker.txt
+      ENV INLINE_BASE_ENV=inline-base-was-here
+    commands:
+      - cp /opt/inline-base-marker.txt /home/appuser/inline-base-marker.txt
+      - echo "$INLINE_BASE_ENV" > /home/appuser/inline-base-env.txt
+    runtime_class_name: gvisor
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "500Mi"
+        ephemeral-storage: "1Gi"
+      limits:
+        cpu: "500m"
+        memory: "500Mi"
+        ephemeral-storage: "1Gi"
