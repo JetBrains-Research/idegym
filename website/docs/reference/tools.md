@@ -50,6 +50,19 @@ is outside the configured limit. Set `max_output_bytes` to `null` only when comp
 is required and its size is trusted. IdeGYM still drains all produced output until the command
 finishes or reaches its execution timeout so subprocess pipes cannot deadlock.
 
+#### How the script is run
+
+The script is written to a temp file inside the container and executed as `bash <file>`. There
+is no practical size limit: passing it as a `bash -c` argument used to cap it at the kernel's
+`MAX_ARG_STRLEN` of 128 KiB, and an oversized script failed with a bare `E2BIG`.
+
+A file rather than bash's stdin is deliberate. A script read from stdin is consumed
+incrementally, so any command inside it that reads stdin — `cat`, `read`, an interactive
+installer — would swallow the rest of the script. Running from a file leaves the command's own
+stdin alone.
+
+The temp file is removed once the command finishes, including when it times out.
+
 #### Per-command context
 
 Without `cwd`, `env` and `user` the only way to set context is to write it into the script —
