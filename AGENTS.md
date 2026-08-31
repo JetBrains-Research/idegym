@@ -41,6 +41,11 @@ Dependency direction matters and is easy to break:
 - `common-utils` imports nothing of ours; `api` imports only `common-utils`. Everything
   else may import both. Keep their third-party dependency lists small — every service pays
   for anything added there.
+- `backend-utils` depends on `api` and **not** on `image-builder`. So logic a build backend
+  needs — anything under `backend-utils/.../image_builder/` — has to live in `api/` or in
+  `backend-utils` itself, never beside the `Image` model. `api/src/idegym/api/dockerfile_analysis.py`
+  exists for exactly this reason: both backends must reason about Dockerfile text, and
+  `image-builder` builds its base-Dockerfile normalization on the same primitives.
 - `watcher` depends on `orchestrator` deliberately, for the shared database layer and
   process setup. It is the one service-to-service dependency; do not add more.
 - `server` runs in a *different image* from the control plane and must never import
@@ -277,10 +282,34 @@ Plugins are discovered through entry points, not imports. See
 affects the produced image but is not folded into that hash, builds will reuse a stale
 cached image and the change will appear not to work. Add the new input to `image_version()`.
 
+Two rules about *how* to add it:
+
+- **Append it conditionally, and label it.** An identifier added unconditionally changes every
+  existing hash, so every deployed image rebuilds once. Guard it (`if self.context_uri is not
+  None:`) so definitions that do not use the field keep the tag they already have. The
+  identifiers are concatenated without a separator, so prefix new ones (`f"context_uri={...}"`)
+  to keep the concatenation unambiguous.
+- **Hash secret *names*, never values.** `secret_build_args` and `secrets` contribute only their
+  names: a rotated credential behind the same id produces the same image, so hashing the value
+  or version would be pure rebuild churn — and would put a secret into everything derived from
+  the spec.
+
+Inputs that do **not** belong in the hash: the destination registry/tag, and build resources
+(timeout, machine type, disk size). None of them change image content.
+
 ### Build secrets
 
 - Declare them via `PluginBase.get_build_secrets()`; they are passed as `--build-arg`,
   never as `ENV` (an `ENV` persists in the image layer).
+- There are **two** mechanisms and they are not interchangeable: `secret_build_args` (the above —
+  names resolved from the orchestrator's own environment) and `ImageBuildSpec.secrets`
+  (caller-supplied Secret Manager resource names). The second is read from a *mount* on
+  `cloudbuild_gke` and from a build arg on `kaniko`, so the two backends need **different
+  Dockerfiles** and the Kaniko form exposes the value in the image history. Before touching either,
+  read [build secrets across backends](website/docs/reference/image_builder.md).
+- A model field that names a secret holds a *reference*, never a value. `secrets` enforces the
+  Secret Manager resource-name shape for this reason: the spec is serialized into a build request
+  and a job record.
 - Wrap the consuming command so `set -x` cannot echo it:
   ```bash
   { set +x; } 2>/dev/null

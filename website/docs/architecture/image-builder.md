@@ -47,20 +47,26 @@ flowchart TB
 
 ## How it works
 
-`Image` is an **immutable** description: a base image, an ordered list of plugins,
-optional trailing shell commands, and runtime config (Kubernetes runtime class +
-resources). Every fluent method returns a new `Image`.
+`Image` is an **immutable** description: a base, an ordered list of plugins, optional trailing
+shell commands, and runtime config (Kubernetes runtime class + resources). Every fluent
+method returns a new `Image`.
+
+The base is given **either** as an image reference (`base`) **or** as Dockerfile text
+compiled in the same build (`base_dockerfile`) — see
+[Basing on an inline Dockerfile](#basing-on-an-inline-dockerfile).
 
 When you call `image.to_spec()`, the builder:
 
-1. Creates a `BuildContext` with defaults (`current_user="root"`, `home="/root"`,
-   `project_root="/root/work"`).
-2. Walks the plugins **in order**, interleaving for each one:
+1. Normalizes `base_dockerfile`, if one was given: aliases the stage that acts as the base
+   and hoists parser directives.
+2. Creates a `BuildContext` whose `base` is that alias (or the image reference), with
+   defaults (`current_user="root"`, `home="/root"`, `project_root="/root/work"`).
+3. Walks the plugins **in order**, interleaving for each one:
    `apply(ctx)` → updates the context (e.g. the `user` plugin sets `current_user`), then
    `render(ctx)` → returns a Dockerfile fragment.
-3. Assembles the final Dockerfile (`FROM`, download ARGs, `ENV`s, all fragments, the
-   final `USER`, the commands block) and any MCP-upstream config files into an
-   `ImageBuildSpec`.
+4. Assembles the final Dockerfile (hoisted directives, the user's own stages, plugin build
+   stages, `FROM`, download ARGs, `ENV`s, all fragments, the final `USER`, the commands
+   block) and any MCP-upstream config files into an `ImageBuildSpec`.
 
 > **Plugin order matters.** Because `apply()` and `render()` are interleaved, a plugin's
 > `render()` only sees context set by itself and earlier plugins. Put `user` before the
@@ -79,6 +85,53 @@ image = (
 )
 spec = image.to_spec()  # → ImageBuildSpec (inspect spec.dockerfile_content)
 ```
+
+## Basing on an inline Dockerfile
+
+A custom base used to mean a **separate build-and-push cycle** before the real build: registry
+write credentials for every environment author, a second async build the orchestrator did not
+track, and an intermediate image with no lifecycle owner. `base_dockerfile` removes that round
+trip by compiling the base into the *same* build.
+
+```mermaid
+flowchart LR
+    subgraph before["Pre-published base — two builds"]
+        d1[/"Dockerfile"/]:::build --> b1[/"build + push"/]:::build
+        b1 --> r1[("📦 base image")]:::store
+        r1 --> b2[/"build + push"/]:::build --> r2[("📦 environment")]:::store
+    end
+    subgraph after["Inline base — one build"]
+        d2[/"base_dockerfile"/]:::build --> merge{{"merge:<br/>stages + plugins"}}:::infra
+        plug[/"plugin stages"/]:::build --> merge
+        merge --> b3[/"build + push"/]:::build --> r3[("📦 environment")]:::store
+    end
+
+    classDef build fill:#c026d3,stroke:#a21caf,color:#fff;
+    classDef infra fill:#475569,stroke:#334155,color:#fff;
+    classDef store fill:#0891b2,stroke:#0e7490,color:#fff;
+```
+
+The merge emits your text **verbatim apart from one edit**: the stage acting as the base gains an
+`AS idegym_base` alias, and only if it does not already declare one — renaming your stage would
+break your own `COPY --from=` references. `FROM idegym_base` then inherits that stage's full image
+config (`ENV`, `WORKDIR`, `USER`, `ENTRYPOINT`, `CMD`), which is what makes this **equivalent** to
+publishing the base and referencing it by tag.
+
+Inputs that cannot work are rejected **before** a build is submitted — a missing `FROM`, an unknown
+`base_stage`, a stage in the reserved `idegym_` namespace, BuildKit-only syntax on Kaniko — rather
+than surfacing minutes later in a build log.
+
+### Build context by reference
+
+An inline Dockerfile that `COPY`s from a build context needs one. `context_uri` names an archive the
+caller has already staged (`gs://…`), so **the orchestrator never receives context bytes over the
+API**. Kaniko fetches it natively as its `--context`; Cloud Build overlays it into the workspace with
+a fetch step, deliberately *not* clobbering the generated Dockerfile or plugin assets.
+
+> **Deduplication still holds.** The tag is a pure function of the definition, so two identical
+> submissions produce the same tag and the second is a tag hit rather than a rebuild. Because the
+> tag derives from the context *URI* rather than its bytes, callers must name context objects by
+> content. See [build cost and deduplication](/reference/image_builder#build-cost-and-deduplication).
 
 ## Built-in image plugins
 
@@ -125,19 +178,31 @@ the `job_statuses` table, and poll to completion. The backend is selected via co
 
 - **Kaniko** (default) — an in-cluster Job that builds from `dockerfile_content` (mounted
   as a ConfigMap) and pushes to the registry; download ARGs (project URL, auth token) are
-  passed as `--build-arg` values. When a spec carries `context_files` (the `idea`/`pycharm`
-  plugins), the Job's context is a **git checkout of the idegym repo** at the orchestrator's
-  version instead of the ConfigMap, so those `COPY` paths resolve.
+  passed as `--build-arg` values. Kaniko accepts a **single** `--context`, which is why a
+  caller-supplied `context_uri` and the git checkout that resolves plugin `context_files`
+  cannot be combined here. When a spec carries `context_files` and no `context_uri`, the Job's
+  context is a **git checkout of the idegym repo** at the orchestrator's version, so those
+  `COPY` paths resolve.
 - **GKE Cloud Build** — builds with [GCP Cloud Build](https://cloud.google.com/build)
   (BuildKit) instead of an in-cluster Job, pushing to Artifact Registry. The project auth
   token is passed as a BuildKit **build secret** (never a `--build-arg`), so it never lands
-  in the Build request, its logs, or the image history.
+  in the Build request, its logs, or the image history. Plugin `context_files` travel in the
+  uploaded context tar, and a caller `context_uri` is overlaid by a preceding fetch step, so
+  both can coexist.
+
+Capability differences are **validated up front and reported as errors**, never discovered from a
+build log. The ones that matter: BuildKit-only Dockerfile syntax (heredocs, `RUN --mount`) is Cloud
+Build only; `machine_type` / `disk_size_gb` are Cloud Build only, since a Kaniko build is sized by
+the per-image `resources` field; and `secrets` become real secret mounts on Cloud Build but
+`--build-arg` values on Kaniko, which **exposes them in the image history**.
 
 > **Kaniko + `set -u` gotcha:** ARGs without a `--build-arg` value are **unset** (not
 > empty). IdeGYM's `RUN set -eux;` uses `set -u`, so optional ARGs are referenced as
 > `${VAR:-}`. The built-in plugins handle this for you.
 
-→ Full backend configuration (env vars, GCP IAM) is in the
+→ Full backend configuration (env vars, GCP IAM), the complete
+[capability matrix](/reference/image_builder#backend-capability-matrix), and the
+[secret-handling caveats](/reference/image_builder#build-secrets-across-backends) are in the
 [reference — build backends](/reference/image_builder#build-backends).
 
 ## View source
