@@ -194,9 +194,9 @@ want surrounding whitespace trimmed.
 ```python
 result = await server.execute_bash(
     "python -m pytest -q",
-    cwd="tests",                  # relative paths resolve against the project directory
+    cwd="tests",  # relative paths resolve against the project directory
     env={"PYTHONHASHSEED": "0"},  # merged over the server's cleaned environment
-    user="devuser",               # requires the server to run as root
+    user="devuser",  # requires the server to run as root
 )
 ```
 
