@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 import shlex
 import signal
 from asyncio.subprocess import Process
@@ -20,6 +21,9 @@ _LOG_EXCERPT_CHARS = 1800
 _OUTPUT_DRAIN_TIMEOUT_SECONDS = 0.25
 _PROCESS_GROUP_POLL_INTERVAL_SECONDS = 0.01
 _PROCESS_REAP_TIMEOUT_SECONDS = 0.25
+_EXPORT_ASSIGNMENT_PATTERN = re.compile(
+    r"""\bexport[ \t]+(?P<name>[A-Za-z_][A-Za-z0-9_]*)=(?:'[^']*'|"[^"]*"|[^\s;&|)]*)"""
+)
 
 
 class BashExecutorError(Exception):
@@ -168,6 +172,20 @@ def _log_excerpt(text: str) -> str:
     return f"{text[:half]}\n... [log excerpt truncated] ...\n{text[-half:]}"
 
 
+def _redact_exports(command: str) -> str:
+    """Mask the values of ``export NAME=...`` assignments in a script before it is logged.
+
+    A script is the only channel for setting per-command environment, so callers routinely
+    ship credentials inside it. The variable name is kept because it is what makes a log line
+    useful; only the value goes.
+    """
+    return _EXPORT_ASSIGNMENT_PATTERN.sub(lambda match: f"export {match.group('name')}=<redacted>", command)
+
+
+def _command_excerpt(command: str) -> str:
+    return _log_excerpt(_redact_exports(command))
+
+
 def _signal_process_group(process: Process, requested_signal: signal.Signals) -> bool:
     """Signal a process group, tolerating races after its leader has exited."""
     try:
@@ -251,7 +269,8 @@ class BashExecutor:
         """
         stdout_collector = _OutputCollector(max_output_bytes)
         stderr_collector = _OutputCollector(max_output_bytes)
-        logger.info("Executing bash command", command=_log_excerpt(command))
+        logger.info("Executing bash command", command_chars=len(command))
+        logger.debug("Bash command", command=_command_excerpt(command))
 
         bash_command = f"source {__BASH_INIT_FILEPATH__} && {command}"
         process = await asyncio.create_subprocess_shell(
@@ -293,6 +312,9 @@ class BashExecutor:
                 timeout_seconds=timeout,
                 stdout_bytes=stdout_collector.total,
                 stderr_bytes=stderr_collector.total,
+            )
+            logger.debug(
+                "Partial output of the timed-out command",
                 stdout=_log_excerpt(_decode_output(stdout_collector.retained())),
                 stderr=_log_excerpt(_decode_output(stderr_collector.retained())),
             )
@@ -309,6 +331,9 @@ class BashExecutor:
             exit_code=exit_code,
             stdout_bytes=stdout_collector.total,
             stderr_bytes=stderr_collector.total,
+        )
+        logger.debug(
+            "Command output",
             stdout=_log_excerpt(stdout_text),
             stderr=_log_excerpt(stderr_text),
         )
