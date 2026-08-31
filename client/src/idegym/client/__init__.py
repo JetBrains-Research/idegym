@@ -11,6 +11,7 @@ from idegym.client.exceptions import (
     IdeGYMServerError,
     IdeGYMTimeoutError,
 )
+from idegym.client.shared import SharedIdeGYMClient
 
 try:
     __version__ = version("idegym-client")
@@ -30,5 +31,6 @@ __all__ = (
     "IdeGYMNotFoundError",
     "IdeGYMServerError",
     "IdeGYMTimeoutError",
+    "SharedIdeGYMClient",
     "__version__",
 )
