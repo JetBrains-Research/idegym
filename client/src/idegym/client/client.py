@@ -91,7 +91,8 @@ class IdeGYMClient:
             heartbeat_interval_in_seconds: Interval between heartbeat requests.
             request_timeout_in_seconds: Default timeout for every HTTP request.
             otel_config: OpenTelemetry configuration for tracing. Falls back to ``IDEGYM_OTEL_*``
-                environment variables when not provided.
+                environment variables when not provided. Tracing stays off unless an endpoint is
+                configured, either here or through ``IDEGYM_OTEL_TRACING_ENDPOINT``.
         """
         if orchestrator_url == "idegym.test":
             orchestrator_url = f"http://{orchestrator_url}"
@@ -120,10 +121,12 @@ class IdeGYMClient:
             ),
         )
 
+        # Tracing is opt-in: with no endpoint the exporter is never built, so a caller who
+        # does not know about OTEL cannot end up shipping telemetry off their infrastructure.
         otel_config = otel_config or OTELConfig(
             service_name=env.get("IDEGYM_OTEL_SERVICE_NAME", generate_service_name()),
             tracing=TracingConfig(
-                endpoint=env.get("IDEGYM_OTEL_TRACING_ENDPOINT", "https://tempo.labs.jb.gg/v1/traces"),
+                endpoint=env.get("IDEGYM_OTEL_TRACING_ENDPOINT", "").strip() or None,
                 timeout=int(env.get("IDEGYM_OTEL_TRACING_TIMEOUT", "10")),
                 auth=BasicAuth(
                     username=env.get("IDEGYM_OTEL_TRACING_AUTH_USERNAME"),
