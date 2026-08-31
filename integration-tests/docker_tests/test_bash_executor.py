@@ -80,14 +80,43 @@ class TestBashExecutor:
         assert exit_code != 0
 
     @pytest.mark.asyncio
-    async def test_empty_command(self):
-        """Test executing an empty command."""
+    async def test_empty_command_is_a_no_op(self):
+        """An empty script runs the init prefix and nothing else, rather than failing to parse."""
         executor = BashExecutor()
         stdout, stderr, exit_code = await executor.execute_bash_command("")
 
         assert stdout == ""
-        assert "syntax error" in stderr.lower()
+        assert stderr == ""
+        assert exit_code == 0
+
+    @pytest.mark.asyncio
+    async def test_every_statement_runs_not_just_the_first(self):
+        """`source ... && a; b; c` used to make only `a` conditional; all three must run now."""
+        executor = BashExecutor()
+
+        stdout, _stderr, exit_code = await executor.execute_bash_command(
+            "printf a; printf b; printf c", strip_output=True
+        )
+
+        assert (stdout, exit_code) == ("abc", 0)
+
+    @pytest.mark.asyncio
+    async def test_a_failing_first_statement_still_short_circuits_the_callers_own_chain(self):
+        """The caller's own `&&` must keep working — only the injected one is gone."""
+        executor = BashExecutor()
+
+        stdout, _stderr, exit_code = await executor.execute_bash_command("false && printf 'unreachable'")
+
+        assert stdout == ""
         assert exit_code != 0
+
+    @pytest.mark.asyncio
+    async def test_bash_reports_errors_at_the_callers_own_line_numbers(self):
+        executor = BashExecutor()
+
+        _stdout, stderr, _exit_code = await executor.execute_bash_command("true\ntrue\nthis-command-does-not-exist")
+
+        assert "line 3" in stderr
 
     @pytest.mark.asyncio
     async def test_execute_command_with_working_directory(self):

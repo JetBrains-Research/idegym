@@ -240,3 +240,17 @@ def test_bash_request_defaults_to_no_per_command_context() -> None:
     request = BashCommandRequest(command="echo hello")
 
     assert (request.cwd, request.env, request.user) == (None, {}, None)
+
+
+def test_init_prefix_uses_a_separator_so_it_cannot_gate_the_script() -> None:
+    prefixed = bash_executor._prepend_bash_integration("a; b; c")
+
+    assert "&&" not in prefixed
+    assert prefixed.endswith(" ; a; b; c")
+    assert "\n" not in prefixed
+
+
+def test_init_prefix_quotes_the_init_path() -> None:
+    prefixed = bash_executor._prepend_bash_integration("true")
+
+    assert str(bash_executor.__BASH_INIT_FILEPATH__) in prefixed.replace("'", "")
