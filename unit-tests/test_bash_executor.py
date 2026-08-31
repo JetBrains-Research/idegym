@@ -197,20 +197,43 @@ def test_resolve_working_directory_treats_relative_paths_as_project_relative(bas
     assert executor.resolve_working_directory(requested) == expected
 
 
-def test_shell_invocation_runs_directly_when_no_user_is_requested() -> None:
-    assert bash_executor._shell_invocation("echo hi", None) == "bash -c 'echo hi'"
+def test_argv_runs_the_script_file_directly_when_no_user_is_requested() -> None:
+    assert bash_executor._process_argv("/tmp/script.sh", None) == ["bash", "/tmp/script.sh"]
 
 
-def test_shell_invocation_drops_to_a_user_without_re_authenticating() -> None:
-    invocation = bash_executor._shell_invocation("echo hi", "devuser")
+def test_argv_drops_to_a_user_without_re_authenticating() -> None:
+    argv = bash_executor._process_argv("/tmp/script.sh", "devuser")
 
-    assert invocation == "runuser --preserve-environment -u devuser -- bash -c 'echo hi'"
+    assert argv == ["runuser", "--preserve-environment", "-u", "devuser", "--", "bash", "/tmp/script.sh"]
 
 
-def test_shell_invocation_quotes_a_hostile_user_name() -> None:
-    invocation = bash_executor._shell_invocation("echo hi", "dev; rm -rf /")
+def test_argv_passes_a_hostile_user_name_as_one_argument() -> None:
+    """No shell parses this argv, so a name with metacharacters is inert rather than quoted."""
+    argv = bash_executor._process_argv("/tmp/script.sh", "dev; rm -rf /")
 
-    assert "'dev; rm -rf /'" in invocation
+    assert "dev; rm -rf /" in argv
+
+
+def test_script_file_is_private_unless_another_user_must_read_it() -> None:
+    private = bash_executor._write_script("echo hi", readable_by_other_user=False)
+    shared = bash_executor._write_script("echo hi", readable_by_other_user=True)
+
+    try:
+        assert Path(private).read_text() == "echo hi"
+        assert Path(private).stat().st_mode & 0o777 == 0o600
+        assert Path(shared).stat().st_mode & 0o777 == 0o644
+    finally:
+        bash_executor._remove_script(private)
+        bash_executor._remove_script(shared)
+
+
+def test_removing_the_script_twice_is_not_an_error() -> None:
+    path = bash_executor._write_script("echo hi", readable_by_other_user=False)
+
+    bash_executor._remove_script(path)
+    bash_executor._remove_script(path)
+
+    assert not Path(path).exists()
 
 
 def test_bash_request_defaults_to_no_per_command_context() -> None:
