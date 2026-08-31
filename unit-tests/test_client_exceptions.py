@@ -5,6 +5,8 @@ retry policy branches on, and the fact that the change stayed backwards compatib
 messages and the ``RuntimeError`` base are what existing callers already depend on.
 """
 
+from uuid import uuid4
+
 import httpx
 import pytest
 from idegym.api.exceptions import IdeGYMException
@@ -130,3 +132,54 @@ async def test_start_server_failure_is_typed(mocker) -> None:
         await client.start_server(image_tag="registry.test/env:latest")
 
     assert caught.value.status_code == 503
+
+
+# --------------------------------------------------------------------------------------
+# Operations that used to report failure by returning it
+# --------------------------------------------------------------------------------------
+
+
+def _server_operations(mocker, terminal_result):
+    from idegym.client.operations.servers import ServerOperations
+
+    utils = mocker.MagicMock()
+    utils.validate_client_id.side_effect = lambda client_id: client_id
+    utils.validate_namespace.side_effect = lambda namespace: namespace or "idegym"
+    utils.make_request = mocker.AsyncMock(return_value={"server_name": "srv", "message": "ok", "operation_id": 3})
+    utils.parse_response.side_effect = lambda response_raw, model_class: model_class.model_validate(response_raw)
+    utils.wait_for_async_operation_to_end = mocker.AsyncMock(return_value=terminal_result)
+    return ServerOperations(utils=utils, project=mocker.MagicMock())
+
+
+async def test_stop_server_raises_instead_of_returning_the_failure(mocker) -> None:
+    operations = _server_operations(mocker, ErrorResponse(status_code=500, body="delete failed"))
+
+    with pytest.raises(IdeGYMServerError) as caught:
+        await operations.stop_server(server_id=7, client_id=uuid4())
+
+    assert caught.value.status_code == 500
+    assert "Stopping server 7 failed" in str(caught.value)
+
+
+async def test_restart_server_raises_instead_of_returning_the_failure(mocker) -> None:
+    operations = _server_operations(mocker, ErrorResponse(status_code=410, body="pod gone"))
+
+    with pytest.raises(IdeGYMNotFoundError):
+        await operations.restart_server(server_id=7, client_id=uuid4())
+
+
+async def test_a_successful_stop_still_returns_the_action_response(mocker) -> None:
+    from idegym.api.orchestrator.servers import ServerActionResponse
+
+    success = ServerActionResponse(server_name="srv", message="Successfully stopped")
+    operations = _server_operations(mocker, success)
+
+    assert await operations.stop_server(server_id=7, client_id=uuid4()) is success
+
+
+def test_raise_for_error_response_passes_a_success_through() -> None:
+    from idegym.client.exceptions import raise_for_error_response
+
+    value = object()
+
+    assert raise_for_error_response(value, "Doing a thing") is value
