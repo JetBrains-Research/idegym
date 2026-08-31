@@ -63,6 +63,12 @@ stdin alone.
 
 The temp file is removed once the command finishes, including when it times out.
 
+Before the script, IdeGYM sources a bundled init file that sets up the shell environment. It is
+joined to your script with `;`, not `&&`, so it cannot change what your script means: every
+statement runs exactly as written, and your own `&&` and `||` behave normally. The prefix stays
+on the same line, so a bash error still reports the line number you wrote. An empty script is a
+no-op that exits 0.
+
 #### Per-command context
 
 Without `cwd`, `env` and `user` the only way to set context is to write it into the script —
