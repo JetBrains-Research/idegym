@@ -1,13 +1,19 @@
+import gzip
 import io
 import tarfile
 from asyncio import CancelledError, sleep, to_thread
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from hashlib import sha256
+from os import environ as env
+from shlex import quote
 from typing import Any, Optional, TypeVar
 
-from idegym.api.image_build import ImageBuildSpec
+from idegym.api.dockerfile_analysis import has_syntax_directive
+from idegym.api.image_build import ImageBuildSpec, context_uri_scheme
 from idegym.api.status import Status
 from idegym.backend.utils.image_builder.base import BuildHandle, ImageBuilder
+from idegym.backend.utils.image_builder.secrets import secret_version_name
 from idegym.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -15,7 +21,19 @@ logger = get_logger(__name__)
 T = TypeVar("T")
 
 DOCKER_CLOUD_BUILDER = "gcr.io/cloud-builders/docker"
+CLOUD_SDK_BUILDER = "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
 SKIPPED_PREFIX = "skipped:"
+
+# Cloud Build's built-in Dockerfile frontend cannot parse heredocs or `RUN --mount`. Pointing
+# BUILDKIT_SYNTAX at a real frontend image makes BuildKit fetch it instead, which is what lets an
+# inline base Dockerfile use either. Only injected when the Dockerfile does not pin its own.
+BUILDKIT_SYNTAX_ARG = "BUILDKIT_SYNTAX"
+DEFAULT_BUILDKIT_SYNTAX = "docker/dockerfile:1"
+
+# Prefix for the Cloud Build env var a Secret Manager secret's value is exposed in, which
+# `docker build --secret id=<id>,env=<var>` then reads. Prefixed to keep caller-chosen secret ids
+# from colliding with anything else in the step's environment.
+SECRET_ENV_PREFIX = "IDEGYM_SECRET_"
 
 # The auth token is passed as a BuildKit build secret rather than a `--build-arg`, so it
 # never lands in the Cloud Build request (visible to anyone with build-viewer access) nor in
@@ -46,16 +64,21 @@ def build_cloudbuild_config(
 ) -> dict[str, Any]:
     """Build the Cloud Build request body (the programmatic equivalent of ``cloudbuild.yaml``).
 
-    Uses a single ``docker build`` step with BuildKit enabled so Dockerfile heredocs and
+    Uses a ``docker build`` step with BuildKit enabled so Dockerfile heredocs and
     ``--mount=type=secret`` work (``--tag`` on ``gcloud builds submit`` does not support
-    BuildKit). The same archive URL / auth args Kaniko receives are forwarded here, so the
-    rendered Dockerfile behaves identically across backends -- except the auth token, which
-    is passed as a BuildKit secret (see `_inject_auth_secret`) instead of a build arg so
-    it stays out of the Build resource and image history. ``CLOUD_LOGGING_ONLY`` avoids a
-    non-zero exit when the default GCS logs bucket is unreadable (VPC-SC / missing
-    ``storage.objects.get``).
+    BuildKit), preceded by a fetch step when the caller staged their own build context. The same
+    archive URL / auth args Kaniko receives are forwarded here, so the rendered Dockerfile behaves
+    identically across backends -- except the auth token, which is passed as a BuildKit secret (see
+    `_inject_auth_secret`) instead of a build arg so it stays out of the Build resource and image
+    history. ``CLOUD_LOGGING_ONLY`` avoids a non-zero exit when the default GCS logs bucket is
+    unreadable (VPC-SC / missing ``storage.objects.get``).
     """
     docker_args: list[str] = ["build", "--build-arg", f"IDEGYM_VERSION={service_version}"]
+
+    # BuildKit's own frontend is only used if asked for; Cloud Build's built-in one cannot parse
+    # heredocs. An author who pinned `# syntax=` keeps their choice.
+    if not has_syntax_directive(spec.dockerfile_content):
+        docker_args += ["--build-arg", f"{BUILDKIT_SYNTAX_ARG}={DEFAULT_BUILDKIT_SYNTAX}"]
 
     if spec.request is not None:
         docker_args += [
@@ -69,6 +92,25 @@ def build_cloudbuild_config(
         if spec.request.auth.token is not None:
             docker_args += ["--secret", f"id={AUTH_SECRET_ID},src=./{AUTH_SECRET_SRC}"]
 
+    for key, value in sorted(spec.build_args.items()):
+        docker_args += ["--build-arg", f"{key}={value}"]
+
+    # Plugin-declared secrets, resolved from the orchestrator's own environment. Matches the Kaniko
+    # backend, which has always done this; this backend used to drop the field entirely, silently
+    # breaking the `external_plugins` feature. Empty values are skipped -- an empty credential is
+    # never useful, and the Dockerfile's ARG default then applies.
+    for name in spec.secret_build_args:
+        value = env.get(name)
+        if value:
+            docker_args += ["--build-arg", f"{name}={value}"]
+
+    # Caller-declared secrets, mounted by BuildKit. Only the resource name travels in the request;
+    # Cloud Build resolves the value into the step's environment, and `--secret ...,env=` hands it
+    # to BuildKit without it ever reaching an image layer.
+    secret_env = [secret_env_name(secret_id) for secret_id in sorted(spec.secrets)]
+    for secret_id in sorted(spec.secrets):
+        docker_args += ["--secret", f"id={secret_id},env={secret_env_name(secret_id)}"]
+
     for key, value in spec.labels.items():
         docker_args += ["--label", f"{key}={value}"]
 
@@ -80,35 +122,114 @@ def build_cloudbuild_config(
     if disk_size_gb:
         options["disk_size_gb"] = disk_size_gb
 
-    return {
-        "steps": [
-            {
-                "name": DOCKER_CLOUD_BUILDER,
-                "env": ["DOCKER_BUILDKIT=1"],
-                "args": docker_args,
-            }
-        ],
+    build_step: dict[str, Any] = {
+        "name": DOCKER_CLOUD_BUILDER,
+        "env": ["DOCKER_BUILDKIT=1"],
+        "args": docker_args,
+    }
+    if secret_env:
+        build_step["secret_env"] = secret_env
+
+    steps: list[dict[str, Any]] = []
+    if spec.context_uri is not None:
+        steps.append(fetch_context_step(spec.context_uri))
+    steps.append(build_step)
+
+    config: dict[str, Any] = {
+        "steps": steps,
         "images": [tag],
         "options": options,
         "timeout": {"seconds": timeout_seconds},
     }
+    if spec.secrets:
+        config["available_secrets"] = {
+            "secret_manager": [
+                {
+                    "version_name": secret_version_name(spec.secrets[secret_id]),
+                    "env": secret_env_name(secret_id),
+                }
+                for secret_id in sorted(spec.secrets)
+            ]
+        }
+    return config
 
 
-def build_context_tar(dockerfile_content: str, *, auth_token: Optional[str] = None) -> bytes:
-    """Pack the build context as a gzipped tar. Mirrors the Kaniko ConfigMap, which ships only
-    the Dockerfile; the project sources are fetched at build time via the archive build args.
+def secret_env_name(secret_id: str) -> str:
+    """Return the Cloud Build env var a secret's value is exposed in."""
+    return f"{SECRET_ENV_PREFIX}{secret_id.upper()}"
+
+
+def fetch_context_step(context_uri: str) -> dict[str, Any]:
+    """Return the step that overlays a caller-staged context into ``/workspace``.
+
+    Cloud Build extracts the ``StorageSource`` -- which carries the generated Dockerfile and the
+    plugin context files -- into ``/workspace`` before any step runs, so the caller's archive is
+    unpacked *over the top* with ``--skip-old-files``. Generated files therefore win every
+    collision, which is what stops a caller file named ``Dockerfile``, or one landing on a plugin's
+    ``COPY`` path, from quietly replacing part of the build.
+
+    Doing the overlay in-build rather than merging the archives in the orchestrator keeps a
+    multi-gigabyte context off the orchestrator's network and memory entirely.
+
+    ``pipefail`` is load-bearing: without it a failed fetch would be masked by ``tar`` succeeding on
+    empty input, and the build would carry on against a context that never arrived.
+    """
+    command = f"set -euo pipefail; gcloud storage cat {quote(context_uri)} | tar -x -C /workspace --skip-old-files"
+    return {
+        "name": CLOUD_SDK_BUILDER,
+        "entrypoint": "bash",
+        "args": ["-c", command],
+    }
+
+
+def validate_cloudbuild_spec(spec: ImageBuildSpec) -> None:
+    """Reject a spec this backend cannot build, before a build is submitted."""
+    if spec.context_uri is None:
+        return
+    scheme = context_uri_scheme(spec.context_uri)
+    if scheme != "gs":
+        raise ValueError(
+            f"The cloudbuild_gke backend can only fetch a 'gs://' build context, got '{scheme}://'. "
+            "Stage the archive in GCS, or use the kaniko backend, which also fetches s3:// and https://."
+        )
+
+
+def build_context_tar(
+    dockerfile_content: str,
+    *,
+    auth_token: Optional[str] = None,
+    context_files: Optional[dict[str, bytes]] = None,
+) -> bytes:
+    """Pack the build context as a byte-stable gzipped tar.
+
+    Carries the generated Dockerfile plus any plugin ``context_files`` -- the assets an image using
+    the idea/pycharm plugins ``COPY`` from the idegym repo, which the Kaniko backend instead
+    resolves from a git checkout. Project sources are still fetched at build time via the archive
+    build args, and a caller-staged context is overlaid by `fetch_context_step` rather than packed
+    here, so this archive stays small whatever the caller's context weighs.
 
     When ``auth_token`` is given it is added as a separate file consumed via a BuildKit secret
     mount (never ``COPY``-ed), so the token stays out of the image while still reaching the
-    ``download`` step."""
-    buffer = io.BytesIO()
-    with tarfile.open(fileobj=buffer, mode="w:gz") as tar:
+    ``download`` step.
+
+    Byte-stable for identical inputs: entries are sorted, ``TarInfo`` mtimes default to zero, and
+    the gzip header's mtime is pinned. That is what lets the staging object be named after a digest
+    of its own contents.
+    """
+    raw = io.BytesIO()
+    with tarfile.open(fileobj=raw, mode="w") as tar:
         _add_tar_file(tar, "Dockerfile", dockerfile_content.encode("utf-8"))
+        for destination in sorted(context_files or {}):
+            _add_tar_file(tar, destination, (context_files or {})[destination])
         if auth_token is not None:
             _add_tar_file(tar, AUTH_SECRET_SRC, auth_token.encode("utf-8"), mode=0o600)
             # BuildKit reads the secret from the local FS (`src=`), so ignoring it in the build
             # context keeps it out of the image even if custom commands add a stray `COPY .`.
             _add_tar_file(tar, ".dockerignore", f"{AUTH_SECRET_SRC}\n".encode())
+
+    buffer = io.BytesIO()
+    with gzip.GzipFile(fileobj=buffer, mode="wb", mtime=0) as archive:
+        archive.write(raw.getvalue())
     return buffer.getvalue()
 
 
@@ -161,6 +282,12 @@ class CloudBuildGKEImageBuilder(ImageBuilder):
     The build context is uploaded to a GCS staging bucket; auth relies on the orchestrator
     pod's ambient GCP credentials (service account / Workload Identity), which need Cloud
     Build Editor, Artifact Registry Writer, and Storage Object Admin on the staging bucket.
+
+    Two further grants are needed only by the features that use them: read access on the caller's
+    bucket for a spec with ``context_uri`` (a cross-project context needs an explicit grant), and
+    ``roles/secretmanager.secretAccessor`` on every secret named in ``secrets``. Scope both
+    deliberately rather than broadly — a caller-supplied ``context_uri`` means the build reads from
+    a bucket the caller controls.
 
     GCP clients are created lazily and may be injected for testing.
     """
@@ -233,6 +360,8 @@ class CloudBuildGKEImageBuilder(ImageBuilder):
         namespace: str,
         service_version: str,
     ) -> CloudBuildGKEHandle:
+        validate_cloudbuild_spec(spec)
+
         if self._skip_existing and await self._image_exists(tag):
             logger.info(f"Image '{tag}' already exists; skipping Cloud Build")
             return CloudBuildGKEHandle(name=f"{SKIPPED_PREFIX}{tag}")
@@ -290,8 +419,13 @@ class CloudBuildGKEImageBuilder(ImageBuilder):
             dockerfile = _inject_auth_secret(dockerfile)
             auth_token = spec.request.auth.token
 
-        archive = build_context_tar(dockerfile, auth_token=auth_token)
-        object_name = f"idegym-builds/{spec.image_version()}.tar.gz"
+        archive = build_context_tar(dockerfile, auth_token=auth_token, context_files=spec.context_files)
+        # Naming the object after a digest of its own bytes, not just the image version, keeps a
+        # generated context from ever colliding with something else staged under the same prefix --
+        # including a caller who stages into this bucket. The archive is byte-stable, so identical
+        # inputs still resolve to one object rather than accumulating copies.
+        digest = sha256(archive).hexdigest()[:12]
+        object_name = f"idegym-builds/{spec.image_version()}-{digest}.tar.gz"
 
         def _upload() -> None:
             bucket = self._get_storage_client().bucket(self._staging_bucket)

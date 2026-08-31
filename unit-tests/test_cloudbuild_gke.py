@@ -7,6 +7,7 @@ the Artifact Registry resource-name parsing, and the submit/poll flow with fakes
 
 import io
 import tarfile
+from hashlib import sha256
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -18,6 +19,9 @@ from idegym.backend.utils.image_builder.cloudbuild_gke import (
     AUTH_SECRET_ID,
     AUTH_SECRET_PATH,
     AUTH_SECRET_SRC,
+    BUILDKIT_SYNTAX_ARG,
+    CLOUD_SDK_BUILDER,
+    DEFAULT_BUILDKIT_SYNTAX,
     SKIPPED_PREFIX,
     CloudBuildGKEHandle,
     CloudBuildGKEImageBuilder,
@@ -26,6 +30,8 @@ from idegym.backend.utils.image_builder.cloudbuild_gke import (
     build_cloudbuild_config,
     build_context_tar,
     map_build_status,
+    secret_env_name,
+    validate_cloudbuild_spec,
 )
 
 pytestmark = pytest.mark.unit
@@ -136,6 +142,138 @@ def test_config_omits_machine_and_disk_when_unset():
 
 
 # ---------------------------------------------------------------------------
+# BUILDKIT_SYNTAX
+# ---------------------------------------------------------------------------
+
+
+def test_buildkit_syntax_is_injected_by_default():
+    """Cloud Build's built-in frontend cannot parse heredocs; a real frontend image can.
+
+    The first consumer's task Dockerfiles use ``RUN <<EOF``, so without this they simply fail.
+    """
+    args = build_cloudbuild_config(_TAG, _spec(), "1.2.3")["steps"][0]["args"]
+    assert f"{BUILDKIT_SYNTAX_ARG}={DEFAULT_BUILDKIT_SYNTAX}" in args
+
+
+def test_buildkit_syntax_is_not_injected_when_the_dockerfile_pins_its_own():
+    spec = _spec(dockerfile_content="# syntax=docker/dockerfile:1.7\nFROM scratch\n")
+    args = build_cloudbuild_config(_TAG, spec, "1.2.3")["steps"][0]["args"]
+    assert not any(BUILDKIT_SYNTAX_ARG in arg for arg in args)
+
+
+def test_a_heredoc_dockerfile_is_accepted_and_gets_a_frontend():
+    spec = _spec(dockerfile_content="FROM scratch\nRUN <<EOF\necho hi\nEOF\n")
+    args = build_cloudbuild_config(_TAG, spec, "1.2.3")["steps"][0]["args"]
+    assert f"{BUILDKIT_SYNTAX_ARG}={DEFAULT_BUILDKIT_SYNTAX}" in args
+
+
+# ---------------------------------------------------------------------------
+# Build args and secrets
+# ---------------------------------------------------------------------------
+
+_SECRET_RESOURCE = "projects/p/secrets/gh-token/versions/3"
+
+
+def test_config_forwards_build_args():
+    args = build_cloudbuild_config(_TAG, _spec(build_args={"FLAVOUR": "slim"}), "1.2.3")["steps"][0]["args"]
+    assert "FLAVOUR=slim" in args
+
+
+def test_config_forwards_secret_build_args_from_the_environment(monkeypatch):
+    """This backend used to drop secret_build_args outright, silently breaking external_plugins."""
+    monkeypatch.setenv("PLUGIN_TOKEN", "tok-value")
+    args = build_cloudbuild_config(_TAG, _spec(secret_build_args=["PLUGIN_TOKEN"]), "1.2.3")["steps"][0]["args"]
+    assert "PLUGIN_TOKEN=tok-value" in args
+
+
+def test_config_skips_a_secret_build_arg_with_no_value(monkeypatch):
+    monkeypatch.delenv("PLUGIN_TOKEN", raising=False)
+    args = build_cloudbuild_config(_TAG, _spec(secret_build_args=["PLUGIN_TOKEN"]), "1.2.3")["steps"][0]["args"]
+    assert not any("PLUGIN_TOKEN" in arg for arg in args)
+
+
+def test_config_mounts_declared_secrets_as_buildkit_secrets():
+    config = build_cloudbuild_config(_TAG, _spec(secrets={"gh_token": _SECRET_RESOURCE}), "1.2.3")
+    variable = secret_env_name("gh_token")
+
+    assert config["available_secrets"] == {"secret_manager": [{"version_name": _SECRET_RESOURCE, "env": variable}]}
+    step = config["steps"][0]
+    assert step["secret_env"] == [variable]
+    assert f"id=gh_token,env={variable}" in step["args"]
+
+
+def test_a_secret_without_a_version_is_pinned_to_latest():
+    config = build_cloudbuild_config(_TAG, _spec(secrets={"tok": "projects/p/secrets/s"}), "1.2.3")
+    versions = [entry["version_name"] for entry in config["available_secrets"]["secret_manager"]]
+    assert versions == ["projects/p/secrets/s/versions/latest"]
+
+
+def test_config_omits_available_secrets_when_none_are_declared():
+    config = build_cloudbuild_config(_TAG, _spec(), "1.2.3")
+    assert "available_secrets" not in config
+    assert "secret_env" not in config["steps"][0]
+
+
+def test_a_declared_secret_travels_as_a_reference_not_a_build_arg():
+    """Cloud Build resolves the value into the step's environment; the request carries only a name.
+
+    This is the difference from Kaniko, where the same declaration has to become a --build-arg and
+    therefore lands in the image history.
+    """
+    config = build_cloudbuild_config(_TAG, _spec(secrets={"gh_token": _SECRET_RESOURCE}), "1.2.3")
+    args = config["steps"][0]["args"]
+
+    assert config["available_secrets"]["secret_manager"][0]["version_name"] == _SECRET_RESOURCE
+    build_arg_values = [args[index + 1] for index, arg in enumerate(args) if arg == "--build-arg"]
+    assert not any(value.startswith("gh_token=") for value in build_arg_values)
+
+
+# ---------------------------------------------------------------------------
+# Caller-staged build context
+# ---------------------------------------------------------------------------
+
+
+def test_a_context_uri_prepends_a_fetch_step():
+    config = build_cloudbuild_config(_TAG, _spec(context_uri="gs://bucket/ctx.tar.gz"), "1.2.3")
+    fetch, build = config["steps"]
+    assert fetch["name"] == CLOUD_SDK_BUILDER
+    assert build["name"] == "gcr.io/cloud-builders/docker"
+
+
+def test_the_fetch_step_never_clobbers_generated_files():
+    """The generated Dockerfile and plugin assets are already in /workspace when this runs.
+
+    ``--skip-old-files`` is what makes ours win, so a caller file named ``Dockerfile`` cannot
+    replace the generated build. ``pipefail`` keeps a failed fetch from being masked by tar
+    succeeding on empty input.
+    """
+    config = build_cloudbuild_config(_TAG, _spec(context_uri="gs://bucket/ctx.tar.gz"), "1.2.3")
+    command = config["steps"][0]["args"][1]
+    assert "--skip-old-files" in command
+    assert "set -euo pipefail" in command
+    assert "gs://bucket/ctx.tar.gz" in command
+
+
+def test_no_context_uri_means_a_single_step():
+    assert len(build_cloudbuild_config(_TAG, _spec(), "1.2.3")["steps"]) == 1
+
+
+def test_validate_accepts_a_gcs_context():
+    validate_cloudbuild_spec(_spec(context_uri="gs://bucket/ctx.tar.gz"))
+
+
+@pytest.mark.parametrize("uri", ["s3://bucket/ctx.tar.gz", "https://example.com/ctx.tar.gz"])
+def test_validate_rejects_a_non_gcs_context(uri):
+    # StorageSource and `gcloud storage cat` are GCS-only; Kaniko is the backend that fetches these.
+    with pytest.raises(ValueError, match="only fetch a 'gs://' build context"):
+        validate_cloudbuild_spec(_spec(context_uri=uri))
+
+
+def test_validate_accepts_a_spec_with_no_context():
+    validate_cloudbuild_spec(_spec())
+
+
+# ---------------------------------------------------------------------------
 # build_context_tar
 # ---------------------------------------------------------------------------
 
@@ -158,6 +296,36 @@ def test_context_tar_ships_auth_token_as_locked_down_file():
         assert tar.extractfile(AUTH_SECRET_SRC).read().decode() == "secret-token"
         # the secret file is excluded from the build context sent to the daemon
         assert AUTH_SECRET_SRC in tar.extractfile(".dockerignore").read().decode()
+
+
+def test_context_tar_ships_plugin_context_files():
+    """Without these, any image using the idea/pycharm plugins fails to build on this backend.
+
+    The Kaniko backend resolves the same paths from a git checkout of the idegym repo instead.
+    """
+    files = {"plugins/plugin-utils/scripts/start.sh": b"#!/bin/sh\n", "plugins/idea/scripts/run.sh": b"run\n"}
+    archive = build_context_tar("FROM scratch\n", context_files=files)
+    with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tar:
+        assert set(tar.getnames()) == {"Dockerfile", *files}
+        assert tar.extractfile("plugins/idea/scripts/run.sh").read() == b"run\n"
+
+
+def test_context_tar_is_byte_stable_for_identical_inputs():
+    """The staging object is named after a digest of this archive, so it has to be reproducible.
+
+    A gzip header carries an mtime by default, which would otherwise make every build's archive
+    differ and defeat the naming entirely.
+    """
+    files = {"b.sh": b"b", "a.sh": b"a"}
+    first = build_context_tar("FROM scratch\n", context_files=files)
+    second = build_context_tar("FROM scratch\n", context_files=dict(reversed(list(files.items()))))
+    assert first == second
+
+
+def test_context_tar_differs_when_a_context_file_changes():
+    one = build_context_tar("FROM scratch\n", context_files={"a.sh": b"one"})
+    two = build_context_tar("FROM scratch\n", context_files={"a.sh": b"two"})
+    assert one != two
 
 
 # ---------------------------------------------------------------------------
@@ -277,6 +445,72 @@ async def test_submit_build_uploads_context_and_returns_handle():
     _, kwargs = build_client.create_build.call_args
     assert kwargs["parent"] == "projects/proj/locations/europe-west1"
     assert kwargs["build"].source.storage_source.bucket == "bucket"
+
+
+async def test_submit_build_names_the_staging_object_after_its_contents():
+    """Guards against a stale object being reused, and against a caller staging into this prefix."""
+    build_client = _fake_build_client()
+    storage_client, bucket, _blob = _fake_storage_client()
+    builder = CloudBuildGKEImageBuilder(
+        project_id="proj",
+        region="europe-west1",
+        staging_bucket="bucket",
+        build_client=build_client,
+        storage_client=storage_client,
+    )
+
+    spec = _spec(context_files={"plugins/idea/scripts/run.sh": b"run\n"})
+    await builder.submit_build(_TAG, spec, namespace="idegym", service_version="1.2.3")
+
+    object_name = bucket.blob.call_args.args[0]
+    digest = sha256(build_context_tar(spec.dockerfile_content, context_files=spec.context_files)).hexdigest()[:12]
+    assert object_name == f"idegym-builds/{spec.image_version()}-{digest}.tar.gz"
+
+
+async def test_submit_build_uses_the_storage_source_even_with_a_caller_context():
+    """The caller's archive is overlaid by a step; it never replaces the StorageSource.
+
+    Swapping the source would drop the generated Dockerfile and the plugin assets, which is why
+    the overlay exists.
+    """
+    build_client = _fake_build_client()
+    storage_client, _bucket, _blob = _fake_storage_client()
+    builder = CloudBuildGKEImageBuilder(
+        project_id="proj",
+        region="europe-west1",
+        staging_bucket="bucket",
+        build_client=build_client,
+        storage_client=storage_client,
+    )
+
+    spec = _spec(context_uri="gs://caller-bucket/ctx.tar.gz")
+    await builder.submit_build(_TAG, spec, namespace="idegym", service_version="1.2.3")
+
+    build = build_client.create_build.call_args.kwargs["build"]
+    assert build.source.storage_source.bucket == "bucket"
+    assert len(build.steps) == 2
+
+
+async def test_submit_build_rejects_a_non_gcs_context_before_uploading():
+    build_client = _fake_build_client()
+    storage_client, _bucket, blob = _fake_storage_client()
+    builder = CloudBuildGKEImageBuilder(
+        project_id="proj",
+        region="europe-west1",
+        staging_bucket="bucket",
+        build_client=build_client,
+        storage_client=storage_client,
+    )
+
+    with pytest.raises(ValueError, match="only fetch a 'gs://' build context"):
+        await builder.submit_build(
+            _TAG,
+            _spec(context_uri="s3://bucket/ctx.tar.gz"),
+            namespace="idegym",
+            service_version="1.2.3",
+        )
+    blob.upload_from_string.assert_not_called()
+    build_client.create_build.assert_not_called()
 
 
 async def test_submit_build_uploads_secret_and_transformed_dockerfile():
