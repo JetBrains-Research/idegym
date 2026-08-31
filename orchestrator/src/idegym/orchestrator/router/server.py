@@ -12,11 +12,13 @@ from idegym.api.orchestrator.servers import (
     FinishServerRequest,
     KeepaliveServerRequest,
     KeepaliveServerResponse,
+    ListServersResponse,
     RestartServerRequest,
     ServerActionResponse,
     ServerKind,
     ServerReuseStrategy,
     ServerStatusResponse,
+    ServerSummary,
     StartServerRequest,
     StartServerResponse,
     StopServerRequest,
@@ -34,6 +36,7 @@ from idegym.orchestrator.database.helpers import (
     extend_server_keepalive,
     find_matching_finished_server_in_db,
     get_owned_server,
+    list_client_servers,
     update_operation_status,
     update_operation_with_error,
     update_server_owner,
@@ -182,6 +185,39 @@ async def get_server_capabilities(server_id: int, client_id: UUID, low_level_req
     if response.status_code >= 400:
         raise HTTPException(status_code=response.status_code, detail=response.text)
     return CapabilitiesResponse.model_validate_json(response.text)
+
+
+@router.get("/api/idegym-servers")
+@handle_server_exceptions("listing IdeGYM servers")
+async def list_servers(client_id: UUID, include_terminal: bool = False) -> ListServersResponse:
+    """List the servers a client owns.
+
+    Without this a client cannot ask what it is holding, so finding a leaked pod after a crash
+    meant reaching for kubectl — which a client running outside the cluster generally cannot do.
+    Terminal servers are excluded unless asked for, since the common question is "what is still
+    mine and running".
+    """
+    await validate_client(client_id)
+    servers = await list_client_servers(client_id=client_id, include_terminal=include_terminal)
+    return ListServersResponse(
+        client_id=client_id,
+        servers=[
+            ServerSummary(
+                server_id=server.id,
+                server_name=server.server_name,
+                generated_name=server.generated_name,
+                namespace=server.namespace,
+                availability=server.availability,
+                usable=server.availability in {AvailabilityStatus.ALIVE, AvailabilityStatus.REUSED},
+                image_tag=server.image_tag,
+                created_at=server.created_at,
+                last_activity_at=server.last_heartbeat_time,
+                keepalive_until=server.keepalive_until,
+                details=server.details,
+            )
+            for server in servers
+        ],
+    )
 
 
 @router.post("/api/idegym-servers/keepalive")

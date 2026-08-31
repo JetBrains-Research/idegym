@@ -26,6 +26,7 @@ from idegym.api.orchestrator.servers import (
     ServerActionResponse,
     ServerKind,
     ServerReuseStrategy,
+    ServerSummary,
     SnapshotRef,
     StartServerResponse,
 )
@@ -413,6 +414,16 @@ class IdeGYMClient:
             )
         else:
             raise RuntimeError(f"Unexpected response from server start: {server_response.model_dump()}")
+
+    async def list_servers(self, include_terminal: bool = False) -> list[ServerSummary]:
+        """List the servers this client owns, newest first.
+
+        Scoped to this client's registration, so it answers "what am I holding" — which is what
+        makes cleaning up after a crash possible without cluster access. Terminal servers are
+        excluded unless ``include_terminal`` asks for them.
+        """
+        response = await self.server.list_servers(client_id=self.client_id, include_terminal=include_terminal)
+        return response.servers
 
     async def build_and_push_images(
         self,

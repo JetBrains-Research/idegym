@@ -239,6 +239,33 @@ class ServerRequestResponse(BaseModel):
     status: str
 
 
+class ServerSummary(BaseModel):
+    """One row of the server list: what the orchestrator knows without asking Kubernetes.
+
+    Deliberately has no pod fields — listing them would mean one API call per server. Use the
+    status endpoint for the pod view of a single server.
+    """
+
+    server_id: int = Field(description="Numeric IdeGYM server ID")
+    server_name: Optional[str] = Field(default=None, description="Logical server name from the start request")
+    generated_name: str = Field(description="Kubernetes resource name for the server")
+    namespace: str
+    availability: str = Field(description="Availability status recorded by the orchestrator")
+    usable: bool = Field(description="True when the server is in a state that accepts requests")
+    image_tag: Optional[str] = Field(default=None)
+    created_at: int = Field(description="Epoch milliseconds", ge=0)
+    last_activity_at: int = Field(description="Epoch milliseconds", ge=0)
+    keepalive_until: Optional[int] = Field(
+        default=None, description="Epoch milliseconds until which an explicit keepalive holds the server"
+    )
+    details: Optional[str] = Field(default=None, description="Failure reason recorded on a terminal status")
+
+
+class ListServersResponse(BaseModel):
+    client_id: UUID
+    servers: list[ServerSummary] = Field(default_factory=list)
+
+
 class ServerStatusResponse(BaseModel):
     """Everything needed to answer 'is this server usable right now', in one call.
 

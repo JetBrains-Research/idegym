@@ -235,6 +235,15 @@ async def find_matching_finished_server_in_db(
 
 
 @with_db_session
+async def list_client_servers(db: AsyncSession, client_id: UUID, include_terminal: bool):
+    """Return every server owned by a client, newest first, optionally including dead ones."""
+    servers = await get_idegym_servers_by_client_id(db, client_id)
+    if not include_terminal:
+        servers = [server for server in servers if not AvailabilityStatus(server.availability).is_terminal]
+    return sorted(servers, key=lambda server: server.created_at or 0, reverse=True)
+
+
+@with_db_session
 async def find_alive_servers(db: AsyncSession, client_id: UUID) -> list[AliveServerInfo]:
     servers_info = []
     servers = await get_idegym_servers_by_client_id(db, client_id)
