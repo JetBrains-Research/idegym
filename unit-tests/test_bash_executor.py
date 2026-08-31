@@ -115,8 +115,17 @@ def test_collector_exposes_bounded_partial_output() -> None:
     assert collector.total == 12
 
 
-def test_decode_output_replaces_invalid_utf8_and_preserves_leading_whitespace() -> None:
-    assert bash_executor._decode_output(b"  indented\xff\n") == "  indented�"
+def test_decode_output_replaces_invalid_utf8_and_preserves_surrounding_whitespace() -> None:
+    assert bash_executor._decode_output(b"  indented\xff\n") == "  indented�\n"
+
+
+def test_decode_output_trims_only_when_asked() -> None:
+    assert bash_executor._decode_output(b"\n  spaced  \n", strip=True) == "spaced"
+
+
+def test_decode_output_of_empty_stream_is_empty_either_way() -> None:
+    assert bash_executor._decode_output(b"") == ""
+    assert bash_executor._decode_output(b"", strip=True) == ""
 
 
 def test_log_excerpt_is_bounded_to_one_page() -> None:
@@ -135,3 +144,7 @@ def test_bash_request_rejects_invalid_output_limit(limit) -> None:
 
 def test_bash_request_supports_explicit_unlimited_output() -> None:
     assert BashCommandRequest(command="echo hello", max_output_bytes=None).max_output_bytes is None
+
+
+def test_bash_request_keeps_output_verbatim_by_default() -> None:
+    assert BashCommandRequest(command="echo hello").strip_output is False
