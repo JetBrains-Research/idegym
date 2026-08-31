@@ -37,6 +37,7 @@ from idegym.api.pod_spec import (
 )
 from idegym.api.resources import KubernetesResources
 from idegym.api.type import KubernetesNodeSelector, KubernetesObjectName, OCIImageName
+from idegym.client.exceptions import http_error
 from idegym.client.operations.clients import ClientOperations
 from idegym.client.operations.forwarding import ForwardingOperations
 from idegym.client.operations.jobs import JobOperations
@@ -362,7 +363,8 @@ class IdeGYMClient:
         """
         Start an IdeGYM server and return an :class:`IdeGYMServer` handle.
 
-        Raises ``RuntimeError`` if the orchestrator returns an error response.
+        Raises an :class:`~idegym.client.exceptions.IdeGYMHTTPError` subclass if the orchestrator
+        returns an error response.
         Prefer :meth:`with_server` for automatic cleanup.
         """
         logger.info(f"Starting IdeGYM server: name={server_name}, image={image_tag}")
@@ -392,8 +394,11 @@ class IdeGYMClient:
         )
 
         if isinstance(server_response, ErrorResponse):
-            # Branching on a response union, not validating an argument's type — RuntimeError is correct.
-            raise RuntimeError(f"Failed to start server: {server_response.model_dump()}")  # noqa: TRY004
+            raise http_error(
+                f"Failed to start server: {server_response.model_dump()}",
+                status_code=server_response.status_code,
+                body=server_response.body,
+            )
         elif isinstance(server_response, StartServerResponse) and server_response.server_id:
             return IdeGYMServer(
                 server_id=server_response.server_id,
