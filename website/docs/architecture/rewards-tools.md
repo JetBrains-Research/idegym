@@ -19,6 +19,7 @@ flowchart TB
         cf("<b>create_file</b>"):::tool
         ef("<b>edit_file</b>"):::tool
         pf("<b>patch_file</b>"):::tool
+        xfer("<b>upload / download</b>"):::tool
         inspect("<b>IDE inspect</b>"):::tool
     end
 
@@ -41,6 +42,7 @@ flowchart TB
     click cf "https://github.com/JetBrains-Research/idegym/blob/main/tools/src/idegym/tools/file_manager.py" "View the file-manager source on GitHub."
     click ef "https://github.com/JetBrains-Research/idegym/blob/main/tools/src/idegym/tools/file_manager.py" "View the file-manager source on GitHub."
     click pf "https://github.com/JetBrains-Research/idegym/blob/main/tools/src/idegym/tools/file_manager.py" "View the file-manager source on GitHub."
+    click xfer "https://github.com/JetBrains-Research/idegym/blob/main/tools/src/idegym/tools/file_manager.py" "View the file-manager source on GitHub."
     click inspect "https://github.com/JetBrains-Research/idegym/blob/main/plugins/pycharm/src/idegym/plugins/pycharm/server.py" "View the IDE-inspection plugin source on GitHub."
     click comp "https://github.com/JetBrains-Research/idegym/blob/main/rewards/src/idegym/rewards/compilation_checker.py" "View the compilation-reward checker source on GitHub."
     click setup "https://github.com/JetBrains-Research/idegym/blob/main/rewards/src/idegym/rewards/setup_checker.py" "View the setup-reward checker source on GitHub."
@@ -57,8 +59,10 @@ Every server ships the **tools** plugin, available on all images:
 | Create file | `POST /api/tools/file/create` | Create a file with given content |
 | Edit file | `POST /api/tools/file/edit` | Replace a 1-indexed, inclusive line range |
 | Patch file | `POST /api/tools/file/patch` | Apply a unified diff |
+| Upload chunk | `POST /api/tools/file/upload` | Write one base64 chunk of raw bytes at an offset |
+| Download chunk | `POST /api/tools/file/download` | Read one base64 chunk of raw bytes from an offset |
 
-The three file tools are **also exposed as MCP tools** (`create_file`, `edit_file`,
+The three text file tools are **also exposed as MCP tools** (`create_file`, `edit_file`,
 `patch_file`) on the server's `/mcp` endpoint. With a JetBrains IDE plugin installed, an
 `inspect` endpoint runs the full IntelliJ static-analysis pipeline, and **mcp-steroid**
 exposes the IntelliJ Platform API (PSI, refactoring, debugger, VCS) as MCP tools. See the
@@ -70,9 +74,17 @@ complete output with `max_output_bytes=None`. A short marker reports omitted byt
 stream is truncated; the marker itself is outside the per-stream limit. Output is still
 drained until completion or the execution timeout, preventing subprocess pipe deadlocks.
 
+The two chunk endpoints are the binary channel. The orchestrator stores and replays a
+forwarded request as JSON text, so raw bytes cannot survive that round trip and base64 is what
+does. The client wraps them in `upload_file` / `upload_bytes` / `download_file` /
+`download_bytes`, which chunk the payload for you — use these rather than base64 through the
+bash tool, which is bounded by the size of a single shell script and puts the payload in the
+command log.
+
 ```python
 result = await server.execute_bash("python -m pytest -q")
 await server.patch_file("/home/devuser/project/main.py", patch="--- ...")
+await server.upload_file("./fixtures/repo.tar.gz", "/home/devuser/repo.tar.gz")
 ```
 
 ## Rewards — the evaluation signal
