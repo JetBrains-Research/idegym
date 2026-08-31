@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Any, Optional
 from uuid import UUID
 
@@ -13,7 +14,7 @@ from idegym.api.rewards.compilation import CompilationResult
 from idegym.api.rewards.setup import SetupResult
 from idegym.api.rewards.test import TestReport
 from idegym.api.tools.bash import DEFAULT_MAX_OUTPUT_BYTES, BashCommandResponse
-from idegym.api.tools.file import FileResult
+from idegym.api.tools.file import DEFAULT_FILE_CHUNK_BYTES, FileResult
 from idegym.client.operations.files import FileOperations
 from idegym.client.operations.forwarding import ForwardingOperations
 from idegym.client.operations.project import ProjectOperations
@@ -254,6 +255,84 @@ class IdeGYMServer:
             server_id=self.server_id,
             file_path=file_path,
             patch=patch,
+            client_id=self.client_id,
+            request_timeout=request_timeout,
+            polling_config=polling_config or self.polling_config,
+        )
+
+    async def upload_file(
+        self,
+        local_path: Path | str,
+        file_path: str,
+        chunk_bytes: int = DEFAULT_FILE_CHUNK_BYTES,
+        request_timeout: Optional[int] = None,
+        polling_config: Optional[PollingConfig] = None,
+    ) -> int:
+        """Upload a local file to the server byte-for-byte and return the resulting file size.
+
+        Chunks travel as base64 through the ordinary forwarding path rather than through the bash
+        tool, so binary content survives and the transfer is not bounded by a shell script's size.
+        """
+        return await self.files.upload_file(
+            server_id=self.server_id,
+            local_path=local_path,
+            file_path=file_path,
+            chunk_bytes=chunk_bytes,
+            client_id=self.client_id,
+            request_timeout=request_timeout,
+            polling_config=polling_config or self.polling_config,
+        )
+
+    async def upload_bytes(
+        self,
+        file_path: str,
+        data: bytes,
+        chunk_bytes: int = DEFAULT_FILE_CHUNK_BYTES,
+        request_timeout: Optional[int] = None,
+        polling_config: Optional[PollingConfig] = None,
+    ) -> int:
+        """Write raw bytes to a file on the server and return the resulting file size."""
+        return await self.files.upload_bytes(
+            server_id=self.server_id,
+            file_path=file_path,
+            data=data,
+            chunk_bytes=chunk_bytes,
+            client_id=self.client_id,
+            request_timeout=request_timeout,
+            polling_config=polling_config or self.polling_config,
+        )
+
+    async def download_file(
+        self,
+        file_path: str,
+        local_path: Path | str,
+        chunk_bytes: int = DEFAULT_FILE_CHUNK_BYTES,
+        request_timeout: Optional[int] = None,
+        polling_config: Optional[PollingConfig] = None,
+    ) -> int:
+        """Download a file from the server into ``local_path`` and return the byte count."""
+        return await self.files.download_file(
+            server_id=self.server_id,
+            file_path=file_path,
+            local_path=local_path,
+            chunk_bytes=chunk_bytes,
+            client_id=self.client_id,
+            request_timeout=request_timeout,
+            polling_config=polling_config or self.polling_config,
+        )
+
+    async def download_bytes(
+        self,
+        file_path: str,
+        chunk_bytes: int = DEFAULT_FILE_CHUNK_BYTES,
+        request_timeout: Optional[int] = None,
+        polling_config: Optional[PollingConfig] = None,
+    ) -> bytes:
+        """Read a file from the server and return its raw bytes."""
+        return await self.files.download_bytes(
+            server_id=self.server_id,
+            file_path=file_path,
+            chunk_bytes=chunk_bytes,
             client_id=self.client_id,
             request_timeout=request_timeout,
             polling_config=polling_config or self.polling_config,
