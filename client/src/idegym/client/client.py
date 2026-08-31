@@ -37,7 +37,13 @@ from idegym.api.pod_spec import (
     KubernetesVolumeMount,
 )
 from idegym.api.resources import KubernetesResources
-from idegym.api.type import KubernetesNodeSelector, KubernetesObjectName, OCIImageName
+from idegym.api.type import (
+    KubernetesAnnotations,
+    KubernetesLabels,
+    KubernetesNodeSelector,
+    KubernetesObjectName,
+    OCIImageName,
+)
 from idegym.client.exceptions import http_error
 from idegym.client.operations.clients import ClientOperations
 from idegym.client.operations.forwarding import ForwardingOperations
@@ -306,6 +312,8 @@ class IdeGYMClient:
         server_kind: ServerKind = ServerKind.IDEGYM,
         snapshot: Optional[SnapshotRef] = None,
         max_restarts: int = 0,
+        labels: Optional[KubernetesLabels] = None,
+        annotations: Optional[KubernetesAnnotations] = None,
     ):
         """
         Async context manager that starts a server and yields an :class:`IdeGYMServer` handle.
@@ -336,6 +344,8 @@ class IdeGYMClient:
             server_kind=server_kind,
             snapshot=snapshot,
             max_restarts=max_restarts,
+            labels=labels,
+            annotations=annotations,
         )
 
         try:
@@ -398,6 +408,8 @@ class IdeGYMClient:
         server_kind: ServerKind = ServerKind.IDEGYM,
         snapshot: Optional[SnapshotRef] = None,
         max_restarts: int = 0,
+        labels: Optional[KubernetesLabels] = None,
+        annotations: Optional[KubernetesAnnotations] = None,
     ) -> IdeGYMServer:
         """
         Start an IdeGYM server and return an :class:`IdeGYMServer` handle.
@@ -430,6 +442,8 @@ class IdeGYMClient:
             server_kind=server_kind,
             snapshot=snapshot,
             max_restarts=max_restarts,
+            labels=labels,
+            annotations=annotations,
         )
 
         if isinstance(server_response, ErrorResponse):
