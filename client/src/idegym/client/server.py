@@ -39,12 +39,16 @@ class IdeGYMServer:
         namespace: Optional[str] = None,
         polling_config: PollingConfig = PollingConfig(),
         server_kind: ServerKind = ServerKind.IDEGYM,
+        reused: bool = False,
     ):
         self.server_id = server_id
         self.client_id = client_id
         self.namespace = namespace
         self.polling_config = polling_config
         self.server_kind = server_kind
+        #: True when the orchestrator took over an existing FINISHED server instead of creating
+        #: one. Reuse turns on seven fields matching, so it is worth checking rather than assuming.
+        self.reused = reused
 
         self._http_utils = http_utils
         self._forwarding: ForwardingOperations = ForwardingOperations(utils=http_utils)

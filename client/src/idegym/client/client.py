@@ -411,6 +411,7 @@ class IdeGYMClient:
                 namespace=namespace,
                 polling_config=polling_config,
                 server_kind=server_kind,
+                reused=server_response.reused,
             )
         else:
             raise RuntimeError(f"Unexpected response from server start: {server_response.model_dump()}")
