@@ -158,6 +158,22 @@ Mark a server as finished (not stopped — pod remains running, available for re
 | Server not active | `410 Gone` | `detail: "IdeGYM server with ID {id} is not available (status: ...)"` |
 | Internal error | `500 Internal Server Error` | JSON `detail` |
 
+### Servers — `GET /api/idegym-servers/{server_id}/status`
+
+Report a server's availability, pod phase and idle time. Synchronous, and read-only: it does
+**not** update the server's activity timestamp, so polling it will not keep a server alive.
+
+| Scenario | HTTP Status | Details |
+|----------|-------------|---------|
+| Success | `200 OK` | `ServerStatusResponse` — including for a finished, stopped or crashed server |
+| Client not found | `404 Not Found` | `detail: "Client with ID {id} not found"` |
+| Server not found | `404 Not Found` | `detail: "IdeGYM server with ID {id} not found"` |
+| Server owned by another client | `404 Not Found` | `detail: "... is not associated with client ID {id}"` |
+| Internal error | `500 Internal Server Error` | JSON `detail` |
+
+Unlike the other server endpoints this one does not return `410 Gone` for an inactive server —
+reporting that state is the reason it exists.
+
 ### Servers — `POST /api/idegym-servers/restart`
 
 Restart an IdeGYM server's pods. Always async.

@@ -283,6 +283,33 @@ file with a stale tail. Downloading a path that does not exist fails with a 404.
 Prefer these over base64 through the bash tool: they are not bounded by the size of a single
 shell script, and the payload never reaches the command log.
 
+### `status()` — is this server usable?
+
+```python
+status = await server.status()
+
+if not status.usable:
+    print(status.availability, status.details)  # e.g. "CRASHED", "OOMKilled"
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `server_id` | `int` | Numeric server ID |
+| `server_name` / `generated_name` | `str` | Logical name from the start request, and the Kubernetes resource name |
+| `namespace` | `str` | Namespace the server runs in |
+| `availability` | `str` | Orchestrator status: `ALIVE`, `REUSED`, `FINISHED`, `STOPPED`, `CRASHED`, … |
+| `usable` | `bool` | True when the server accepts requests (`ALIVE` or `REUSED`) |
+| `image_tag` | `str \| None` | Image the server runs |
+| `created_at` / `last_activity_at` | `int` | Epoch milliseconds |
+| `idle_seconds` | `float` | Seconds since the last recorded activity |
+| `pod_phase` | `str \| None` | Kubernetes phase, or `None` when no pod matches |
+| `pod_ready` | `bool` | True when the pod is `Running` with all containers ready |
+| `details` | `str \| None` | Failure reason recorded on a terminal status |
+
+Use this rather than an unrelated call such as `list_capabilities` as a liveness probe. It
+answers for a finished, stopped or crashed server instead of raising, and reading it does not
+count as activity — so a polling loop will not keep a server from being reaped.
+
 ### `restart_server(...)`
 
 Restart the server pod (preserves the same image and configuration):
