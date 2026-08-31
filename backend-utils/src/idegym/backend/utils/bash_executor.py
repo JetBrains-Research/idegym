@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import os
 import re
+import shlex
 import signal
 import tempfile
 from asyncio.subprocess import Process
@@ -187,6 +188,18 @@ def _command_excerpt(command: str) -> str:
     return _log_excerpt(_redact_exports(command))
 
 
+def _prepend_bash_integration(command: str) -> str:
+    """Prefix the caller's script with the bundled bash-integration init.
+
+    The two are joined with ``;`` rather than ``&&``. With ``&&`` only the script's *first*
+    statement was conditional on the init succeeding and the rest ran regardless, so
+    ``a; b; c`` did not mean what the caller wrote — clients defended by wrapping every script
+    in a brace group. Keeping the prefix on the same line also keeps the caller's line numbers
+    intact, so a bash error still points at the right line of their script.
+    """
+    return f"source {shlex.quote(str(__BASH_INIT_FILEPATH__))} ; {command}"
+
+
 def _process_argv(script_path: str, user: Optional[str]) -> list[str]:
     """Build the argv that runs the script file, optionally dropping to another user.
 
@@ -341,7 +354,7 @@ class BashExecutor:
         )
         logger.debug("Bash command", command=_command_excerpt(command))
 
-        bash_command = f"source {__BASH_INIT_FILEPATH__} && {command}"
+        bash_command = _prepend_bash_integration(command)
         script_path = await asyncio.to_thread(_write_script, bash_command, user is not None)
         try:
             process = await asyncio.create_subprocess_exec(
