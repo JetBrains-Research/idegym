@@ -113,6 +113,30 @@ class TestBashExecutor:
         assert exit_code == 0
 
     @pytest.mark.asyncio
+    async def test_output_is_returned_byte_for_byte(self):
+        executor = BashExecutor()
+        stdout, _stderr, exit_code = await executor.execute_bash_command("printf '  padded  \\n\\n'")
+
+        assert stdout == "  padded  \n\n"
+        assert exit_code == 0
+
+    @pytest.mark.asyncio
+    async def test_strip_output_trims_surrounding_whitespace(self):
+        executor = BashExecutor()
+        stdout, _stderr, exit_code = await executor.execute_bash_command("printf '  padded  \\n\\n'", strip_output=True)
+
+        assert stdout == "padded"
+        assert exit_code == 0
+
+    @pytest.mark.asyncio
+    async def test_non_utf8_output_is_replaced_and_exit_code_survives(self):
+        executor = BashExecutor()
+        stdout, _stderr, exit_code = await executor.execute_bash_command("printf '\\xff\\xfe'; exit 3")
+
+        assert stdout == "��"
+        assert exit_code == 3
+
+    @pytest.mark.asyncio
     async def test_command_with_timeout(self):
         """Test that a command with a timeout raises the appropriate exception."""
         executor = BashExecutor()
@@ -146,7 +170,7 @@ class TestBashExecutor:
             max_output_bytes=None,
         )
 
-        assert stdout == "  indented�"
+        assert stdout == "  indented�\n"
         assert exit_code == 0
 
     @pytest.mark.asyncio
