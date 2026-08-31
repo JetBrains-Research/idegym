@@ -158,6 +158,18 @@ Mark a server as finished (not stopped — pod remains running, available for re
 | Server not active | `410 Gone` | `detail: "IdeGYM server with ID {id} is not available (status: ...)"` |
 | Internal error | `500 Internal Server Error` | JSON `detail` |
 
+### Servers — `GET /api/idegym-servers`
+
+List the servers a client owns. Synchronous.
+
+| Scenario | HTTP Status | Details |
+|----------|-------------|---------|
+| Success | `200 OK` | `ListServersResponse`; an empty list when the client owns nothing |
+| Client not found | `404 Not Found` | `detail: "Client with ID {id} not found"` |
+| Internal error | `500 Internal Server Error` | JSON `detail` |
+
+Query parameters: `client_id` (required) and `include_terminal` (default `false`).
+
 ### Servers — `POST /api/idegym-servers/keepalive`
 
 Hold a server against the watcher's inactivity reaper for `minutes` from now. Synchronous.
