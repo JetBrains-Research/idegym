@@ -257,3 +257,85 @@ def test_buildkit_only_features_ignores_a_mount_lookalike_in_a_heredoc_body():
     # The heredoc itself is reported once; its body is not scanned for a second finding.
     content = "RUN <<EOF\n--mount=type=secret\nEOF\n"
     assert [feature.name for feature in buildkit_only_features(content)] == ["RUN heredoc (<<)"]
+
+
+# ---------------------------------------------------------------------------
+# Heredoc candidates that are not heredocs
+#
+# These drive a hard rejection on the Kaniko backend, so a false positive costs someone a build
+# that works today. Only a candidate whose delimiter actually appears later counts.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        'FROM scratch\nRUN echo "$((1 << SHIFT))" > /tmp/x\n',  # shell left-shift
+        'FROM scratch\nRUN echo "a << b"\n',  # quoted text
+        "FROM scratch\nRUN bash -c 'cat <<<HERESTRING'\n",  # here-string, not a heredoc
+        "FROM scratch\nRUN test 1 <<2\n",  # digits cannot open a heredoc
+    ],
+)
+def test_a_heredoc_lookalike_is_not_reported_as_buildkit_syntax(content):
+    assert buildkit_only_features(content) == []
+
+
+def test_a_heredoc_lookalike_opens_no_heredoc():
+    (_, line) = logical_lines('FROM scratch\nRUN echo "$((1 << SHIFT))"\n')
+    assert line.heredocs == ()
+
+
+def test_a_real_heredoc_records_its_delimiter():
+    (line,) = logical_lines("RUN <<EOF\necho hi\nEOF\n")
+    assert line.heredocs == ("EOF",)
+
+
+def test_two_heredocs_on_one_instruction_are_both_recorded():
+    content = "RUN cat <<ONE && cat <<TWO\nfirst\nONE\nsecond\nTWO\n"
+    (line,) = logical_lines(content)
+    assert line.heredocs == ("ONE", "TWO")
+    assert line.end == 4
+
+
+# ---------------------------------------------------------------------------
+# Explicit escape override
+#
+# `normalize_base_dockerfile` strips parser directives before scanning, so the `# escape=`
+# directive is no longer visible in the text and has to be passed in.
+# ---------------------------------------------------------------------------
+
+
+def test_an_explicit_escape_joins_continuations_in_directive_stripped_text():
+    body = "FROM scratch `\n  AS app\n"
+    assert [line.text for line in logical_lines(body, escape="`")] == ["FROM scratch AS app"]
+
+
+def test_without_the_override_the_same_text_parses_as_two_instructions():
+    body = "FROM scratch `\n  AS app\n"
+    assert len(logical_lines(body)) == 2
+
+
+def test_stages_accepts_an_escape_override():
+    assert stages("FROM scratch `\n  AS app\n", escape="`")[0].alias == "app"
+
+
+def test_copy_add_sources_accepts_an_escape_override():
+    content = "COPY `\n  setup.sh /setup.sh\n"
+    assert [item.source for item in copy_add_sources(content, escape="`")] == ["setup.sh"]
+
+
+def test_copy_add_sources_handles_the_space_free_json_form():
+    # Arrives as a single token, so an arity check alone would drop it and skip the context guard.
+    found = copy_add_sources('COPY ["setup.sh","/usr/local/bin/setup.sh"]\n')
+    assert [(item.source, item.kind) for item in found] == [("setup.sh", SourceKind.LOCAL)]
+
+
+def test_copy_add_sources_strips_quotes_from_a_shell_form_source():
+    found = copy_add_sources('COPY "my file.sh" /dest/\n')
+    assert [item.source for item in found] == ["my file.sh"]
+
+
+@pytest.mark.parametrize("arguments", ['["only-one"]', '["unterminated", ', "[not json]"])
+def test_copy_add_sources_tolerates_an_unusable_json_form(arguments):
+    # Malformed input is Docker's to reject; this must not raise while scanning.
+    assert copy_add_sources(f"COPY {arguments}\n") == []

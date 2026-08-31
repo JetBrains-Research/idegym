@@ -166,3 +166,37 @@ def test_references_auth_token_detects_the_reserved_arg():
 
 def test_references_auth_token_is_false_for_an_ordinary_dockerfile():
     assert references_auth_token("FROM scratch\nARG MY_TOKEN\n") is False
+
+
+def test_references_auth_token_ignores_a_mention_in_a_comment():
+    # Only a real reference would be rewritten by the Cloud Build backend, so only that is rejected.
+    content = f"FROM scratch\n# do not use {AUTH_TOKEN_ARG} here, it is reserved\nRUN true\n"
+    assert references_auth_token(content) is False
+
+
+# ---------------------------------------------------------------------------
+# Custom escape character
+#
+# The `# escape=` directive is stripped before the body is scanned, so the escape character has to
+# be carried across from the original text. Getting this wrong welds the alias into the middle of
+# an instruction and produces invalid Dockerfile output.
+# ---------------------------------------------------------------------------
+
+
+def test_a_backtick_escape_dockerfile_is_aliased_on_the_right_line():
+    content = "# escape=`\nFROM debian:bookworm-slim `\n  AS app\nRUN true\n"
+    normalized = normalize_base_dockerfile(content)
+    assert normalized.alias == "app"
+    assert normalized.body == "FROM debian:bookworm-slim `\n  AS app\nRUN true"
+
+
+def test_a_backtick_escape_dockerfile_without_an_alias_gets_one_at_the_end():
+    content = "# escape=`\nFROM debian:bookworm-slim `\n  AS app\nFROM scratch\n"
+    normalized = normalize_base_dockerfile(content)
+    assert normalized.alias == BASE_STAGE_ALIAS
+    assert normalized.body.endswith(f"FROM scratch AS {BASE_STAGE_ALIAS}")
+
+
+def test_a_backtick_escape_dockerfile_resolves_base_stage_by_name():
+    content = "# escape=`\nFROM debian:bookworm-slim `\n  AS builder\nFROM scratch\n"
+    assert normalize_base_dockerfile(content, base_stage="builder").alias == "builder"

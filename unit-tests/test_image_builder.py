@@ -551,6 +551,36 @@ def test_secret_ids_differing_only_in_case_are_rejected():
         Image(base="debian:bookworm-slim", secrets={"tok": _SECRET_RESOURCE, "TOK": _SECRET_RESOURCE})
 
 
+@mark.parametrize("version", ["v1 && evil:tag", "has space", "-leading-hyphen", "a" * 129, ""])
+def test_an_invalid_destination_version_is_rejected(version):
+    # `version` becomes the push destination and the persisted job tag, so it is validated like one.
+    with raises(ValueError, match="not a valid tag component"):
+        Image(base="debian:bookworm-slim", version=version)
+
+
+@mark.parametrize("registry", ["has space", "europe-west1-docker.pkg.dev/p/r:v1", "/leading-slash", ""])
+def test_an_invalid_destination_registry_is_rejected(registry):
+    with raises(ValueError, match="not a valid reference"):
+        Image(base="debian:bookworm-slim", registry=registry)
+
+
+def test_a_valid_registry_and_version_are_accepted():
+    image = Image(base="debian:bookworm-slim", registry="europe-west1-docker.pkg.dev/p/r", version="abc123")
+    assert (image.registry, image.version) == ("europe-west1-docker.pkg.dev/p/r", "abc123")
+
+
+def test_chaining_with_destination_cannot_leave_tag_and_registry_both_set():
+    # model_copy() skips the model validator, so the merged result is re-checked in the setter.
+    image = Image.from_dockerfile("FROM scratch\n").with_destination(registry="europe-west1-docker.pkg.dev/p/r")
+    with raises(ValueError, match="cannot be combined"):
+        image.with_destination(tag="europe-west1-docker.pkg.dev/p/r/env:v1")
+
+
+def test_with_destination_validates_its_registry_and_version():
+    with raises(ValueError, match="not a valid tag component"):
+        Image.from_dockerfile("FROM scratch\n").with_destination(version="v1 && evil:tag")
+
+
 @mark.parametrize("field", ["timeout_seconds", "disk_size_gb"])
 def test_with_build_resources_rejects_a_non_positive_value(field):
     # model_copy() bypasses field validation, so the fluent setter has to re-check.
@@ -720,6 +750,31 @@ def test_local_build_rejects_a_staged_context_with_a_clear_message(mocker):
     image = Image.from_dockerfile("FROM scratch\nCOPY a.sh /a.sh\n", context_uri="gs://bucket/ctx.tar.gz")
     with raises(ValueError, match="cannot resolve the build context"):
         service.build_image(image)
+
+
+@mark.parametrize(
+    ("field", "value"),
+    [("tag", "europe-west1-docker.pkg.dev/p/r/env:v1"), ("registry", "europe-west1-docker.pkg.dev/p/r")],
+)
+def test_local_build_rejects_a_destination_it_cannot_honour(mocker, field, value):
+    # The local driver's registry is fixed at construction; honouring these would quietly tag
+    # something other than what the definition asks for.
+    service = DockerService(client=mocker.MagicMock())
+    image = Image(base="debian:bookworm-slim", name="env", **{field: value})
+    with raises(ValueError, match=f"cannot push to the '{field}'"):
+        service.build_image(image)
+
+
+def test_local_build_warns_about_cluster_only_build_resources(mocker):
+    client = mocker.MagicMock()
+    client.build.return_value = []
+    warn = mocker.patch("idegym.image.docker_service.logger.warning")
+    service = DockerService(client=client)
+    image = Image.from_dockerfile("FROM scratch\n", name="env").with_build_resources(disk_size_gb=500)
+
+    service.build_image(image)
+
+    assert warn.call_args.kwargs["ignored_fields"] == ["disk_size_gb"]
 
 
 def test_local_build_rejects_secret_manager_secrets_with_a_clear_message(mocker):

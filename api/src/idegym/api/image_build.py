@@ -116,6 +116,34 @@ def validate_image_tag(value: str) -> str:
     return stripped
 
 
+# An OCI tag component, and a registry/repository reference. Both are validated because either can
+# become part of the pushed destination and of the persisted job record.
+_IMAGE_VERSION_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$")
+_REGISTRY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*(?:/[A-Za-z0-9][A-Za-z0-9._-]*)*$")
+
+
+def validate_image_version(value: str) -> str:
+    """Check a destination version is a legal OCI tag component."""
+    stripped = value.strip()
+    if not _IMAGE_VERSION_RE.match(stripped):
+        raise ValueError(
+            f"Image version {value!r} is not a valid tag component. Expected up to 128 characters of "
+            "letters, digits, '.', '_' or '-', starting with a letter, digit or underscore."
+        )
+    return stripped
+
+
+def validate_registry(value: str) -> str:
+    """Check a destination registry prefix is a legal host-and-path reference, with no tag."""
+    stripped = value.strip().rstrip("/")
+    if not _REGISTRY_RE.match(stripped):
+        raise ValueError(
+            f"Registry {value!r} is not a valid reference. Expected '<host>[:<port>]/<path>', "
+            "e.g. 'europe-west1-docker.pkg.dev/my-project/my-repo', with no ':<version>' suffix."
+        )
+    return stripped
+
+
 def check_registry_allowed(tag: str, allowed_prefixes: list[str]) -> None:
     """Reject a caller-chosen destination outside the deployment's allowlist.
 
@@ -128,9 +156,22 @@ def check_registry_allowed(tag: str, allowed_prefixes: list[str]) -> None:
             f"This deployment does not accept caller-supplied image destinations, so {tag!r} was refused. "
             "Set build.allowed_registry_prefixes to the registries builds may push to."
         )
-    if not any(tag.startswith(prefix) for prefix in allowed_prefixes):
+    if not any(_under_prefix(tag, prefix) for prefix in allowed_prefixes):
         permitted = ", ".join(allowed_prefixes)
         raise ValueError(f"Image destination {tag!r} is not under a permitted registry prefix. Allowed: {permitted}.")
+
+
+def _under_prefix(tag: str, prefix: str) -> bool:
+    """Whether ``tag`` sits under ``prefix`` at a path boundary.
+
+    A bare ``startswith`` would let the prefix ``…/my-project/my-repo`` authorize
+    ``…/my-project/my-repo-attacker/env:v1``, which is a different repository under a name the
+    operator never granted. The next character must therefore end the prefix's last path segment.
+    """
+    normalized = prefix.rstrip("/")
+    if not tag.startswith(normalized):
+        return False
+    return tag[len(normalized) : len(normalized) + 1] in ("/", ":")
 
 
 def validate_secret_mapping(mapping: dict[str, str]) -> dict[str, str]:
@@ -250,6 +291,16 @@ class ImageBuildSpec(BaseModel):
     @classmethod
     def check_tag(cls, value: Optional[str]) -> Optional[str]:
         return None if value is None else validate_image_tag(value)
+
+    @field_validator("registry")
+    @classmethod
+    def check_registry(cls, value: Optional[str]) -> Optional[str]:
+        return None if value is None else validate_registry(value)
+
+    @field_validator("version")
+    @classmethod
+    def check_version(cls, value: Optional[str]) -> Optional[str]:
+        return None if value is None else validate_image_version(value)
 
     @field_validator("context_uri")
     @classmethod

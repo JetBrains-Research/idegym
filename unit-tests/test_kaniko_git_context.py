@@ -194,6 +194,23 @@ def test_validate_accepts_a_plain_dockerfile():
     validate_kaniko_spec(ImageBuildSpec(dockerfile_content="FROM debian\nRUN apt-get update\n"))
 
 
+@pytest.mark.parametrize(
+    "dockerfile",
+    [
+        'FROM scratch\nRUN echo "$((1 << SHIFT))" > /tmp/x\n',
+        'FROM scratch\nRUN echo "a << b"\n',
+        "FROM scratch\nRUN bash -c 'cat <<<HERESTRING'\n",
+    ],
+)
+def test_validate_does_not_reject_a_heredoc_lookalike(dockerfile):
+    """These build fine under Kaniko today; rejecting them would be a regression.
+
+    A shell left-shift is textually identical to an opening heredoc, so the check counts only
+    heredocs whose delimiter actually appears on a later line.
+    """
+    validate_kaniko_spec(ImageBuildSpec(dockerfile_content=dockerfile))
+
+
 async def test_submit_rejects_an_unbuildable_spec_before_creating_a_job(mocker):
     build = mocker.patch(
         "idegym.backend.utils.image_builder.kaniko.build_and_push_image_with_kaniko",

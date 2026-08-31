@@ -20,6 +20,8 @@ from idegym.api.dockerfile_analysis import (
     CopySource,
     SourceKind,
     copy_add_sources,
+    escape_character,
+    logical_lines,
     parser_directives,
     stages,
     strip_parser_directives,
@@ -62,7 +64,11 @@ def normalize_base_dockerfile(content: str, base_stage: Optional[str] = None) ->
     """
     directives = tuple(parser_directives(content))
     body = strip_parser_directives(content)
-    declared = stages(body)
+    # The escape character has to be read from the *original* text: an `# escape=` directive is one
+    # of the lines just removed, so scanning the body alone would silently fall back to a backslash
+    # and join the wrong lines — putting the appended alias in the middle of an instruction.
+    escape = escape_character(content)
+    declared = stages(body, escape=escape)
 
     if not declared:
         raise ValueError("'base_dockerfile' contains no FROM instruction, so it declares no base image")
@@ -106,5 +112,10 @@ def local_context_sources(content: str) -> list[CopySource]:
 
 
 def references_auth_token(content: str) -> bool:
-    """Whether ``content`` mentions the reserved `AUTH_TOKEN_ARG` build arg."""
-    return AUTH_TOKEN_ARG in content
+    """Whether an *instruction* in ``content`` mentions the reserved `AUTH_TOKEN_ARG` build arg.
+
+    Scans logical lines rather than the raw text, so a comment that merely names the arg — for
+    instance one explaining why it is reserved — does not cost the author a rejection. Only a real
+    reference matters, because only a real reference would be rewritten by the Cloud Build backend.
+    """
+    return any(AUTH_TOKEN_ARG in line.text for line in logical_lines(content))

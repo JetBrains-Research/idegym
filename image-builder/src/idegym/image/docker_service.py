@@ -51,6 +51,23 @@ def _reject_cluster_only_features(spec) -> None:
             "values through the environment as 'secret_build_args', or submit this image to the "
             "orchestrator."
         )
+    # The local driver's registry is fixed at construction, so honouring these would mean quietly
+    # tagging something other than what the definition asks for.
+    for field in ("tag", "registry"):
+        if getattr(spec, field) is not None:
+            raise ValueError(
+                f"The local Docker build cannot push to the '{field}' this image declares "
+                f"({getattr(spec, field)!r}). Pass the registry when constructing the builder — "
+                "IdeGYMDockerAPI(registry=...) — or submit this image to the orchestrator."
+            )
+
+    # Not fatal: these size a cluster build worker, and there is none here.
+    ignored = [name for name in ("timeout_seconds", "machine_type", "disk_size_gb") if getattr(spec, name) is not None]
+    if ignored:
+        logger.warning(
+            "Ignoring build resource settings that only apply to a cluster backend",
+            ignored_fields=ignored,
+        )
 
 
 class DockerService:

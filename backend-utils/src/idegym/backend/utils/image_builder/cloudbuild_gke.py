@@ -9,7 +9,7 @@ from os import environ as env
 from shlex import quote
 from typing import Any, Optional, TypeVar
 
-from idegym.api.dockerfile_analysis import has_syntax_directive
+from idegym.api.dockerfile_analysis import buildkit_only_features, has_syntax_directive
 from idegym.api.image_build import ImageBuildSpec, context_uri_scheme
 from idegym.api.status import Status
 from idegym.backend.utils.image_builder.base import BuildHandle, ImageBuilder
@@ -75,9 +75,7 @@ def build_cloudbuild_config(
     """
     docker_args: list[str] = ["build", "--build-arg", f"IDEGYM_VERSION={service_version}"]
 
-    # BuildKit's own frontend is only used if asked for; Cloud Build's built-in one cannot parse
-    # heredocs. An author who pinned `# syntax=` keeps their choice.
-    if not has_syntax_directive(spec.dockerfile_content):
+    if needs_buildkit_frontend(spec):
         docker_args += ["--build-arg", f"{BUILDKIT_SYNTAX_ARG}={DEFAULT_BUILDKIT_SYNTAX}"]
 
     if spec.request is not None:
@@ -152,6 +150,25 @@ def build_cloudbuild_config(
             ]
         }
     return config
+
+
+def needs_buildkit_frontend(spec: ImageBuildSpec) -> bool:
+    """Whether this build should be pointed at an external Dockerfile frontend.
+
+    Cloud Build's built-in frontend cannot parse heredocs or ``RUN --mount``, so a Dockerfile using
+    either needs ``BUILDKIT_SYNTAX`` pointed at a real one. Injecting it unconditionally would be
+    the simpler rule but a worse one: it makes *every* build pull ``docker/dockerfile:1`` from
+    Docker Hub, adding a rate limit and an egress dependency to builds that never needed either.
+    So it is injected only when the Dockerfile actually uses a construct that requires it.
+
+    Skipped when the author pinned their own ``# syntax=``, and when the caller passed an explicit
+    ``BUILDKIT_SYNTAX`` build arg — otherwise ours would be emitted first and silently overridden.
+    """
+    if BUILDKIT_SYNTAX_ARG in spec.build_args:
+        return False
+    if has_syntax_directive(spec.dockerfile_content):
+        return False
+    return bool(buildkit_only_features(spec.dockerfile_content))
 
 
 def secret_env_name(secret_id: str) -> str:

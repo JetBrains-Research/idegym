@@ -23,6 +23,8 @@ from idegym.api.image_build import (
     validate_build_arg_names,
     validate_context_uri,
     validate_image_tag,
+    validate_image_version,
+    validate_registry,
     validate_secret_mapping,
 )
 from idegym.api.plugin import (
@@ -205,6 +207,16 @@ class Image(BaseModel):
     @classmethod
     def check_tag(cls, value: Optional[str]) -> Optional[str]:
         return None if value is None else validate_image_tag(value)
+
+    @field_validator("registry")
+    @classmethod
+    def check_registry(cls, value: Optional[str]) -> Optional[str]:
+        return None if value is None else validate_registry(value)
+
+    @field_validator("version")
+    @classmethod
+    def check_version(cls, value: Optional[str]) -> Optional[str]:
+        return None if value is None else validate_image_version(value)
 
     @field_validator("build_args")
     @classmethod
@@ -389,17 +401,19 @@ class Image(BaseModel):
         takes over deduplication — useful for a consumer maintaining its own content-addressed tags,
         and a footgun otherwise.
         """
-        if tag is not None and (registry is not None or version is not None):
+        merged = {
+            "tag": validate_image_tag(tag) if tag is not None else self.tag,
+            "registry": validate_registry(registry) if registry is not None else self.registry,
+            "version": validate_image_version(version) if version is not None else self.version,
+        }
+        # Checked against the *merged* result, not just the arguments: model_copy() skips the model
+        # validator, so chaining .with_destination(registry=…).with_destination(tag=…) would
+        # otherwise leave both set and surface as a confusing pydantic error from to_spec().
+        if merged["tag"] is not None and (merged["registry"] is not None or merged["version"] is not None):
             raise ValueError(
                 "'tag' is a fully qualified destination and cannot be combined with 'registry' or 'version'"
             )
-        return self.model_copy(
-            update={
-                "tag": validate_image_tag(tag) if tag is not None else self.tag,
-                "registry": registry if registry is not None else self.registry,
-                "version": version if version is not None else self.version,
-            }
-        )
+        return self.model_copy(update=merged)
 
     def with_build_resources(
         self,
