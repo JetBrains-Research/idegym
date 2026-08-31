@@ -60,6 +60,18 @@ real exit code. The response is JSON text: to move binary data out of the contai
 encode it inside the command (`base64 -w0 …`) or use the
 [file endpoints](client.md).
 
+#### What gets logged
+
+The server never writes a command or its output to the log at INFO. An INFO record carries the
+shape of the call only — the command's length on the way in, then the exit code and the byte
+count of each stream on the way out.
+
+The command itself and excerpts of both streams are logged at DEBUG, and the command passes
+through a redaction step first that replaces the value of every `export NAME=...` assignment
+with `<redacted>`. Raise the level with `IDEGYM_LOG_LEVEL=DEBUG` when you need to see what a
+sandbox actually ran, and be aware that anything a script sets by other means — an inline
+`NAME=value cmd` prefix, a heredoc, a literal in an argument — is not redacted.
+
 **Via orchestrator MCP (`run_bash_command`):**
 
 ```python
