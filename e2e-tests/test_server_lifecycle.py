@@ -97,3 +97,48 @@ async def test_server_lifecycle_with_reuse(test_image, test_id):
 
             result = await new_server.setup_reward(setup_check_script="python --version")
             assert result.status == "success"
+
+
+@pytest.mark.asyncio
+async def test_server_status_reports_a_live_server_and_survives_stopping_it(test_image, test_id):
+    """Status has to answer for a stopped server too — that is the point of a liveness probe."""
+    async with create_http_client(name=f"status-{test_id}", nodes_count=0) as client:
+        server = await client.start_server(
+            image_tag=test_image,
+            server_name=f"status-{test_id}",
+            runtime_class_name="gvisor",
+            run_as_root=True,
+            server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
+        )
+
+        alive = await server.status()
+        assert alive.usable is True
+        assert alive.availability == "ALIVE"
+        assert alive.pod_phase == "Running"
+        assert alive.pod_ready is True
+        assert alive.server_id == server.server_id
+
+        await client.stop_server(server)
+
+        stopped = await server.status()
+        assert stopped.usable is False
+        assert stopped.availability == "STOPPED"
+
+
+@pytest.mark.asyncio
+async def test_reading_status_does_not_count_as_activity(test_image, test_id):
+    async with (
+        create_http_client(name=f"status-idle-{test_id}", nodes_count=0) as client,
+        client.with_server(
+            image_tag=test_image,
+            server_name=f"status-idle-{test_id}",
+            runtime_class_name="gvisor",
+            run_as_root=True,
+            server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
+        ) as server,
+    ):
+        first = await server.status()
+        second = await server.status()
+
+        assert second.last_activity_at == first.last_activity_at
+        assert second.idle_seconds >= first.idle_seconds
