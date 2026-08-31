@@ -535,6 +535,52 @@ class Project(PluginBase):
         return _render_run_block(commands, comment="Fetch and unpack the project")
 
 
+# Every path the renderer copies out of an IdeGYM checkout. A ref that predates any of them —
+# an example config pinning a commit from before `plugins/` was split out, say — used to fail
+# deep inside the Docker build with a bare `cp: no such file`, naming neither the ref nor what
+# it was missing. Keep this in step with the copies in `_render_from_git` / `_render_from_local`.
+_REQUIRED_WORKSPACE_PATHS = (
+    ".python-version",
+    "api",
+    "backend-utils",
+    "common-utils",
+    "entrypoint.py",
+    "entrypoint.sh",
+    "idegym.sh",
+    "plugins",
+    "pyproject.toml",
+    "rewards",
+    "scripts",
+    "server",
+    "supervisord.conf",
+    "tools",
+    "uv.lock",
+)
+
+
+def _render_workspace_path_check(source_root: str, described_as: str) -> str:
+    """Fail the build with the missing paths listed, instead of on the first `cp` that misses.
+
+    Runs immediately after the checkout so the failure arrives in seconds, and reports *every*
+    missing path at once so an out-of-date ref does not have to be diagnosed one `cp` at a time.
+    """
+    checks = " ".join(quote(path) for path in _REQUIRED_WORKSPACE_PATHS)
+    return dedent(
+        f"""\
+        RUN set -eu; \\
+            missing=""; \\
+            for path in {checks}; do \\
+                [ -e {quote(source_root)}/"$path" ] || missing="$missing $path"; \\
+            done; \\
+            if [ -n "$missing" ]; then \\
+                echo "IdeGYM source at {described_as} is missing:$missing" >&2; \\
+                echo "This ref predates the current workspace layout; pick a newer one." >&2; \\
+                exit 1; \\
+            fi
+        """
+    ).rstrip()
+
+
 def _idegym_server_env(home: str) -> str:
     return dedent(
         f"""\
@@ -620,7 +666,22 @@ class IdeGYMServer(PluginBase):
             return ctx
         if self.root is None:
             raise ValueError("IdeGYMServer.from_local(...) requires a workspace root")
+        self._validate_local_root(Path(self.root))
         return ctx.updated(context_path=self.root)
+
+    @staticmethod
+    def _validate_local_root(root: Path) -> None:
+        """Reject a workspace root that the Dockerfile's COPYs would fail on, before building.
+
+        A local root is on the host, so this can be checked outright rather than deferred to the
+        build — the same check the git path has to make inside the container.
+        """
+        missing = [path for path in _REQUIRED_WORKSPACE_PATHS if not (root / path).exists()]
+        if missing:
+            raise ValueError(
+                f"IdeGYM source at {root} is missing: {', '.join(missing)}. "
+                "IdeGYMServer.from_local(...) needs the root of an IdeGYM workspace."
+            )
 
     def render(self, ctx: BuildContext) -> str:
         user = ctx.current_user
@@ -683,6 +744,7 @@ class IdeGYMServer(PluginBase):
             [
                 _idegym_server_env(ctx.home),
                 clone_run,
+                _render_workspace_path_check("/tmp/idegym-src", f"{self.url}@{ref}"),
                 setup,
                 self._render_plugins_config(ctx),
                 f"USER {user}\nWORKDIR $IDEGYM_PATH",
