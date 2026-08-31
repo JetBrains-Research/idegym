@@ -9,6 +9,38 @@ Sections are generated from merged pull requests by
 paragraph is drafted separately by a maintainer with
 [`scripts/draft_highlights.py`](scripts/draft_highlights.py) and may be edited by hand.
 
+## [0.12.0] - 2026-08-30
+
+### Highlights
+
+_TODO: summarise the headline changes of this release. Draft this paragraph with `uv run scripts/draft_highlights.py 0.12.0` (uses Claude Code), or write it by hand._
+
+### Features
+
+- Bound and sanitize bash executor output ([#286](https://github.com/JetBrains-Research/idegym/pull/286))
+- Pin mcp-steroid by link and make the unschedulable readiness budget configurable (JBRes-10578, [#284](https://github.com/JetBrains-Research/idegym/pull/284))
+- Replace Hydra with Pydantic config (JBRes-9159, [#280](https://github.com/JetBrains-Research/idegym/pull/280))
+- Add safe database schema rollback support for IdeGYM deployments (JBRes-9944, [#278](https://github.com/JetBrains-Research/idegym/pull/278))
+- add 0.11.1 section ([#274](https://github.com/JetBrains-Research/idegym/pull/274))
+
+### Infrastructure
+
+- Draft changelog Highlights with Claude Code, anchor the range on CHANGELOG.md ([#275](https://github.com/JetBrains-Research/idegym/pull/275))
+
+### Dependencies
+
+<details>
+<summary>6 routine dependency updates</summary>
+
+- Bump mermaid ([#283](https://github.com/JetBrains-Research/idegym/pull/283))
+- Bump js-yaml ([#282](https://github.com/JetBrains-Research/idegym/pull/282))
+- Bump dompurify ([#281](https://github.com/JetBrains-Research/idegym/pull/281))
+- Bump fast-uri ([#279](https://github.com/JetBrains-Research/idegym/pull/279))
+- Bump brace-expansion ([#277](https://github.com/JetBrains-Research/idegym/pull/277))
+- Bump aiohttp ([#276](https://github.com/JetBrains-Research/idegym/pull/276))
+
+</details>
+
 ## [0.11.1] - 2026-07-30
 
 ### Highlights
@@ -399,6 +431,7 @@ Notable upgrades:
 
 </details>
 
+[0.12.0]: https://github.com/JetBrains-Research/idegym/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/JetBrains-Research/idegym/compare/v0.10.0...v0.11.1
 [0.10.0]: https://github.com/JetBrains-Research/idegym/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/JetBrains-Research/idegym/compare/v0.8.0...v0.9.0
