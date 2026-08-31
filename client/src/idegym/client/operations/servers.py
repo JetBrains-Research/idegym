@@ -8,6 +8,8 @@ from idegym.api.capabilities import CapabilitiesResponse
 from idegym.api.orchestrator.servers import (
     ErrorResponse,
     FinishServerRequest,
+    KeepaliveServerRequest,
+    KeepaliveServerResponse,
     RestartServerRequest,
     ServerActionResponse,
     ServerKind,
@@ -228,6 +230,20 @@ class ServerOperations:
             f"/api/idegym-servers/{server_id}/capabilities?client_id={client_id}",
         )
         return CapabilitiesResponse.model_validate(response_raw)
+
+    async def keepalive_server(
+        self,
+        server_id: int,
+        minutes: float = 15.0,
+        client_id: Optional[UUID] = None,
+        namespace: Optional[str] = None,
+    ) -> KeepaliveServerResponse:
+        """Hold the server against the inactivity reaper for the next ``minutes``."""
+        client_id = self._utils.validate_client_id(client_id)
+        namespace = self._utils.validate_namespace(namespace)
+        request = KeepaliveServerRequest(client_id=client_id, namespace=namespace, server_id=server_id, minutes=minutes)
+        response_raw = await self._utils.make_request("POST", "/api/idegym-servers/keepalive", request)
+        return KeepaliveServerResponse.model_validate(response_raw)
 
     async def get_server_status(self, server_id: int, client_id: Optional[UUID] = None) -> ServerStatusResponse:
         """Report the server's availability, pod phase and idle time without touching it."""

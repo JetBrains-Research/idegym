@@ -471,6 +471,26 @@ async def save_idegym_server(
     return server
 
 
+async def extend_idegym_server_keepalive(db: AsyncSession, server_id: int, until: int) -> Optional[IdeGYMServer]:
+    """Hold a server against the inactivity reaper until ``until`` epoch millis.
+
+    The window is only ever extended, never shortened, so two callers holding the same server
+    cannot cut each other's hold short. A terminal server is returned untouched: reviving one
+    by keepalive would contradict whatever put it in that state.
+    """
+    server = await get_idegym_server(db, server_id)
+    if not server:
+        return None
+
+    if AvailabilityStatus(server.availability).is_terminal:
+        return server
+
+    server.keepalive_until = max(server.keepalive_until or 0, until)
+    await db.commit()
+    await db.refresh(server)
+    return server
+
+
 async def update_idegym_server_heartbeat(
     db: AsyncSession,
     server_id: int,

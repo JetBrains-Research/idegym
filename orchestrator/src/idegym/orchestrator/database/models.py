@@ -59,6 +59,11 @@ class IdeGYMServer(Base):
     # for servers started from a snapshot, otherwise the server's own generated_name.
     snapshot_id = Column(String, index=True, nullable=True)
 
+    # Epoch millis until which an explicit keepalive holds this server against the inactivity reaper.
+    # Distinct from last_heartbeat_time, which only ever means "a request finished at this point":
+    # a sandbox can be legitimately in use and quiet, and only the client knows that.
+    keepalive_until = Column(BigInteger, nullable=True)
+
     # Restarts tolerated before the watcher marks the server CRASHED and tears it down (0 = fail on first crash).
     max_restarts = Column(Integer, default=0, nullable=False)
     # Human-readable reason populated on terminal failures (e.g. the crash/OOM/eviction cause).

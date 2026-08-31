@@ -70,6 +70,15 @@ async def cleanup_servers(db: AsyncSession, current_time: int, inactive_timeout:
             f"(active: {time_since_last_heartbeat / 1000 / 60:.2f} minutes ago)"
         )
 
+        # An explicit keepalive is the client saying it still holds this server. Request activity
+        # is only a proxy for that, and a bad one while an agent thinks or a build runs.
+        if server.keepalive_until and server.keepalive_until > current_time:
+            logger.debug(
+                f"Skipping IdeGYM server {server.generated_name}: held by keepalive for another "
+                f"{(server.keepalive_until - current_time) / 1000 / 60:.2f} minutes"
+            )
+            continue
+
         if time_since_last_heartbeat > timeout:
             logger.info(
                 f"Removing IdeGYM server {server.generated_name} with status {server.availability}"
