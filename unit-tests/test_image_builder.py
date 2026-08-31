@@ -498,6 +498,54 @@ def test_context_uri_scheme_is_left_to_the_backend():
 
 
 # ---------------------------------------------------------------------------
+# Build args and secrets
+# ---------------------------------------------------------------------------
+
+_SECRET_RESOURCE = "projects/my-project/secrets/gh-token/versions/latest"
+
+
+def test_with_build_args_merges_and_reaches_the_spec():
+    image = Image.from_dockerfile("FROM scratch\n").with_build_args(VERSION="1.2.3").with_build_args(FLAVOUR="slim")
+    assert image.to_spec().build_args == {"VERSION": "1.2.3", "FLAVOUR": "slim"}
+
+
+@mark.parametrize("name", ["1STARTS_WITH_DIGIT", "HAS-HYPHEN", "HAS SPACE", "HAS=EQUALS", ""])
+def test_invalid_build_arg_names_are_rejected(name):
+    with raises(ValueError, match="not a valid Dockerfile ARG name"):
+        Image(base="debian:bookworm-slim", build_args={name: "x"})
+
+
+def test_reserved_build_arg_prefix_is_rejected():
+    # IDEGYM_* belongs to the generated args; a caller name there would silently shadow one.
+    with raises(ValueError, match="reserved"):
+        Image(base="debian:bookworm-slim", build_args={"IDEGYM_VERSION": "9"})
+
+
+def test_with_secrets_reaches_the_spec():
+    image = Image.from_dockerfile("FROM scratch\n").with_secrets(gh_token=_SECRET_RESOURCE)
+    assert image.to_spec().secrets == {"gh_token": _SECRET_RESOURCE}
+
+
+def test_secrets_accept_a_resource_name_without_a_version():
+    image = Image(base="debian:bookworm-slim", secrets={"tok": "projects/p/secrets/s"})
+    assert image.secrets == {"tok": "projects/p/secrets/s"}
+
+
+@mark.parametrize("resource", ["ghp_averyrealtokenvalue", "secrets/s", "projects/p/secrets", ""])
+def test_secrets_reject_anything_that_is_not_a_resource_name(resource):
+    # Guards against a caller pasting the secret value into a field that is serialized into a
+    # build request and a job record.
+    with raises(ValueError, match="Secret Manager resource name"):
+        Image(base="debian:bookworm-slim", secrets={"tok": resource})
+
+
+def test_secret_ids_are_held_to_the_build_arg_name_rules():
+    # Kaniko has no secret mounts and passes each id as a build arg, so the id must be a valid one.
+    with raises(ValueError, match="not a valid Dockerfile ARG name"):
+        Image(base="debian:bookworm-slim", secrets={"bad id": _SECRET_RESOURCE})
+
+
+# ---------------------------------------------------------------------------
 # Tag determinism
 # ---------------------------------------------------------------------------
 
@@ -549,6 +597,37 @@ def test_an_inline_base_and_an_equivalent_reference_differ_by_tag():
     inline = Image.from_dockerfile("FROM debian:bookworm-slim\n").to_spec()
     referenced = Image.from_base("debian:bookworm-slim").to_spec()
     assert inline.image_version() != referenced.image_version()
+
+
+def test_changing_a_build_arg_changes_the_tag():
+    base = Image.from_dockerfile("FROM scratch\nARG V\n")
+    assert (
+        base.with_build_args(V="1").to_spec().image_version() != base.with_build_args(V="2").to_spec().image_version()
+    )
+
+
+def test_changing_a_secret_id_changes_the_tag():
+    base = Image.from_dockerfile("FROM scratch\n")
+    one = base.with_secrets(alpha=_SECRET_RESOURCE).to_spec()
+    two = base.with_secrets(beta=_SECRET_RESOURCE).to_spec()
+    assert one.image_version() != two.image_version()
+
+
+def test_rotating_a_secret_behind_the_same_id_does_not_change_the_tag():
+    """Only secret *names* are hashed, matching how secret_build_args is treated.
+
+    A rotated credential produces the same image, so rebuilding on a version bump would be churn.
+    """
+    base = Image.from_dockerfile("FROM scratch\n")
+    one = base.with_secrets(tok="projects/p/secrets/s/versions/1").to_spec()
+    two = base.with_secrets(tok="projects/p/secrets/s/versions/2").to_spec()
+    assert one.image_version() == two.image_version()
+
+
+def test_adding_no_build_args_or_secrets_leaves_the_tag_alone():
+    # The conditional hash inputs must not perturb definitions that use none of them.
+    plain = Image.from_dockerfile("FROM scratch\n").to_spec()
+    assert plain.image_version() == ImageBuildSpec(dockerfile_content=plain.dockerfile_content).image_version()
 
 
 # ---------------------------------------------------------------------------

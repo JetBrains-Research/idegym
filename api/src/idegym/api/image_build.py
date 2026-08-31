@@ -46,6 +46,52 @@ def context_uri_scheme(value: str) -> str:
     return match.group("scheme").lower()
 
 
+# A Dockerfile ``ARG`` name. Secret ids are held to the same pattern because the Kaniko backend has
+# no secret mounts and passes each one as a build arg, so an id that is not a valid ARG name would
+# be unusable there — and a name allowed to contain spaces or ``=`` could inject extra arguments.
+_BUILD_ARG_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+# ``projects/<project>/secrets/<secret>``, optionally pinned to ``/versions/<version>``.
+_SECRET_RESOURCE_RE = re.compile(r"^projects/[^/\s]+/secrets/[^/\s]+(?:/versions/[^/\s]+)?$")
+
+# Generated build args (IDEGYM_VERSION, IDEGYM_PROJECT_ARCHIVE_URL, IDEGYM_AUTH_TOKEN, ...) own this
+# namespace. A caller-supplied name inside it would silently shadow one of them.
+RESERVED_BUILD_ARG_PREFIX = "IDEGYM_"
+
+
+def validate_build_arg_names(mapping: dict[str, str], *, field: str) -> dict[str, str]:
+    """Check every key of a build-arg or secret mapping is a usable, non-reserved ``ARG`` name."""
+    for name in mapping:
+        if not _BUILD_ARG_NAME_RE.match(name):
+            raise ValueError(
+                f"{field} name {name!r} is not a valid Dockerfile ARG name. "
+                "Expected a letter or underscore followed by letters, digits or underscores."
+            )
+        if name.upper().startswith(RESERVED_BUILD_ARG_PREFIX):
+            raise ValueError(
+                f"{field} name {name!r} uses the reserved '{RESERVED_BUILD_ARG_PREFIX}' prefix, "
+                "which belongs to build args the image builder generates."
+            )
+    return mapping
+
+
+def validate_secret_mapping(mapping: dict[str, str]) -> dict[str, str]:
+    """Check a ``secrets`` mapping holds Secret Manager resource names, never values.
+
+    Requiring the resource-name shape is a guard against a caller pasting the secret itself into a
+    field that is serialized into a build request and a job record.
+    """
+    validate_build_arg_names(mapping, field="Secret id")
+    for secret_id, resource in mapping.items():
+        if not _SECRET_RESOURCE_RE.match(resource):
+            raise ValueError(
+                f"Secret '{secret_id}' must map to a Secret Manager resource name, got {resource!r}. "
+                "Expected 'projects/<project>/secrets/<secret>' with an optional '/versions/<version>'. "
+                "Never put the secret value here."
+            )
+    return mapping
+
+
 class ImageBuildSpec(BaseModel):
     name: Optional[str] = None
     request: Optional[DownloadRequest] = Field(default=None, description="Optional project download request")
@@ -77,6 +123,21 @@ class ImageBuildSpec(BaseModel):
             "ever receiving context bytes over the API."
         ),
     )
+    build_args: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Values for ARGs the Dockerfile declares. Not for credentials — a build arg's value is "
+            "recorded in the image history; use 'secrets' or 'secret_build_args' instead."
+        ),
+    )
+    secrets: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Maps a Dockerfile secret id to a Secret Manager resource name, never to a value. "
+            "Cloud Build mounts each as a BuildKit secret; Kaniko has no mount mechanism and passes "
+            "them as build args instead, which exposes them in the image history."
+        ),
+    )
 
     model_config = ConfigDict(extra="forbid")
 
@@ -84,6 +145,16 @@ class ImageBuildSpec(BaseModel):
     @classmethod
     def check_context_uri(cls, value: Optional[str]) -> Optional[str]:
         return None if value is None else validate_context_uri(value)
+
+    @field_validator("build_args")
+    @classmethod
+    def check_build_args(cls, value: dict[str, str]) -> dict[str, str]:
+        return validate_build_arg_names(value, field="Build arg")
+
+    @field_validator("secrets")
+    @classmethod
+    def check_secrets(cls, value: dict[str, str]) -> dict[str, str]:
+        return validate_secret_mapping(value)
 
     def image_version(self) -> str:
         identifiers = []
@@ -107,4 +178,11 @@ class ImageBuildSpec(BaseModel):
         # stale cache hit would look like. See the build-context docs.
         if self.context_uri is not None:
             identifiers.append(f"context_uri={self.context_uri}")
+        if self.build_args:
+            identifiers.append(f"build_args={dump_json(self.build_args, sort_keys=True)}")
+        if self.secrets:
+            # Names only, like ``secret_build_args`` above: a rotated secret behind the same id is
+            # the same image as far as the cache is concerned, and hashing the resource names keeps
+            # values out of anything derived from the spec.
+            identifiers.append(f"secrets={dump_json(sorted(self.secrets), sort_keys=True)}")
         return md5(*identifiers)

@@ -17,7 +17,12 @@ for _ep in _entry_points(group="idegym.plugins.image"):
         _logger.warning("Failed to load image plugin %r", _ep.name, exc_info=True)
 
 from idegym.api.docker import BaseImage
-from idegym.api.image_build import ImageBuildSpec, validate_context_uri
+from idegym.api.image_build import (
+    ImageBuildSpec,
+    validate_build_arg_names,
+    validate_context_uri,
+    validate_secret_mapping,
+)
 from idegym.api.plugin import (
     MCP_UPSTREAMS_DIR,
     SAFE_PLUGIN_NAME_RE,
@@ -127,6 +132,17 @@ class Image(BaseModel):
             "Dockerfile's COPY/ADD sources resolve (e.g. 'gs://bucket/contexts/abc123.tar.gz')."
         ),
     )
+    build_args: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Values for ARGs the base Dockerfile declares. Never credentials — a build arg's value "
+            "is recorded in the image history; use 'secrets' for those."
+        ),
+    )
+    secrets: dict[str, str] = Field(
+        default_factory=dict,
+        description="Maps a Dockerfile secret id to a Secret Manager resource name. Names only, never values.",
+    )
     name: Optional[OCIImageName] = Field(default=None)
     plugins: tuple[PluginBase, ...] = Field(default_factory=tuple)
     commands: tuple[str, ...] = Field(default_factory=tuple)
@@ -162,6 +178,16 @@ class Image(BaseModel):
     @classmethod
     def check_context_uri(cls, value: Optional[str]) -> Optional[str]:
         return None if value is None else validate_context_uri(value)
+
+    @field_validator("build_args")
+    @classmethod
+    def check_build_args(cls, value: dict[str, str]) -> dict[str, str]:
+        return validate_build_arg_names(value, field="Build arg")
+
+    @field_validator("secrets")
+    @classmethod
+    def check_secrets(cls, value: dict[str, str]) -> dict[str, str]:
+        return validate_secret_mapping(value)
 
     @model_validator(mode="after")
     def validate_base_definition(self) -> Self:
@@ -304,6 +330,27 @@ class Image(BaseModel):
         """
         return self.model_copy(update={"context_uri": validate_context_uri(context_uri)})
 
+    def with_build_args(self, **build_args: str) -> Self:
+        """Return a copy with additional ``ARG`` values supplied to the build.
+
+        Values are recorded in the image history, so this is for configuration, not credentials.
+        Note that an ``ARG`` left unset is *unset* rather than empty, so a ``set -u`` script in the
+        base Dockerfile needs ``${VAR:-}``.
+        """
+        merged = {**self.build_args, **build_args}
+        return self.model_copy(update={"build_args": validate_build_arg_names(merged, field="Build arg")})
+
+    def with_secrets(self, **secrets: str) -> Self:
+        """Return a copy with additional build secrets, given as Secret Manager resource names.
+
+        Only names travel in the definition; the value is resolved at build time. How it reaches the
+        build depends on the backend: Cloud Build mounts it (``RUN --mount=type=secret,id=<id>``),
+        while Kaniko has no mount mechanism and passes it as a build arg — which records it in the
+        image history. A Dockerfile written against a mount is therefore Cloud-Build-only.
+        """
+        merged = {**self.secrets, **secrets}
+        return self.model_copy(update={"secrets": validate_secret_mapping(merged)})
+
     def with_runtime(
         self,
         *,
@@ -379,6 +426,8 @@ class Image(BaseModel):
             resources=self.resources,
             secret_build_args=secret_build_args,
             context_uri=self.context_uri,
+            build_args=dict(self.build_args),
+            secrets=dict(self.secrets),
         )
 
     def _render_base_stage_header(self, base_reference: str) -> str:
