@@ -8,6 +8,7 @@ from pathlib import Path
 
 import psutil
 import pytest
+from idegym.backend.utils import bash_executor as bash_executor_module
 from idegym.backend.utils.bash_executor import BashCommandExecutionTimeoutError, BashExecutor
 from structlog.testing import capture_logs
 
@@ -175,6 +176,62 @@ class TestBashExecutor:
         )
 
         assert stdout == "overridden"
+
+    @pytest.mark.asyncio
+    async def test_a_script_far_larger_than_the_argument_limit_runs(self):
+        """MAX_ARG_STRLEN is 128 KiB; this script is well past it and used to fail with E2BIG."""
+        executor = BashExecutor()
+        payload = "x" * (512 * 1024)
+        script = f'PAYLOAD={payload}\nprintf "%s" "${{#PAYLOAD}}"'
+
+        stdout, stderr, exit_code = await executor.execute_bash_command(script)
+
+        assert (stdout, exit_code) == (str(len(payload)), 0)
+        assert stderr == ""
+
+    @pytest.mark.asyncio
+    async def test_the_script_file_is_removed_after_the_command(self, monkeypatch):
+        executor = BashExecutor()
+        written: list[str] = []
+        original = bash_executor_module._write_script
+
+        def record(script, readable_by_other_user):
+            path = original(script, readable_by_other_user)
+            written.append(path)
+            return path
+
+        monkeypatch.setattr(bash_executor_module, "_write_script", record)
+
+        await executor.execute_bash_command("true")
+
+        assert written and not Path(written[0]).exists()
+
+    @pytest.mark.asyncio
+    async def test_the_script_file_is_removed_after_a_timeout(self, monkeypatch):
+        executor = BashExecutor()
+        written: list[str] = []
+        original = bash_executor_module._write_script
+
+        def record(script, readable_by_other_user):
+            path = original(script, readable_by_other_user)
+            written.append(path)
+            return path
+
+        monkeypatch.setattr(bash_executor_module, "_write_script", record)
+
+        with pytest.raises(BashCommandExecutionTimeoutError):
+            await executor.execute_bash_command("sleep 10", timeout=0.2, graceful_termination_timeout=0.1)
+
+        assert written and not Path(written[0]).exists()
+
+    @pytest.mark.asyncio
+    async def test_a_command_reading_stdin_does_not_consume_the_rest_of_the_script(self):
+        """A script fed to bash on stdin would be eaten by `cat`; running it from a file is safe."""
+        executor = BashExecutor()
+
+        stdout, _stderr, exit_code = await executor.execute_bash_command("cat > /dev/null\nprintf 'still here'")
+
+        assert (stdout, exit_code) == ("still here", 0)
 
     @pytest.mark.asyncio
     async def test_command_with_timeout(self):
