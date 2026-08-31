@@ -186,6 +186,18 @@ def _command_excerpt(command: str) -> str:
     return _log_excerpt(_redact_exports(command))
 
 
+def _shell_invocation(bash_command: str, user: Optional[str]) -> str:
+    """Build the shell line that runs the script, optionally dropping to another user.
+
+    ``runuser`` is used rather than ``su`` because it does not authenticate and keeps the
+    caller's environment, which is what the ``env`` argument has already been merged into.
+    """
+    invocation = f"bash -c {shlex.quote(bash_command)}"
+    if user is None:
+        return invocation
+    return f"runuser --preserve-environment -u {shlex.quote(user)} -- {invocation}"
+
+
 def _signal_process_group(process: Process, requested_signal: signal.Signals) -> bool:
     """Signal a process group, tolerating races after its leader has exited."""
     try:
@@ -245,6 +257,19 @@ class BashExecutor:
     def __init__(self, working_directory: Optional[Path] = None):
         self.working_directory = working_directory
 
+    def resolve_working_directory(self, cwd: Optional[str]) -> Optional[Path]:
+        """Resolve a per-command ``cwd`` against the executor's directory.
+
+        An absolute path is used as given; a relative one is taken from the executor's working
+        directory, which is the server's project root.
+        """
+        if cwd is None:
+            return self.working_directory
+        requested = Path(cwd)
+        if requested.is_absolute() or self.working_directory is None:
+            return requested
+        return self.working_directory / requested
+
     async def execute_bash_command(
         self,
         command: str,
@@ -252,6 +277,9 @@ class BashExecutor:
         graceful_termination_timeout: float = 2.0,
         max_output_bytes: Optional[int] = None,
         strip_output: bool = False,
+        cwd: Optional[str] = None,
+        env: Optional[dict[str, str]] = None,
+        user: Optional[str] = None,
     ) -> tuple[str, str, int]:
         """
         Execute a bash command asynchronously.
@@ -261,6 +289,11 @@ class BashExecutor:
         variables stripped. The process is started in its own process group so the
         entire group can be killed on timeout.
 
+        ``cwd``, ``env`` and ``user`` give a caller per-command context without having to
+        synthesize it into the script — an environment variable set through ``env`` never
+        enters the command text, so it is not logged with it. ``user`` requires the executor
+        to run as root, since it shells out through ``runuser``.
+
         Output is returned verbatim unless ``strip_output`` asks for surrounding
         whitespace to be trimmed.
 
@@ -269,17 +302,24 @@ class BashExecutor:
         """
         stdout_collector = _OutputCollector(max_output_bytes)
         stderr_collector = _OutputCollector(max_output_bytes)
-        logger.info("Executing bash command", command_chars=len(command))
+        working_directory = self.resolve_working_directory(cwd)
+        logger.info(
+            "Executing bash command",
+            command_chars=len(command),
+            cwd=str(working_directory) if working_directory else None,
+            env_names=sorted(env) if env else [],
+            user=user,
+        )
         logger.debug("Bash command", command=_command_excerpt(command))
 
         bash_command = f"source {__BASH_INIT_FILEPATH__} && {command}"
         process = await asyncio.create_subprocess_shell(
-            cmd=f"bash -c {shlex.quote(bash_command)}",
+            cmd=_shell_invocation(bash_command, user),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            cwd=self.working_directory,
+            cwd=working_directory,
             preexec_fn=os.setsid,
-            env=cleanenv(),
+            env=cleanenv() | (env or {}),
         )
 
         communication_task = asyncio.create_task(

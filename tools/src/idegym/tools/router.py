@@ -45,6 +45,9 @@ async def execute_bash_script(
             "graceful_termination_timeout": request.graceful_termination_timeout,
             "max_output_bytes": request.max_output_bytes,
             "strip_output": request.strip_output,
+            "cwd": request.cwd,
+            "env": request.env,
+            "user": request.user,
         },
     )
 

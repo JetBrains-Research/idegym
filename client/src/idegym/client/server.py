@@ -192,8 +192,16 @@ class IdeGYMServer:
         request_timeout: Optional[int] = None,
         polling_config: Optional[PollingConfig] = None,
         max_output_bytes: Optional[int] = DEFAULT_MAX_OUTPUT_BYTES,
+        strip_output: bool = False,
+        cwd: Optional[str] = None,
+        env: Optional[dict[str, str]] = None,
+        user: Optional[str] = None,
     ) -> BashCommandResponse:
-        """Execute a bash script on the server."""
+        """Execute a bash script on the server.
+
+        ``cwd``, ``env`` and ``user`` set per-command context without synthesizing it into the
+        script, which keeps values out of the command log and off the script's size budget.
+        """
         return await self.tools.execute_bash(
             server_id=self.server_id,
             script=script,
@@ -203,6 +211,10 @@ class IdeGYMServer:
             request_timeout=request_timeout,
             polling_config=polling_config or self.polling_config,
             max_output_bytes=max_output_bytes,
+            strip_output=strip_output,
+            cwd=cwd,
+            env=env,
+            user=user,
         )
 
     async def create_file(
