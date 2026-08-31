@@ -262,6 +262,14 @@ first — `alembic.ini` and `migrations/` both live under
 The rollback workflow itself is documented in
 [`website/docs/reference/database_rollback.md`](website/docs/reference/database_rollback.md).
 
+### Changing what the IdeGYM server image copies in
+
+`_REQUIRED_WORKSPACE_PATHS` in `plugins/defaults/src/idegym/plugins/defaults/image.py` is the
+single list of paths the `idegym-server` plugin copies out of a checkout, and it feeds both the
+copies and the up-front checks (host-side for `from_local`, in-container after the clone for
+`from_git`). Add a path to the copies without adding it to that list and a stale ref goes back
+to failing mid-build with a bare `cp: no such file`, naming neither the ref nor what is missing.
+
 ### Adding or changing a plugin
 
 Plugins are discovered through entry points, not imports. See
