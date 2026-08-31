@@ -1,4 +1,5 @@
 import asyncio
+from pathlib import Path
 
 import pytest
 from idegym.api.tools.bash import BashCommandRequest
@@ -173,3 +174,46 @@ def test_bash_request_supports_explicit_unlimited_output() -> None:
 
 def test_bash_request_keeps_output_verbatim_by_default() -> None:
     assert BashCommandRequest(command="echo hello").strip_output is False
+
+
+# --------------------------------------------------------------------------------------
+# Per-command context: cwd, env, user
+# --------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("base", "requested", "expected"),
+    [
+        (None, None, None),
+        (Path("/root/work"), None, Path("/root/work")),
+        (Path("/root/work"), "src", Path("/root/work/src")),
+        (Path("/root/work"), "/etc", Path("/etc")),
+        (None, "src", Path("src")),
+    ],
+)
+def test_resolve_working_directory_treats_relative_paths_as_project_relative(base, requested, expected) -> None:
+    executor = bash_executor.BashExecutor(working_directory=base)
+
+    assert executor.resolve_working_directory(requested) == expected
+
+
+def test_shell_invocation_runs_directly_when_no_user_is_requested() -> None:
+    assert bash_executor._shell_invocation("echo hi", None) == "bash -c 'echo hi'"
+
+
+def test_shell_invocation_drops_to_a_user_without_re_authenticating() -> None:
+    invocation = bash_executor._shell_invocation("echo hi", "devuser")
+
+    assert invocation == "runuser --preserve-environment -u devuser -- bash -c 'echo hi'"
+
+
+def test_shell_invocation_quotes_a_hostile_user_name() -> None:
+    invocation = bash_executor._shell_invocation("echo hi", "dev; rm -rf /")
+
+    assert "'dev; rm -rf /'" in invocation
+
+
+def test_bash_request_defaults_to_no_per_command_context() -> None:
+    request = BashCommandRequest(command="echo hello")
+
+    assert (request.cwd, request.env, request.user) == (None, {}, None)

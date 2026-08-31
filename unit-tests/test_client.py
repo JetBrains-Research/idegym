@@ -100,7 +100,22 @@ def test_execute_bash_propagates_unlimited_output_without_shifting_existing_argu
         request_timeout=45,
         polling_config=polling,
         max_output_bytes=None,
+        strip_output=False,
+        cwd=None,
+        env=None,
+        user=None,
     )
+
+
+def test_execute_bash_forwards_per_command_context():
+    server = _make_server(server_id=7)
+    server.tools = MagicMock()
+    server.tools.execute_bash = AsyncMock(return_value=MagicMock())
+
+    asyncio.run(server.execute_bash("pwd", cwd="src", env={"CI": "1"}, user="devuser"))
+
+    call = server.tools.execute_bash.await_args.kwargs
+    assert (call["cwd"], call["env"], call["user"]) == ("src", {"CI": "1"}, "devuser")
 
 
 def test_tools_operations_puts_output_limit_in_forwarded_request():

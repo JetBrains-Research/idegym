@@ -137,6 +137,46 @@ class TestBashExecutor:
         assert exit_code == 3
 
     @pytest.mark.asyncio
+    async def test_cwd_overrides_the_executor_directory_for_one_command(self, tmp_path):
+        nested = tmp_path / "nested"
+        nested.mkdir()
+        executor = BashExecutor(working_directory=tmp_path)
+
+        relative, _stderr, _code = await executor.execute_bash_command("pwd", cwd="nested", strip_output=True)
+        absolute, _stderr, _code = await executor.execute_bash_command("pwd", cwd=str(nested), strip_output=True)
+        default, _stderr, _code = await executor.execute_bash_command("pwd", strip_output=True)
+
+        assert Path(relative).resolve() == nested.resolve()
+        assert Path(absolute).resolve() == nested.resolve()
+        assert Path(default).resolve() == tmp_path.resolve()
+
+    @pytest.mark.asyncio
+    async def test_env_reaches_the_command_without_entering_the_script(self):
+        executor = BashExecutor()
+
+        with capture_logs() as logs:
+            stdout, _stderr, exit_code = await executor.execute_bash_command(
+                'printf "%s" "$SECRET_TOKEN"', env={"SECRET_TOKEN": "s3cr3t"}
+            )
+
+        assert (stdout, exit_code) == ("s3cr3t", 0)
+        command_log = next(entry for entry in logs if entry["event"] == "Bash command")
+        assert "s3cr3t" not in command_log["command"]
+        start_log = next(entry for entry in logs if entry["event"] == "Executing bash command")
+        assert start_log["env_names"] == ["SECRET_TOKEN"]
+
+    @pytest.mark.asyncio
+    async def test_env_overrides_an_inherited_variable(self, monkeypatch):
+        monkeypatch.setenv("IDEGYM_TEST_MARKER", "inherited")
+        executor = BashExecutor()
+
+        stdout, _stderr, _code = await executor.execute_bash_command(
+            'printf "%s" "$IDEGYM_TEST_MARKER"', env={"IDEGYM_TEST_MARKER": "overridden"}
+        )
+
+        assert stdout == "overridden"
+
+    @pytest.mark.asyncio
     async def test_command_with_timeout(self):
         """Test that a command with a timeout raises the appropriate exception."""
         executor = BashExecutor()
