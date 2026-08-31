@@ -22,6 +22,7 @@ from idegym.api.image_build import (
     check_build_arg_collisions,
     validate_build_arg_names,
     validate_context_uri,
+    validate_image_tag,
     validate_secret_mapping,
 )
 from idegym.api.plugin import (
@@ -144,6 +145,26 @@ class Image(BaseModel):
         default_factory=dict,
         description="Maps a Dockerfile secret id to a Secret Manager resource name. Names only, never values.",
     )
+    tag: Optional[str] = Field(
+        default=None,
+        description="Fully qualified destination tag. Overrides registry/name/version; subject to the "
+        "deployment's registry allowlist.",
+    )
+    registry: Optional[str] = Field(default=None, description="Destination registry prefix. Excludes 'tag'.")
+    version: Optional[str] = Field(
+        default=None,
+        description="Destination version component. Defaults to the content hash, which is what makes "
+        "resubmitting an identical definition a no-op.",
+    )
+    timeout_seconds: Optional[int] = Field(
+        default=None, ge=1, description="Per-build timeout, clamped to the deployment maximum."
+    )
+    machine_type: Optional[str] = Field(
+        default=None, description="Build worker machine type (Cloud Build only), from the deployment's allowlist."
+    )
+    disk_size_gb: Optional[int] = Field(
+        default=None, ge=1, description="Build worker disk size in GB (Cloud Build only), clamped."
+    )
     name: Optional[OCIImageName] = Field(default=None)
     plugins: tuple[PluginBase, ...] = Field(default_factory=tuple)
     commands: tuple[str, ...] = Field(default_factory=tuple)
@@ -180,6 +201,11 @@ class Image(BaseModel):
     def check_context_uri(cls, value: Optional[str]) -> Optional[str]:
         return None if value is None else validate_context_uri(value)
 
+    @field_validator("tag")
+    @classmethod
+    def check_tag(cls, value: Optional[str]) -> Optional[str]:
+        return None if value is None else validate_image_tag(value)
+
     @field_validator("build_args")
     @classmethod
     def check_build_args(cls, value: dict[str, str]) -> dict[str, str]:
@@ -189,6 +215,14 @@ class Image(BaseModel):
     @classmethod
     def check_secrets(cls, value: dict[str, str]) -> dict[str, str]:
         return validate_secret_mapping(value)
+
+    @model_validator(mode="after")
+    def validate_destination(self) -> Self:
+        if self.tag is not None and (self.registry is not None or self.version is not None):
+            raise ValueError(
+                "'tag' is a fully qualified destination and cannot be combined with 'registry' or 'version'"
+            )
+        return self
 
     @model_validator(mode="after")
     def validate_build_arg_namespaces(self) -> Self:
@@ -338,6 +372,60 @@ class Image(BaseModel):
         """
         return self.model_copy(update={"context_uri": validate_context_uri(context_uri)})
 
+    def with_destination(
+        self,
+        *,
+        tag: Optional[str] = None,
+        registry: Optional[str] = None,
+        version: Optional[str] = None,
+    ) -> Self:
+        """Return a copy pushing to a caller-chosen destination instead of the orchestrator's default.
+
+        Pass either a fully qualified ``tag`` or a ``registry`` (combined with the image name and
+        ``version``). The destination is checked against the deployment's registry allowlist at build
+        time, so an orchestrator that has not opted in refuses it.
+
+        Supplying ``version`` decouples the pushed tag from the content hash, which means the caller
+        takes over deduplication — useful for a consumer maintaining its own content-addressed tags,
+        and a footgun otherwise.
+        """
+        if tag is not None and (registry is not None or version is not None):
+            raise ValueError(
+                "'tag' is a fully qualified destination and cannot be combined with 'registry' or 'version'"
+            )
+        return self.model_copy(
+            update={
+                "tag": validate_image_tag(tag) if tag is not None else self.tag,
+                "registry": registry if registry is not None else self.registry,
+                "version": version if version is not None else self.version,
+            }
+        )
+
+    def with_build_resources(
+        self,
+        *,
+        timeout_seconds: Optional[int] = None,
+        machine_type: Optional[str] = None,
+        disk_size_gb: Optional[int] = None,
+    ) -> Self:
+        """Return a copy asking for more build capacity than the deployment's default.
+
+        An inline base does not add builds, but each one now covers the base *and* the idegym layer,
+        so a deployment sized for IdeGYM's own images can starve a multi-gigabyte environment image.
+        Every value is clamped or allowlisted by the orchestrator, and none of them affect the image
+        content, so none participate in the tag.
+
+        ``machine_type`` and ``disk_size_gb`` are Cloud Build only; Kaniko's lever is the per-image
+        ``resources`` field set by `with_runtime`.
+        """
+        return self.model_copy(
+            update={
+                "timeout_seconds": timeout_seconds if timeout_seconds is not None else self.timeout_seconds,
+                "machine_type": machine_type if machine_type is not None else self.machine_type,
+                "disk_size_gb": disk_size_gb if disk_size_gb is not None else self.disk_size_gb,
+            }
+        )
+
     def with_build_args(self, **build_args: str) -> Self:
         """Return a copy with additional ``ARG`` values supplied to the build.
 
@@ -440,6 +528,12 @@ class Image(BaseModel):
             context_uri=self.context_uri,
             build_args=dict(self.build_args),
             secrets=dict(self.secrets),
+            tag=self.tag,
+            registry=self.registry,
+            version=self.version,
+            timeout_seconds=self.timeout_seconds,
+            machine_type=self.machine_type,
+            disk_size_gb=self.disk_size_gb,
         )
 
     def _render_base_stage_header(self, base_reference: str) -> str:

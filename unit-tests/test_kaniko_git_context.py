@@ -261,3 +261,40 @@ async def test_a_build_with_no_secrets_warns_about_nothing(mocker):
     spec = ImageBuildSpec(dockerfile_content="FROM scratch", build_args={"FLAVOUR": "slim"})
     _, handle = await _submit(mocker, spec)
     assert handle.warnings == ()
+
+
+# --- per-request build resources ------------------------------------------------------
+
+
+async def test_a_requested_timeout_becomes_the_monitor_deadline(mocker):
+    # Kaniko has no build timeout of its own, so a per-request one is purely the monitor's.
+    spec = ImageBuildSpec(dockerfile_content="FROM scratch", timeout_seconds=3600)
+    _, handle = await _submit(mocker, spec)
+    assert handle.monitor_timeout == 3600.0
+
+
+async def test_a_requested_timeout_is_clamped_to_the_deployment_ceiling(mocker):
+    mocker.patch(
+        "idegym.backend.utils.image_builder.kaniko.build_and_push_image_with_kaniko",
+        new=mocker.AsyncMock(return_value="kaniko-1"),
+    )
+    spec = ImageBuildSpec(dockerfile_content="FROM scratch", timeout_seconds=99999)
+    handle = await KanikoImageBuilder(max_timeout_seconds=7200).submit_build(
+        "reg/img:v", spec, namespace="idegym", service_version="1.2.3"
+    )
+    assert handle.monitor_timeout == 7200.0
+
+
+async def test_no_requested_timeout_leaves_the_monitor_to_the_service_default(mocker):
+    _, handle = await _submit(mocker, ImageBuildSpec(dockerfile_content="FROM scratch"))
+    assert handle.monitor_timeout is None
+
+
+@pytest.mark.parametrize(("field", "value"), [("machine_type", "E2_HIGHCPU_8"), ("disk_size_gb", 500)])
+async def test_cloud_build_only_resources_are_reported_as_ignored(mocker, field, value):
+    """Kaniko builds in a pod, so these do nothing here — say so rather than look honoured."""
+    spec = ImageBuildSpec(dockerfile_content="FROM scratch", **{field: value})
+    _, handle = await _submit(mocker, spec)
+    assert len(handle.warnings) == 1
+    assert field in handle.warnings[0]
+    assert "'resources'" in handle.warnings[0]

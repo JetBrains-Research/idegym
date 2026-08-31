@@ -254,6 +254,16 @@ class CloudBuildGKEConfig(ConfigModel):
     skip_existing: bool = Field(
         description="Skip the build when the destination image already exists in Artifact Registry", default=False
     )
+    max_disk_size_gb: int = Field(
+        description="Ceiling for a per-request worker disk size in GB. A larger request is clamped to this.",
+        ge=1,
+        default=1000,
+    )
+    allowed_machine_types: list[str] = Field(
+        description="Machine types a request may ask for (e.g. E2_HIGHCPU_8). Empty rejects any per-request "
+        "machine type, since the cost of a larger worker is the deployment's to authorize, not the caller's.",
+        default_factory=list,
+    )
 
 
 class BuildConfig(ConfigModel):
@@ -263,6 +273,18 @@ class BuildConfig(ConfigModel):
     env_segment = "BUILD"
 
     backend: BuildBackend = Field(description="Active image build backend", default=BuildBackend.KANIKO)
+    allowed_registry_prefixes: list[str] = Field(
+        description="Registry prefixes a request may push to when it supplies its own tag or registry. Empty "
+        "refuses caller-supplied destinations altogether, which is the default: an arbitrary destination "
+        "means pushing anywhere the builder's service account can write.",
+        default_factory=list,
+    )
+    max_timeout_seconds: int = Field(
+        description="Ceiling for a per-request build timeout, on every backend. A larger request is clamped to "
+        "this, so one caller cannot occupy build capacity indefinitely.",
+        ge=1,
+        default=7200,
+    )
     cloudbuild_gke: CloudBuildGKEConfig = Field(default_factory=CloudBuildGKEConfig)
 
     @model_validator(mode="after")

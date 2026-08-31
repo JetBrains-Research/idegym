@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Optional
 
 from idegym.api.image_build import ImageBuildSpec
 from idegym.api.status import Status
@@ -19,10 +20,16 @@ class BuildHandle:
     build-time log line is gone by the time anyone asks about the resulting image, so the
     orchestrator records these on the job so they stay visible after the fact. The
     build-arg exposure a Kaniko build with `secrets` incurs is the motivating case.
+
+    `monitor_timeout` is how long the orchestrator should poll *this* build, which the
+    backend knows exactly because it granted it. `ImageBuilder.monitor_timeout` only
+    describes the deployment default, so a build given a longer per-request timeout would
+    otherwise be declared failed while still running.
     """
 
     name: str
     warnings: tuple[str, ...] = ()
+    monitor_timeout: Optional[float] = None
 
 
 class ImageBuilder(ABC):

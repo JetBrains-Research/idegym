@@ -37,7 +37,11 @@ async def build_and_push_with_config(request: BuildFromYamlRequest, config: Conf
             node_pool_taint_key=node_pool.taint_key if node_pool.enabled else None,
             node_pool_preference_weight=node_pool.preference_weight,
         )
-        build_service = ImageBuildService(builder=builder, namespace=request.namespace)
+        build_service = ImageBuildService(
+            builder=builder,
+            namespace=request.namespace,
+            allowed_registry_prefixes=config.orchestrator.build.allowed_registry_prefixes,
+        )
         job_names = await build_service.build_and_push_images(path=Path(yaml_path))
 
         logger.info(f"Successfully started: {job_names}")

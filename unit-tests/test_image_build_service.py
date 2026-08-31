@@ -71,6 +71,125 @@ async def test_falls_back_to_hash_based_name(mocker, builder):
     assert tag == f"ghcr.io/jetbrains-research/idegym/image-{spec.image_version()[:8]}:{spec.image_version()}"
 
 
+# ---------------------------------------------------------------------------
+# Caller-supplied destination
+# ---------------------------------------------------------------------------
+
+_ALLOWED = ["europe-west1-docker.pkg.dev/my-project/"]
+
+
+def test_default_destination_is_unchanged_without_a_caller_tag(builder):
+    spec = _spec(name="myimg")
+    service = ImageBuildService(builder=builder)
+    assert service.resolve_tag(spec) == f"ghcr.io/jetbrains-research/idegym/myimg:{spec.image_version()}"
+
+
+def test_a_caller_tag_inside_the_allowlist_is_used(builder):
+    tag = "europe-west1-docker.pkg.dev/my-project/my-repo/env:content-hash-abc"
+    service = ImageBuildService(builder=builder, allowed_registry_prefixes=_ALLOWED)
+    assert service.resolve_tag(_spec(name="myimg", tag=tag)) == tag
+
+
+def test_a_caller_tag_outside_the_allowlist_is_refused(builder):
+    service = ImageBuildService(builder=builder, allowed_registry_prefixes=_ALLOWED)
+    spec = _spec(name="myimg", tag="docker.io/someone/else:latest")
+    with pytest.raises(ValueError, match="not under a permitted registry prefix"):
+        service.resolve_tag(spec)
+
+
+def test_a_caller_tag_is_refused_when_the_deployment_has_not_opted_in(builder):
+    # Empty allowlist is the default: an arbitrary destination means pushing anywhere the
+    # builder's service account can write.
+    service = ImageBuildService(builder=builder)
+    spec = _spec(name="myimg", tag="europe-west1-docker.pkg.dev/my-project/r/env:v1")
+    with pytest.raises(ValueError, match="does not accept caller-supplied image destinations"):
+        service.resolve_tag(spec)
+
+
+def test_registry_and_version_compose_into_a_tag(builder):
+    service = ImageBuildService(builder=builder, allowed_registry_prefixes=_ALLOWED)
+    spec = _spec(name="env", registry="europe-west1-docker.pkg.dev/my-project/my-repo", version="v42")
+    assert service.resolve_tag(spec) == "europe-west1-docker.pkg.dev/my-project/my-repo/env:v42"
+
+
+def test_a_caller_registry_is_checked_against_the_allowlist(builder):
+    service = ImageBuildService(builder=builder, allowed_registry_prefixes=_ALLOWED)
+    spec = _spec(name="env", registry="docker.io/someone")
+    with pytest.raises(ValueError, match="not under a permitted registry prefix"):
+        service.resolve_tag(spec)
+
+
+def test_a_caller_version_alone_keeps_the_default_registry(builder):
+    # Only the registry is a security decision; overriding the version just opts out of hash dedupe.
+    service = ImageBuildService(builder=builder)
+    spec = _spec(name="env", version="v42")
+    assert service.resolve_tag(spec) == "ghcr.io/jetbrains-research/idegym/env:v42"
+
+
+async def test_the_resolved_tag_is_what_gets_persisted(mocker, builder):
+    mocker.patch("idegym.orchestrator.image_build_service.create_task", side_effect=lambda coro: coro.close())
+    tag = "europe-west1-docker.pkg.dev/my-project/my-repo/env:abc"
+    service = ImageBuildService(builder=builder, allowed_registry_prefixes=_ALLOWED)
+
+    await service.build_and_push_single_image(_spec(name="env", tag=tag))
+
+    assert builder.submit_build.call_args.args[0] == tag
+
+
+# ---------------------------------------------------------------------------
+# Per-request monitor timeout
+# ---------------------------------------------------------------------------
+
+
+async def test_monitor_prefers_the_timeout_the_backend_granted(mocker, builder):
+    """A build given a longer per-request timeout must not be declared failed while still running."""
+    from idegym.api.status import Status
+
+    builder.get_status = AsyncMock(return_value=Status.SUCCESS)
+    mocker.patch("idegym.orchestrator.image_build_service.save_job_status", new=AsyncMock())
+    mocker.patch("idegym.orchestrator.image_build_service.update_job_status", new=AsyncMock())
+    timeout_ctx = mocker.patch("idegym.orchestrator.image_build_service.timeout")
+
+    class _DummySession:
+        async def __aenter__(self):
+            return AsyncMock()
+
+        async def __aexit__(self, *exc):
+            return False
+
+    mocker.patch("idegym.orchestrator.image_build_service.get_db_session", return_value=_DummySession())
+
+    service = ImageBuildService(builder=builder, job_timeout=100.0)
+    await service.monitor_image_building_job(
+        BuildHandle(name="job-xyz", monitor_timeout=5000.0), tag="t", request_id="r"
+    )
+
+    timeout_ctx.assert_called_once_with(5000.0)
+
+
+async def test_monitor_falls_back_to_the_service_timeout(mocker, builder):
+    from idegym.api.status import Status
+
+    builder.get_status = AsyncMock(return_value=Status.SUCCESS)
+    mocker.patch("idegym.orchestrator.image_build_service.save_job_status", new=AsyncMock())
+    mocker.patch("idegym.orchestrator.image_build_service.update_job_status", new=AsyncMock())
+    timeout_ctx = mocker.patch("idegym.orchestrator.image_build_service.timeout")
+
+    class _DummySession:
+        async def __aenter__(self):
+            return AsyncMock()
+
+        async def __aexit__(self, *exc):
+            return False
+
+    mocker.patch("idegym.orchestrator.image_build_service.get_db_session", return_value=_DummySession())
+
+    service = ImageBuildService(builder=builder, job_timeout=100.0)
+    await service.monitor_image_building_job(BuildHandle(name="job-xyz"), tag="t", request_id="r")
+
+    timeout_ctx.assert_called_once_with(100.0)
+
+
 async def test_monitor_loop_polls_until_terminal(mocker, builder):
     from idegym.api.status import Status
 

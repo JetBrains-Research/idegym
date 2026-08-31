@@ -99,6 +99,40 @@ def check_build_arg_collisions(
     _collide("secrets", "secret_build_args", set(secrets) & set(secret_build_args))
 
 
+def validate_image_tag(value: str) -> str:
+    """Check a fully qualified destination tag is well formed.
+
+    Splits on the *last* colon so a registry port survives (``localhost:5000/img:v1`` has repository
+    ``localhost:5000/img``), and rejects a reference with no version component — ``localhost:5000/img``
+    would otherwise parse as version ``5000/img``.
+    """
+    stripped = value.strip()
+    repository, separator, version = stripped.rpartition(":")
+    if not separator or not repository or not version or "/" in version or any(ch.isspace() for ch in stripped):
+        raise ValueError(
+            f"Image tag {value!r} is not well formed. Expected '<registry>/<repository>:<version>', "
+            "e.g. 'europe-west1-docker.pkg.dev/my-project/my-repo/my-image:abc123'."
+        )
+    return stripped
+
+
+def check_registry_allowed(tag: str, allowed_prefixes: list[str]) -> None:
+    """Reject a caller-chosen destination outside the deployment's allowlist.
+
+    A caller-supplied registry means pushing anywhere the builder's service account can write, so
+    this is an allowlist rather than a format check. An empty allowlist means the deployment has not
+    opted in at all, which is the default.
+    """
+    if not allowed_prefixes:
+        raise ValueError(
+            f"This deployment does not accept caller-supplied image destinations, so {tag!r} was refused. "
+            "Set build.allowed_registry_prefixes to the registries builds may push to."
+        )
+    if not any(tag.startswith(prefix) for prefix in allowed_prefixes):
+        permitted = ", ".join(allowed_prefixes)
+        raise ValueError(f"Image destination {tag!r} is not under a permitted registry prefix. Allowed: {permitted}.")
+
+
 def validate_secret_mapping(mapping: dict[str, str]) -> dict[str, str]:
     """Check a ``secrets`` mapping holds Secret Manager resource names, never values.
 
@@ -162,8 +196,48 @@ class ImageBuildSpec(BaseModel):
             "them as build args instead, which exposes them in the image history."
         ),
     )
+    tag: Optional[str] = Field(
+        default=None,
+        description=(
+            "Fully qualified destination tag. Overrides registry/name/version. Checked against the "
+            "deployment's registry allowlist; absent means the orchestrator's own naming."
+        ),
+    )
+    registry: Optional[str] = Field(
+        default=None,
+        description="Destination registry prefix, combined with 'name' and 'version'. Mutually exclusive with 'tag'.",
+    )
+    version: Optional[str] = Field(
+        default=None,
+        description=(
+            "Destination tag's version component. Defaults to image_version(), the content hash. "
+            "Supplying one decouples the pushed tag from that hash — the caller then owns dedupe."
+        ),
+    )
+    timeout_seconds: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="Per-build timeout, clamped to the deployment maximum. None uses the deployment default.",
+    )
+    machine_type: Optional[str] = Field(
+        default=None,
+        description=(
+            "Build worker machine type (Cloud Build only; Kaniko's lever is the per-image 'resources' "
+            "field). Checked against the deployment's allowlist."
+        ),
+    )
+    disk_size_gb: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="Build worker disk size in GB (Cloud Build only), clamped to the deployment maximum.",
+    )
 
     model_config = ConfigDict(extra="forbid")
+
+    @field_validator("tag")
+    @classmethod
+    def check_tag(cls, value: Optional[str]) -> Optional[str]:
+        return None if value is None else validate_image_tag(value)
 
     @field_validator("context_uri")
     @classmethod
@@ -183,6 +257,14 @@ class ImageBuildSpec(BaseModel):
     @model_validator(mode="after")
     def validate_build_arg_namespaces(self):
         check_build_arg_collisions(self.build_args, self.secrets, self.secret_build_args)
+        return self
+
+    @model_validator(mode="after")
+    def validate_destination(self):
+        if self.tag is not None and (self.registry is not None or self.version is not None):
+            raise ValueError(
+                "'tag' is a fully qualified destination and cannot be combined with 'registry' or 'version'"
+            )
         return self
 
     def image_version(self) -> str:

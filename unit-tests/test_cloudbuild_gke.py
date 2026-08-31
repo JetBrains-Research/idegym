@@ -274,6 +274,88 @@ def test_validate_accepts_a_spec_with_no_context():
 
 
 # ---------------------------------------------------------------------------
+# Per-request build resources
+# ---------------------------------------------------------------------------
+
+
+def _resource_builder(**kwargs) -> CloudBuildGKEImageBuilder:
+    defaults = {
+        "project_id": "proj",
+        "region": "europe-west1",
+        "staging_bucket": "bucket",
+        "timeout_seconds": 2400,
+        "max_timeout_seconds": 7200,
+        "max_disk_size_gb": 1000,
+    }
+    defaults.update(kwargs)
+    return CloudBuildGKEImageBuilder(**defaults)
+
+
+def test_a_requested_timeout_is_honoured_below_the_ceiling():
+    assert _resource_builder()._resolve_timeout(_spec(timeout_seconds=3600)) == 3600
+
+
+def test_a_requested_timeout_is_clamped_to_the_ceiling():
+    assert _resource_builder()._resolve_timeout(_spec(timeout_seconds=99999)) == 7200
+
+
+def test_no_requested_timeout_uses_the_deployment_default():
+    assert _resource_builder()._resolve_timeout(_spec()) == 2400
+
+
+def test_a_requested_disk_size_is_clamped_to_the_ceiling():
+    assert _resource_builder()._resolve_disk_size(_spec(disk_size_gb=5000)) == 1000
+
+
+def test_a_requested_disk_size_is_honoured_below_the_ceiling():
+    assert _resource_builder()._resolve_disk_size(_spec(disk_size_gb=250)) == 250
+
+
+def test_an_allowlisted_machine_type_is_honoured():
+    builder = _resource_builder(allowed_machine_types=["E2_HIGHCPU_8"])
+    assert builder._resolve_machine_type(_spec(machine_type="E2_HIGHCPU_8")) == "E2_HIGHCPU_8"
+
+
+def test_a_machine_type_outside_the_allowlist_is_refused():
+    """Refused rather than downgraded: a silently ignored machine type reads as a slow build."""
+    builder = _resource_builder(allowed_machine_types=["E2_HIGHCPU_8"])
+    with pytest.raises(ValueError, match="not permitted by this deployment"):
+        builder._resolve_machine_type(_spec(machine_type="E2_HIGHCPU_32"))
+
+
+def test_any_machine_type_is_refused_when_the_allowlist_is_empty():
+    with pytest.raises(ValueError, match="no per-request machine type is permitted"):
+        _resource_builder()._resolve_machine_type(_spec(machine_type="E2_HIGHCPU_8"))
+
+
+def test_no_requested_machine_type_uses_the_deployment_default():
+    assert _resource_builder(machine_type="E2_MEDIUM")._resolve_machine_type(_spec()) == "E2_MEDIUM"
+
+
+async def test_the_handle_carries_the_granted_monitor_timeout():
+    """The monitor has to track the timeout this build got, not the deployment default."""
+    build_client = _fake_build_client()
+    storage_client, _bucket, _blob = _fake_storage_client()
+    builder = _resource_builder(build_client=build_client, storage_client=storage_client)
+
+    handle = await builder.submit_build(_TAG, _spec(timeout_seconds=3600), namespace="idegym", service_version="1.2.3")
+
+    assert handle.monitor_timeout == 3900.0  # granted timeout plus queueing headroom
+
+
+async def test_an_unauthorized_machine_type_is_refused_before_uploading():
+    build_client = _fake_build_client()
+    storage_client, _bucket, blob = _fake_storage_client()
+    builder = _resource_builder(build_client=build_client, storage_client=storage_client)
+
+    with pytest.raises(ValueError, match="not permitted by this deployment"):
+        await builder.submit_build(
+            _TAG, _spec(machine_type="E2_HIGHCPU_32"), namespace="idegym", service_version="1.2.3"
+        )
+    blob.upload_from_string.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # build_context_tar
 # ---------------------------------------------------------------------------
 

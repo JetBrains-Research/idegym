@@ -26,6 +26,7 @@ def build_image_builder(
             insecure_registry=insecure_registry,
             node_pool_taint_key=node_pool_taint_key,
             node_pool_preference_weight=node_pool_preference_weight,
+            max_timeout_seconds=config.max_timeout_seconds,
         )
 
     if config.backend == BuildBackend.CLOUDBUILD_GKE:
@@ -41,6 +42,9 @@ def build_image_builder(
             disk_size_gb=gke.disk_size_gb,
             timeout_seconds=gke.timeout_seconds,
             skip_existing=gke.skip_existing,
+            max_timeout_seconds=config.max_timeout_seconds,
+            max_disk_size_gb=gke.max_disk_size_gb,
+            allowed_machine_types=gke.allowed_machine_types,
         )
 
     raise ValueError(f"Unsupported build backend: {config.backend}")

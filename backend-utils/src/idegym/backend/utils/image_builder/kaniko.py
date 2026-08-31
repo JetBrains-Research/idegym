@@ -103,12 +103,14 @@ class KanikoImageBuilder(ImageBuilder):
         node_pool_taint_key: Optional[str] = None,
         node_pool_preference_weight: int = 100,
         *,
+        max_timeout_seconds: int = 7200,
         secret_manager_client: Optional[object] = None,
     ):
         self._ttl_seconds_after_finished = ttl_seconds_after_finished
         self._insecure_registry = insecure_registry
         self._node_pool_taint_key = node_pool_taint_key
         self._node_pool_preference_weight = node_pool_preference_weight
+        self._max_timeout_seconds = max_timeout_seconds
         self._secret_manager_client = secret_manager_client
 
     async def submit_build(
@@ -148,11 +150,22 @@ class KanikoImageBuilder(ImageBuilder):
         # loudly and record it on the handle: the value ends up in the image history, and a log line
         # is gone by the time anyone asks about the resulting image.
         secret_values = await resolve_secret_values(spec.secrets, client=self._secret_manager_client)
-        warnings: tuple[str, ...] = ()
+        warnings: list[str] = []
         if secret_values:
             warning = build_arg_exposure_warning(list(secret_values))
             logger.warning(warning, backend="kaniko", secret_ids=sorted(secret_values))
-            warnings = (warning,)
+            warnings.append(warning)
+
+        # Cloud Build sizes a hosted worker; a Kaniko build runs in a pod, so its lever is the
+        # per-image `resources` field. Saying so beats letting the request look honoured.
+        ignored = [name for name in ("machine_type", "disk_size_gb") if getattr(spec, name) is not None]
+        if ignored:
+            warning = (
+                f"{', '.join(ignored)} has no effect on the kaniko backend, which builds in a pod rather than "
+                "on a hosted worker. Size the build with the per-image 'resources' field instead."
+            )
+            logger.warning(warning, backend="kaniko", ignored_fields=ignored)
+            warnings.append(warning)
 
         job_name = await build_and_push_image_with_kaniko(
             request=spec.request,
@@ -172,7 +185,25 @@ class KanikoImageBuilder(ImageBuilder):
             build_args={**spec.build_args, **secret_values},
         )
 
-        return KanikoBuildHandle(name=job_name, namespace=namespace, warnings=warnings)
+        # Kaniko has no build timeout of its own, so a per-request one is purely the monitor's
+        # deadline. Clamped to the deployment ceiling, matching the Cloud Build backend.
+        monitor_timeout = None
+        if spec.timeout_seconds is not None:
+            granted = min(spec.timeout_seconds, self._max_timeout_seconds)
+            if granted < spec.timeout_seconds:
+                logger.warning(
+                    "Clamped requested build timeout to the deployment maximum",
+                    requested=spec.timeout_seconds,
+                    granted=granted,
+                )
+            monitor_timeout = float(granted)
+
+        return KanikoBuildHandle(
+            name=job_name,
+            namespace=namespace,
+            warnings=tuple(warnings),
+            monitor_timeout=monitor_timeout,
+        )
 
     async def get_status(self, handle: BuildHandle) -> Status:
         if not isinstance(handle, KanikoBuildHandle):

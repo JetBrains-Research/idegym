@@ -265,6 +265,12 @@ def _inject_auth_secret(dockerfile_content: str) -> str:
     return "".join(lines)
 
 
+def _monitor_timeout_for(timeout_seconds: int) -> float:
+    """Allow headroom over the build's own timeout for queueing, context upload, and the final poll,
+    so the orchestrator never declares failure on a build still in flight."""
+    return float(timeout_seconds) + 300.0
+
+
 def map_build_status(status_name: str) -> Status:
     """Map a Cloud Build ``Build.Status`` name to the orchestrator's `Status`."""
     if status_name == "SUCCESS":
@@ -303,6 +309,9 @@ class CloudBuildGKEImageBuilder(ImageBuilder):
         skip_existing: bool = False,
         max_submit_attempts: int = 3,
         *,
+        max_timeout_seconds: Optional[int] = None,
+        max_disk_size_gb: Optional[int] = None,
+        allowed_machine_types: Optional[list[str]] = None,
         build_client: Optional[Any] = None,
         storage_client: Optional[Any] = None,
         artifact_registry_client: Optional[Any] = None,
@@ -315,14 +324,60 @@ class CloudBuildGKEImageBuilder(ImageBuilder):
         self._timeout_seconds = timeout_seconds
         self._skip_existing = skip_existing
         self._max_submit_attempts = max_submit_attempts
+        self._max_timeout_seconds = max_timeout_seconds
+        self._max_disk_size_gb = max_disk_size_gb
+        self._allowed_machine_types = list(allowed_machine_types or [])
         self._build_client = build_client
         self._storage_client = storage_client
         self._artifact_registry_client = artifact_registry_client
 
     def monitor_timeout(self) -> float:
-        # Allow headroom over the build's own timeout for queueing, context upload, and the
-        # final poll, so the orchestrator never declares failure on a build still in flight.
-        return float(self._timeout_seconds) + 300.0
+        return _monitor_timeout_for(self._timeout_seconds)
+
+    # -- per-request resource resolution ------------------------------------------------
+
+    def _resolve_timeout(self, spec: ImageBuildSpec) -> int:
+        """Return the build timeout to grant, clamping a request to the deployment ceiling."""
+        if spec.timeout_seconds is None:
+            return self._timeout_seconds
+        ceiling = self._max_timeout_seconds or self._timeout_seconds
+        granted = min(spec.timeout_seconds, ceiling)
+        if granted < spec.timeout_seconds:
+            logger.warning(
+                "Clamped requested build timeout to the deployment maximum",
+                requested=spec.timeout_seconds,
+                granted=granted,
+            )
+        return granted
+
+    def _resolve_disk_size(self, spec: ImageBuildSpec) -> Optional[int]:
+        if spec.disk_size_gb is None:
+            return self._disk_size_gb
+        ceiling = self._max_disk_size_gb
+        granted = min(spec.disk_size_gb, ceiling) if ceiling else spec.disk_size_gb
+        if granted < spec.disk_size_gb:
+            logger.warning(
+                "Clamped requested build disk size to the deployment maximum",
+                requested=spec.disk_size_gb,
+                granted=granted,
+            )
+        return granted
+
+    def _resolve_machine_type(self, spec: ImageBuildSpec) -> Optional[str]:
+        """Return the machine type to use, refusing one the deployment has not authorized.
+
+        Unlike a timeout or a disk size there is nothing to clamp a machine type *to*, so this is an
+        allowlist. Silently downgrading to the default would leave a caller wondering why their
+        build was slow, which is the failure mode this ticket exists to avoid.
+        """
+        if spec.machine_type is None:
+            return self._machine_type
+        if spec.machine_type not in self._allowed_machine_types:
+            permitted = ", ".join(self._allowed_machine_types) or "none — no per-request machine type is permitted"
+            raise ValueError(
+                f"Machine type '{spec.machine_type}' is not permitted by this deployment. Allowed: {permitted}."
+            )
+        return spec.machine_type
 
     # -- client construction (lazy; overridable in tests) -------------------------------
 
@@ -362,6 +417,12 @@ class CloudBuildGKEImageBuilder(ImageBuilder):
     ) -> CloudBuildGKEHandle:
         validate_cloudbuild_spec(spec)
 
+        # Resolved before the existence check so an unauthorized machine type is refused whether or
+        # not the image happens to be there already.
+        timeout_seconds = self._resolve_timeout(spec)
+        machine_type = self._resolve_machine_type(spec)
+        disk_size_gb = self._resolve_disk_size(spec)
+
         if self._skip_existing and await self._image_exists(tag):
             logger.info(f"Image '{tag}' already exists; skipping Cloud Build")
             return CloudBuildGKEHandle(name=f"{SKIPPED_PREFIX}{tag}")
@@ -375,9 +436,9 @@ class CloudBuildGKEImageBuilder(ImageBuilder):
                 tag,
                 spec,
                 service_version,
-                machine_type=self._machine_type,
-                disk_size_gb=self._disk_size_gb,
-                timeout_seconds=self._timeout_seconds,
+                machine_type=machine_type,
+                disk_size_gb=disk_size_gb,
+                timeout_seconds=timeout_seconds,
             )
         )
         build.source = cloudbuild_v1.Source(
@@ -387,7 +448,8 @@ class CloudBuildGKEImageBuilder(ImageBuilder):
         operation = await self._with_retries(lambda: self._create_build(build))
         build_id = operation.metadata.build.id
         logger.info(f"Submitted Cloud Build '{build_id}' for image '{tag}'")
-        return CloudBuildGKEHandle(name=build_id)
+        # The monitor has to track the timeout this build actually got, not the deployment default.
+        return CloudBuildGKEHandle(name=build_id, monitor_timeout=_monitor_timeout_for(timeout_seconds))
 
     async def get_status(self, handle: BuildHandle) -> Status:
         if not isinstance(handle, CloudBuildGKEHandle):

@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Optional
 from uuid import uuid4
 
-from idegym.api.image_build import ImageBuildSpec
+from idegym.api.image_build import ImageBuildSpec, check_registry_allowed
 from idegym.api.status import Status
 from idegym.backend.utils.image_builder import BuildHandle, ImageBuilder
 from idegym.image.builder import Image
@@ -33,19 +33,26 @@ class ImageBuildService:
         builder: ImageBuilder,
         namespace: str = "idegym",
         job_timeout: Optional[float] = None,
+        allowed_registry_prefixes: Optional[list[str]] = None,
     ):
         self._builder = builder
         self._namespace = namespace
         # Default the monitor timeout to whatever the backend advertises so a backend with a
         # configurable build timeout (e.g. Cloud Build) is not cut off prematurely.
         self._job_timeout = job_timeout if job_timeout is not None else builder.monitor_timeout()
+        self._allowed_registry_prefixes = list(allowed_registry_prefixes or [])
 
-    async def build_and_push_single_image(
-        self,
-        spec: ImageBuildSpec,
-        request_id: Optional[str] = None,
-    ) -> str:
-        registry = __DOCKER_REPOSITORY__
+    def resolve_tag(self, spec: ImageBuildSpec) -> str:
+        """Return the destination tag for ``spec``, honouring a caller-chosen one.
+
+        With neither ``tag`` nor ``registry`` set this is exactly the historical behaviour: the
+        deployment's registry, a name derived from the spec, and the content hash as the version.
+
+        A caller-supplied destination is checked against the configured allowlist, because otherwise
+        it would mean pushing anywhere the builder's service account can write. A consumer that keeps
+        its own content-addressed tags in its own registry needs this to make image preparation
+        idempotent and resumable — without it, its "already pushed?" check has nothing to look up.
+        """
         if spec.name:
             image_name = spec.name
         elif spec.request is not None:
@@ -53,7 +60,22 @@ class ImageBuildService:
         else:
             image_name = f"image-{spec.image_version()[:8]}"
 
-        tag = f"{registry}/{image_name}:{spec.image_version()}"
+        if spec.tag is not None:
+            check_registry_allowed(spec.tag, self._allowed_registry_prefixes)
+            return spec.tag
+
+        registry = spec.registry or __DOCKER_REPOSITORY__
+        tag = f"{registry}/{image_name}:{spec.version or spec.image_version()}"
+        if spec.registry is not None:
+            check_registry_allowed(tag, self._allowed_registry_prefixes)
+        return tag
+
+    async def build_and_push_single_image(
+        self,
+        spec: ImageBuildSpec,
+        request_id: Optional[str] = None,
+    ) -> str:
+        tag = self.resolve_tag(spec)
         idegym_version = env.get("IDEGYM_VERSION") or __version__
 
         logger.info(f"Building image: {tag}")
@@ -76,6 +98,10 @@ class ImageBuildService:
         # Backend caveats about this build are recorded on the job so they survive the build: a
         # warning logged at submit time is long gone by the time anyone asks about the image.
         details = "\n".join(handle.warnings) or None
+        # Prefer the deadline the backend actually granted this build; the service-wide default only
+        # describes the deployment, so a build given a longer per-request timeout would otherwise be
+        # recorded as failed while still running.
+        job_timeout = handle.monitor_timeout if handle.monitor_timeout is not None else self._job_timeout
         try:
             async with get_db_session() as db:
                 await save_job_status(
@@ -88,7 +114,7 @@ class ImageBuildService:
                 )
 
             try:
-                async with timeout(self._job_timeout):
+                async with timeout(job_timeout):
                     status = await self._builder.get_status(handle)
                     while status == Status.IN_PROGRESS:
                         await sleep(2)
@@ -104,9 +130,7 @@ class ImageBuildService:
                             f"Job '{job_name}' was terminated with status '{status}'. Request ID: {request_id}"
                         )
             except TimeoutError:
-                logger.error(
-                    f"Job '{job_name}' monitoring timed out after {self._job_timeout}s. Request ID: {request_id}"
-                )
+                logger.error(f"Job '{job_name}' monitoring timed out after {job_timeout}s. Request ID: {request_id}")
                 async with get_db_session() as db:
                     await update_job_status(db, job_name, status=Status.FAILURE, tag=tag, request_id=request_id)
         except Exception:
