@@ -105,3 +105,42 @@ async def test_pod_overrides_host_aliases(test_image, test_id):
         assert result.exit_code == 0, result.stderr
         assert "10.123.45.67" in result.stdout
         assert "agent.internal.test" in result.stdout
+
+
+@pytest.mark.asyncio
+async def test_labels_and_annotations_reach_the_pod(test_id, test_image):
+    """A sandbox can be tagged with the job that created it and found by label selector."""
+    job_label = f"e2e-job-{test_id}"
+    async with (
+        create_http_client(name=f"labels-{test_id}", nodes_count=0) as client,
+        client.with_server(
+            image_tag=test_image,
+            server_name=f"labels-{test_id}",
+            runtime_class_name="gvisor",
+            server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
+            labels={"idegym-e2e-job": job_label, "team": "research"},
+            annotations={"idegym.example.com/task-url": "https://tracker.example.test/TASK-1"},
+        ),
+    ):
+        # The whole point of a label: finding the sandbox without knowing its generated name.
+        pods = k8s_client.list_pods(namespace=DEFAULT_NAMESPACE, label_selector=f"idegym-e2e-job={job_label}")
+        assert len(pods) == 1
+
+        pod = pods[0]
+        assert pod.metadata.labels["team"] == "research"
+        assert pod.metadata.annotations["idegym.example.com/task-url"] == "https://tracker.example.test/TASK-1"
+        # Managed labels are untouched, so the platform still addresses the pod.
+        assert pod.metadata.labels["app.kubernetes.io/part-of"] == "idegym"
+
+
+@pytest.mark.asyncio
+async def test_a_managed_label_is_rejected_before_anything_is_created(test_id, test_image):
+    async with create_http_client(name=f"labels-reject-{test_id}", nodes_count=0) as client:
+        with pytest.raises(Exception, match="IdeGYM-managed keys"):
+            await client.start_server(
+                image_tag=test_image,
+                server_name=f"labels-reject-{test_id}",
+                runtime_class_name="gvisor",
+                server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
+                labels={"app": "hijacked"},
+            )
