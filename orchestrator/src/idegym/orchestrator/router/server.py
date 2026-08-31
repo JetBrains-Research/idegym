@@ -14,6 +14,7 @@ from idegym.api.orchestrator.servers import (
     ServerActionResponse,
     ServerKind,
     ServerReuseStrategy,
+    ServerStatusResponse,
     StartServerRequest,
     StartServerResponse,
     StopServerRequest,
@@ -21,6 +22,7 @@ from idegym.api.orchestrator.servers import (
 from idegym.backend.utils.kubernetes_client import (
     clean_up_server,
     deploy_server,
+    pod_phase_and_readiness,
     restart_pods,
     wait_for_pods_ready,
 )
@@ -28,6 +30,7 @@ from idegym.orchestrator.database.helpers import (
     check_resources_and_save_server_in_db,
     create_async_operation,
     find_matching_finished_server_in_db,
+    get_owned_server,
     update_operation_status,
     update_operation_with_error,
     update_server_owner,
@@ -35,6 +38,7 @@ from idegym.orchestrator.database.helpers import (
     validate_client,
     validate_server,
 )
+from idegym.orchestrator.database.models import current_time_millis
 from idegym.orchestrator.router.forwarding import build_server_host
 from idegym.orchestrator.util.decorators import handle_async_task_exceptions, handle_server_exceptions
 from idegym.orchestrator.util.errors import format_error
@@ -175,6 +179,36 @@ async def get_server_capabilities(server_id: int, client_id: UUID, low_level_req
     if response.status_code >= 400:
         raise HTTPException(status_code=response.status_code, detail=response.text)
     return CapabilitiesResponse.model_validate_json(response.text)
+
+
+@router.get("/api/idegym-servers/{server_id}/status")
+@handle_server_exceptions("fetching server status")
+async def get_server_status(server_id: int, client_id: UUID) -> ServerStatusResponse:
+    """Report whether a server is usable, without touching it.
+
+    Before this existed the cheapest liveness probe was an unrelated endpoint such as
+    ``/capabilities``, which happens to touch both the database record and the pod. This reads
+    the record and the pod phase directly, and deliberately does not update the server's
+    activity timestamp, so polling it cannot keep a server from being reaped.
+    """
+    server = await get_owned_server(client_id=client_id, server_id=server_id)
+    pod_phase, pod_ready = await pod_phase_and_readiness(f"app={server.generated_name}", server.namespace)
+    now = current_time_millis()
+    return ServerStatusResponse(
+        server_id=server.id,
+        server_name=server.server_name,
+        generated_name=server.generated_name,
+        namespace=server.namespace,
+        availability=server.availability,
+        usable=server.availability in {AvailabilityStatus.ALIVE, AvailabilityStatus.REUSED},
+        image_tag=server.image_tag,
+        created_at=server.created_at,
+        last_activity_at=server.last_heartbeat_time,
+        idle_seconds=max(now - server.last_heartbeat_time, 0) / 1000,
+        pod_phase=pod_phase,
+        pod_ready=pod_ready,
+        details=server.details,
+    )
 
 
 @executes_operation_in_background

@@ -7,6 +7,7 @@ from idegym.api.orchestrator.servers import (
     ErrorResponse,
     ServerActionResponse,
     ServerKind,
+    ServerStatusResponse,
 )
 from idegym.api.orchestrator.snapshots import CreateSnapshotResponse
 from idegym.api.project.reset import ResetResult
@@ -135,6 +136,14 @@ class IdeGYMServer:
     async def list_capabilities(self) -> CapabilitiesResponse:
         """Return the list of server plugins loaded in the running container."""
         return await self.server.list_capabilities(server_id=self.server_id, client_id=self.client_id)
+
+    async def status(self) -> ServerStatusResponse:
+        """Report whether this server is usable, and why not when it is not.
+
+        Reading the status does not count as activity, so a poll loop cannot keep the server
+        from being reaped.
+        """
+        return await self.server.get_server_status(server_id=self.server_id, client_id=self.client_id)
 
     async def restart_server(
         self,
