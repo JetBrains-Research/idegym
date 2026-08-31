@@ -44,3 +44,5 @@ class ToolsPath(APIPath):
     CREATE_FILE = "/tools/file/create"
     EDIT_FILE = "/tools/file/edit"
     PATCH_FILE = "/tools/file/patch"
+    UPLOAD_FILE = "/tools/file/upload"
+    DOWNLOAD_FILE = "/tools/file/download"

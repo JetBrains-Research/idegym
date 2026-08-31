@@ -6,11 +6,22 @@ implementation via ``app.dependency_overrides[_get_tool_service] = ...``
 before starting to serve requests.
 """
 
-from fastapi import APIRouter, Depends
+from binascii import Error as Base64Error
+
+from fastapi import APIRouter, Depends, HTTPException, status
 from idegym.api.paths import ToolsPath
 from idegym.api.status import Status
 from idegym.api.tools.bash import BashCommandRequest, BashCommandResponse
-from idegym.api.tools.file import CreateFileRequest, EditFileRequest, FileResult, PatchFileRequest
+from idegym.api.tools.file import (
+    CreateFileRequest,
+    DownloadFileChunkRequest,
+    DownloadFileChunkResponse,
+    EditFileRequest,
+    FileResult,
+    PatchFileRequest,
+    UploadFileChunkRequest,
+    UploadFileChunkResponse,
+)
 from idegym.tools.tool_service import FileToolActionName, ToolName, ToolService
 
 router = APIRouter()
@@ -89,3 +100,48 @@ async def patch_file(
     )
 
     return FileResult(status=Status.SUCCESS)
+
+
+@router.post(ToolsPath.UPLOAD_FILE)
+async def upload_file_chunk(
+    request: UploadFileChunkRequest,
+    service: ToolService = Depends(_get_tool_service),
+) -> UploadFileChunkResponse:
+    """Write one base64 chunk into a file, so binary survives the JSON forwarding path."""
+    try:
+        return await service.execute_tool(
+            tool_name=ToolName.FILE,
+            parameters={
+                "action": FileToolActionName.UPLOAD,
+                "path": request.file_path,
+                "content_base64": request.content_base64,
+                "offset": request.offset,
+                "truncate": request.truncate,
+            },
+        )
+    except Base64Error as ex:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid base64 content: {ex}") from ex
+    except (NotADirectoryError, IsADirectoryError) as ex:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ex)) from ex
+
+
+@router.post(ToolsPath.DOWNLOAD_FILE)
+async def download_file_chunk(
+    request: DownloadFileChunkRequest,
+    service: ToolService = Depends(_get_tool_service),
+) -> DownloadFileChunkResponse:
+    """Read one base64 chunk of a file, so binary survives the JSON forwarding path."""
+    try:
+        return await service.execute_tool(
+            tool_name=ToolName.FILE,
+            parameters={
+                "action": FileToolActionName.DOWNLOAD,
+                "path": request.file_path,
+                "offset": request.offset,
+                "length": request.length,
+            },
+        )
+    except FileNotFoundError as ex:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(ex)) from ex
+    except IsADirectoryError as ex:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ex)) from ex
