@@ -158,6 +158,22 @@ Mark a server as finished (not stopped — pod remains running, available for re
 | Server not active | `410 Gone` | `detail: "IdeGYM server with ID {id} is not available (status: ...)"` |
 | Internal error | `500 Internal Server Error` | JSON `detail` |
 
+### Servers — `POST /api/idegym-servers/keepalive`
+
+Hold a server against the watcher's inactivity reaper for `minutes` from now. Synchronous.
+
+| Scenario | HTTP Status | Details |
+|----------|-------------|---------|
+| Success | `200 OK` | `KeepaliveServerResponse` with the window actually in effect |
+| `minutes` out of range (0 < minutes ≤ 1440) | `422 Unprocessable Entity` | Pydantic validation error |
+| Client not found | `404 Not Found` | `detail: "Client with ID {id} not found"` |
+| Server not found or owned by another client | `404 Not Found` | |
+| Internal error | `500 Internal Server Error` | JSON `detail` |
+
+A hold on a server already in a terminal state succeeds and does nothing: the response reports
+no window. The window only ever extends, so a shorter request against a longer existing hold
+returns the longer one.
+
 ### Servers — `GET /api/idegym-servers/{server_id}/status`
 
 Report a server's availability, pod phase and idle time. Synchronous, and read-only: it does

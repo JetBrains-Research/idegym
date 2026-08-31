@@ -283,6 +283,26 @@ file with a stale tail. Downloading a path that does not exist fails with a 404.
 Prefer these over base64 through the bash tool: they are not bounded by the size of a single
 shell script, and the payload never reaches the command log.
 
+### `keepalive(minutes=15.0)` — hold a server that is idle on purpose
+
+The watcher reaps servers on time since the last completed request. That is only a proxy for
+"somebody is using this", and a poor one: a sandbox is equally quiet while an agent thinks, a
+build runs, or a human reads a stack trace. Call `keepalive` while you still hold the server.
+
+```python
+hold = await server.keepalive(minutes=30)
+print(hold.keepalive_until)  # epoch milliseconds
+```
+
+Calling again extends the window and never shortens it, so two holders of the same server
+cannot cut each other short — which also means `keepalive(minutes=1)` after
+`keepalive(minutes=60)` leaves the longer hold in place, and the response reports the window
+actually in effect rather than the one you asked for. The maximum window is 24 hours.
+
+A hold on a server that has already reached a terminal state does nothing; keepalive is for
+keeping a live server alive, not for reviving a dead one. `status()` reports the hold as
+`keepalive_until`.
+
 ### `status()` — is this server usable?
 
 ```python
@@ -302,6 +322,7 @@ if not status.usable:
 | `image_tag` | `str \| None` | Image the server runs |
 | `created_at` / `last_activity_at` | `int` | Epoch milliseconds |
 | `idle_seconds` | `float` | Seconds since the last recorded activity |
+| `keepalive_until` | `int \| None` | Epoch milliseconds until which an explicit keepalive holds the server |
 | `pod_phase` | `str \| None` | Kubernetes phase, or `None` when no pod matches |
 | `pod_ready` | `bool` | True when the pod is `Running` with all containers ready |
 | `details` | `str \| None` | Failure reason recorded on a terminal status |
