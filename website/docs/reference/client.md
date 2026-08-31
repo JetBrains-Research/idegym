@@ -64,6 +64,9 @@ IdeGYMClient(
     heartbeat_interval_in_seconds: int = 60,
     request_timeout_in_seconds: int = 60,
     otel_config: Optional[OTELConfig] = None,
+    transport: Optional[httpx.AsyncBaseTransport] = None,
+    limits: Optional[httpx.Limits] = None,
+    http_client: Optional[httpx.AsyncClient] = None,
 )
 ```
 
@@ -78,6 +81,29 @@ IdeGYMClient(
 | `heartbeat_interval_in_seconds` | How often to send liveness heartbeats to the orchestrator (default: `60`) |
 | `request_timeout_in_seconds` | Default HTTP request timeout (default: `60`) |
 | `otel_config` | OpenTelemetry tracing configuration |
+| `transport` | Transport for the HTTP client IdeGYM builds — an alternative HTTP stack, a proxy, or a recording transport in tests |
+| `limits` | Connection-pool limits for the HTTP client IdeGYM builds |
+| `http_client` | A fully configured `httpx.AsyncClient` to use verbatim |
+
+**Configuring the HTTP stack:**
+
+```python
+import httpx
+
+client = IdeGYMClient(
+    orchestrator_url="https://idegym.yourdomain.com",
+    name="my-training-run",
+    namespace="idegym",
+    limits=httpx.Limits(max_connections=64, max_keepalive_connections=16),
+    transport=my_transport,
+)
+```
+
+`http_client` is the full escape hatch. It is used exactly as given — nothing about it is
+modified, so it must already carry `base_url` and any authentication — and it is **not** closed
+when the `IdeGYMClient` context exits, because it belongs to its caller. A client IdeGYM builds
+itself is closed on exit as before. Passing `http_client` together with `transport` or `limits`
+raises `ValueError` rather than ignoring them.
 
 **Authentication via environment variables:**
 
