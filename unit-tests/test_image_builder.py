@@ -545,6 +545,39 @@ def test_secret_ids_are_held_to_the_build_arg_name_rules():
         Image(base="debian:bookworm-slim", secrets={"bad id": _SECRET_RESOURCE})
 
 
+def test_secret_ids_differing_only_in_case_are_rejected():
+    # Cloud Build derives the env var name by upper-casing, so these would collide into one.
+    with raises(ValueError, match="differ only in case"):
+        Image(base="debian:bookworm-slim", secrets={"tok": _SECRET_RESOURCE, "TOK": _SECRET_RESOURCE})
+
+
+@mark.parametrize("field", ["timeout_seconds", "disk_size_gb"])
+def test_with_build_resources_rejects_a_non_positive_value(field):
+    # model_copy() bypasses field validation, so the fluent setter has to re-check.
+    with raises(ValueError, match="must be at least 1"):
+        Image.from_dockerfile("FROM scratch\n").with_build_resources(**{field: 0})
+
+
+def test_with_build_resources_accepts_valid_values():
+    image = Image.from_dockerfile("FROM scratch\n").with_build_resources(
+        timeout_seconds=5400, machine_type="E2_HIGHCPU_8", disk_size_gb=500
+    )
+    spec = image.to_spec()
+    assert (spec.timeout_seconds, spec.machine_type, spec.disk_size_gb) == (5400, "E2_HIGHCPU_8", 500)
+
+
+def test_build_resources_do_not_participate_in_the_tag():
+    # They do not change image content, so folding them in would cause needless rebuilds.
+    base = Image.from_dockerfile("FROM scratch\n")
+    assert base.to_spec().image_version() == base.with_build_resources(timeout_seconds=5400).to_spec().image_version()
+
+
+def test_the_destination_does_not_participate_in_the_tag():
+    base = Image.from_dockerfile("FROM scratch\n", name="env")
+    moved = base.with_destination(registry="europe-west1-docker.pkg.dev/p/r")
+    assert base.to_spec().image_version() == moved.to_spec().image_version()
+
+
 def test_a_name_in_both_build_args_and_secrets_is_rejected():
     # Both become --build-arg on Kaniko, so the winner would depend on argument order.
     with raises(ValueError, match="both 'build_args' and 'secrets'"):

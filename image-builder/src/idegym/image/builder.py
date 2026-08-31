@@ -418,6 +418,11 @@ class Image(BaseModel):
         ``machine_type`` and ``disk_size_gb`` are Cloud Build only; Kaniko's lever is the per-image
         ``resources`` field set by `with_runtime`.
         """
+        # model_copy() bypasses field validation, so the positivity constraints the fields declare
+        # are re-checked here; a negative timeout would otherwise reach the backend intact.
+        for name, value in (("timeout_seconds", timeout_seconds), ("disk_size_gb", disk_size_gb)):
+            if value is not None and value < 1:
+                raise ValueError(f"{name} must be at least 1, got {value}")
         return self.model_copy(
             update={
                 "timeout_seconds": timeout_seconds if timeout_seconds is not None else self.timeout_seconds,

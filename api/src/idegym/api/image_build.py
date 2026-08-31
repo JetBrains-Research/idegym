@@ -140,6 +140,18 @@ def validate_secret_mapping(mapping: dict[str, str]) -> dict[str, str]:
     field that is serialized into a build request and a job record.
     """
     validate_build_arg_names(mapping, field="Secret id")
+
+    # The Cloud Build backend derives an env var name by upper-casing the id, so two ids differing
+    # only in case would resolve to one variable and silently share a value.
+    folded: dict[str, str] = {}
+    for secret_id in mapping:
+        clash = folded.setdefault(secret_id.upper(), secret_id)
+        if clash != secret_id:
+            raise ValueError(
+                f"Secret ids {clash!r} and {secret_id!r} differ only in case. They would map to the same "
+                "build environment variable, so one would silently take the other's value."
+            )
+
     for secret_id, resource in mapping.items():
         if not _SECRET_RESOURCE_RE.match(resource):
             raise ValueError(
