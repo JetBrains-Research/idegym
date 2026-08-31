@@ -53,6 +53,21 @@ Under a Postgres **advisory lock** (so only one reconciler runs at a time), the 
 3. **Cleans up the rest.** It reconciles the database against live cluster state — evicting
    servers whose clients are gone and reclaiming orphaned resources — and frees quota.
 
+## Inactivity and the keepalive hold
+
+A server is reaped once `inactive_timeout` (or `finished_timeout`, for a `FINISHED` one) has
+passed since its `last_heartbeat_time` — which advances only when a request against it
+completes. That timestamp answers "when did work last finish here", not "is anybody holding
+this", and the two diverge whenever a sandbox is legitimately quiet: an agent thinking, a long
+local build, a human reading a stack trace.
+
+A client that knows it still holds a server says so with
+`POST /api/idegym-servers/keepalive`, which writes an expiry into the server's
+`keepalive_until` column. The watcher skips any server whose hold has not expired, before it
+looks at the timeout at all. The hold is stored separately from `last_heartbeat_time` on
+purpose: pushing the heartbeat into the future would keep the server alive but make "last
+active" a lie, and would extend the hold by a further `inactive_timeout`.
+
 ## Restart budget
 
 The crash policy is **per-server**: `StartServerRequest.max_restarts` (default `0` = fail
