@@ -39,15 +39,20 @@ REQUIRED_CLIENT_TOOL_ARGS = {
 @pytest.mark.asyncio
 async def test_mcp_transport_smoke(test_id):
     async with create_mcp_client() as mcp:
-        assert await mcp.ping()
-
+        # No `ping()` here: FastMCP 4's server dispatcher does not route the JSON-RPC `ping`
+        # method, so `Client.ping()` comes back as `MCPError: Method not found`. The method is
+        # not gone from the protocol — MCP 2.x registers a handler in
+        # `mcp/server/lowlevel/server.py` and marks `ping` init-exempt in `mcp/server/runner.py`
+        # — FastMCP just never reaches it, in both stateless and session mode. Restore the
+        # assertion once upstream wires it up. `list_tools()` below is the real liveness check:
+        # it is a round trip through the same transport and fails the same way if it is dead.
         tools = await mcp.list_tools()
         tools_by_name = {tool.name: tool for tool in tools}
 
         assert REQUIRED_MCP_TOOLS <= tools_by_name.keys()
         # FastMCP exposes single request-model tool arguments under a top-level request object.
         for tool_name, required_args in REQUIRED_CLIENT_TOOL_ARGS.items():
-            input_schema = tools_by_name[tool_name].inputSchema
+            input_schema = tools_by_name[tool_name].input_schema
             assert input_schema["required"] == ["request"]
             assert input_schema["properties"]["request"]["required"] == required_args
 

@@ -141,7 +141,7 @@ class OpenHands(PluginBase):
                 f'"openhands-sdk=={self.openhands_sdk_version}"',
                 f'"openhands-tools=={self.openhands_tools_version}"',
                 '"fastapi"',
-                '"fastmcp>=3"',
+                '"fastmcp>=4"',
                 '"mcp"',
                 '"uvicorn"',
                 '"httpx"',

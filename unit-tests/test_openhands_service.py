@@ -163,8 +163,8 @@ async def test_mcp_publishes_native_input_schema(tmp_path, monkeypatch):
     async with Client(server) as mcp:
         tools = {t.name: t for t in await mcp.list_tools()}
         # published schema is the native flat schema, not a wrapper {"arguments": ...}
-        assert tools["grep"].inputSchema == native_schema
-        assert "arguments" not in tools["grep"].inputSchema.get("properties", {})
+        assert tools["grep"].input_schema == native_schema
+        assert "arguments" not in tools["grep"].input_schema.get("properties", {})
         await mcp.call_tool("grep", {"pattern": "x", "path": "sub"})
     # dispatched flat native arguments, with transport context kept separate (no terminal_id leak)
     assert seen == {"name": "grep", "arguments": {"pattern": "x", "path": "sub"}, "terminal_id": None}

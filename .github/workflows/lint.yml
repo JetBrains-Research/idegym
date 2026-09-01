@@ -3,9 +3,8 @@ on:
   push:
     branches:
       - main
+  # No branch filter, for the same reason as ci.yml: a stacked pull request needs linting too.
   pull_request:
-    branches:
-      - main
 
 jobs:
   python:
