@@ -220,7 +220,7 @@ def create_mcp_server(
                 McpToolInfo(
                     name=t.name,
                     description=t.description,
-                    input_schema=t.inputSchema,
+                    input_schema=t.input_schema,
                 )
                 for t in tools
             ]
