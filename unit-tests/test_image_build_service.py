@@ -434,3 +434,29 @@ async def test_monitor_records_backend_warnings_on_the_job(mocker, builder):
     await service.monitor_image_building_job(handle, tag="t", request_id="r")
 
     assert saved.await_args.kwargs["details"] == "secrets were passed as build args\nsecond caveat"
+
+
+async def test_monitor_records_spec_warnings_alongside_backend_ones(mocker, builder):
+    """Compile-time caveats and backend caveats both belong on the job, in that order."""
+    from idegym.api.status import Status
+
+    builder.get_status = AsyncMock(return_value=Status.SUCCESS)
+    saved, _ = _patch_db(mocker)
+
+    service = ImageBuildService(builder=builder)
+    handle = BuildHandle(name="job-xyz", warnings=("backend caveat",))
+    await service.monitor_image_building_job(
+        handle, tag="t", request_id="r", warnings=["the base ENTRYPOINT is overridden"]
+    )
+
+    assert saved.await_args.kwargs["details"] == "the base ENTRYPOINT is overridden\nbackend caveat"
+
+
+async def test_spec_warnings_reach_the_monitor(mocker, builder):
+    mocker.patch("idegym.orchestrator.image_build_service.create_task", side_effect=lambda coro: coro.close())
+    monitor = mocker.patch.object(ImageBuildService, "monitor_image_building_job", new=AsyncMock())
+
+    spec = _spec(name="img", warnings=["compiled with a caveat"])
+    await ImageBuildService(builder=builder).build_and_push_single_image(spec)
+
+    assert monitor.call_args.kwargs["warnings"] == ["compiled with a caveat"]

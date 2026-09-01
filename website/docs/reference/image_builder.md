@@ -140,6 +140,33 @@ USER root
 `CMD` — which is what makes this **equivalent** to publishing the base and referencing it by tag. A
 test asserts the generated segment is byte-identical between the two forms.
 
+:::warning Your ENTRYPOINT, CMD and HEALTHCHECK do not survive
+Inheritance happens at the `FROM`, but plugin fragments render *after* it, so a plugin that declares
+its own wins. The `idegym-server` plugin declares **all three** — it has to, since it owns how the
+container starts.
+
+The consequence is easy to miss and expensive: a base whose `ENTRYPOINT` performs the real setup —
+cloning a repository, warming a build cache — loses it, the container starts against an empty
+working directory, and **nothing reports an error**. This is not specific to an inline base; a
+pre-published `base:` behaves identically. It simply bites far more often here, because bringing
+your own image is the whole point.
+
+Compiling such a definition records a warning on the build's job record, so it is visible from
+`/api/jobs/status/{job_name}` after the fact rather than only in an orchestrator log.
+
+Two ways to keep the setup:
+
+- **Move it into a build-time `RUN`** (recommended). The image becomes self-contained, the work
+  happens once at build time instead of on every container start, and no network is needed at run
+  time. For a Dockerfile that writes its setup as a heredoc script and then invokes it via
+  `ENTRYPOINT`, this is a mechanical rewrite.
+- **Install a script into `/docker-entrypoint.d/`.** The image's entrypoint runs every `*.sh` there
+  to completion before starting the server, and a non-zero exit fails the container. Three caveats:
+  the glob is **not sorted**, so ship exactly one script; output is captured and only logged when
+  the script finishes, so a long step appears to hang; and `exec "$@"` must be stripped, since the
+  script is run directly rather than as an entrypoint wrapper.
+:::
+
 Rejected up front, rather than as a build failure minutes later:
 
 | Input | Why |

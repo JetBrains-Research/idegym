@@ -20,6 +20,7 @@ from idegym.api.dockerfile_analysis import (
     CopySource,
     SourceKind,
     copy_add_sources,
+    declared_instructions,
     escape_character,
     logical_lines,
     parser_directives,
@@ -37,6 +38,10 @@ BASE_STAGE_ALIAS = "idegym_base"
 # The build arg the Cloud Build backend rewrites into a BuildKit secret mount. A user-side
 # occurrence would be rewritten into a stage where no secret is mounted, so it is rejected.
 AUTH_TOKEN_ARG = "IDEGYM_AUTH_TOKEN"
+
+# Runtime instructions the generated stage may set for itself, overriding whatever the base
+# declared. See `overridden_instruction_warning`.
+OVERRIDABLE_INSTRUCTIONS = ("ENTRYPOINT", "CMD", "HEALTHCHECK")
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,6 +114,35 @@ def local_context_sources(content: str) -> list[CopySource]:
     ``ADD <url>`` are excluded — they need no context.
     """
     return [source for source in copy_add_sources(content) if source.kind is SourceKind.LOCAL]
+
+
+def overridden_instruction_warning(base_dockerfile: str, generated: str) -> Optional[str]:
+    """Warn when the base declares runtime instructions the generated stage replaces.
+
+    ``FROM <alias>`` inherits ``ENTRYPOINT``, ``CMD`` and ``HEALTHCHECK`` from the base stage, but a
+    plugin that declares its own — ``idegym-server`` emits all three — overrides them, because its
+    fragments render after the primary ``FROM``. The base's version is then dead.
+
+    That is easy to miss and expensive when it happens: a base whose ``ENTRYPOINT`` performs the
+    real setup (cloning a repository, warming a build cache) loses it silently, and the container
+    starts against an empty working directory with nothing reporting an error. Warn rather than
+    reject — plenty of bases carry an ``ENTRYPOINT`` nobody depends on.
+    """
+    declared = declared_instructions(base_dockerfile, OVERRIDABLE_INSTRUCTIONS)
+    if not declared:
+        return None
+
+    overridden = sorted(set(declared) & set(declared_instructions(generated, OVERRIDABLE_INSTRUCTIONS)))
+    if not overridden:
+        return None
+
+    listed = ", ".join(f"{name} (line {declared[name].number})" for name in overridden)
+    return (
+        f"'base_dockerfile' declares {listed}, which the generated idegym stage replaces, so the base's "
+        "version never takes effect. Setup that lives in an ENTRYPOINT will not run. Move it into a "
+        "build-time RUN so the image is self-contained, or install a script into /docker-entrypoint.d/ "
+        "to have it run before the server starts."
+    )
 
 
 def references_auth_token(content: str) -> bool:

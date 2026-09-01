@@ -284,6 +284,14 @@ class ImageBuildSpec(BaseModel):
         ge=1,
         description="Build worker disk size in GB (Cloud Build only), clamped to the deployment maximum.",
     )
+    warnings: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Caveats found while compiling this spec, recorded on the build's job record so they "
+            "outlive the request. Informational only: they describe the image, never change it, and "
+            "so deliberately do not participate in image_version()."
+        ),
+    )
 
     model_config = ConfigDict(extra="forbid")
 

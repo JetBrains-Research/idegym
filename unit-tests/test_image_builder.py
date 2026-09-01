@@ -428,6 +428,38 @@ def test_inline_base_coexists_with_plugin_build_stages():
     assert dockerfile.index("FROM alpine:3 AS helper") < dockerfile.index("FROM idegym_base")
 
 
+class _EntrypointPlugin(PluginBase):
+    """Stands in for idegym-server, which emits ENTRYPOINT/CMD/HEALTHCHECK of its own."""
+
+    def render(self, ctx: BuildContext) -> str:
+        return 'ENTRYPOINT ["dumb-init", "--"]\nCMD ["entrypoint"]'
+
+
+def test_a_base_entrypoint_the_pipeline_overrides_is_reported_on_the_spec():
+    """Otherwise a base whose ENTRYPOINT performs the setup loses it with nothing reporting it."""
+    image = Image.from_dockerfile('FROM scratch\nENTRYPOINT ["/setup.sh"]\n').with_plugin(_EntrypointPlugin())
+    (warning,) = image.to_spec().warnings
+    assert "ENTRYPOINT (line 2)" in warning
+
+
+def test_no_warning_when_nothing_overrides_the_base_entrypoint():
+    image = Image.from_dockerfile('FROM scratch\nENTRYPOINT ["/setup.sh"]\n').with_plugin(BaseSystem())
+    assert image.to_spec().warnings == []
+
+
+def test_the_base_reference_form_never_warns_about_instructions():
+    # There is no base_dockerfile to inspect, so the check does not apply.
+    assert Image.from_base("debian:bookworm-slim").with_plugin(_EntrypointPlugin()).to_spec().warnings == []
+
+
+def test_warnings_do_not_participate_in_the_tag():
+    # They describe the image; they never change it.
+    dockerfile = 'FROM scratch\nENTRYPOINT ["/setup.sh"]\n'
+    warned = Image.from_dockerfile(dockerfile).with_plugin(_EntrypointPlugin()).to_spec()
+    assert warned.warnings
+    assert warned.image_version() == warned.model_copy(update={"warnings": []}).image_version()
+
+
 def test_inline_base_sets_the_build_context_base_to_the_alias():
     # BuildContext.base must stay a valid FROM target for plugins that interpolate it.
     assert "FROM idegym_base" in Image.from_dockerfile("FROM scratch\n").to_spec().dockerfile_content

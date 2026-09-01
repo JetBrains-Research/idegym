@@ -16,6 +16,7 @@ for a stage declaration.
 
 import json
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Optional
@@ -253,6 +254,26 @@ def copy_add_sources(content: str, *, escape: Optional[str] = None) -> list[Copy
                 kind = SourceKind.LOCAL
             result.append(CopySource(instruction, source, kind, line))
     return result
+
+
+def declared_instructions(
+    content: str,
+    names: Iterable[str],
+    *,
+    escape: Optional[str] = None,
+) -> dict[str, LogicalLine]:
+    """Return, for each requested instruction, the last logical line declaring it.
+
+    The *last* one, because that is the one Docker honours — an earlier ``ENTRYPOINT`` is already
+    dead by the time a later one appears, so reporting it would point at the wrong line.
+    """
+    wanted = {name.upper() for name in names}
+    found: dict[str, LogicalLine] = {}
+    for line in logical_lines(content, escape=escape):
+        tokens = _tokenize(line.text)
+        if tokens and tokens[0].upper() in wanted:
+            found[tokens[0].upper()] = line
+    return found
 
 
 def buildkit_only_features(content: str, *, escape: Optional[str] = None) -> list[BuildKitFeature]:

@@ -40,6 +40,7 @@ from idegym.image.base_dockerfile import (
     NormalizedBase,
     local_context_sources,
     normalize_base_dockerfile,
+    overridden_instruction_warning,
     references_auth_token,
 )
 from idegym.image.docker_api import IdeGYMDockerAPI
@@ -533,6 +534,17 @@ class Image(BaseModel):
                     secret_build_args.append(secret)
 
         dockerfile_content = self._render_dockerfile(ctx, fragments, build_stages, normalized)
+
+        # Compared against the plugin fragments rather than the finished Dockerfile: those are
+        # exactly the instructions rendered after the primary FROM, which is what makes a base's
+        # ENTRYPOINT/CMD/HEALTHCHECK dead.
+        warnings: list[str] = []
+        if self.base_dockerfile is not None:
+            overridden = overridden_instruction_warning(self.base_dockerfile, "\n".join(fragments))
+            if overridden:
+                _logger.warning(overridden)
+                warnings.append(overridden)
+
         return ImageBuildSpec(
             name=self.name,
             request=ctx.request,
@@ -553,6 +565,7 @@ class Image(BaseModel):
             timeout_seconds=self.timeout_seconds,
             machine_type=self.machine_type,
             disk_size_gb=self.disk_size_gb,
+            warnings=warnings,
         )
 
     def _render_base_stage_header(self, base_reference: str) -> str:

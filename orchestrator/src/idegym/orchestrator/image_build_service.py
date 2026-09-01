@@ -89,15 +89,22 @@ class ImageBuildService:
             service_version=idegym_version,
         )
 
-        create_task(self.monitor_image_building_job(handle, tag, request_id))
+        create_task(self.monitor_image_building_job(handle, tag, request_id, warnings=spec.warnings))
 
         return handle.name
 
-    async def monitor_image_building_job(self, handle: BuildHandle, tag: str, request_id: Optional[str] = None) -> None:
+    async def monitor_image_building_job(
+        self,
+        handle: BuildHandle,
+        tag: str,
+        request_id: Optional[str] = None,
+        warnings: Optional[list[str]] = None,
+    ) -> None:
         job_name = handle.name
-        # Backend caveats about this build are recorded on the job so they survive the build: a
-        # warning logged at submit time is long gone by the time anyone asks about the image.
-        details = "\n".join(handle.warnings) or None
+        # Caveats about this build are recorded on the job so they survive it: a warning logged at
+        # submit time is long gone by the time anyone asks about the image. Two sources — the spec,
+        # for what compiling the definition found, and the handle, for what the backend had to do.
+        details = "\n".join([*(warnings or []), *handle.warnings]) or None
         # Prefer the deadline the backend actually granted this build; the service-wide default only
         # describes the deployment, so a build given a longer per-request timeout would otherwise be
         # recorded as failed while still running.

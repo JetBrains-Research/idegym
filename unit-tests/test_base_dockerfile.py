@@ -10,9 +10,11 @@ import pytest
 from idegym.image.base_dockerfile import (
     AUTH_TOKEN_ARG,
     BASE_STAGE_ALIAS,
+    OVERRIDABLE_INSTRUCTIONS,
     RESERVED_STAGE_PREFIX,
     local_context_sources,
     normalize_base_dockerfile,
+    overridden_instruction_warning,
     references_auth_token,
 )
 
@@ -166,6 +168,53 @@ def test_references_auth_token_detects_the_reserved_arg():
 
 def test_references_auth_token_is_false_for_an_ordinary_dockerfile():
     assert references_auth_token("FROM scratch\nARG MY_TOKEN\n") is False
+
+
+# ---------------------------------------------------------------------------
+# Overridden runtime instructions
+# ---------------------------------------------------------------------------
+
+_GENERATED_TAIL = 'ENTRYPOINT ["dumb-init", "--"]\nCMD ["entrypoint"]\nHEALTHCHECK CMD nc -z 127.0.0.1 8000\n'
+
+
+def test_an_overridden_entrypoint_is_reported():
+    """A base whose ENTRYPOINT does the real setup loses it silently — that is the failure mode."""
+    base = 'FROM scratch\nENTRYPOINT ["/setup.sh"]\n'
+    warning = overridden_instruction_warning(base, _GENERATED_TAIL)
+    assert warning is not None
+    assert "ENTRYPOINT (line 2)" in warning
+    assert "/docker-entrypoint.d/" in warning
+
+
+def test_only_the_instructions_actually_overridden_are_named():
+    # The base declares no CMD, so naming CMD would send the reader looking for a problem they
+    # do not have.
+    base = 'FROM scratch\nENTRYPOINT ["/setup.sh"]\n'
+    warning = overridden_instruction_warning(base, _GENERATED_TAIL)
+    assert "CMD" not in warning.replace("HEALTHCHECK CMD", "")
+
+
+def test_all_three_instructions_are_reported_together():
+    base = 'FROM scratch\nENTRYPOINT ["/s"]\nCMD ["x"]\nHEALTHCHECK CMD test -f /tmp/done\n'
+    warning = overridden_instruction_warning(base, _GENERATED_TAIL)
+    for name in OVERRIDABLE_INSTRUCTIONS:
+        assert name in warning
+
+
+def test_no_warning_when_the_generated_stage_declares_nothing():
+    # Without a plugin emitting its own, the base's ENTRYPOINT survives and there is nothing to say.
+    base = 'FROM scratch\nENTRYPOINT ["/setup.sh"]\n'
+    assert overridden_instruction_warning(base, "RUN echo hello\n") is None
+
+
+def test_no_warning_when_the_base_declares_nothing():
+    assert overridden_instruction_warning("FROM scratch\nRUN true\n", _GENERATED_TAIL) is None
+
+
+def test_the_last_declaration_is_the_one_reported():
+    # Docker honours the last one, so an earlier line would point at an already-dead instruction.
+    base = 'FROM scratch\nENTRYPOINT ["/first.sh"]\nRUN true\nENTRYPOINT ["/second.sh"]\n'
+    assert "ENTRYPOINT (line 4)" in overridden_instruction_warning(base, _GENERATED_TAIL)
 
 
 def test_references_auth_token_ignores_a_mention_in_a_comment():

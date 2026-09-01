@@ -121,6 +121,13 @@ Inputs that cannot work are rejected **before** a build is submitted — a missi
 `base_stage`, a stage in the reserved `idegym_` namespace, BuildKit-only syntax on Kaniko — rather
 than surfacing minutes later in a build log.
 
+One thing inheritance does **not** cover: `ENTRYPOINT`, `CMD` and `HEALTHCHECK`. Plugin fragments
+render after the primary `FROM`, and `idegym-server` declares all three because it owns how the
+container starts. A base whose `ENTRYPOINT` performs the real setup therefore loses it silently, so
+compiling such a definition records a warning on the job. Move that setup into a build-time `RUN`,
+or into `/docker-entrypoint.d/` — see the
+[reference](/reference/image_builder#imagefrom_dockerfilecontent--imagefrom_dockerfile_pathpath).
+
 ### Build context by reference
 
 An inline Dockerfile that `COPY`s from a build context needs one. `context_uri` names an archive the
