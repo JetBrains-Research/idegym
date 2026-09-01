@@ -14,7 +14,7 @@ dependencies = [
     "alembic>=1.18.5",
     "asyncpg>=0.30.0",
     "fastapi[standard]>=0.139.2",
-    "fastmcp>=3.4.4",
+    "fastmcp>=4.0.0",
     "greenlet>=3.5.4",
     "httpx>=0.28.1",
     "idegym-api",

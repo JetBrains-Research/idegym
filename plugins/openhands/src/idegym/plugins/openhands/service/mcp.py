@@ -10,7 +10,7 @@ from typing import Any, Optional
 
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
-from fastmcp.tools.tool import Tool, ToolResult
+from fastmcp.tools import Tool, ToolResult
 from idegym.plugins.openhands.api.errors import ServiceError
 from idegym.plugins.openhands.api.models import (
     TerminalBackend,
