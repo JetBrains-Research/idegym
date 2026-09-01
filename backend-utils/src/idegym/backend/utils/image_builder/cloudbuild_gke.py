@@ -8,6 +8,7 @@ from hashlib import sha256
 from os import environ as env
 from shlex import quote
 from typing import Any, Optional, TypeVar
+from urllib.parse import quote as url_quote
 
 from idegym.api.dockerfile_analysis import buildkit_only_features, has_syntax_directive
 from idegym.api.image_build import ImageBuildSpec, context_uri_scheme
@@ -528,15 +529,17 @@ class CloudBuildGKEImageBuilder(ImageBuilder):
     async def _image_exists(self, tag: str) -> bool:
         """Best-effort Artifact Registry existence check. Any parse/API error is treated as
         'does not exist' so a flaky check never blocks a build."""
-        resource_name = _docker_image_resource_name(tag)
+        resource_name = artifact_registry_resource(tag)
         if resource_name is None:
             return False
         try:
             from google.api_core.exceptions import NotFound
 
             client = self._get_artifact_registry_client()
+            # A digest resolves as a DockerImage; a tag only resolves as a Tag.
+            lookup = client.get_docker_image if "/dockerImages/" in resource_name else client.get_tag
             try:
-                await client.get_docker_image(name=resource_name)
+                await lookup(name=resource_name)
                 return True
             except NotFound:
                 return False
@@ -563,12 +566,18 @@ class CloudBuildGKEImageBuilder(ImageBuilder):
         raise last_error
 
 
-def _docker_image_resource_name(tag: str) -> Optional[str]:
-    """Convert an Artifact Registry image tag to a ``DockerImage`` resource name.
+def artifact_registry_resource(tag: str) -> Optional[str]:
+    """Return the Artifact Registry resource name that resolves ``tag``.
 
-    Expects ``<region>-docker.pkg.dev/<project>/<repo>/<image...>:<version>``. Returns None
-    for tags that are not Artifact Registry references (e.g. ghcr.io), so the existence check
-    is skipped rather than guessed.
+    Expects ``<region>-docker.pkg.dev/<project>/<repo>/<image...>`` followed by either
+    ``@<digest>`` or ``:<version>``. Returns None for references outside Artifact Registry
+    (e.g. ghcr.io), so a caller skips the lookup rather than guessing.
+
+    The distinction matters and is easy to get wrong: a ``dockerImages`` resource is keyed by
+    **digest**, so a tag cannot be looked up there — it resolves through the repository's
+    ``packages/<package>/tags/<tag>`` resource instead. Addressing a tag as
+    ``dockerImages/<image>@<tag>`` returns NOT_FOUND for an image that is definitely present,
+    which silently reports every image as absent.
     """
     host, _, path = tag.partition("/")
     if not host.endswith("-docker.pkg.dev") or not path:
@@ -580,5 +589,15 @@ def _docker_image_resource_name(tag: str) -> Optional[str]:
         return None
 
     project, repository = segments[0], segments[1]
-    image = "/".join(segments[2:]).replace(":", "@", 1)
-    return f"projects/{project}/locations/{location}/repositories/{repository}/dockerImages/{image}"
+    base = f"projects/{project}/locations/{location}/repositories/{repository}"
+    reference = "/".join(segments[2:])
+
+    image, separator, digest = reference.partition("@")
+    if separator:
+        return f"{base}/dockerImages/{image}@{digest}"
+
+    image, separator, version = reference.rpartition(":")
+    if not separator or not image or not version or "/" in version:
+        return None
+    # Artifact Registry addresses a nested image name as a single package whose slashes are escaped.
+    return f"{base}/packages/{url_quote(image, safe='')}/tags/{version}"

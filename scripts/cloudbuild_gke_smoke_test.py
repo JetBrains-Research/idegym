@@ -41,7 +41,7 @@ from pathlib import Path
 from idegym.api.config import BuildConfig, CloudBuildGKEConfig
 from idegym.api.image_build import BuildBackend, ImageBuildSpec
 from idegym.api.status import Status
-from idegym.backend.utils.image_builder.cloudbuild_gke import _docker_image_resource_name
+from idegym.backend.utils.image_builder.cloudbuild_gke import artifact_registry_resource
 from idegym.backend.utils.image_builder.factory import build_image_builder
 from idegym.image.builder import Image
 from idegym.utils import __version__
@@ -80,7 +80,7 @@ async def _poll_until_done(builder, handle, tag: str, poll_interval: float, time
 async def _image_available(tag: str) -> bool:
     """Independent Artifact Registry check that the pushed image is resolvable -- separate
     from the build status, this is the 'images are available afterwards' assertion."""
-    resource_name = _docker_image_resource_name(tag)
+    resource_name = artifact_registry_resource(tag)
     if resource_name is None:
         print(f"  [{tag}] not an Artifact Registry tag; cannot verify availability")
         return False
@@ -89,8 +89,10 @@ async def _image_available(tag: str) -> bool:
     from google.cloud import artifactregistry_v1
 
     client = artifactregistry_v1.ArtifactRegistryAsyncClient()
+    # A digest resolves as a DockerImage; a tag only resolves as a Tag.
+    lookup = client.get_docker_image if "/dockerImages/" in resource_name else client.get_tag
     try:
-        await client.get_docker_image(name=resource_name)
+        await lookup(name=resource_name)
         return True
     except NotFound:
         return False

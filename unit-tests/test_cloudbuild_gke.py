@@ -25,8 +25,8 @@ from idegym.backend.utils.image_builder.cloudbuild_gke import (
     SKIPPED_PREFIX,
     CloudBuildGKEHandle,
     CloudBuildGKEImageBuilder,
-    _docker_image_resource_name,
     _inject_auth_secret,
+    artifact_registry_resource,
     build_cloudbuild_config,
     build_context_tar,
     map_build_status,
@@ -519,22 +519,46 @@ def test_map_build_status(name, expected):
 
 
 # ---------------------------------------------------------------------------
-# _docker_image_resource_name
+# artifact_registry_resource
 # ---------------------------------------------------------------------------
 
 
-def test_resource_name_for_artifact_registry_tag():
-    name = _docker_image_resource_name("europe-west1-docker.pkg.dev/proj/repo/image:v1")
-    assert name == "projects/proj/locations/europe-west1/repositories/repo/dockerImages/image@v1"
+def test_resource_name_for_a_tag_uses_the_tag_resource():
+    """A dockerImages resource is keyed by digest, so a tag can only resolve as a Tag.
+
+    Addressing a tag as dockerImages/<image>@<tag> returns NOT_FOUND for an image that is
+    definitely present, which made skip_existing a silent no-op.
+    """
+    name = artifact_registry_resource("europe-west1-docker.pkg.dev/proj/repo/image:v1")
+    assert name == "projects/proj/locations/europe-west1/repositories/repo/packages/image/tags/v1"
 
 
-def test_resource_name_for_nested_image_path():
-    name = _docker_image_resource_name("us-docker.pkg.dev/proj/repo/group/image:tag")
-    assert name == "projects/proj/locations/us/repositories/repo/dockerImages/group/image@tag"
+def test_resource_name_for_a_digest_uses_the_docker_image_resource():
+    digest = "sha256:46af1d5245feec12e43cf0e9abbaa03487e1f455b487bec98ad3625feb5b8fd5"
+    name = artifact_registry_resource(f"europe-west1-docker.pkg.dev/proj/repo/image@{digest}")
+    assert name == f"projects/proj/locations/europe-west1/repositories/repo/dockerImages/image@{digest}"
+
+
+def test_resource_name_escapes_a_nested_image_path():
+    # Artifact Registry addresses a nested name as one package with the slashes escaped.
+    name = artifact_registry_resource("us-docker.pkg.dev/proj/repo/group/image:tag")
+    assert name == "projects/proj/locations/us/repositories/repo/packages/group%2Fimage/tags/tag"
 
 
 def test_resource_name_none_for_non_artifact_registry_tag():
-    assert _docker_image_resource_name("ghcr.io/jetbrains-research/idegym/image:v1") is None
+    assert artifact_registry_resource("ghcr.io/jetbrains-research/idegym/image:v1") is None
+
+
+@pytest.mark.parametrize(
+    "tag",
+    [
+        "europe-west1-docker.pkg.dev/proj/repo/image",  # no version at all
+        "europe-west1-docker.pkg.dev/proj/image:v1",  # too few segments
+        "europe-west1-docker.pkg.dev",  # no path
+    ],
+)
+def test_resource_name_none_for_unusable_references(tag):
+    assert artifact_registry_resource(tag) is None
 
 
 # ---------------------------------------------------------------------------
@@ -714,9 +738,16 @@ async def test_get_status_rejects_foreign_handle():
 
 
 async def test_skip_existing_short_circuits_build():
+    """The tag is looked up as a Tag, and the lookup it does NOT make matters as much.
+
+    An earlier version of this test faked ``get_docker_image`` for a tag reference, so it passed
+    against a resource name Artifact Registry always rejects — the mock hid the bug that made
+    ``skip_existing`` never skip anything in production.
+    """
     build_client = _fake_build_client()
     ar_client = MagicMock()
-    ar_client.get_docker_image = AsyncMock(return_value=SimpleNamespace())  # image exists
+    ar_client.get_tag = AsyncMock(return_value=SimpleNamespace())  # the tag exists
+    ar_client.get_docker_image = AsyncMock(side_effect=AssertionError("a tag must not be looked up by digest"))
     builder = CloudBuildGKEImageBuilder(
         project_id="proj",
         region="europe-west1",
@@ -730,8 +761,33 @@ async def test_skip_existing_short_circuits_build():
 
     assert handle.name == f"{SKIPPED_PREFIX}{_TAG}"
     build_client.create_build.assert_not_called()
+    ar_client.get_tag.assert_awaited_once()
+    assert ar_client.get_tag.await_args.kwargs["name"] == artifact_registry_resource(_TAG)
     # a skipped build reports success without polling the (non-existent) build
     assert await builder.get_status(handle) == Status.SUCCESS
+
+
+async def test_skip_existing_builds_when_the_tag_is_absent():
+    from google.api_core.exceptions import NotFound
+
+    build_client = _fake_build_client()
+    storage_client, _bucket, _blob = _fake_storage_client()
+    ar_client = MagicMock()
+    ar_client.get_tag = AsyncMock(side_effect=NotFound("absent"))
+    builder = CloudBuildGKEImageBuilder(
+        project_id="proj",
+        region="europe-west1",
+        staging_bucket="bucket",
+        skip_existing=True,
+        build_client=build_client,
+        storage_client=storage_client,
+        artifact_registry_client=ar_client,
+    )
+
+    handle = await builder.submit_build(_TAG, _spec(), namespace="idegym", service_version="1.2.3")
+
+    assert not handle.name.startswith(SKIPPED_PREFIX)
+    build_client.create_build.assert_called_once()
 
 
 async def test_submit_retries_then_succeeds():
