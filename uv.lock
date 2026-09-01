@@ -1396,6 +1396,7 @@ source = { virtual = "." }
 [package.dev-dependencies]
 dev = [
     { name = "from-root" },
+    { name = "httpx2" },
     { name = "jinja2" },
     { name = "kubernetes-asyncio" },
     { name = "pre-commit" },
@@ -1419,6 +1420,7 @@ dev = [
 [package.metadata.requires-dev]
 dev = [
     { name = "from-root", specifier = ">=1.3.0" },
+    { name = "httpx2", specifier = ">=2.12.0" },
     { name = "jinja2", specifier = ">=3.1.6" },
     { name = "kubernetes-asyncio", specifier = ">=36.1.0" },
     { name = "pre-commit", specifier = ">=4.6.1" },

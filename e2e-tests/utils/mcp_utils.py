@@ -3,7 +3,7 @@ import json
 import time
 from typing import Any, Optional
 
-import httpx
+import httpx2
 from fastmcp import Client
 from idegym.api.orchestrator.mcp import MCPToolName
 from idegym.api.orchestrator.operations import AsyncOperationStatus
@@ -15,7 +15,10 @@ def create_mcp_client(timeout: float = 600.0) -> Client:
     mcp_url = f"{base_url.rstrip('/')}/mcp"
     return Client(
         mcp_url,
-        auth=httpx.BasicAuth(username=username, password=password),
+        # httpx2, not httpx: FastMCP 4 moved onto the MCP v2 stack, which types `auth` as
+        # `httpx2.Auth`. They are separate distributions, so an `httpx.BasicAuth` is rejected
+        # with `TypeError: Invalid "auth" argument`.
+        auth=httpx2.BasicAuth(username=username, password=password),
         timeout=timeout,
     )
 
