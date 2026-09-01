@@ -188,10 +188,20 @@ def fetch_context_step(context_uri: str) -> dict[str, Any]:
     Doing the overlay in-build rather than merging the archives in the orchestrator keeps a
     multi-gigabyte context off the orchestrator's network and memory entirely.
 
-    ``pipefail`` is load-bearing: without it a failed fetch would be masked by ``tar`` succeeding on
-    empty input, and the build would carry on against a context that never arrived.
+    The archive is downloaded to a file rather than piped into ``tar``, because ``tar`` can only
+    auto-detect compression on a seekable input — reading a gzipped archive from a pipe fails with
+    "Archive is compressed. Use -z option". Going via a file accepts any format ``tar`` recognises
+    (plain, gzip, bzip2, xz) instead of committing the caller to one.
     """
-    command = f"set -euo pipefail; gcloud storage cat {quote(context_uri)} | tar -x -C /workspace --skip-old-files"
+    archive = "/tmp/idegym-build-context.archive"
+    command = "; ".join(
+        [
+            "set -eu",
+            f"gcloud storage cp {quote(context_uri)} {archive}",
+            f"tar -xf {archive} -C /workspace --skip-old-files",
+            f"rm -f {archive}",
+        ]
+    )
     return {
         "name": CLOUD_SDK_BUILDER,
         "entrypoint": "bash",

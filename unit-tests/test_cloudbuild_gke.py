@@ -274,14 +274,38 @@ def test_the_fetch_step_never_clobbers_generated_files():
     """The generated Dockerfile and plugin assets are already in /workspace when this runs.
 
     ``--skip-old-files`` is what makes ours win, so a caller file named ``Dockerfile`` cannot
-    replace the generated build. ``pipefail`` keeps a failed fetch from being masked by tar
-    succeeding on empty input.
+    replace the generated build.
     """
     config = build_cloudbuild_config(_TAG, _spec(context_uri="gs://bucket/ctx.tar.gz"), "1.2.3")
     command = config["steps"][0]["args"][1]
     assert "--skip-old-files" in command
-    assert "set -euo pipefail" in command
+    assert "-C /workspace" in command
     assert "gs://bucket/ctx.tar.gz" in command
+    assert "set -eu" in command
+
+
+def test_the_fetch_step_extracts_from_a_file_not_a_pipe():
+    """tar can only auto-detect compression on a seekable input.
+
+    Piping a gzipped archive into tar fails outright with "Archive is compressed. Use -z option",
+    so the archive has to be downloaded first. Asserting the shape here because the previous
+    version of this test checked only that the flags were present and passed against a command
+    that could never work.
+    """
+    config = build_cloudbuild_config(_TAG, _spec(context_uri="gs://bucket/ctx.tar.gz"), "1.2.3")
+    command = config["steps"][0]["args"][1]
+
+    assert "| tar" not in command, "piping into tar breaks compression auto-detection"
+    download, extract = command.index("gcloud storage cp"), command.index("tar -xf")
+    assert download < extract, "the archive must be downloaded before it is extracted"
+
+
+def test_the_fetch_step_does_not_commit_the_caller_to_one_archive_format():
+    # `tar -xf` accepts plain, gzip, bzip2 and xz; `-xzf` would demand gzip.
+    for uri in ("gs://b/ctx.tar", "gs://b/ctx.tar.gz", "gs://b/ctx.tgz"):
+        command = build_cloudbuild_config(_TAG, _spec(context_uri=uri), "1.2.3")["steps"][0]["args"][1]
+        assert "tar -xf" in command
+        assert "-xz" not in command
 
 
 def test_no_context_uri_means_a_single_step():
