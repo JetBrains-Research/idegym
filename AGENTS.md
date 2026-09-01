@@ -291,6 +291,11 @@ cached image and the change will appear not to work. Add the new input to `image
 
 ### CI, lint, and dependency configuration
 
+- **CI runs on a pull request whatever its base**, so a stacked pull request based on another
+  feature branch is still checked. The six **e2e groups are the exception**: they only run when
+  the base is `main` (or on a push to `main`), because each provisions its own cluster. A stack
+  therefore gets lint, unit and integration per layer, and full e2e as each layer's base merges
+  and GitHub retargets it onto `main`. Do not add a `branches:` filter back to `pull_request`.
 - **A CI check's name is `<workflow name> / <job name>`.** Renaming a workflow or job
   invalidates branch-protection required checks. If your PR renames one, say so explicitly
   in the description so the repo settings get updated.
