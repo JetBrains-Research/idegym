@@ -13,7 +13,7 @@ paragraph is drafted separately by a maintainer with
 
 ### Highlights
 
-_TODO: summarise the headline changes of this release. Draft this paragraph with `uv run scripts/draft_highlights.py 0.12.0` (uses Claude Code), or write it by hand._
+Configuration handling moves off Hydra to Pydantic, so config is now validated with clearer errors at startup. Deployments gain safe database schema rollback support, and the unschedulable readiness budget is now configurable rather than fixed. Bash executor output is bounded and sanitized to keep oversized or malformed output from leaking through.
 
 ### Features
 
