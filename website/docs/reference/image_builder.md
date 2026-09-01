@@ -201,6 +201,17 @@ object name for changed contents therefore reads as an unchanged image and you g
 Use a content-addressed object name.
 :::
 
+**Collisions resolve in favour of the generated build.** The archive is unpacked *over* a workspace
+that already holds the generated Dockerfile and any plugin assets, skipping files that are already
+there. So a `Dockerfile` in your archive is ignored, and so is anything landing on a plugin's `COPY`
+path — the build you asked for cannot be silently replaced by a file in your context.
+
+`.dockerignore` is the deliberate exception: yours is kept, and the auth-token exclusion is
+*appended* to it. Discarding your rules would let a broad `COPY .` sweep in files you excluded on
+purpose. The flip side is that your rules genuinely apply to the whole context, so a pattern like
+`*` or `plugins/**` will also exclude the plugin assets an `idea`/`pycharm` image needs and its
+`COPY` will fail.
+
 ### `.with_secrets(**mapping)`
 
 Map a Dockerfile secret id to a **Secret Manager resource name** — never a value:

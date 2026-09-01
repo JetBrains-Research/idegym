@@ -128,7 +128,10 @@ def build_cloudbuild_config(
 
     steps: list[dict[str, Any]] = []
     if spec.context_uri is not None:
-        steps.append(fetch_context_step(spec.context_uri))
+        # The auth-token exclusion is appended to the caller's .dockerignore rather than replacing
+        # it; see `fetch_context_step`.
+        uses_auth_token = spec.request is not None and spec.request.auth.token is not None
+        steps.append(fetch_context_step(spec.context_uri, exclude=AUTH_SECRET_SRC if uses_auth_token else None))
     steps.append(build_step)
 
     config: dict[str, Any] = {
@@ -172,7 +175,7 @@ def secret_env_name(secret_id: str) -> str:
     return f"{SECRET_ENV_PREFIX}{secret_id.upper()}"
 
 
-def fetch_context_step(context_uri: str) -> dict[str, Any]:
+def fetch_context_step(context_uri: str, *, exclude: Optional[str] = None) -> dict[str, Any]:
     """Return the step that overlays a caller-staged context into ``/workspace``.
 
     Cloud Build extracts the ``StorageSource`` -- which carries the generated Dockerfile and the
@@ -188,20 +191,27 @@ def fetch_context_step(context_uri: str) -> dict[str, Any]:
     auto-detect compression on a seekable input — reading a gzipped archive from a pipe fails with
     "Archive is compressed. Use -z option". Going via a file accepts any format ``tar`` recognises
     (plain, gzip, bzip2, xz) instead of committing the caller to one.
+
+    ``exclude`` names a path to append to ``.dockerignore`` *after* extraction. ``.dockerignore`` is
+    the one file that must not follow the generated-files-win rule: shipping our own would mean
+    ``--skip-old-files`` discards the caller's, so files they deliberately excluded — a ``.env``, a
+    private key — would be swept into the image by a broad ``COPY .``. Appending instead keeps their
+    rules and still guarantees the auth-token file is ignored. The leading newline matters because
+    their last line may have no terminator; a blank line in ``.dockerignore`` is ignored.
     """
     archive = "/tmp/idegym-build-context.archive"
-    command = "; ".join(
-        [
-            "set -eu",
-            f"gcloud storage cp {quote(context_uri)} {archive}",
-            f"tar -xf {archive} -C /workspace --skip-old-files",
-            f"rm -f {archive}",
-        ]
-    )
+    commands = [
+        "set -eu",
+        f"gcloud storage cp {quote(context_uri)} {archive}",
+        f"tar -xf {archive} -C /workspace --skip-old-files",
+        f"rm -f {archive}",
+    ]
+    if exclude:
+        commands.append(f"printf '\\n%s\\n' {quote(exclude)} >> /workspace/.dockerignore")
     return {
         "name": CLOUD_SDK_BUILDER,
         "entrypoint": "bash",
-        "args": ["-c", command],
+        "args": ["-c", "; ".join(commands)],
     }
 
 
@@ -222,6 +232,7 @@ def build_context_tar(
     *,
     auth_token: Optional[str] = None,
     context_files: Optional[dict[str, bytes]] = None,
+    own_dockerignore: bool = True,
 ) -> bytes:
     """Pack the build context as a byte-stable gzipped tar.
 
@@ -235,6 +246,10 @@ def build_context_tar(
     mount (never ``COPY``-ed), so the token stays out of the image while still reaching the
     ``download`` step.
 
+    ``own_dockerignore`` writes the ``.dockerignore`` that keeps that token out of the image. Set it
+    False when a caller context will be overlaid: shipping ours would make ``--skip-old-files``
+    discard theirs, so `fetch_context_step` appends the exclusion to their file instead.
+
     Byte-stable for identical inputs: entries are sorted, ``TarInfo`` mtimes default to zero, and
     the gzip header's mtime is pinned. That is what lets the staging object be named after a digest
     of its own contents.
@@ -246,9 +261,10 @@ def build_context_tar(
             _add_tar_file(tar, destination, (context_files or {})[destination])
         if auth_token is not None:
             _add_tar_file(tar, AUTH_SECRET_SRC, auth_token.encode("utf-8"), mode=0o600)
-            # BuildKit reads the secret from the local FS (`src=`), so ignoring it in the build
-            # context keeps it out of the image even if custom commands add a stray `COPY .`.
-            _add_tar_file(tar, ".dockerignore", f"{AUTH_SECRET_SRC}\n".encode())
+            if own_dockerignore:
+                # BuildKit reads the secret from the local FS (`src=`), so ignoring it in the build
+                # context keeps it out of the image even if custom commands add a stray `COPY .`.
+                _add_tar_file(tar, ".dockerignore", f"{AUTH_SECRET_SRC}\n".encode())
 
     buffer = io.BytesIO()
     with gzip.GzipFile(fileobj=buffer, mode="wb", mtime=0) as archive:
@@ -504,7 +520,14 @@ class CloudBuildGKEImageBuilder(ImageBuilder):
             dockerfile = _inject_auth_secret(dockerfile)
             auth_token = spec.request.auth.token
 
-        archive = build_context_tar(dockerfile, auth_token=auth_token, context_files=spec.context_files)
+        archive = build_context_tar(
+            dockerfile,
+            auth_token=auth_token,
+            context_files=spec.context_files,
+            # With an overlay in play the fetch step owns .dockerignore, so that the caller's own
+            # exclusions survive instead of being skipped in favour of ours.
+            own_dockerignore=spec.context_uri is None,
+        )
         # Naming the object after a digest of its own bytes, not just the image version, keeps a
         # generated context from ever colliding with something else staged under the same prefix --
         # including a caller who stages into this bucket. The archive is byte-stable, so identical

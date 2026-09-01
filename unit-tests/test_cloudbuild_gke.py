@@ -292,6 +292,63 @@ def test_the_fetch_step_does_not_commit_the_caller_to_one_archive_format():
         assert "-xz" not in command
 
 
+def test_a_caller_dockerignore_is_appended_to_not_replaced():
+    """The one file that must not follow the generated-files-win rule.
+
+    Shipping our own .dockerignore would make --skip-old-files discard the caller's, so files they
+    deliberately excluded -- a .env, a private key -- would be swept into the image by a broad
+    `COPY .`. The exclusion is appended to their file instead.
+    """
+    spec = _spec(context_uri="gs://bucket/ctx.tar.gz", request=_request())
+    fetch = build_cloudbuild_config(_TAG, spec, "1.2.3")["steps"][0]
+    command = fetch["args"][1]
+
+    assert ">> /workspace/.dockerignore" in command
+    assert AUTH_SECRET_SRC in command
+    # Appended after extraction, or the caller's file would overwrite the exclusion.
+    assert command.index("tar -xf") < command.index(">> /workspace/.dockerignore")
+
+
+def test_the_generated_tar_ships_no_dockerignore_when_a_context_is_overlaid():
+    # Ours would win via --skip-old-files and silently discard the caller's rules.
+    archive = build_context_tar("FROM scratch\n", auth_token="secret-token", own_dockerignore=False)
+    with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tar:
+        assert ".dockerignore" not in tar.getnames()
+        assert AUTH_SECRET_SRC in tar.getnames()
+
+
+def test_the_generated_tar_still_ships_a_dockerignore_without_an_overlay():
+    # No fetch step exists to append it, so the tar has to carry it.
+    archive = build_context_tar("FROM scratch\n", auth_token="secret-token")
+    with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tar:
+        assert AUTH_SECRET_SRC in tar.extractfile(".dockerignore").read().decode()
+
+
+def test_no_dockerignore_append_when_the_build_uses_no_auth_token():
+    spec = _spec(context_uri="gs://bucket/ctx.tar.gz")
+    command = build_cloudbuild_config(_TAG, spec, "1.2.3")["steps"][0]["args"][1]
+    assert ".dockerignore" not in command
+
+
+async def test_submit_omits_the_dockerignore_from_the_tar_when_overlaying():
+    build_client = _fake_build_client()
+    storage_client, _bucket, blob = _fake_storage_client()
+    builder = CloudBuildGKEImageBuilder(
+        project_id="proj",
+        region="europe-west1",
+        staging_bucket="bucket",
+        build_client=build_client,
+        storage_client=storage_client,
+    )
+
+    spec = _spec(dockerfile_content=_DOCKERFILE_WITH_AUTH, request=_request(), context_uri="gs://b/ctx.tar.gz")
+    await builder.submit_build(_TAG, spec, namespace="idegym", service_version="1.2.3")
+
+    uploaded = blob.upload_from_string.call_args.args[0]
+    with tarfile.open(fileobj=io.BytesIO(uploaded), mode="r:gz") as tar:
+        assert ".dockerignore" not in tar.getnames()
+
+
 def test_no_context_uri_means_a_single_step():
     assert len(build_cloudbuild_config(_TAG, _spec(), "1.2.3")["steps"]) == 1
 
