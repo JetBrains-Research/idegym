@@ -11,8 +11,13 @@ installed; run it with `plugins/openhands/run-compat-tests.sh`.
 |----------------------|-----------|-------|
 | `openhands-sdk`      | `1.36.0`  | pulls `fastmcp>=3`, `litellm`, `pydantic>=2.12.5`, `lmnr` |
 | `openhands-tools`    | `1.36.0`  | pulls `libtmux`, `browser-use`, `tree-sitter*`, `func-timeout` |
-| FastMCP (service)    | `>=3`     | IdeGYM already ships `fastmcp 3.3.1` |
-| MCP                  | via FastMCP | |
+| FastMCP (service)    | `>=4`     | IdeGYM ships `fastmcp 4.0.0` |
+| MCP                  | via FastMCP | `mcp 2.1.1`, pulled by FastMCP 4 |
+
+FastMCP 4 moves the MCP stack onto **`httpx2`**, which is a separate distribution from `httpx`,
+not an upgrade of it. Both are now in the workspace lock and import side by side: IdeGYM's own
+clients keep using `httpx 0.28.1`, and only the MCP layer uses `httpx2`. Do not "consolidate"
+them — they are different packages with different module names.
 
 Bump `PINNED_OPENHANDS_SDK` / `PINNED_OPENHANDS_TOOLS` in `runtime/compat.py` **and** the image
 plugin defaults together, then run the compatibility suite.

@@ -23,9 +23,12 @@ permissions:
   pages: write
   id-token: write
 
-# Allow only one concurrent deployment; don't cancel an in-progress prod deploy.
+# `pages` is a single global lane so a production deploy is never raced. A validation build on a
+# pull request needs its own lane per branch: several stacked pull requests otherwise queue in the
+# one group, and GitHub keeps only the newest pending run and cancels the rest — which is how a
+# stack of eight ends up with seven cancelled docs builds.
 concurrency:
-  group: pages
+  group: ${{ github.event_name == 'pull_request' && format('pages-pr-{0}', github.ref) || 'pages' }}
   cancel-in-progress: false
 
 defaults:
