@@ -23,6 +23,10 @@ from idegym.orchestrator.migration_manager import (
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
+# Stands in for a database migrated by a newer image than the one running. Must never collide
+# with a real revision id, hence the shape rather than a plausible next number.
+UNKNOWN_NEWER_REVISION = "9x9-from-the-future"
+
 CLIENT_ID = "11111111-1111-1111-1111-111111111111"
 PREPARE_REQUEST_ID = "22222222-2222-2222-2222-222222222222"
 
@@ -31,12 +35,18 @@ TABLES_BY_REVISION = {
     "001": {"clients", "servers", "resource_limit_rules", "job_statuses", "async_operations"},
     "002": {"snapshot_prepare_requests", "snapshots", "snapshot_jobs"},
     "003": set(),
+    "004": set(),
 }
 
 # Columns revision 003 adds, and whose data its downgrade deliberately discards.
 COLUMNS_ADDED_BY_003 = {
     "servers": {"details", "max_restarts", "snapshot_id"},
     "snapshots": {"pod_snapshot_name"},
+}
+
+# Same for 004, which adds the keepalive hold.
+COLUMNS_ADDED_BY_004 = {
+    "servers": {"keepalive_until"},
 }
 
 
@@ -154,7 +164,7 @@ async def test_round_trip_through_every_revision(manager: MigrationManager):
     """
     engine = manager.engine
     chain = manager.revision_chain()
-    assert chain == ["001", "002", "003"], "update this test's per-revision expectations"
+    assert chain == ["001", "002", "003", "004"], "update this test's per-revision expectations"
 
     expected_tables: set[str] = set()
     for revision in chain:
@@ -166,8 +176,9 @@ async def test_round_trip_through_every_revision(manager: MigrationManager):
         assert expected_tables <= await table_names(engine)
         await SEEDS[revision](engine)
 
-    for table, columns in COLUMNS_ADDED_BY_003.items():
-        assert columns <= await column_names(engine, table)
+    for added in (COLUMNS_ADDED_BY_003, COLUMNS_ADDED_BY_004):
+        for table, columns in added.items():
+            assert columns <= await column_names(engine, table)
 
     for revision, previous in zip(reversed(chain), [*reversed(chain[:-1]), BASE_REVISION], strict=True):
         plan = await manager.migrate_to(previous, allow_downgrade=True)
@@ -186,7 +197,7 @@ async def test_round_trip_through_every_revision(manager: MigrationManager):
 
 
 async def test_downgrading_only_the_last_revision_preserves_rows(manager: MigrationManager):
-    """003 -> 002 -> 003 keeps every row, and empties exactly the columns 003 added."""
+    """head -> 002 -> 003 keeps every row, and empties exactly the columns 003 added."""
     engine = manager.engine
     await manager.migrate_to("heads")
     await seed_revision_001(engine)
@@ -243,8 +254,9 @@ async def test_downgrade_needs_explicit_approval(manager: MigrationManager):
     with pytest.raises(MigrationError, match="downgrade"):
         await manager.migrate_to("002")
 
-    assert await manager.get_current_revision() == "003"
-    assert COLUMNS_ADDED_BY_003["servers"] <= await column_names(manager.engine, "servers")
+    assert await manager.get_current_revision() == manager.revision_chain()[-1]
+    expected = COLUMNS_ADDED_BY_003["servers"] | COLUMNS_ADDED_BY_004["servers"]
+    assert expected <= await column_names(manager.engine, "servers")
 
 
 async def test_unknown_target_is_rejected_before_touching_the_schema(manager: MigrationManager):
@@ -253,7 +265,7 @@ async def test_unknown_target_is_rejected_before_touching_the_schema(manager: Mi
     with pytest.raises(MigrationError, match="not one of the migrations in this image"):
         await manager.migrate_to("999", allow_downgrade=True)
 
-    assert await manager.get_current_revision() == "003"
+    assert await manager.get_current_revision() == manager.revision_chain()[-1]
 
 
 async def test_revision_this_image_does_not_contain_is_rejected(manager: MigrationManager):
@@ -263,10 +275,13 @@ async def test_revision_this_image_does_not_contain_is_rejected(manager: Migrati
     rather than surface as a missing-revision KeyError.
     """
     await manager.migrate_to("heads")
-    await execute(manager.engine, "UPDATE alembic_version SET version_num = '004'")
+    head = manager.revision_chain()[-1]
+    # Deliberately not head + 1: that becomes a real revision the next time someone adds one,
+    # and this test would then quietly stop testing anything.
+    await execute(manager.engine, f"UPDATE alembic_version SET version_num = '{UNKNOWN_NEWER_REVISION}'")
 
     with pytest.raises(MigrationError, match="use the image that introduced it"):
-        await manager.migrate_to("003", allow_downgrade=True)
+        await manager.migrate_to(head, allow_downgrade=True)
 
 
 async def test_a_lock_held_elsewhere_stops_the_migration(manager: MigrationManager, migration_db_url: str):
