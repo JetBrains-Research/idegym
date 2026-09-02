@@ -154,6 +154,38 @@ def test_submit_returns_before_the_call_completes() -> None:
 # --------------------------------------------------------------------------------------
 
 
+def test_exit_leaves_no_pending_task_behind(recwarn) -> None:
+    """`__aexit__` cancels the heartbeat without awaiting it; the loop must deliver that."""
+    leftover = {}
+
+    class _ClientWithHeartbeat(_FakeClient):
+        async def __aenter__(self):
+            async def heartbeat():
+                while True:
+                    await asyncio.sleep(3600)
+
+            leftover["task"] = asyncio.get_running_loop().create_task(heartbeat())
+            self.entered = True
+            return self
+
+        async def __aexit__(self, *exc):
+            leftover["task"].cancel()  # cancelled, deliberately not awaited
+            return False
+
+    handle = SharedIdeGYMClient(orchestrator_url="idegym.test", name="c", namespace="idegym")
+    import idegym.client.shared as module
+
+    original, module.IdeGYMClient = module.IdeGYMClient, _ClientWithHeartbeat
+    try:
+        with handle:
+            pass
+    finally:
+        module.IdeGYMClient = original
+
+    # The drain gives the cancellation a chance to land, so the task is finished, not abandoned.
+    assert leftover["task"].done()
+
+
 def test_loop_thread_creates_the_awaitable_on_its_own_loop() -> None:
     loop_thread = _LoopThread(name="idegym-client-loop-test")
     captured = {}

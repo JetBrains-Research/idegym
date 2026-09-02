@@ -31,6 +31,8 @@ logger = get_logger(__name__)
 class _LoopThread:
     """An event loop running in its own daemon thread, accepting work from any other thread."""
 
+    _DRAIN_TIMEOUT_SECONDS = 5.0
+
     def __init__(self, name: str) -> None:
         self._loop = asyncio.new_event_loop()
         self._started = threading.Event()
@@ -57,9 +59,29 @@ class _LoopThread:
         return asyncio.run_coroutine_threadsafe(call(), self._loop)
 
     def close(self) -> None:
+        """Drain the loop before stopping it, so nothing is torn down mid-flight.
+
+        ``IdeGYMClient.__aexit__`` cancels the heartbeat task without awaiting it, and the file
+        transfers hand work to ``asyncio.to_thread``. Stopping the loop immediately would leave
+        those pending — Python then prints "Task was destroyed but it is pending!" on every exit,
+        and the executor and async generators never get their shutdown hooks.
+        """
+        try:
+            self.submit(self._drain).result(timeout=self._DRAIN_TIMEOUT_SECONDS)
+        # A failed or slow drain must never stop us from shutting the loop down.
+        except BaseException:
+            logger.debug("Loop drain did not finish cleanly; stopping anyway", exc_info=True)
         self._loop.call_soon_threadsafe(self._loop.stop)
         self._thread.join()
         self._loop.close()
+
+    async def _drain(self) -> None:
+        """Let cancellations be delivered, then run the loop's own shutdown hooks."""
+        pending = [task for task in asyncio.all_tasks(self._loop) if task is not asyncio.current_task()]
+        if pending:
+            await asyncio.wait(pending, timeout=self._DRAIN_TIMEOUT_SECONDS)
+        await self._loop.shutdown_asyncgens()
+        await self._loop.shutdown_default_executor()
 
 
 class SharedIdeGYMClient:
