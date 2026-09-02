@@ -82,7 +82,7 @@ IdeGYMClient(
 | `request_timeout_in_seconds` | Default HTTP request timeout (default: `60`) |
 | `otel_config` | OpenTelemetry tracing configuration |
 | `transport` | Transport for the HTTP client IdeGYM builds — an alternative HTTP stack, a proxy, or a recording transport in tests |
-| `limits` | Connection-pool limits for the HTTP client IdeGYM builds |
+| `limits` | Connection-pool limits for the HTTP client IdeGYM builds; omit for httpx's defaults (100 connections, 20 keep-alive) |
 | `http_client` | A fully configured `httpx.AsyncClient` to use verbatim |
 
 **Configuring the HTTP stack:**

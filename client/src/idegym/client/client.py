@@ -138,7 +138,11 @@ class IdeGYMClient:
                 base_url=orchestrator_url,
                 timeout=request_timeout_in_seconds,
                 transport=transport,
-                limits=limits if limits is not None else Limits(),
+                # Only override when asked: a bare `Limits()` is not httpx's default. It sets
+                # max_connections=None, which removes the 100-connection pool cap entirely, so
+                # passing it unconditionally would unbound the pool for every caller that never
+                # asked to configure one.
+                **({"limits": limits} if limits is not None else {}),
                 headers=(
                     {
                         "Authorization": f"Basic {credential}",
