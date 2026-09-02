@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import os
+import pwd
 import re
 import shlex
 import signal
@@ -34,6 +35,14 @@ class BashExecutorError(Exception):
 
 class BashCommandExecutionTimeoutError(BashExecutorError):
     pass
+
+
+class BashExecutorUnknownUserError(BashExecutorError):
+    """The requested ``user`` does not exist in the container."""
+
+
+class BashExecutorWorkingDirectoryError(BashExecutorError):
+    """The requested ``cwd`` does not exist or is not a directory."""
 
 
 class _OutputCollector:
@@ -197,7 +206,28 @@ def _prepend_bash_integration(command: str) -> str:
     in a brace group. Keeping the prefix on the same line also keeps the caller's line numbers
     intact, so a bash error still points at the right line of their script.
     """
-    return f"source {shlex.quote(str(__BASH_INIT_FILEPATH__))} ; {command}"
+    init = shlex.quote(str(__BASH_INIT_FILEPATH__))
+    # `;` rather than `&&` so the caller's script keeps its own semantics, but the init is still
+    # guarded: without this a missing or unreadable init left the script running in an
+    # unconfigured shell and failing later as "command not found", with the caller's exit code.
+    guard = f'source {init} || {{ echo "IdeGYM: failed to source the bash integration at {init}" >&2 ; exit 1 ; }}'
+    return f"{guard} ; {command}"
+
+
+def _user_environment(user: str) -> dict[str, str]:
+    """Identity variables for ``user``, which ``runuser --preserve-environment`` does not set.
+
+    ``-p`` keeps the whole environment on purpose — that is how the caller's ``env`` and the
+    cleaned server environment survive — but it therefore also keeps *root's* ``HOME``. The
+    bundled init sources ``~/.bashrc``, so without these the script would load root's shell
+    configuration and miss anything installed in the target user's home (SDKMAN, pyenv, nvm),
+    while writes to ``~`` would land in a directory the user cannot write.
+    """
+    try:
+        entry = pwd.getpwnam(user)
+    except KeyError:
+        raise BashExecutorUnknownUserError(f"No such user in this container: {user}") from None
+    return {"HOME": entry.pw_dir, "USER": user, "LOGNAME": user, "SHELL": entry.pw_shell or "/bin/bash"}
 
 
 def _process_argv(script_path: str, user: Optional[str]) -> list[str]:
@@ -227,6 +257,10 @@ def _write_script(script: str, readable_by_other_user: bool) -> str:
             handle.write(script)
         if readable_by_other_user:
             # mkstemp creates 0600, which the target user of `runuser` could not read.
+            # TODO: 0644 also exposes the script to any co-tenant process for the duration of the
+            # run, which matters because callers do put credentials in scripts (see
+            # `_redact_exports`). Prefer `os.chown(path, uid, -1)` with 0600, or a directory only
+            # the target user can traverse.
             os.chmod(path, 0o644)
     except BaseException:
         _remove_script(path)
@@ -307,9 +341,15 @@ class BashExecutor:
         if cwd is None:
             return self.working_directory
         requested = Path(cwd)
-        if requested.is_absolute() or self.working_directory is None:
-            return requested
-        return self.working_directory / requested
+        if not requested.is_absolute() and self.working_directory is not None:
+            requested = self.working_directory / requested
+        # `cwd` is caller-supplied, so check it here: otherwise the child's chdir fails and
+        # asyncio raises a bare FileNotFoundError that the router turns into a 500.
+        if not requested.is_dir():
+            raise BashExecutorWorkingDirectoryError(
+                f"Working directory does not exist or is not a directory: {requested}"
+            )
+        return requested
 
     async def execute_bash_command(
         self,
@@ -345,6 +385,8 @@ class BashExecutor:
         stdout_collector = _OutputCollector(max_output_bytes)
         stderr_collector = _OutputCollector(max_output_bytes)
         working_directory = self.resolve_working_directory(cwd)
+        # The user's identity goes on before the caller's env, so an explicit HOME still wins.
+        environment = cleanenv() | (_user_environment(user) if user is not None else {}) | (env or {})
         logger.info(
             "Executing bash command",
             command_chars=len(command),
@@ -363,7 +405,7 @@ class BashExecutor:
                 stderr=asyncio.subprocess.PIPE,
                 cwd=working_directory,
                 preexec_fn=os.setsid,
-                env=cleanenv() | (env or {}),
+                env=environment,
             )
         except BaseException:
             _remove_script(script_path)

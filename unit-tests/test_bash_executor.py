@@ -1,4 +1,5 @@
 import asyncio
+import os
 from pathlib import Path
 
 import pytest
@@ -182,19 +183,68 @@ def test_bash_request_keeps_output_verbatim_by_default() -> None:
 
 
 @pytest.mark.parametrize(
-    ("base", "requested", "expected"),
+    ("with_base", "requested", "expected"),
     [
-        (None, None, None),
-        (Path("/root/work"), None, Path("/root/work")),
-        (Path("/root/work"), "src", Path("/root/work/src")),
-        (Path("/root/work"), "/etc", Path("/etc")),
-        (None, "src", Path("src")),
+        # An unset cwd passes the executor's own directory through untouched, unvalidated.
+        (False, None, None),
+        (True, None, "base"),
+        # A relative path is project-relative; an absolute one is taken as given.
+        (True, "src", "base/src"),
+        (True, "@absolute", "absolute"),
+        (False, "@absolute", "absolute"),
     ],
 )
-def test_resolve_working_directory_treats_relative_paths_as_project_relative(base, requested, expected) -> None:
-    executor = bash_executor.BashExecutor(working_directory=base)
+def test_resolve_working_directory_treats_relative_paths_as_project_relative(
+    tmp_path, with_base, requested, expected
+) -> None:
+    base = tmp_path / "base"
+    (base / "src").mkdir(parents=True)
+    absolute = tmp_path / "absolute"
+    absolute.mkdir()
+    if requested == "@absolute":
+        requested = str(absolute)
 
-    assert executor.resolve_working_directory(requested) == expected
+    executor = bash_executor.BashExecutor(working_directory=base if with_base else None)
+    resolved = executor.resolve_working_directory(requested)
+
+    assert resolved == (None if expected is None else tmp_path / expected)
+
+
+def test_resolve_working_directory_rejects_a_path_that_is_not_a_directory(tmp_path) -> None:
+    """A caller-supplied cwd must fail as a bad request, not as the child's bare chdir error."""
+    executor = bash_executor.BashExecutor(working_directory=tmp_path)
+    (tmp_path / "a-file").write_text("")
+
+    with pytest.raises(bash_executor.BashExecutorWorkingDirectoryError, match="does not exist"):
+        executor.resolve_working_directory("absent")
+    with pytest.raises(bash_executor.BashExecutorWorkingDirectoryError, match="not a directory"):
+        executor.resolve_working_directory("a-file")
+
+
+def test_user_environment_carries_the_target_users_identity() -> None:
+    """`runuser -p` keeps root's HOME, so the init would source the wrong user's rc file."""
+    import pwd as pwd_module
+
+    current = pwd_module.getpwuid(os.getuid())
+    environment = bash_executor._user_environment(current.pw_name)
+
+    assert environment["HOME"] == current.pw_dir
+    assert environment["USER"] == current.pw_name
+    assert environment["LOGNAME"] == current.pw_name
+
+
+def test_user_environment_rejects_an_unknown_user() -> None:
+    with pytest.raises(bash_executor.BashExecutorUnknownUserError, match="No such user"):
+        bash_executor._user_environment("definitely-not-a-user-here")
+
+
+def test_init_prefix_aborts_when_the_integration_cannot_be_sourced() -> None:
+    """Init failure used to be undetectable: the script ran on regardless with its own status."""
+    prefixed = bash_executor._prepend_bash_integration("echo hi")
+
+    assert "|| {" in prefixed
+    assert "exit 1" in prefixed
+    assert prefixed.endswith(" ; echo hi")
 
 
 def test_argv_runs_the_script_file_directly_when_no_user_is_requested() -> None:
