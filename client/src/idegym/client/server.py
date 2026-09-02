@@ -5,8 +5,10 @@ from uuid import UUID
 from idegym.api.capabilities import CapabilitiesResponse
 from idegym.api.orchestrator.servers import (
     ErrorResponse,
+    KeepaliveServerResponse,
     ServerActionResponse,
     ServerKind,
+    ServerStatusResponse,
 )
 from idegym.api.orchestrator.snapshots import CreateSnapshotResponse
 from idegym.api.project.reset import ResetResult
@@ -37,12 +39,16 @@ class IdeGYMServer:
         namespace: Optional[str] = None,
         polling_config: PollingConfig = PollingConfig(),
         server_kind: ServerKind = ServerKind.IDEGYM,
+        reused: bool = False,
     ):
         self.server_id = server_id
         self.client_id = client_id
         self.namespace = namespace
         self.polling_config = polling_config
         self.server_kind = server_kind
+        #: True when the orchestrator took over an existing FINISHED server instead of creating
+        #: one. Reuse turns on seven fields matching, so it is worth checking rather than assuming.
+        self.reused = reused
 
         self._http_utils = http_utils
         self._forwarding: ForwardingOperations = ForwardingOperations(utils=http_utils)
@@ -135,6 +141,31 @@ class IdeGYMServer:
     async def list_capabilities(self) -> CapabilitiesResponse:
         """Return the list of server plugins loaded in the running container."""
         return await self.server.list_capabilities(server_id=self.server_id, client_id=self.client_id)
+
+    async def keepalive(self, minutes: float = 15.0) -> KeepaliveServerResponse:
+        """Hold this server against the inactivity reaper for the next ``minutes``.
+
+        The watcher reaps on time since the last completed request, which is only a proxy for
+        "somebody is using this" — a sandbox is equally quiet while an agent thinks, a build
+        runs, or a human reads a stack trace. Call this while you still hold the server.
+
+        Calling again extends the window; it is never shortened, so two holders of the same
+        server cannot cut each other short.
+        """
+        return await self.server.keepalive_server(
+            server_id=self.server_id,
+            minutes=minutes,
+            client_id=self.client_id,
+            namespace=self.namespace,
+        )
+
+    async def status(self) -> ServerStatusResponse:
+        """Report whether this server is usable, and why not when it is not.
+
+        Reading the status does not count as activity, so a poll loop cannot keep the server
+        from being reaped.
+        """
+        return await self.server.get_server_status(server_id=self.server_id, client_id=self.client_id)
 
     async def restart_server(
         self,

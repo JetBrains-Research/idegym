@@ -721,6 +721,22 @@ async def list_pods(label_selector: str, namespace: str) -> list[V1Pod]:
         return (await core.list_namespaced_pod(namespace=namespace, label_selector=label_selector)).items
 
 
+async def pod_phase_and_readiness(label_selector: str, namespace: str) -> tuple[Optional[str], bool]:
+    """Return the phase of the server's pod and whether every container in it is ready.
+
+    Terminating pods are skipped, so a restart in progress reports the incoming pod rather than
+    the one on its way out. The phase is ``None`` when no pod matches the selector at all.
+    """
+    pods = [pod for pod in await list_pods(label_selector, namespace) if pod.metadata.deletion_timestamp is None]
+    if not pods:
+        return None, False
+
+    pod = pods[0]
+    container_statuses = pod.status.container_statuses or []
+    ready = pod.status.phase == "Running" and bool(container_statuses) and all(c.ready for c in container_statuses)
+    return pod.status.phase, ready
+
+
 async def are_any_pods_alive(label_selector: str, namespace: str) -> bool:
     """Return True if at least one non-terminating Running pod matches the selector."""
 

@@ -10,10 +10,15 @@ from idegym.api.orchestrator.clients import AvailabilityStatus
 from idegym.api.orchestrator.operations import AsyncOperationStatus, AsyncOperationType
 from idegym.api.orchestrator.servers import (
     FinishServerRequest,
+    KeepaliveServerRequest,
+    KeepaliveServerResponse,
+    ListServersResponse,
     RestartServerRequest,
     ServerActionResponse,
     ServerKind,
     ServerReuseStrategy,
+    ServerStatusResponse,
+    ServerSummary,
     StartServerRequest,
     StartServerResponse,
     StopServerRequest,
@@ -21,13 +26,17 @@ from idegym.api.orchestrator.servers import (
 from idegym.backend.utils.kubernetes_client import (
     clean_up_server,
     deploy_server,
+    pod_phase_and_readiness,
     restart_pods,
     wait_for_pods_ready,
 )
 from idegym.orchestrator.database.helpers import (
     check_resources_and_save_server_in_db,
     create_async_operation,
+    extend_server_keepalive,
     find_matching_finished_server_in_db,
+    get_owned_server,
+    list_client_servers,
     update_operation_status,
     update_operation_with_error,
     update_server_owner,
@@ -35,6 +44,7 @@ from idegym.orchestrator.database.helpers import (
     validate_client,
     validate_server,
 )
+from idegym.orchestrator.database.models import current_time_millis
 from idegym.orchestrator.router.forwarding import build_server_host
 from idegym.orchestrator.util.decorators import handle_async_task_exceptions, handle_server_exceptions
 from idegym.orchestrator.util.errors import format_error
@@ -175,6 +185,104 @@ async def get_server_capabilities(server_id: int, client_id: UUID, low_level_req
     if response.status_code >= 400:
         raise HTTPException(status_code=response.status_code, detail=response.text)
     return CapabilitiesResponse.model_validate_json(response.text)
+
+
+@router.get("/api/idegym-servers")
+@handle_server_exceptions("listing IdeGYM servers")
+async def list_servers(client_id: UUID, include_terminal: bool = False) -> ListServersResponse:
+    """List the servers a client owns.
+
+    Without this a client cannot ask what it is holding, so finding a leaked pod after a crash
+    meant reaching for kubectl — which a client running outside the cluster generally cannot do.
+    Terminal servers are excluded unless asked for, since the common question is "what is still
+    mine and running".
+    """
+    await validate_client(client_id)
+    servers = await list_client_servers(client_id=client_id, include_terminal=include_terminal)
+    return ListServersResponse(
+        client_id=client_id,
+        servers=[
+            ServerSummary(
+                server_id=server.id,
+                server_name=server.server_name,
+                generated_name=server.generated_name,
+                namespace=server.namespace,
+                availability=server.availability,
+                usable=server.availability in {AvailabilityStatus.ALIVE, AvailabilityStatus.REUSED},
+                image_tag=server.image_tag,
+                created_at=server.created_at,
+                last_activity_at=server.last_heartbeat_time,
+                keepalive_until=server.keepalive_until,
+                details=server.details,
+            )
+            for server in servers
+        ],
+    )
+
+
+@router.post("/api/idegym-servers/keepalive")
+@handle_server_exceptions("keeping an IdeGYM server alive")
+async def keepalive_server(request: KeepaliveServerRequest) -> KeepaliveServerResponse:
+    """Hold a server against the watcher's inactivity reaper for the requested window.
+
+    The reaper works off the last time a request finished, which is a poor proxy for "somebody
+    is using this": a sandbox can be legitimately idle while an agent thinks or a build runs.
+    Only the holder knows, so this is how it says so.
+    """
+    until = current_time_millis() + int(request.minutes * 60_000)
+    server = await extend_server_keepalive(client_id=request.client_id, server_id=request.server_id, until=until)
+    # A terminal server is returned untouched, so the hold was refused. Keying on availability
+    # rather than on a null `keepalive_until` matters: a server that held a lease before it died
+    # still carries the old timestamp, and reporting that back would claim a hold we do not have.
+    # This is the race the endpoint exists to lose gracefully — a keepalive loop overtaken by the
+    # reaper — so it says the sandbox is gone instead of 500-ing on None arithmetic.
+    if AvailabilityStatus(server.availability).is_terminal:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail=f"IdeGYM server with ID {server.id} is {server.availability} and cannot be held alive",
+        )
+    logger.info(
+        "Extended server keepalive",
+        server_id=server.id,
+        keepalive_until=server.keepalive_until,
+        minutes=request.minutes,
+    )
+    return KeepaliveServerResponse(
+        server_id=server.id,
+        keepalive_until=server.keepalive_until,
+        minutes=max(server.keepalive_until - current_time_millis(), 0) / 60_000,
+    )
+
+
+@router.get("/api/idegym-servers/{server_id}/status")
+@handle_server_exceptions("fetching server status")
+async def get_server_status(server_id: int, client_id: UUID) -> ServerStatusResponse:
+    """Report whether a server is usable, without touching it.
+
+    Before this existed the cheapest liveness probe was an unrelated endpoint such as
+    ``/capabilities``, which happens to touch both the database record and the pod. This reads
+    the record and the pod phase directly, and deliberately does not update the server's
+    activity timestamp, so polling it cannot keep a server from being reaped.
+    """
+    server = await get_owned_server(client_id=client_id, server_id=server_id)
+    pod_phase, pod_ready = await pod_phase_and_readiness(f"app={server.generated_name}", server.namespace)
+    now = current_time_millis()
+    return ServerStatusResponse(
+        server_id=server.id,
+        server_name=server.server_name,
+        generated_name=server.generated_name,
+        namespace=server.namespace,
+        availability=server.availability,
+        usable=server.availability in {AvailabilityStatus.ALIVE, AvailabilityStatus.REUSED},
+        image_tag=server.image_tag,
+        created_at=server.created_at,
+        last_activity_at=server.last_heartbeat_time,
+        idle_seconds=max(now - server.last_heartbeat_time, 0) / 1000,
+        keepalive_until=server.keepalive_until,
+        pod_phase=pod_phase,
+        pod_ready=pod_ready,
+        details=server.details,
+    )
 
 
 @executes_operation_in_background
@@ -397,11 +505,17 @@ async def _task_start_server(
                 server_id=server_id,
                 server_name=server_server_name,
                 image_tag=server_image_tag,
+                reused=existing_server is not None,
                 need_to_reset=used_reset_reuse,
             ),
         )
 
-        logger.info(f"Started IdeGYM server {server_generated_name} with ID {server_id}")
+        logger.info(
+            "Started IdeGYM server",
+            server=server_generated_name,
+            server_id=server_id,
+            reused=existing_server is not None,
+        )
 
     except CancelledError:
         logger.warning(

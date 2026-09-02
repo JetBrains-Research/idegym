@@ -53,7 +53,10 @@ class StartServerRequest(BaseModel):
     )
     server_name: KubernetesObjectName = Field(
         default="default-idegym-server",
-        description="Logical server name used as the Kubernetes resource name prefix and for matching reusable servers",
+        description=(
+            "Logical server name, used as the Kubernetes resource name prefix. It is one of the "
+            "seven fields reuse matches on, not the key: see 'reuse_strategy' for the full set."
+        ),
         examples=["my-server", "echo-env-server"],
     )
     runtime_class_name: Optional[str] = Field(
@@ -135,8 +138,13 @@ class StartServerRequest(BaseModel):
     reuse_strategy: ServerReuseStrategy = Field(
         default=ServerReuseStrategy.RESET,
         description=(
-            "What to do if a server with this name already exists: NONE recreates from scratch, "
-            "RESTART restarts it, RESET resets project state."
+            "Whether to take over an existing server instead of creating one: NONE always creates "
+            "from scratch, RESTART reuses one and restarts its pod, RESET reuses one and resets "
+            "the project state. Reuse runs only for RESTART and RESET, and a candidate must match "
+            "on all seven of: client name, image_tag, runtime_class_name, run_as_root, server_kind, "
+            "server_name (when set), and an availability of FINISHED. A server is FINISHED only "
+            "after finish_server; a client that always calls stop_server leaves its servers STOPPED, "
+            "so reuse never hits. StartServerResponse.reused reports what actually happened."
         ),
     )
     server_kind: ServerKind = Field(
@@ -177,6 +185,27 @@ class FinishServerRequest(ServerScopedRequest):
     pass
 
 
+class KeepaliveServerRequest(ServerScopedRequest):
+    """Hold a server against the inactivity reaper for a bounded window."""
+
+    minutes: float = Field(
+        default=15.0,
+        gt=0,
+        le=24 * 60,
+        description=(
+            "How long from now to hold the server, in minutes. Calling again extends the window; "
+            "it is never shortened, so two holders cannot cut each other short."
+        ),
+        examples=[15, 60],
+    )
+
+
+class KeepaliveServerResponse(BaseModel):
+    server_id: int
+    keepalive_until: int = Field(description="Epoch milliseconds until which the server is held", ge=0)
+    minutes: float = Field(description="Minutes from now that 'keepalive_until' corresponds to", ge=0)
+
+
 class RestartServerRequest(ServerScopedRequest):
     server_start_wait_timeout_in_seconds: int = Field(
         default=60, description="Seconds to wait for server readiness after restart", ge=0
@@ -192,6 +221,14 @@ class StartServerResponse(BaseModel):
     generated_name: Optional[str] = Field(default=None, description="Generated Kubernetes resource name")
     service_name: Optional[str] = Field(default=None, description="Kubernetes Service name for the server")
     image_tag: Optional[str] = Field(default=None)
+    reused: bool = Field(
+        default=False,
+        description=(
+            "True when an existing FINISHED server was taken over rather than a new one created. "
+            "Reuse depends on seven fields matching, so it is easy to configure a request that "
+            "silently never reuses; this reports what happened instead of leaving it to be inferred."
+        ),
+    )
     need_to_reset: bool = Field(default=False, description="True if the reused server requires a project reset")
 
 
@@ -216,6 +253,66 @@ class ServerRequestResponse(BaseModel):
     result: Optional[str] = Field(default=None)
     finished_at: Optional[int] = Field(default=None, description="Epoch milliseconds", ge=0)
     status: str
+
+
+class ServerSummary(BaseModel):
+    """One row of the server list: what the orchestrator knows without asking Kubernetes.
+
+    Deliberately has no pod fields — listing them would mean one API call per server. Use the
+    status endpoint for the pod view of a single server.
+    """
+
+    server_id: int = Field(description="Numeric IdeGYM server ID")
+    server_name: Optional[str] = Field(default=None, description="Logical server name from the start request")
+    generated_name: str = Field(description="Kubernetes resource name for the server")
+    namespace: str
+    availability: str = Field(description="Availability status recorded by the orchestrator")
+    usable: bool = Field(description="True when the server is in a state that accepts requests")
+    image_tag: Optional[str] = Field(default=None)
+    created_at: int = Field(description="Epoch milliseconds", ge=0)
+    last_activity_at: int = Field(description="Epoch milliseconds", ge=0)
+    keepalive_until: Optional[int] = Field(
+        default=None, description="Epoch milliseconds until which an explicit keepalive holds the server"
+    )
+    details: Optional[str] = Field(default=None, description="Failure reason recorded on a terminal status")
+
+
+class ListServersResponse(BaseModel):
+    client_id: UUID
+    servers: list[ServerSummary] = Field(default_factory=list)
+
+
+class ServerStatusResponse(BaseModel):
+    """Everything needed to answer 'is this server usable right now', in one call.
+
+    Reading it does not count as activity, so polling it cannot keep a server alive by accident.
+    """
+
+    server_id: int = Field(description="Numeric IdeGYM server ID")
+    server_name: Optional[str] = Field(default=None, description="Logical server name from the start request")
+    generated_name: str = Field(description="Kubernetes resource name for the server")
+    namespace: str
+    availability: str = Field(description="Availability status recorded by the orchestrator, e.g. ALIVE or CRASHED")
+    usable: bool = Field(description="True when the server is in a state that accepts requests (ALIVE or REUSED)")
+    image_tag: Optional[str] = Field(default=None)
+    created_at: int = Field(description="Epoch milliseconds", ge=0)
+    last_activity_at: int = Field(
+        description="Epoch milliseconds of the last activity the orchestrator recorded for this server",
+        ge=0,
+    )
+    idle_seconds: float = Field(description="Seconds since 'last_activity_at'", ge=0)
+    keepalive_until: Optional[int] = Field(
+        default=None,
+        description=(
+            "Epoch milliseconds until which an explicit keepalive holds this server against the "
+            "inactivity reaper, or null when none is in effect"
+        ),
+    )
+    pod_phase: Optional[str] = Field(
+        default=None, description="Kubernetes phase of the server pod, or null when no pod matches"
+    )
+    pod_ready: bool = Field(default=False, description="True when the pod is Running with all containers ready")
+    details: Optional[str] = Field(default=None, description="Failure reason recorded on a terminal status")
 
 
 class AliveServerInfo(BaseModel):

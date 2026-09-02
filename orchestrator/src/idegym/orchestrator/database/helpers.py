@@ -9,6 +9,7 @@ from idegym.api.orchestrator.servers import AliveServerInfo, ErrorResponse, Star
 from idegym.orchestrator.database.database import (
     check_resources_and_save_server,
     create_client,
+    extend_idegym_server_keepalive,
     find_matching_finished_server,
     find_snapshot_by_request_hash,
     get_async_operation,
@@ -85,6 +86,48 @@ async def update_client_status(db: AsyncSession, client_id: UUID, availability_s
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Client with ID {client_id} not found")
     logger.debug(f"Updated client with ID {client_id} status to {availability_status}")
     return client
+
+
+@with_db_session
+async def extend_server_keepalive(db: AsyncSession, client_id: UUID, server_id: int, until: int):
+    """Hold a client's own server against the inactivity reaper until ``until`` epoch millis."""
+    await _load_owned_server(db=db, client_id=client_id, server_id=server_id)
+    server = await extend_idegym_server_keepalive(db=db, server_id=server_id, until=until)
+    if not server:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"IdeGYM server with ID {server_id} not found"
+        )
+    return server
+
+
+@with_db_session
+async def get_owned_server(db: AsyncSession, client_id: UUID, server_id: int):
+    """Look up a server and check the client owns it, whatever state the server is in.
+
+    Unlike ``validate_server`` this accepts a finished, stopped or crashed server: an endpoint
+    that reports status has to be able to report exactly those.
+    """
+    return await _load_owned_server(db=db, client_id=client_id, server_id=server_id)
+
+
+async def _load_owned_server(db: AsyncSession, client_id: UUID, server_id: int):
+    client = await get_client(db, client_id)
+    if not client:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Client with ID {client_id} not found")
+
+    server = await get_idegym_server(db=db, server_id=server_id)
+    if not server:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"IdeGYM server with ID {server_id} not found"
+        )
+
+    if server.client_id != client_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"IdeGYM server with ID {server_id} is not associated with client ID {client_id}",
+        )
+
+    return server
 
 
 @with_db_session
@@ -189,6 +232,15 @@ async def find_matching_finished_server_in_db(
         )
 
     return lookup_result.server, client_name
+
+
+@with_db_session
+async def list_client_servers(db: AsyncSession, client_id: UUID, include_terminal: bool):
+    """Return every server owned by a client, newest first, optionally including dead ones."""
+    servers = await get_idegym_servers_by_client_id(db, client_id)
+    if not include_terminal:
+        servers = [server for server in servers if not AvailabilityStatus(server.availability).is_terminal]
+    return sorted(servers, key=lambda server: server.created_at or 0, reverse=True)
 
 
 @with_db_session
