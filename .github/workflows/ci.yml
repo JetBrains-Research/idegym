@@ -3,9 +3,9 @@ on:
   push:
     branches:
       - main
+  # No branch filter: a stacked pull request based on another feature branch needs checks too,
+  # or every layer above the first is unverifiable. The e2e job below is what stays gated.
   pull_request:
-    branches:
-      - main
 
 jobs:
   test:
@@ -67,6 +67,13 @@ jobs:
           IDEGYM_TEST_REGISTRY: ${{ matrix.registry }}
 
   e2e:
+    # Reserved for changes that are actually landing: a pull request targeting main, or a push to
+    # main. Each matrix group provisions its own cluster, so running six of them on every layer of
+    # a stack costs far more than it tells us — a stacked pull request gets lint, unit and
+    # integration (which covers the migration round-trip), and the full suite runs when the stack
+    # reaches main. GitHub retargets a pull request onto its base's base when the base merges, so
+    # each layer picks up e2e automatically as the stack lands.
+    if: github.event_name != 'pull_request' || github.base_ref == 'main'
     # One matrix entry per balanced e2e group. Every group recreates the same cluster once and
     # differs only by the pytest ``-m`` marker expression. The "other" group is the catch-all so a
     # new e2e test file is never silently dropped. Group markers are auto-applied by ``conftest.py``.
