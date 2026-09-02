@@ -127,7 +127,7 @@ async with client.with_server(
     node_selector=None,
     labels={"team": "research", "job": "swe-bench-run-42"},
     annotations={"idegym.example.com/task-url": "https://tracker.example.com/TASK-1"},
-    server_start_wait_timeout_in_seconds=60,
+    server_start_wait_timeout_in_seconds=300,
     reuse_strategy=ServerReuseStrategy.RESET,
     close_action=ServerCloseAction.FINISH,  # FINISH or STOP
 ) as server:
@@ -144,9 +144,31 @@ async with client.with_server(
 | `node_selector` | Node affinity labels |
 | `labels` | Extra labels for the server's Deployment, Pod, Service and PodDisruptionBudget |
 | `annotations` | Extra annotations for the server pod |
-| `server_start_wait_timeout_in_seconds` | How long to wait for the server pod to become ready |
+| `server_start_wait_timeout_in_seconds` | How long to wait for the server pod to become ready (default: `300`) |
 | `reuse_strategy` | Whether to take over an existing server: `NONE` (always create from scratch), `RESTART` (reuse and restart the pod), `RESET` (reuse and reset project state) — see [Server reuse](#server-reuse) |
 | `close_action` | `FINISH` — release the server but leave it running for the next client; `STOP` — stop and delete the server |
+
+#### Waiting for the server to be ready
+
+`server_start_wait_timeout_in_seconds` defaults to **300**, which covers a cold image pull. A
+multi-gigabyte environment image takes minutes to pull onto a node that has never seen it, and
+the previous 60-second default expired long before that. Raise it further for larger images
+rather than retrying into the same wall — a retry re-pulls onto the same cold node.
+
+When the wait does expire, the error says what the pod was doing, so a slow pull is not mistaken
+for a broken health endpoint:
+
+```
+Pods with label 'app=srv-abc' were not ready within 300s
+  (not waiting on the scheduler; still pulling the image or creating the container (ContainerCreating))
+```
+
+The distinctions it draws are: still pulling or creating the container, the image could not be
+pulled, the container is running but its readiness probe has not passed, and no pod matched at
+all. Only the third points at the image's health endpoint.
+
+Scheduling has its own budgets, separate from this timeout; see
+[Clusters with slow node provisioning](remote_deployment.md#clusters-with-slow-node-provisioning).
 
 #### Tagging a sandbox
 
@@ -495,7 +517,7 @@ Restart the server pod (preserves the same image and configuration):
 
 ```python
 response = await server.restart_server(
-    server_start_wait_timeout_in_seconds=60,
+    server_start_wait_timeout_in_seconds=300,
 )
 ```
 

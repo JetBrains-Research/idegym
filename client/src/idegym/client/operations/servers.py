@@ -75,7 +75,7 @@ class ServerOperations:
         env_from: Optional[list[KubernetesEnvFromSource]] = None,
         service_account_name: Optional[str] = None,
         pod_overrides: Optional[KubernetesPodOverrides] = None,
-        server_start_wait_timeout_in_seconds: int = 60,
+        server_start_wait_timeout_in_seconds: int = 300,
         retry_delay_in_seconds: int = 15,
         polling_config: PollingConfig = PollingConfig(),
         reuse_strategy: ServerReuseStrategy = ServerReuseStrategy.RESET,
@@ -203,7 +203,7 @@ class ServerOperations:
         server_id: int,
         client_id: Optional[UUID] = None,
         namespace: Optional[str] = None,
-        server_start_wait_timeout_in_seconds: int = 60,
+        server_start_wait_timeout_in_seconds: int = 300,
         polling_config: PollingConfig = PollingConfig(),
     ) -> ServerActionResponse:
         client_id = self._utils.validate_client_id(client_id)

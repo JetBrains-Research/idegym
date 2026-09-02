@@ -7,8 +7,18 @@ IDEs — and the builder assembles the Dockerfile from reusable, validated build
 Images can be defined in Python (fluent API) or YAML, and can be built locally with Docker or inside the
 cluster with Kaniko.
 
+## Installation
+
+The builder ships as its own package, so wrapping a benchmark image does not mean cloning this
+repository. The built-in plugins live alongside it:
+
+```sh
+uv add idegym-image-builder idegym-plugins
+```
+
 ## Table of Contents
 
+- [Installation](#installation)
 - [Architecture](#architecture)
 - [Python Fluent API](#python-fluent-api)
 - [YAML Format](#yaml-format)
@@ -546,6 +556,26 @@ IdeGYMServer.from_git(
 > `from_git` requires `git` to be installed in the base image. The `base-system` plugin installs
 > it by default. If you start from a plain `debian:*` base without `base-system`, add `git` to your
 > package list before this plugin.
+
+#### Picking a ref
+
+The plugin copies a fixed set of paths out of an IdeGYM source tree — `api/`, `backend-utils/`,
+`common-utils/`, `plugins/`, `rewards/`, `tools/`, `server/`, `scripts/`, the entrypoints, and
+the workspace files (`pyproject.toml`, `uv.lock`, `.python-version`, `supervisord.conf`). A ref
+older than the current layout does not have all of them.
+
+Both sources check for them before copying, so the failure is one message naming the source,
+the ref and everything missing, rather than a bare `cp: no such file` partway through the build:
+
+```
+IdeGYM source at https://github.com/JetBrains-Research/idegym.git@a1b2c3d is missing: plugins
+This ref predates the current workspace layout; pick a newer one.
+```
+
+`from_local` is checked on the host, in `apply()`, before anything is built. `from_git` is
+checked in the container immediately after the clone — the earliest point at which the contents
+of the ref are known without the builder having to talk to the git host. Refs copied from an
+older example config are the usual cause; prefer a tag or a recent commit on `main`.
 
 **What both sources do:**
 - Install `uv` (copied from the official `ghcr.io/astral-sh/uv` image)
