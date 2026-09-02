@@ -347,9 +347,10 @@ cannot cut each other short — which also means `keepalive(minutes=1)` after
 `keepalive(minutes=60)` leaves the longer hold in place, and the response reports the window
 actually in effect rather than the one you asked for. The maximum window is 24 hours.
 
-A hold on a server that has already reached a terminal state does nothing; keepalive is for
-keeping a live server alive, not for reviving a dead one. `status()` reports the hold as
-`keepalive_until`.
+A hold on a server that has already reached a terminal state is refused with `410 Gone`, which
+the client raises as `IdeGYMNotFoundError`: keepalive keeps a live server alive, it does not
+revive a dead one. Catch it as "the sandbox is gone, start a new one". `status()` reports the
+hold as `keepalive_until`.
 
 ### `status()` — is this server usable?
 
