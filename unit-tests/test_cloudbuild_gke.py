@@ -147,10 +147,8 @@ def test_config_omits_machine_and_disk_when_unset():
 
 
 def test_a_heredoc_dockerfile_gets_an_external_frontend():
-    """Cloud Build's built-in frontend cannot parse heredocs; a real frontend image can.
-
-    The first consumer's task Dockerfiles use ``RUN <<EOF``, so without this they simply fail.
-    """
+    """Cloud Build's built-in frontend cannot parse heredocs, which the first consumer's task
+    Dockerfiles use, so without an external frontend they simply fail."""
     spec = _spec(dockerfile_content="FROM scratch\nRUN <<EOF\necho hi\nEOF\n")
     args = build_cloudbuild_config(_TAG, spec, "1.2.3")["steps"][0]["args"]
     assert f"{BUILDKIT_SYNTAX_ARG}={DEFAULT_BUILDKIT_SYNTAX}" in args
@@ -163,11 +161,8 @@ def test_a_run_mount_dockerfile_gets_an_external_frontend():
 
 
 def test_an_ordinary_dockerfile_gets_no_external_frontend():
-    """Injecting unconditionally would make every build pull docker/dockerfile:1 from Docker Hub.
-
-    That adds a rate limit and an egress dependency to builds that never needed either, so the
-    frontend is requested only when the Dockerfile actually uses a construct requiring it.
-    """
+    """Injecting unconditionally would make every build pull docker/dockerfile:1 from Docker Hub,
+    adding a rate limit and an egress dependency to builds that never needed either."""
     spec = _spec(dockerfile_content="FROM debian:bookworm-slim\nRUN apt-get update\n")
     args = build_cloudbuild_config(_TAG, spec, "1.2.3")["steps"][0]["args"]
     assert not any(BUILDKIT_SYNTAX_ARG in arg for arg in args)
@@ -231,8 +226,7 @@ def test_config_omits_available_secrets_when_none_are_declared():
 def test_a_declared_secret_travels_as_a_reference_not_a_build_arg():
     """Cloud Build resolves the value into the step's environment; the request carries only a name.
 
-    This is the difference from Kaniko, where the same declaration has to become a --build-arg and
-    therefore lands in the image history.
+    On Kaniko the same declaration becomes a --build-arg and lands in the image history.
     """
     config = build_cloudbuild_config(_TAG, _spec(secrets={"gh_token": _SECRET_RESOURCE}), "1.2.3")
     args = config["steps"][0]["args"]
@@ -255,11 +249,8 @@ def test_a_context_uri_prepends_a_fetch_step():
 
 
 def test_the_fetch_step_never_clobbers_generated_files():
-    """The generated Dockerfile and plugin assets are already in /workspace when this runs.
-
-    ``--skip-old-files`` is what makes ours win, so a caller file named ``Dockerfile`` cannot
-    replace the generated build.
-    """
+    """The generated Dockerfile and plugin assets are already in /workspace when this runs, and
+    ``--skip-old-files`` is what stops a caller file named ``Dockerfile`` from replacing ours."""
     config = build_cloudbuild_config(_TAG, _spec(context_uri="gs://bucket/ctx.tar.gz"), "1.2.3")
     command = config["steps"][0]["args"][1]
     assert "--skip-old-files" in command
@@ -271,10 +262,8 @@ def test_the_fetch_step_never_clobbers_generated_files():
 def test_the_fetch_step_extracts_from_a_file_not_a_pipe():
     """tar can only auto-detect compression on a seekable input.
 
-    Piping a gzipped archive into tar fails outright with "Archive is compressed. Use -z option",
-    so the archive has to be downloaded first. Asserting the shape here because the previous
-    version of this test checked only that the flags were present and passed against a command
-    that could never work.
+    Piping a gzipped archive into it fails with "Archive is compressed. Use -z option", so the
+    archive has to be downloaded first — hence asserting the command's shape, not just its flags.
     """
     config = build_cloudbuild_config(_TAG, _spec(context_uri="gs://bucket/ctx.tar.gz"), "1.2.3")
     command = config["steps"][0]["args"][1]
@@ -295,9 +284,8 @@ def test_the_fetch_step_does_not_commit_the_caller_to_one_archive_format():
 def test_a_caller_dockerignore_is_appended_to_not_replaced():
     """The one file that must not follow the generated-files-win rule.
 
-    Shipping our own .dockerignore would make --skip-old-files discard the caller's, so files they
-    deliberately excluded -- a .env, a private key -- would be swept into the image by a broad
-    `COPY .`. The exclusion is appended to their file instead.
+    Shipping ours would make --skip-old-files discard the caller's, sweeping files they deliberately
+    excluded into the image via a broad `COPY .`, so the exclusion is appended to theirs instead.
     """
     spec = _spec(context_uri="gs://bucket/ctx.tar.gz", request=_request())
     fetch = build_cloudbuild_config(_TAG, spec, "1.2.3")["steps"][0]
@@ -476,10 +464,8 @@ def test_context_tar_ships_auth_token_as_locked_down_file():
 
 
 def test_context_tar_ships_plugin_context_files():
-    """Without these, any image using the idea/pycharm plugins fails to build on this backend.
-
-    The Kaniko backend resolves the same paths from a git checkout of the idegym repo instead.
-    """
+    """Without these, any image using the idea/pycharm plugins fails to build on this backend; the
+    Kaniko backend resolves the same paths from a git checkout of the idegym repo instead."""
     files = {"plugins/plugin-utils/scripts/start.sh": b"#!/bin/sh\n", "plugins/idea/scripts/run.sh": b"run\n"}
     archive = build_context_tar("FROM scratch\n", context_files=files)
     with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tar:
@@ -488,11 +474,8 @@ def test_context_tar_ships_plugin_context_files():
 
 
 def test_context_tar_is_byte_stable_for_identical_inputs():
-    """The staging object is named after a digest of this archive, so it has to be reproducible.
-
-    A gzip header carries an mtime by default, which would otherwise make every build's archive
-    differ and defeat the naming entirely.
-    """
+    """The staging object is named after a digest of this archive, so it has to be reproducible: a
+    gzip header carries an mtime by default, which would make every build's archive differ."""
     files = {"b.sh": b"b", "a.sh": b"a"}
     first = build_context_tar("FROM scratch\n", context_files=files)
     second = build_context_tar("FROM scratch\n", context_files=dict(reversed(list(files.items()))))
@@ -567,8 +550,8 @@ def test_map_build_status(name, expected):
 def test_resource_name_for_a_tag_uses_the_tag_resource():
     """A dockerImages resource is keyed by digest, so a tag can only resolve as a Tag.
 
-    Addressing a tag as dockerImages/<image>@<tag> returns NOT_FOUND for an image that is
-    definitely present, which made skip_existing a silent no-op.
+    Addressing one as dockerImages/<image>@<tag> returns NOT_FOUND for an image that is present,
+    which made skip_existing a silent no-op.
     """
     name = artifact_registry_resource("europe-west1-docker.pkg.dev/proj/repo/image:v1")
     assert name == "projects/proj/locations/europe-west1/repositories/repo/packages/image/tags/v1"
@@ -669,11 +652,8 @@ async def test_submit_build_names_the_staging_object_after_its_contents():
 
 
 async def test_submit_build_uses_the_storage_source_even_with_a_caller_context():
-    """The caller's archive is overlaid by a step; it never replaces the StorageSource.
-
-    Swapping the source would drop the generated Dockerfile and the plugin assets, which is why
-    the overlay exists.
-    """
+    """The caller's archive is overlaid by a step and never replaces the StorageSource, which
+    swapping would drop the generated Dockerfile and the plugin assets along with it."""
     build_client = _fake_build_client()
     storage_client, _bucket, _blob = _fake_storage_client()
     builder = CloudBuildGKEImageBuilder(
@@ -781,9 +761,8 @@ async def test_get_status_rejects_foreign_handle():
 async def test_skip_existing_short_circuits_build():
     """The tag is looked up as a Tag, and the lookup it does NOT make matters as much.
 
-    An earlier version of this test faked ``get_docker_image`` for a tag reference, so it passed
-    against a resource name Artifact Registry always rejects — the mock hid the bug that made
-    ``skip_existing`` never skip anything in production.
+    Faking ``get_docker_image`` for a tag reference would pass against a resource name Artifact
+    Registry always rejects, hiding the bug that made ``skip_existing`` never skip anything.
     """
     build_client = _fake_build_client()
     ar_client = MagicMock()

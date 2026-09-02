@@ -45,13 +45,10 @@ class ImageBuildService:
     def resolve_tag(self, spec: ImageBuildSpec) -> str:
         """Return the destination tag for ``spec``, honouring a caller-chosen one.
 
-        With neither ``tag`` nor ``registry`` set this is exactly the historical behaviour: the
-        deployment's registry, a name derived from the spec, and the content hash as the version.
-
-        A caller-supplied destination is checked against the configured allowlist, because otherwise
-        it would mean pushing anywhere the builder's service account can write. A consumer that keeps
-        its own content-addressed tags in its own registry needs this to make image preparation
-        idempotent and resumable — without it, its "already pushed?" check has nothing to look up.
+        With neither ``tag`` nor ``registry`` set this is the historical behaviour: the deployment's
+        registry, a name derived from the spec, and the content hash as the version. A
+        caller-supplied destination is checked against the configured allowlist, since it would
+        otherwise mean pushing anywhere the builder's service account can write.
         """
         if spec.name:
             image_name = spec.name
@@ -101,13 +98,12 @@ class ImageBuildService:
         warnings: Optional[list[str]] = None,
     ) -> None:
         job_name = handle.name
-        # Caveats about this build are recorded on the job so they survive it: a warning logged at
-        # submit time is long gone by the time anyone asks about the image. Two sources — the spec,
-        # for what compiling the definition found, and the handle, for what the backend had to do.
+        # Recorded on the job so the caveats survive the build: from the spec for what compiling the
+        # definition found, and from the handle for what the backend had to do.
         details = "\n".join([*(warnings or []), *handle.warnings]) or None
-        # Prefer the deadline the backend actually granted this build; the service-wide default only
-        # describes the deployment, so a build given a longer per-request timeout would otherwise be
-        # recorded as failed while still running.
+        # Prefer the deadline the backend granted this build; the service-wide default describes
+        # only the deployment, so a longer per-request timeout would otherwise be recorded as failed
+        # while still running.
         job_timeout = handle.monitor_timeout if handle.monitor_timeout is not None else self._job_timeout
         try:
             async with get_db_session() as db:

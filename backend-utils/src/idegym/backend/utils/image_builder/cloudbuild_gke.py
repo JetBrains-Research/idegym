@@ -25,15 +25,14 @@ DOCKER_CLOUD_BUILDER = "gcr.io/cloud-builders/docker"
 CLOUD_SDK_BUILDER = "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
 SKIPPED_PREFIX = "skipped:"
 
-# Cloud Build's built-in Dockerfile frontend cannot parse heredocs or `RUN --mount`. Pointing
-# BUILDKIT_SYNTAX at a real frontend image makes BuildKit fetch it instead, which is what lets an
-# inline base Dockerfile use either. Only injected when the Dockerfile does not pin its own.
+# Cloud Build's built-in Dockerfile frontend cannot parse heredocs or `RUN --mount`; pointing
+# BUILDKIT_SYNTAX at a real frontend image makes BuildKit fetch one that can.
 BUILDKIT_SYNTAX_ARG = "BUILDKIT_SYNTAX"
 DEFAULT_BUILDKIT_SYNTAX = "docker/dockerfile:1"
 
-# Prefix for the Cloud Build env var a Secret Manager secret's value is exposed in, which
-# `docker build --secret id=<id>,env=<var>` then reads. Prefixed to keep caller-chosen secret ids
-# from colliding with anything else in the step's environment.
+# Prefix for the Cloud Build env var a secret's value is exposed in, which `docker build
+# --secret id=<id>,env=<var>` reads. Prefixed so caller-chosen ids cannot collide with the rest of
+# the step's environment.
 SECRET_ENV_PREFIX = "IDEGYM_SECRET_"
 
 # The auth token is passed as a BuildKit build secret rather than a `--build-arg`, so it
@@ -66,13 +65,13 @@ def build_cloudbuild_config(
     """Build the Cloud Build request body (the programmatic equivalent of ``cloudbuild.yaml``).
 
     Uses a ``docker build`` step with BuildKit enabled so Dockerfile heredocs and
-    ``--mount=type=secret`` work (``--tag`` on ``gcloud builds submit`` does not support
-    BuildKit), preceded by a fetch step when the caller staged their own build context. The same
-    archive URL / auth args Kaniko receives are forwarded here, so the rendered Dockerfile behaves
-    identically across backends -- except the auth token, which is passed as a BuildKit secret (see
-    `_inject_auth_secret`) instead of a build arg so it stays out of the Build resource and image
-    history. ``CLOUD_LOGGING_ONLY`` avoids a non-zero exit when the default GCS logs bucket is
-    unreadable (VPC-SC / missing ``storage.objects.get``).
+    ``--mount=type=secret`` work (``--tag`` on ``gcloud builds submit`` does not support BuildKit),
+    preceded by a fetch step when the caller staged their own build context. The same archive URL /
+    auth args Kaniko receives are forwarded here, so the rendered Dockerfile behaves identically
+    across backends -- except the auth token, which travels as a BuildKit secret (see
+    `_inject_auth_secret`) to stay out of the Build resource and image history.
+    ``CLOUD_LOGGING_ONLY`` avoids a non-zero exit when the default GCS logs bucket is unreadable
+    (VPC-SC / missing ``storage.objects.get``).
     """
     docker_args: list[str] = ["build", "--build-arg", f"IDEGYM_VERSION={service_version}"]
 
@@ -91,18 +90,17 @@ def build_cloudbuild_config(
         if spec.request.auth.token is not None:
             docker_args += ["--secret", f"id={AUTH_SECRET_ID},src=./{AUTH_SECRET_SRC}"]
 
-    # Plugin-declared secrets, resolved from the orchestrator's own environment. Matches the Kaniko
-    # backend, which has always done this; this backend used to drop the field entirely, silently
-    # breaking the `external_plugins` feature. Empty values are skipped -- an empty credential is
-    # never useful, and the Dockerfile's ARG default then applies.
+    # Plugin-declared secrets, resolved from the orchestrator's own environment as the Kaniko
+    # backend has always done; this one used to drop them, silently breaking `external_plugins`.
+    # An empty value is skipped so the Dockerfile's ARG default applies instead.
     for name in spec.secret_build_args:
         value = env.get(name)
         if value:
             docker_args += ["--build-arg", f"{name}={value}"]
 
-    # Caller-declared secrets, mounted by BuildKit. Only the resource name travels in the request;
+    # Caller-declared secrets, mounted by BuildKit. Only the resource name travels in the request:
     # Cloud Build resolves the value into the step's environment, and `--secret ...,env=` hands it
-    # to BuildKit without it ever reaching an image layer.
+    # to BuildKit without it reaching an image layer.
     secret_env = [secret_env_name(secret_id) for secret_id in sorted(spec.secrets)]
     for secret_id in sorted(spec.secrets):
         docker_args += ["--secret", f"id={secret_id},env={secret_env_name(secret_id)}"]
@@ -128,8 +126,8 @@ def build_cloudbuild_config(
 
     steps: list[dict[str, Any]] = []
     if spec.context_uri is not None:
-        # The auth-token exclusion is appended to the caller's .dockerignore rather than replacing
-        # it; see `fetch_context_step`.
+        # The exclusion is appended to the caller's .dockerignore, not written over it; see
+        # `fetch_context_step`.
         uses_auth_token = spec.request is not None and spec.request.auth.token is not None
         steps.append(fetch_context_step(spec.context_uri, exclude=AUTH_SECRET_SRC if uses_auth_token else None))
     steps.append(build_step)
@@ -156,14 +154,10 @@ def build_cloudbuild_config(
 def needs_buildkit_frontend(spec: ImageBuildSpec) -> bool:
     """Whether this build should be pointed at an external Dockerfile frontend.
 
-    Cloud Build's built-in frontend cannot parse heredocs or ``RUN --mount``, so a Dockerfile using
-    either needs ``BUILDKIT_SYNTAX`` pointed at a real one. Injecting it unconditionally would be
-    the simpler rule but a worse one: it makes *every* build pull ``docker/dockerfile:1`` from
-    Docker Hub, adding a rate limit and an egress dependency to builds that never needed either.
-    So it is injected only when the Dockerfile actually uses a construct that requires it.
-
-    Skipped when the author pinned their own ``# syntax=``, which is the documented way to choose a
-    specific frontend.
+    Only when the Dockerfile actually uses a construct requiring one: injecting it unconditionally
+    would make *every* build pull ``docker/dockerfile:1`` from Docker Hub, adding a rate limit and
+    an egress dependency to builds that never needed either. Skipped when the author pinned their
+    own ``# syntax=``.
     """
     if has_syntax_directive(spec.dockerfile_content):
         return False
@@ -178,26 +172,16 @@ def secret_env_name(secret_id: str) -> str:
 def fetch_context_step(context_uri: str, *, exclude: Optional[str] = None) -> dict[str, Any]:
     """Return the step that overlays a caller-staged context into ``/workspace``.
 
-    Cloud Build extracts the ``StorageSource`` -- which carries the generated Dockerfile and the
-    plugin context files -- into ``/workspace`` before any step runs, so the caller's archive is
-    unpacked *over the top* with ``--skip-old-files``. Generated files therefore win every
-    collision, which is what stops a caller file named ``Dockerfile``, or one landing on a plugin's
-    ``COPY`` path, from quietly replacing part of the build.
+    Cloud Build has already extracted the ``StorageSource`` -- the generated Dockerfile and the
+    plugin context files -- into ``/workspace``, so the caller's archive goes over the top with
+    ``--skip-old-files`` and generated files win every collision. Overlaying in-build rather than
+    merging archives in the orchestrator keeps a multi-gigabyte context off its network and memory.
+    The download goes via a file because ``tar`` can only auto-detect compression on a seekable
+    input.
 
-    Doing the overlay in-build rather than merging the archives in the orchestrator keeps a
-    multi-gigabyte context off the orchestrator's network and memory entirely.
-
-    The archive is downloaded to a file rather than piped into ``tar``, because ``tar`` can only
-    auto-detect compression on a seekable input — reading a gzipped archive from a pipe fails with
-    "Archive is compressed. Use -z option". Going via a file accepts any format ``tar`` recognises
-    (plain, gzip, bzip2, xz) instead of committing the caller to one.
-
-    ``exclude`` names a path to append to ``.dockerignore`` *after* extraction. ``.dockerignore`` is
-    the one file that must not follow the generated-files-win rule: shipping our own would mean
-    ``--skip-old-files`` discards the caller's, so files they deliberately excluded — a ``.env``, a
-    private key — would be swept into the image by a broad ``COPY .``. Appending instead keeps their
-    rules and still guarantees the auth-token file is ignored. The leading newline matters because
-    their last line may have no terminator; a blank line in ``.dockerignore`` is ignored.
+    ``exclude`` is appended to ``.dockerignore`` after extraction, the one exception to
+    generated-files-win: shipping ours would discard the caller's, sweeping files they deliberately
+    excluded into the image via a broad ``COPY .``.
     """
     archive = "/tmp/idegym-build-context.archive"
     commands = [
@@ -236,23 +220,17 @@ def build_context_tar(
 ) -> bytes:
     """Pack the build context as a byte-stable gzipped tar.
 
-    Carries the generated Dockerfile plus any plugin ``context_files`` -- the assets an image using
-    the idea/pycharm plugins ``COPY`` from the idegym repo, which the Kaniko backend instead
-    resolves from a git checkout. Project sources are still fetched at build time via the archive
-    build args, and a caller-staged context is overlaid by `fetch_context_step` rather than packed
-    here, so this archive stays small whatever the caller's context weighs.
+    Carries the generated Dockerfile plus any plugin ``context_files`` -- the assets the
+    idea/pycharm plugins ``COPY`` from the idegym repo, which Kaniko instead resolves from a git
+    checkout. Project sources are still fetched at build time via the archive build args, and a
+    caller-staged context is overlaid by `fetch_context_step`, so this archive stays small. It is
+    byte-stable for identical inputs (sorted entries, zero mtimes, pinned gzip header), which is
+    what lets the staging object be named after a digest of its own contents.
 
-    When ``auth_token`` is given it is added as a separate file consumed via a BuildKit secret
-    mount (never ``COPY``-ed), so the token stays out of the image while still reaching the
-    ``download`` step.
-
-    ``own_dockerignore`` writes the ``.dockerignore`` that keeps that token out of the image. Set it
-    False when a caller context will be overlaid: shipping ours would make ``--skip-old-files``
-    discard theirs, so `fetch_context_step` appends the exclusion to their file instead.
-
-    Byte-stable for identical inputs: entries are sorted, ``TarInfo`` mtimes default to zero, and
-    the gzip header's mtime is pinned. That is what lets the staging object be named after a digest
-    of its own contents.
+    An ``auth_token`` is added as a separate file consumed via a BuildKit secret mount (never
+    ``COPY``-ed), so it stays out of the image while still reaching the ``download`` step, and
+    ``own_dockerignore`` writes the ``.dockerignore`` that keeps it out. Set that False when a
+    caller context will be overlaid, as `fetch_context_step` then owns the file.
     """
     raw = io.BytesIO()
     with tarfile.open(fileobj=raw, mode="w") as tar:
@@ -328,11 +306,10 @@ class CloudBuildGKEImageBuilder(ImageBuilder):
     pod's ambient GCP credentials (service account / Workload Identity), which need Cloud
     Build Editor, Artifact Registry Writer, and Storage Object Admin on the staging bucket.
 
-    Two further grants are needed only by the features that use them: read access on the caller's
-    bucket for a spec with ``context_uri`` (a cross-project context needs an explicit grant), and
-    ``roles/secretmanager.secretAccessor`` on every secret named in ``secrets``. Scope both
-    deliberately rather than broadly — a caller-supplied ``context_uri`` means the build reads from
-    a bucket the caller controls.
+    Two further grants are needed only by the features using them, and both are worth scoping
+    narrowly: read access on the caller's bucket for a spec with ``context_uri``, which means the
+    build reads from a bucket the caller controls, and ``roles/secretmanager.secretAccessor`` on
+    every secret named in ``secrets``.
 
     GCP clients are created lazily and may be injected for testing.
     """
@@ -405,9 +382,8 @@ class CloudBuildGKEImageBuilder(ImageBuilder):
     def _resolve_machine_type(self, spec: ImageBuildSpec) -> Optional[str]:
         """Return the machine type to use, refusing one the deployment has not authorized.
 
-        Unlike a timeout or a disk size there is nothing to clamp a machine type *to*, so this is an
-        allowlist. Silently downgrading to the default would leave a caller wondering why their
-        build was slow, which is the failure mode this ticket exists to avoid.
+        An allowlist rather than a clamp, since there is nothing to clamp a machine type *to*, and a
+        refusal rather than a silent downgrade, which would read as an unexplainably slow build.
         """
         if spec.machine_type is None:
             return self._machine_type
@@ -456,8 +432,8 @@ class CloudBuildGKEImageBuilder(ImageBuilder):
     ) -> CloudBuildGKEHandle:
         validate_cloudbuild_spec(spec)
 
-        # Resolved before the existence check so an unauthorized machine type is refused whether or
-        # not the image happens to be there already.
+        # Before the existence check, so an unauthorized machine type is refused whether or not the
+        # image happens to be there already.
         timeout_seconds = self._resolve_timeout(spec)
         machine_type = self._resolve_machine_type(spec)
         disk_size_gb = self._resolve_disk_size(spec)
@@ -524,14 +500,13 @@ class CloudBuildGKEImageBuilder(ImageBuilder):
             dockerfile,
             auth_token=auth_token,
             context_files=spec.context_files,
-            # With an overlay in play the fetch step owns .dockerignore, so that the caller's own
-            # exclusions survive instead of being skipped in favour of ours.
+            # With an overlay in play the fetch step owns .dockerignore, so the caller's own
+            # exclusions survive.
             own_dockerignore=spec.context_uri is None,
         )
-        # Naming the object after a digest of its own bytes, not just the image version, keeps a
-        # generated context from ever colliding with something else staged under the same prefix --
-        # including a caller who stages into this bucket. The archive is byte-stable, so identical
-        # inputs still resolve to one object rather than accumulating copies.
+        # Digest of its own bytes, not just the image version, so a generated context cannot collide
+        # with anything else staged under this prefix. The archive is byte-stable, so identical
+        # inputs still resolve to one object.
         digest = sha256(archive).hexdigest()[:12]
         object_name = f"idegym-builds/{spec.image_version()}-{digest}.tar.gz"
 
@@ -587,15 +562,13 @@ class CloudBuildGKEImageBuilder(ImageBuilder):
 def artifact_registry_resource(tag: str) -> Optional[str]:
     """Return the Artifact Registry resource name that resolves ``tag``.
 
-    Expects ``<region>-docker.pkg.dev/<project>/<repo>/<image...>`` followed by either
-    ``@<digest>`` or ``:<version>``. Returns None for references outside Artifact Registry
-    (e.g. ghcr.io), so a caller skips the lookup rather than guessing.
+    Expects ``<region>-docker.pkg.dev/<project>/<repo>/<image...>`` followed by either ``@<digest>``
+    or ``:<version>``. Returns None for references outside Artifact Registry (e.g. ghcr.io), so a
+    caller skips the lookup rather than guessing.
 
-    The distinction matters and is easy to get wrong: a ``dockerImages`` resource is keyed by
-    **digest**, so a tag cannot be looked up there — it resolves through the repository's
-    ``packages/<package>/tags/<tag>`` resource instead. Addressing a tag as
-    ``dockerImages/<image>@<tag>`` returns NOT_FOUND for an image that is definitely present,
-    which silently reports every image as absent.
+    A ``dockerImages`` resource is keyed by **digest**, so a tag resolves through
+    ``packages/<package>/tags/<tag>`` instead. Addressing one as ``dockerImages/<image>@<tag>``
+    returns NOT_FOUND for an image that is present, reporting every image as absent.
     """
     host, _, path = tag.partition("/")
     if not host.endswith("-docker.pkg.dev") or not path:
@@ -617,5 +590,5 @@ def artifact_registry_resource(tag: str) -> Optional[str]:
     image, separator, version = reference.rpartition(":")
     if not separator or not image or not version or "/" in version:
         return None
-    # Artifact Registry addresses a nested image name as a single package whose slashes are escaped.
+    # A nested image name is one package whose slashes are escaped.
     return f"{base}/packages/{url_quote(image, safe='')}/tags/{version}"

@@ -1,13 +1,10 @@
-# Image definitions exercising the inline-Dockerfile-base features on the cloudbuild_gke backend.
+# Image definitions exercising the inline-Dockerfile-base features that cannot be covered
+# anywhere else: Kaniko rejects BuildKit-only syntax by design, and the Minikube e2e environment
+# has no object storage for a build context.
 #
-# These are the capabilities that cannot be covered anywhere else: Kaniko rejects BuildKit-only
-# syntax by design, and the Minikube e2e environment has no object storage for a build context.
-#
-# Every image asserts its own expectations with `test` inside the build, so an unresolved COPY or a
-# missing ENV fails the build instead of quietly producing a wrong image.
-#
-# `__CONTEXT_URI__` is filled in by scripts/cloudbuild_gke_prepare_context.py -- see the header of
-# that script for the two-command workflow.
+# Each image asserts its own expectations with `test` inside the build, so an unresolved COPY or a
+# missing ENV fails the build rather than producing a wrong image. `__CONTEXT_URI__` is filled in
+# by scripts/cloudbuild_gke_prepare_context.py.
 
 images:
   # 1. Baseline. A multi-stage inline base, with a COPY --from between the author's own stages and
@@ -36,10 +33,9 @@ images:
     commands:
       - test "$(cat /opt/hd/out.txt)" = "heredoc-worked"
 
-  # 3. A caller-staged build context. The archive is overlaid into /workspace by a fetch step that
-  #    runs before the docker build. The archive also contains a decoy `Dockerfile` that fails the
-  #    build on purpose, so a clobbered overlay shows up as a failed build rather than as a valid
-  #    but empty image that passes every check below.
+  # 3. A caller-staged build context, overlaid into /workspace by a fetch step before the docker
+  #    build. The archive also holds a decoy `Dockerfile` that fails on purpose, so a clobbered
+  #    overlay shows up as a failed build rather than as a valid but empty image.
   - name: smoke-inline-context
     context_uri: __CONTEXT_URI__
     base_dockerfile: |

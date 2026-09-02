@@ -1,8 +1,8 @@
 """Unit tests for the pure Dockerfile text analysis in `idegym.api.dockerfile_analysis`.
 
-These cover the parsing edge cases the rest of the inline-base feature relies on being right:
-continuation joining, heredoc bodies not being scanned as instructions, stage aliases, and whether
-a ``COPY``/``ADD`` source needs a build context at all.
+Covers the parsing edge cases the rest of the inline-base feature relies on: continuation joining,
+heredoc bodies not being scanned as instructions, stage aliases, and whether a ``COPY``/``ADD``
+source needs a build context.
 """
 
 import pytest

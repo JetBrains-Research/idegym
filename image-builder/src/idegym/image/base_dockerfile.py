@@ -1,16 +1,12 @@
 """Normalization of a user-supplied Dockerfile used as an image's base.
 
-An `idegym.image.builder.Image` can name its base either as a registry reference (``base``) or as
-Dockerfile text (``base_dockerfile``). In the second form the user's stages are merged into the
-same build as the plugin stages and the idegym stage, so no intermediate image is ever pushed.
+When an `idegym.image.builder.Image` gives its base as Dockerfile text, the user's stages are
+merged into the same build as the plugin and idegym stages, so no intermediate image is pushed.
+Making that merge safe is the job here: the text is emitted verbatim apart from one edit, an ``AS``
+alias on the stage acting as the base, and only when it does not already declare one — renaming a
+user stage would break their own ``COPY --from=`` references.
 
-Making that merge safe is what this module does. The user's text is emitted **verbatim except for
-one edit**: the stage that acts as the base gains an ``AS`` alias the idegym stage can target. The
-alias is only appended when the stage does not already declare one — renaming a user stage would
-silently break their own ``COPY --from=`` references.
-
-Parsing is delegated to `idegym.api.dockerfile_analysis`, which works at logical-line level so
-continuations and heredocs do not confuse the scan.
+Parsing is delegated to `idegym.api.dockerfile_analysis`.
 """
 
 from dataclasses import dataclass
@@ -27,19 +23,17 @@ from idegym.api.dockerfile_analysis import (
     strip_parser_directives,
 )
 
-# Stage names beginning with this prefix are reserved for generated stages. Reserving a prefix
-# rather than a single name covers both the base alias below and any stage a plugin emits.
+# Reserved for generated stages — a prefix rather than a name, to cover plugin stages too.
 RESERVED_STAGE_PREFIX = "idegym_"
 
 # The alias given to the base stage when it does not already declare one.
 BASE_STAGE_ALIAS = "idegym_base"
 
-# The build arg the Cloud Build backend rewrites into a BuildKit secret mount. A user-side
-# occurrence would be rewritten into a stage where no secret is mounted, so it is rejected.
+# The build arg the Cloud Build backend rewrites into a BuildKit secret mount, so a user-side
+# occurrence would be rewritten into a stage where no secret is mounted.
 AUTH_TOKEN_ARG = "IDEGYM_AUTH_TOKEN"
 
-# Runtime instructions the generated stage may set for itself, overriding whatever the base
-# declared. See `overridden_instruction_warning`.
+# Instructions the generated stage sets for itself. See `overridden_instruction_warning`.
 OVERRIDABLE_INSTRUCTIONS = ("ENTRYPOINT", "CMD", "HEALTHCHECK")
 
 
@@ -47,9 +41,8 @@ OVERRIDABLE_INSTRUCTIONS = ("ENTRYPOINT", "CMD", "HEALTHCHECK")
 class NormalizedBase:
     """A ``base_dockerfile`` split into the pieces the renderer assembles.
 
-    ``directives`` are hoisted to the very top of the merged file, where Docker will still read
-    them. ``body`` is the user's stages with the alias applied. ``alias`` is the ``FROM`` target
-    the idegym stage uses, and the value `idegym.api.plugin.BuildContext.base` carries.
+    ``directives`` are hoisted to the top of the merged file, ``body`` is the user's stages with the
+    alias applied, and ``alias`` is the ``FROM`` target the idegym stage uses.
     """
 
     directives: tuple[str, ...]
@@ -60,17 +53,14 @@ class NormalizedBase:
 def normalize_base_dockerfile(content: str, base_stage: Optional[str] = None) -> NormalizedBase:
     """Prepare ``content`` for merging, resolving and aliasing the stage that acts as the base.
 
-    ``base_stage`` selects which stage of a multi-stage input is the base; it defaults to the last
-    one, matching what ``docker build`` would produce from the file on its own.
-
-    Raises ``ValueError`` for input that cannot work: no ``FROM`` at all, a ``base_stage`` naming a
-    stage that is not declared, or a user stage inside the reserved ``idegym_`` namespace.
+    ``base_stage`` selects which stage of a multi-stage input is the base, defaulting to the last
+    one, as ``docker build`` would. Raises ``ValueError`` for input that cannot work: no ``FROM``, an
+    undeclared ``base_stage``, or a user stage in the reserved ``idegym_`` namespace.
     """
     directives = tuple(parser_directives(content))
     body = strip_parser_directives(content)
-    # The escape character has to be read from the *original* text: an `# escape=` directive is one
-    # of the lines just removed, so scanning the body alone would silently fall back to a backslash
-    # and join the wrong lines — putting the appended alias in the middle of an instruction.
+    # Read from the *original* text: an `# escape=` directive is one of the lines just removed, so
+    # scanning the body alone would fall back to a backslash and join the wrong lines.
     escape = escape_character(content)
     declared = stages(body, escape=escape)
 
@@ -109,8 +99,8 @@ def local_context_sources(content: str) -> list[CopySource]:
     """Return the ``COPY``/``ADD`` sources that read from the build context.
 
     Non-empty with no context supplied means the build cannot succeed, so the caller rejects it up
-    front rather than letting Kaniko or BuildKit fail halfway through. ``COPY --from=`` and
-    ``ADD <url>`` are excluded — they need no context.
+    front instead of letting the backend fail halfway through. ``COPY --from=`` and ``ADD <url>``
+    are excluded — they need no context.
     """
     return [source for source in copy_add_sources(content) if source.reads_build_context]
 
@@ -118,14 +108,10 @@ def local_context_sources(content: str) -> list[CopySource]:
 def overridden_instruction_warning(base_dockerfile: str, generated: str) -> Optional[str]:
     """Warn when the base declares runtime instructions the generated stage replaces.
 
-    ``FROM <alias>`` inherits ``ENTRYPOINT``, ``CMD`` and ``HEALTHCHECK`` from the base stage, but a
-    plugin that declares its own — ``idegym-server`` emits all three — overrides them, because its
-    fragments render after the primary ``FROM``. The base's version is then dead.
-
-    That is easy to miss and expensive when it happens: a base whose ``ENTRYPOINT`` performs the
-    real setup (cloning a repository, warming a build cache) loses it silently, and the container
-    starts against an empty working directory with nothing reporting an error. Warn rather than
-    reject — plenty of bases carry an ``ENTRYPOINT`` nobody depends on.
+    ``FROM <alias>`` inherits ``ENTRYPOINT``, ``CMD`` and ``HEALTHCHECK``, but a plugin declaring its
+    own — ``idegym-server`` emits all three — renders after the primary ``FROM`` and overrides them,
+    leaving the base's version dead. A warning rather than a rejection: plenty of bases carry an
+    ``ENTRYPOINT`` nobody depends on, but one that performs real setup loses it silently.
     """
     declared = declared_instructions(base_dockerfile, OVERRIDABLE_INSTRUCTIONS)
     if not declared:
@@ -147,8 +133,7 @@ def overridden_instruction_warning(base_dockerfile: str, generated: str) -> Opti
 def references_auth_token(content: str) -> bool:
     """Whether an *instruction* in ``content`` mentions the reserved `AUTH_TOKEN_ARG` build arg.
 
-    Scans logical lines rather than the raw text, so a comment that merely names the arg — for
-    instance one explaining why it is reserved — does not cost the author a rejection. Only a real
-    reference matters, because only a real reference would be rewritten by the Cloud Build backend.
+    Logical lines rather than raw text, so a comment naming the arg is not a rejection: only a real
+    reference would be rewritten by the Cloud Build backend.
     """
     return any(AUTH_TOKEN_ARG in line.text for line in logical_lines(content))

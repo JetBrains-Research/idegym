@@ -1,9 +1,8 @@
 """Unit tests for `idegym.image.base_dockerfile`.
 
-The contract worth protecting here is that a user's Dockerfile comes out verbatim apart from a
-single added ``AS`` alias. A rewrite that renamed one of their stages, reordered instructions, or
-dropped a parser directive would break their own ``COPY --from=`` references or silently change
-which frontend builds the file.
+The contract worth protecting is that a user's Dockerfile comes out verbatim apart from a single
+added ``AS`` alias: renaming a stage, reordering instructions, or dropping a parser directive would
+break their own ``COPY --from=`` references or change which frontend builds the file.
 """
 
 import pytest

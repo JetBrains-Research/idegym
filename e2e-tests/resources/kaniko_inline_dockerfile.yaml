@@ -1,10 +1,8 @@
 # Builds an environment whose base is an inline multi-stage Dockerfile rather than a
 # pre-published image reference. Exercises the whole merge on a real Kaniko build:
 #
-#   * two user stages, with a COPY --from between them, which must survive aliasing untouched;
-#   * an ENV set in the base stage, which the generated idegym stage must inherit via
-#     FROM <alias> -- this is what makes an inline base equivalent to publishing the base
-#     and referencing it by tag;
+#   * two user stages with a COPY --from between them, which must survive aliasing untouched;
+#   * an ENV set in the base stage, which the generated idegym stage must inherit via FROM <alias>;
 #   * a commands block running against that inherited configuration.
 images:
   - name: inline-base-env

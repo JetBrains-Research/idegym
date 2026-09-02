@@ -1,9 +1,8 @@
 """Unit tests for how the Kaniko backend turns an `ImageBuildSpec` into a Job.
 
-Covers the git build context used by repo-COPY (idea/pycharm) images, the caller-supplied
-``context_uri`` that competes for the same single ``--context`` slot, the up-front rejections that
-keep an unbuildable spec from becoming a Job, and the build-arg degradation Kaniko's lack of secret
-mounts forces on `secrets`.
+Covers the git build context repo-COPY (idea/pycharm) images use, the caller-supplied
+``context_uri`` competing for the same single ``--context`` slot, the up-front rejections, and the
+build-arg degradation Kaniko's lack of secret mounts forces on `secrets`.
 """
 
 from types import SimpleNamespace

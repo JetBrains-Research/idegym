@@ -24,10 +24,9 @@ _CONTEXT_URI_RE = re.compile(r"^(?P<scheme>[a-z][a-z0-9+.-]*)://(?P<remainder>\S
 def validate_context_uri(value: str) -> str:
     """Check a build-context URI is well formed, leaving scheme support to the backend.
 
-    Deliberately opaque about the scheme: Kaniko fetches ``gs://``, ``s3://``, ``https://`` and
-    ``git://`` contexts natively, while Cloud Build's ``StorageSource`` is GCS-only. Which schemes
-    are usable is therefore a property of the configured backend, not of the request, and typing
-    this field to GCS would make the open-source Kaniko path needlessly GCP-shaped.
+    Which schemes work is a property of the configured backend — Kaniko fetches ``gs://``, ``s3://``,
+    ``https://`` and ``git://``, Cloud Build's ``StorageSource`` is GCS-only — so typing this field
+    to GCS would make the Kaniko path needlessly GCP-shaped.
     """
     stripped = value.strip()
     if not _CONTEXT_URI_RE.match(stripped):
@@ -46,16 +45,15 @@ def context_uri_scheme(value: str) -> str:
     return match.group("scheme").lower()
 
 
-# A Dockerfile ``ARG`` name. Secret ids are held to the same pattern because the Kaniko backend has
-# no secret mounts and passes each one as a build arg, so an id that is not a valid ARG name would
-# be unusable there — and a name allowed to contain spaces or ``=`` could inject extra arguments.
+# A Dockerfile ``ARG`` name. Secret ids are held to the same pattern: Kaniko passes each one as a
+# build arg, and a name containing spaces or ``=`` could inject extra arguments there.
 _BUILD_ARG_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 # ``projects/<project>/secrets/<secret>``, optionally pinned to ``/versions/<version>``.
 _SECRET_RESOURCE_RE = re.compile(r"^projects/[^/\s]+/secrets/[^/\s]+(?:/versions/[^/\s]+)?$")
 
-# Generated build args (IDEGYM_VERSION, IDEGYM_PROJECT_ARCHIVE_URL, IDEGYM_AUTH_TOKEN, ...) own this
-# namespace. A caller-supplied name inside it would silently shadow one of them.
+# Owned by the generated build args (IDEGYM_VERSION, IDEGYM_AUTH_TOKEN, ...), which a
+# caller-supplied name in this namespace would shadow.
 RESERVED_BUILD_ARG_PREFIX = "IDEGYM_"
 
 
@@ -78,8 +76,8 @@ def validate_build_arg_names(mapping: dict[str, str], *, field: str) -> dict[str
 def check_build_arg_collisions(secrets: dict[str, str], secret_build_args: list[str]) -> None:
     """Reject a name claimed by both secret sources.
 
-    Both end up as ``--build-arg`` on the Kaniko backend, so a name in each would emit the
-    instruction twice and leave which value wins up to argument order — silently.
+    Both become ``--build-arg`` on Kaniko, so a name in each would be passed twice and leave which
+    value wins up to argument order.
     """
     collisions = set(secrets) & set(secret_build_args)
     if collisions:
@@ -92,9 +90,8 @@ def check_build_arg_collisions(secrets: dict[str, str], secret_build_args: list[
 def validate_image_tag(value: str) -> str:
     """Check a fully qualified destination tag is well formed.
 
-    Splits on the *last* colon so a registry port survives (``localhost:5000/img:v1`` has repository
-    ``localhost:5000/img``), and rejects a reference with no version component — ``localhost:5000/img``
-    would otherwise parse as version ``5000/img``.
+    Splits on the *last* colon so a registry port survives, and rejects a reference with no version
+    at all — ``localhost:5000/img`` would otherwise parse as version ``5000/img``.
     """
     stripped = value.strip()
     repository, separator, version = stripped.rpartition(":")
@@ -106,8 +103,8 @@ def validate_image_tag(value: str) -> str:
     return stripped
 
 
-# An OCI tag component, and a registry/repository reference. Both are validated because either can
-# become part of the pushed destination and of the persisted job record.
+# An OCI tag component, and a registry/repository reference. Both are validated because either
+# becomes part of the pushed destination and of the persisted job record.
 _IMAGE_VERSION_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$")
 _REGISTRY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*(?:/[A-Za-z0-9][A-Za-z0-9._-]*)*$")
 
@@ -137,9 +134,8 @@ def validate_registry(value: str) -> str:
 def check_registry_allowed(tag: str, allowed_prefixes: list[str]) -> None:
     """Reject a caller-chosen destination outside the deployment's allowlist.
 
-    A caller-supplied registry means pushing anywhere the builder's service account can write, so
-    this is an allowlist rather than a format check. An empty allowlist means the deployment has not
-    opted in at all, which is the default.
+    An allowlist rather than a format check, because a caller-supplied registry means pushing
+    anywhere the builder's service account can write. Empty (the default) means opted out.
     """
     if not allowed_prefixes:
         raise ValueError(
@@ -154,9 +150,8 @@ def check_registry_allowed(tag: str, allowed_prefixes: list[str]) -> None:
 def _under_prefix(tag: str, prefix: str) -> bool:
     """Whether ``tag`` sits under ``prefix`` at a path boundary.
 
-    A bare ``startswith`` would let the prefix ``…/my-project/my-repo`` authorize
-    ``…/my-project/my-repo-attacker/env:v1``, which is a different repository under a name the
-    operator never granted. The next character must therefore end the prefix's last path segment.
+    A bare ``startswith`` would let the prefix ``…/my-repo`` authorize ``…/my-repo-attacker/env:v1``,
+    a repository the operator never granted, so the next character must end the prefix.
     """
     normalized = prefix.rstrip("/")
     if not tag.startswith(normalized):
@@ -167,13 +162,13 @@ def _under_prefix(tag: str, prefix: str) -> bool:
 def validate_secret_mapping(mapping: dict[str, str]) -> dict[str, str]:
     """Check a ``secrets`` mapping holds Secret Manager resource names, never values.
 
-    Requiring the resource-name shape is a guard against a caller pasting the secret itself into a
-    field that is serialized into a build request and a job record.
+    The resource-name shape guards against a caller pasting the secret itself into a field that is
+    serialized into a build request and a job record.
     """
     validate_build_arg_names(mapping, field="Secret id")
 
-    # The Cloud Build backend derives an env var name by upper-casing the id, so two ids differing
-    # only in case would resolve to one variable and silently share a value.
+    # Cloud Build derives an env var name by upper-casing the id, so two ids differing only in case
+    # would resolve to one variable and share a value.
     folded: dict[str, str] = {}
     for secret_id in mapping:
         clash = folded.setdefault(secret_id.upper(), secret_id)
@@ -219,9 +214,8 @@ class ImageBuildSpec(BaseModel):
         default=None,
         description=(
             "URI of a build context archive the caller has already staged (e.g. "
-            "'gs://bucket/contexts/abc123.tar.gz'), resolved by the build backend. Lets an inline "
-            "base Dockerfile's COPY/ADD instructions find their sources without the orchestrator "
-            "ever receiving context bytes over the API."
+            "'gs://bucket/contexts/abc123.tar.gz'), fetched by the build backend so an inline base "
+            "Dockerfile's COPY/ADD sources resolve without the orchestrator handling context bytes."
         ),
     )
     secrets: dict[str, str] = Field(
@@ -246,8 +240,8 @@ class ImageBuildSpec(BaseModel):
     version: Optional[str] = Field(
         default=None,
         description=(
-            "Destination tag's version component. Defaults to image_version(), the content hash. "
-            "Supplying one decouples the pushed tag from that hash — the caller then owns dedupe."
+            "Destination tag's version component. Defaults to image_version(), the content hash; "
+            "supplying one decouples the pushed tag from that hash and moves dedupe to the caller."
         ),
     )
     timeout_seconds: Optional[int] = Field(
@@ -271,8 +265,8 @@ class ImageBuildSpec(BaseModel):
         default_factory=list,
         description=(
             "Caveats found while compiling this spec, recorded on the build's job record so they "
-            "outlive the request. Informational only: they describe the image, never change it, and "
-            "so deliberately do not participate in image_version()."
+            "outlive the request. Informational: they describe the image rather than changing it, "
+            "so they do not participate in image_version()."
         ),
     )
 
@@ -329,18 +323,13 @@ class ImageBuildSpec(BaseModel):
         # Distinguishes images whose build secrets differ even if a future plugin declares
         # a secret without emitting a matching ``ARG`` into the Dockerfile. Names only.
         identifiers.append(dump_json(self.secret_build_args, sort_keys=True))
-        # Inputs added after the first release are appended only when set, and labelled, so an
-        # existing definition keeps the hash it already has instead of every deployed image
-        # rebuilding once. The label is what keeps the unseparated concatenation unambiguous.
-        #
-        # Callers must name a context object by its content (the object is fetched by the backend,
-        # so its bytes are never hashed here); reusing one name for changed contents is what a
-        # stale cache hit would look like. See the build-context docs.
+        # Appended only when set, and labelled, so an existing definition keeps the hash it already
+        # has and the unseparated concatenation stays unambiguous. Only the URI is hashed, not the
+        # bytes the backend fetches, so callers must name a context object by its content.
         if self.context_uri is not None:
             identifiers.append(f"context_uri={self.context_uri}")
         if self.secrets:
             # Names only, like ``secret_build_args`` above: a rotated secret behind the same id is
-            # the same image as far as the cache is concerned, and hashing the resource names keeps
-            # values out of anything derived from the spec.
+            # the same image, and hashing names keeps values out of anything derived from the spec.
             identifiers.append(f"secrets={dump_json(sorted(self.secrets), sort_keys=True)}")
         return md5(*identifiers)

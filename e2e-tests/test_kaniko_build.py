@@ -212,21 +212,17 @@ async def test_kaniko_build_minimal(test_id):
 @pytest.mark.asyncio
 async def test_kaniko_build_from_inline_dockerfile(test_id, kaniko_image_loader):
     """
-    Test building an environment whose base is an inline multi-stage Dockerfile.
-
-    This is the path that avoids a separate build-and-push cycle for a custom base: the user's
-    stages are merged into the same Kaniko build as the generated idegym stage.
+    Test building an environment whose base is an inline multi-stage Dockerfile, merged into the
+    same Kaniko build as the generated idegym stage rather than built and pushed separately.
 
     Verifies on a real build:
     - the user's two stages survive the merge, including a COPY --from between them, so aliasing
       the base stage did not disturb their own references
-    - an ENV set in the base stage is inherited by the generated stage via FROM <alias>, which is
-      what makes an inline base equivalent to publishing that base and referencing it by tag
+    - an ENV set in the base stage is inherited by the generated stage via FROM <alias>
     - the commands block runs against that inherited configuration
 
-    A caller-staged `context_uri` is NOT covered here: it needs an object-storage bucket the
-    cluster can read, which the Minikube e2e environment has none of. The plumbing down to
-    Kaniko's --context and Cloud Build's fetch step is covered by unit tests instead.
+    A caller-staged `context_uri` is not covered: it needs an object-storage bucket the cluster can
+    read, which the Minikube e2e environment has none of. Unit tests cover that plumbing instead.
     """
     with as_file(files(e2e_resources).joinpath("kaniko_inline_dockerfile.yaml")) as yaml_path:
         async with create_http_client(

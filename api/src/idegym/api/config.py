@@ -261,7 +261,7 @@ class CloudBuildGKEConfig(ConfigModel):
     )
     allowed_machine_types: list[str] = Field(
         description="Machine types a request may ask for (e.g. E2_HIGHCPU_8). Empty rejects any per-request "
-        "machine type, since the cost of a larger worker is the deployment's to authorize, not the caller's.",
+        "machine type: the cost of a larger worker is the deployment's to authorize.",
         default_factory=list,
     )
 
@@ -275,13 +275,13 @@ class BuildConfig(ConfigModel):
     backend: BuildBackend = Field(description="Active image build backend", default=BuildBackend.KANIKO)
     allowed_registry_prefixes: list[str] = Field(
         description="Registry prefixes a request may push to when it supplies its own tag or registry. Empty "
-        "refuses caller-supplied destinations altogether, which is the default: an arbitrary destination "
-        "means pushing anywhere the builder's service account can write.",
+        "(the default) refuses caller-supplied destinations, which would otherwise mean pushing anywhere "
+        "the builder's service account can write.",
         default_factory=list,
     )
     max_timeout_seconds: int = Field(
-        description="Ceiling for a per-request build timeout, on every backend. A larger request is clamped to "
-        "this, so one caller cannot occupy build capacity indefinitely.",
+        description="Ceiling for a per-request build timeout, on every backend, so one caller cannot occupy "
+        "build capacity indefinitely. A larger request is clamped to this.",
         ge=1,
         default=7200,
     )

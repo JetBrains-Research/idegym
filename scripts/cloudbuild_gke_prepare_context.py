@@ -2,9 +2,8 @@
 """Stage a build-context archive in GCS and fill its URI into an image-definition template.
 
 `context_uri` names an archive the caller has already staged, so testing that path by hand needs
-one before anything can be submitted. This builds a small archive, uploads it, and writes a copy
-of the template with `__CONTEXT_URI__` replaced -- ready to hand to
-`scripts/cloudbuild_gke_smoke_test.py`.
+one first. This builds a small archive, uploads it, and writes a copy of the template with
+`__CONTEXT_URI__` replaced, ready for `scripts/cloudbuild_gke_smoke_test.py`.
 
 Two commands end to end:
 
@@ -17,21 +16,15 @@ Two commands end to end:
         --registry us-central1-docker.pkg.dev/my-proj/my-repo
 
 The archive is byte-stable (sorted entries, pinned gzip mtime) and named after a digest of its own
-contents, which is the naming contract the docs ask callers to follow: the image tag is derived
-from the URI rather than from the bytes the backend later fetches, so reusing one object name for
-changed contents would read as an unchanged image.
+contents, following the naming contract the docs ask callers to follow.
 
-It deliberately contains a decoy `Dockerfile`. Cloud Build extracts the generated context first and
-the fetch step unpacks this over the top with --skip-old-files, so a correct overlay skips the decoy.
-
-The decoy **fails the build on purpose**. A `FROM scratch` decoy would build perfectly well, take
-every assertion embedded in the real Dockerfile with it, and report success -- so a broken overlay
-would look identical to a working one unless somebody inspected the build log by hand. Failing loudly
-turns that into a test result.
+It deliberately contains a decoy `Dockerfile` that fails the build, which a correct overlay skips
+via --skip-old-files. Failing rather than building (as a `FROM scratch` decoy would) is what turns
+a clobbered overlay into a test result instead of a valid but empty image.
 
 Prerequisites: Application Default Credentials with write access to the bucket
-(`gcloud auth application-default login`). The gcloud CLI's own credential is not enough -- the
-Python client libraries read ADC separately.
+(`gcloud auth application-default login`) -- the gcloud CLI's own credential is not enough, since
+the Python client libraries read ADC separately.
 """
 
 import argparse
@@ -48,8 +41,7 @@ PLACEHOLDER = "__CONTEXT_URI__"
 CONTEXT_FILES: dict[str, bytes] = {
     "caller-asset.txt": b"from-the-caller-context\n",
     "nested/deeper-asset.txt": b"nested-caller-asset\n",
-    # A correct overlay skips this. If it is ever built, fail loudly rather than producing a valid
-    # but empty image that would pass every check.
+    # A correct overlay skips this; if it is ever built, fail loudly.
     "Dockerfile": (
         b"FROM alpine:3\n"
         b"RUN echo 'FAIL: the caller decoy Dockerfile was built, so the context overlay clobbered"

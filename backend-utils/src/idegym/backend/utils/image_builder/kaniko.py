@@ -18,8 +18,8 @@ logger = get_logger(__name__)
 # or air-gapped mirrors via IDEGYM_KANIKO_CONTEXT_GIT_URL / IDEGYM_KANIKO_CONTEXT_GIT_REF.
 __KANIKO_CONTEXT_GIT_URL__ = "github.com/JetBrains-Research/idegym.git"
 
-# Build-context URI schemes Kaniko fetches natively. Kept here rather than on the model because
-# scheme support is a property of the backend: Cloud Build's StorageSource is GCS-only.
+# Schemes Kaniko fetches natively. On the backend rather than the model, because scheme support is
+# a backend property: Cloud Build's StorageSource is GCS-only.
 SUPPORTED_CONTEXT_SCHEMES = frozenset({"gs", "s3", "https", "git"})
 
 
@@ -51,9 +51,9 @@ def _kaniko_git_context(version: str) -> str:
 def validate_kaniko_spec(spec: ImageBuildSpec) -> None:
     """Reject a spec Kaniko cannot build, before any Job is created.
 
-    Each of these would otherwise surface minutes later as a build-log failure that looks like an
-    infrastructure problem rather than an input one. Raised from ``submit_build``, which the
-    orchestrator awaits, so the caller gets the error on their build request.
+    Otherwise each surfaces minutes later as a build-log failure that reads as an infrastructure
+    problem. Raised from ``submit_build``, which the orchestrator awaits, so the caller gets it on
+    their build request.
     """
     features = buildkit_only_features(spec.dockerfile_content)
     if features:
@@ -132,11 +132,10 @@ class KanikoImageBuilder(ImageBuilder):
             else None
         )
 
-        # A caller-supplied context wins the single --context slot. Otherwise, images that COPY
-        # files from the idegym repo (idea/pycharm plugins) declare context files and get a git
-        # checkout of the repo at this version so those COPY paths resolve; plain download/inline
-        # builds keep the default Dockerfile-only context. `validate_kaniko_spec` has already
-        # rejected the case that needs both.
+        # A caller-supplied context wins the single --context slot; `validate_kaniko_spec` has
+        # already rejected the case needing both. Otherwise images that COPY files from the idegym
+        # repo (idea/pycharm plugins) declare context files and get a git checkout of the repo at
+        # this version, and plain download/inline builds keep the Dockerfile-only default.
         if spec.context_uri is not None:
             context = spec.context_uri
             logger.info(f"Using caller-supplied Kaniko build context: {context}")
@@ -146,9 +145,9 @@ class KanikoImageBuilder(ImageBuilder):
         else:
             context = None
 
-        # Kaniko has no secret mounts, so a declared secret can only travel as a build arg. Warn
-        # loudly and record it on the handle: the value ends up in the image history, and a log line
-        # is gone by the time anyone asks about the resulting image.
+        # Kaniko has no secret mounts, so a declared secret can only travel as a build arg, which
+        # records its value in the image history. Recorded on the handle as well as logged, so the
+        # caveat outlives the build.
         secret_values = await resolve_secret_values(spec.secrets, client=self._secret_manager_client)
         warnings: list[str] = []
         if secret_values:
@@ -156,8 +155,8 @@ class KanikoImageBuilder(ImageBuilder):
             logger.warning(warning, backend="kaniko", secret_ids=sorted(secret_values))
             warnings.append(warning)
 
-        # Cloud Build sizes a hosted worker; a Kaniko build runs in a pod, so its lever is the
-        # per-image `resources` field. Saying so beats letting the request look honoured.
+        # A Kaniko build runs in a pod rather than on a hosted worker, so its lever is the per-image
+        # `resources` field. Say so rather than letting the request look honoured.
         ignored = [name for name in ("machine_type", "disk_size_gb") if getattr(spec, name) is not None]
         if ignored:
             warning = (
@@ -185,8 +184,8 @@ class KanikoImageBuilder(ImageBuilder):
             build_args=secret_values,
         )
 
-        # Kaniko has no build timeout of its own, so a per-request one is purely the monitor's
-        # deadline. Clamped to the deployment ceiling, matching the Cloud Build backend.
+        # Kaniko has no build timeout of its own, so a per-request one is only the monitor's
+        # deadline. Clamped to the deployment ceiling, as on the Cloud Build backend.
         monitor_timeout = None
         if spec.timeout_seconds is not None:
             granted = min(spec.timeout_seconds, self._max_timeout_seconds)

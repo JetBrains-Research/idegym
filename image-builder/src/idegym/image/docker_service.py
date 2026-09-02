@@ -33,10 +33,9 @@ def isiterable(value: Any) -> bool:
 def _reject_cluster_only_features(spec) -> None:
     """Refuse the parts of a spec that only a cluster backend can satisfy.
 
-    An inline ``base_dockerfile`` needs nothing special here — it is just Dockerfile text. But a
-    ``context_uri`` names an archive in object storage, and ``secrets`` names Secret Manager
-    resources; resolving either locally would mean cloud credentials this driver deliberately does
-    not have. Saying so beats a confusing ``COPY`` failure or an empty build arg.
+    An inline ``base_dockerfile`` is just Dockerfile text and needs nothing here, but resolving a
+    ``context_uri`` or ``secrets`` would need cloud credentials this driver deliberately lacks.
+    Saying so beats a confusing ``COPY`` failure or an empty build arg.
     """
     if spec.context_uri is not None:
         raise ValueError(
@@ -51,8 +50,8 @@ def _reject_cluster_only_features(spec) -> None:
             "values through the environment as 'secret_build_args', or submit this image to the "
             "orchestrator."
         )
-    # The local driver's registry is fixed at construction, so honouring these would mean quietly
-    # tagging something other than what the definition asks for.
+    # The registry is fixed at construction, so honouring these would mean tagging something other
+    # than what the definition asks for.
     for field in ("tag", "registry"):
         if getattr(spec, field) is not None:
             raise ValueError(

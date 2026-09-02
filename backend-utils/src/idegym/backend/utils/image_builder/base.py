@@ -16,15 +16,14 @@ class BuildHandle:
     namespace, ...) needed by `ImageBuilder.get_status`; only `name` and `warnings` cross
     the persistence/API boundary.
 
-    `warnings` carries backend-specific caveats about *this* build that outlive it — a
-    build-time log line is gone by the time anyone asks about the resulting image, so the
-    orchestrator records these on the job so they stay visible after the fact. The
-    build-arg exposure a Kaniko build with `secrets` incurs is the motivating case.
+    `warnings` carries caveats about *this* build that the orchestrator records on the job,
+    so they outlive a build-time log line. The build-arg exposure a Kaniko build with
+    `secrets` incurs is the motivating case.
 
-    `monitor_timeout` is how long the orchestrator should poll *this* build, which the
-    backend knows exactly because it granted it. `ImageBuilder.monitor_timeout` only
-    describes the deployment default, so a build given a longer per-request timeout would
-    otherwise be declared failed while still running.
+    `monitor_timeout` is how long to poll *this* build, which the backend knows because it
+    granted it. `ImageBuilder.monitor_timeout` describes only the deployment default, so a
+    build given a longer per-request timeout would otherwise be declared failed while
+    still running.
     """
 
     name: str
