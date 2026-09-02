@@ -12,6 +12,7 @@ import pytest
 from idegym.api.paths import ToolsPath
 from idegym.api.tools.file import DownloadFileChunkRequest, UploadFileChunkRequest
 from idegym.client.operations.files import FileOperations
+from idegym.client.operations.utils import PollingConfig
 from idegym.tools.file_manager import FileManager
 from idegym.tools.tool_service import FileToolActionName, ToolName, ToolService
 from pydantic import ValidationError
@@ -236,6 +237,31 @@ async def test_upload_and_download_file_round_trip_on_disk(tmp_path) -> None:
 
     assert written == len(BINARY)
     assert destination.read_bytes() == BINARY
+
+
+async def test_upload_raises_instead_of_spinning_when_the_source_shrinks() -> None:
+    """A short read before `total` used to leave the loop sending empty chunks forever."""
+    sandbox = _FakeSandbox()
+    operations = _operations(sandbox)
+
+    async def shrinking_reader(offset: int) -> bytes:
+        # Serves the first chunk, then behaves like a file truncated under us.
+        return BINARY[:64] if offset == 0 else b""
+
+    with pytest.raises(RuntimeError, match="it shrank while"):
+        await operations._upload_stream(
+            server_id=1,
+            file_path="/work/blob.bin",
+            read_chunk_at=shrinking_reader,
+            total=len(BINARY),
+            chunk_bytes=64,
+            client_id=None,
+            request_timeout=None,
+            polling_config=PollingConfig(),
+        )
+
+    # One real chunk plus the one empty probe that detects the shrink, then it stops.
+    assert len(sandbox.calls) == 2
 
 
 @pytest.mark.parametrize("chunk_bytes", [0, -1])
