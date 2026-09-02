@@ -180,11 +180,14 @@ Hold a server against the watcher's inactivity reaper for `minutes` from now. Sy
 | `minutes` out of range (0 < minutes ≤ 1440) | `422 Unprocessable Entity` | Pydantic validation error |
 | Client not found | `404 Not Found` | `detail: "Client with ID {id} not found"` |
 | Server not found or owned by another client | `404 Not Found` | |
+| Server already in a terminal state | `410 Gone` | `detail: "... is KILLED and cannot be held alive"` |
 | Internal error | `500 Internal Server Error` | JSON `detail` |
 
-A hold on a server already in a terminal state succeeds and does nothing: the response reports
-no window. The window only ever extends, so a shorter request against a longer existing hold
-returns the longer one.
+A server that has already reached a terminal state cannot be held: the hold is refused with
+`410 Gone`. That is the race the endpoint exists to lose gracefully — a keepalive loop can be
+overtaken by the reaper — so treat a 410 here as "the sandbox is gone, start a new one" rather
+than as an error to retry. The window only ever extends, so a shorter request against a longer
+existing hold returns the longer one.
 
 ### Servers — `GET /api/idegym-servers/{server_id}/status`
 

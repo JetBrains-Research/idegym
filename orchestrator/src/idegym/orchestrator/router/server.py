@@ -231,6 +231,16 @@ async def keepalive_server(request: KeepaliveServerRequest) -> KeepaliveServerRe
     """
     until = current_time_millis() + int(request.minutes * 60_000)
     server = await extend_server_keepalive(client_id=request.client_id, server_id=request.server_id, until=until)
+    # A terminal server is returned untouched, so the hold was refused. Keying on availability
+    # rather than on a null `keepalive_until` matters: a server that held a lease before it died
+    # still carries the old timestamp, and reporting that back would claim a hold we do not have.
+    # This is the race the endpoint exists to lose gracefully — a keepalive loop overtaken by the
+    # reaper — so it says the sandbox is gone instead of 500-ing on None arithmetic.
+    if AvailabilityStatus(server.availability).is_terminal:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail=f"IdeGYM server with ID {server.id} is {server.availability} and cannot be held alive",
+        )
     logger.info(
         "Extended server keepalive",
         server_id=server.id,

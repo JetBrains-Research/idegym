@@ -94,7 +94,9 @@ async def test_keepalive_extends_the_window_by_the_requested_minutes(mocker) -> 
     extend = mocker.patch.object(
         server_router,
         "extend_server_keepalive",
-        mocker.AsyncMock(return_value=SimpleNamespace(id=7, keepalive_until=NOW + 30 * 60_000)),
+        mocker.AsyncMock(
+            return_value=SimpleNamespace(id=7, availability=AvailabilityStatus.ALIVE, keepalive_until=NOW + 30 * 60_000)
+        ),
     )
     client_id = uuid4()
 
@@ -113,12 +115,45 @@ async def test_keepalive_reports_the_window_actually_in_effect(mocker) -> None:
     mocker.patch.object(
         server_router,
         "extend_server_keepalive",
-        mocker.AsyncMock(return_value=SimpleNamespace(id=7, keepalive_until=NOW + 60 * 60_000)),
+        mocker.AsyncMock(
+            return_value=SimpleNamespace(id=7, availability=AvailabilityStatus.ALIVE, keepalive_until=NOW + 60 * 60_000)
+        ),
     )
 
     response = await server_router.keepalive_server(KeepaliveServerRequest(client_id=uuid4(), server_id=7, minutes=5))
 
     assert response.minutes == 60
+
+
+@pytest.mark.parametrize(
+    ("availability", "keepalive_until"),
+    [
+        # No prior hold, and one left over from before the server died: both must be refused.
+        (AvailabilityStatus.KILLED, None),
+        (AvailabilityStatus.CRASHED, NOW + 60_000),
+        (AvailabilityStatus.STOPPED, None),
+    ],
+)
+async def test_keepalive_on_a_terminal_server_reports_gone_not_a_server_error(
+    mocker, availability, keepalive_until
+) -> None:
+    """The reaper can overtake a keepalive loop; that must not surface as an opaque 500."""
+    from fastapi import HTTPException
+
+    mocker.patch.object(server_router, "current_time_millis", return_value=NOW)
+    mocker.patch.object(
+        server_router,
+        "extend_server_keepalive",
+        mocker.AsyncMock(
+            return_value=SimpleNamespace(id=7, availability=availability, keepalive_until=keepalive_until)
+        ),
+    )
+
+    with pytest.raises(HTTPException) as caught:
+        await server_router.keepalive_server(KeepaliveServerRequest(client_id=uuid4(), server_id=7))
+
+    assert caught.value.status_code == 410
+    assert availability in caught.value.detail
 
 
 @pytest.mark.parametrize("minutes", [0, -1, 24 * 60 + 1])
