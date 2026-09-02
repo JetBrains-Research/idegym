@@ -153,6 +153,51 @@ Apply a unified diff patch to a file.
 | `file_path` | string | Absolute path to the file |
 | `patch` | string | Unified diff patch to apply |
 
+### Upload File Chunk
+
+Write one base64-encoded chunk of raw bytes into a file. This is the binary-safe way in: the
+orchestrator stores and replays a forwarded request as JSON text, so base64 is what survives the
+round trip.
+
+**Endpoint:** `POST /api/tools/file/upload`
+
+**Request:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `file_path` | string | — | Absolute path to write to; missing parent directories are created |
+| `content_base64` | string | — | Base64-encoded bytes to write at `offset` |
+| `offset` | int | 0 | Byte offset in the file at which to write this chunk |
+| `truncate` | bool | `true` | Cut the file off at the end of this chunk once written |
+
+**Response:** `file_path`, `bytes_written`, `size` (file size after the write).
+
+`truncate` is what keeps a re-upload honest: with it on, writing a shorter file cannot leave the
+tail of a longer previous one behind. Turn it off for an out-of-order write. Writing past the
+current end of the file leaves a hole of zero bytes, as `lseek` does.
+
+### Download File Chunk
+
+Read one base64-encoded chunk of raw bytes from a file.
+
+**Endpoint:** `POST /api/tools/file/download`
+
+**Request:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `file_path` | string | — | Absolute path to read from |
+| `offset` | int | 0 | Byte offset to read from |
+| `length` | int | 1048576 | Maximum number of raw bytes to read |
+
+**Response:** `file_path`, `offset`, `content_base64`, `bytes_read`, `size` (total file size),
+and `eof` (true when this chunk reaches the end). A missing path returns 404; a directory
+returns 400.
+
+**Via Python client:** the client wraps both endpoints in `upload_file` / `upload_bytes` /
+`download_file` / `download_bytes`, which do the chunking for you. See
+[Binary file transfer](client.md#binary-file-transfer).
+
 ---
 
 ## IDE Inspection (`inspect.sh`)
