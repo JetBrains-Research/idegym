@@ -18,7 +18,6 @@ import json
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
-from enum import StrEnum
 from typing import Optional
 
 # The escape character a Dockerfile uses for line continuations unless an ``# escape=`` parser
@@ -81,33 +80,23 @@ class LogicalLine:
 class Stage:
     """A ``FROM`` instruction. ``alias`` is the ``AS <name>`` target when the stage declares one."""
 
-    index: int
     image: str
     alias: Optional[str]
     line: LogicalLine
 
 
-class SourceKind(StrEnum):
-    """Where a ``COPY``/``ADD`` source reads from.
-
-    ``LOCAL`` is the only kind that needs a build context, which is what makes this distinction
-    worth drawing: an inline base Dockerfile with no context can still legally copy from another
-    stage or fetch a URL.
-    """
-
-    LOCAL = "local"
-    STAGE = "stage"
-    REMOTE = "remote"
-    INLINE = "inline"
-
-
 @dataclass(frozen=True, slots=True)
 class CopySource:
-    """One source path of a ``COPY`` or ``ADD``, classified by `SourceKind`."""
+    """One source operand of a ``COPY`` or ``ADD``.
+
+    ``reads_build_context`` is the only distinction any caller needs: a source that does not read
+    from the context needs no context to exist. ``COPY --from=<stage>``, ``ADD <url>`` and an inline
+    heredoc all qualify.
+    """
 
     instruction: str
     source: str
-    kind: SourceKind
+    reads_build_context: bool
     line: LogicalLine
 
 
@@ -225,12 +214,12 @@ def stages(content: str, *, escape: Optional[str] = None) -> list[Stage]:
         alias = None
         if len(arguments) >= 3 and arguments[1].upper() == "AS":
             alias = _unquote(arguments[2])
-        found.append(Stage(index=len(found), image=_unquote(arguments[0]), alias=alias, line=line))
+        found.append(Stage(image=_unquote(arguments[0]), alias=alias, line=line))
     return found
 
 
 def copy_add_sources(content: str, *, escape: Optional[str] = None) -> list[CopySource]:
-    """Return every ``COPY``/``ADD`` source in the file, classified by where it reads from."""
+    """Return every ``COPY``/``ADD`` source in the file, flagging those that need a build context."""
     result: list[CopySource] = []
     for line in logical_lines(content, escape=escape):
         tokens = _tokenize(line.text)
@@ -241,18 +230,13 @@ def copy_add_sources(content: str, *, escape: Optional[str] = None) -> list[Copy
             continue
 
         if line.heredocs:
-            result.append(CopySource(instruction, "<<heredoc>>", SourceKind.INLINE, line))
+            result.append(CopySource(instruction, "<<heredoc>>", reads_build_context=False, line=line))
             continue
 
-        from_stage = any(token.startswith("--from=") for token in tokens[1:] if token.startswith("--"))
+        from_stage = any(token.startswith("--from=") for token in tokens[1:])
         for source in _copy_sources([token for token in tokens[1:] if not token.startswith("--")]):
-            if from_stage:
-                kind = SourceKind.STAGE
-            elif _REMOTE_SOURCE_RE.match(source):
-                kind = SourceKind.REMOTE
-            else:
-                kind = SourceKind.LOCAL
-            result.append(CopySource(instruction, source, kind, line))
+            local = not from_stage and not _REMOTE_SOURCE_RE.match(source)
+            result.append(CopySource(instruction, source, reads_build_context=local, line=line))
     return result
 
 

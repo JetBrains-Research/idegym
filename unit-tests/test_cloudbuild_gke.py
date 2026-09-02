@@ -179,17 +179,6 @@ def test_buildkit_syntax_is_not_injected_when_the_dockerfile_pins_its_own():
     assert not any(BUILDKIT_SYNTAX_ARG in arg for arg in args)
 
 
-def test_a_caller_supplied_frontend_is_not_shadowed():
-    # Ours would be emitted first and silently lose to the caller's; skip it instead.
-    spec = _spec(
-        dockerfile_content="FROM scratch\nRUN <<EOF\nhi\nEOF\n",
-        build_args={BUILDKIT_SYNTAX_ARG: "docker/dockerfile:1.9"},
-    )
-    args = build_cloudbuild_config(_TAG, spec, "1.2.3")["steps"][0]["args"]
-    frontends = [arg for arg in args if arg.startswith(f"{BUILDKIT_SYNTAX_ARG}=")]
-    assert frontends == [f"{BUILDKIT_SYNTAX_ARG}=docker/dockerfile:1.9"]
-
-
 def test_a_shell_left_shift_does_not_request_a_frontend():
     # `1 << SHIFT` matches the heredoc pattern but opens no heredoc.
     spec = _spec(dockerfile_content='FROM scratch\nRUN echo "$((1 << SHIFT))"\n')
@@ -202,11 +191,6 @@ def test_a_shell_left_shift_does_not_request_a_frontend():
 # ---------------------------------------------------------------------------
 
 _SECRET_RESOURCE = "projects/p/secrets/gh-token/versions/3"
-
-
-def test_config_forwards_build_args():
-    args = build_cloudbuild_config(_TAG, _spec(build_args={"FLAVOUR": "slim"}), "1.2.3")["steps"][0]["args"]
-    assert "FLAVOUR=slim" in args
 
 
 def test_config_forwards_secret_build_args_from_the_environment(monkeypatch):

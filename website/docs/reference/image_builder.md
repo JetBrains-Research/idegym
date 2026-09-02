@@ -201,18 +201,6 @@ object name for changed contents therefore reads as an unchanged image and you g
 Use a content-addressed object name.
 :::
 
-### `.with_build_args(**args)`
-
-Supply values for `ARG`s your base Dockerfile declares:
-
-```python
-image = image.with_build_args(FLAVOUR="slim", TOOLCHAIN_VERSION="1.79")
-```
-
-Build-arg values are recorded in the image history, so this is for configuration, not credentials.
-Note that an unset `ARG` is *unset* rather than empty, so a `set -u` script in your base needs
-`${VAR:-}`.
-
 ### `.with_secrets(**mapping)`
 
 Map a Dockerfile secret id to a **Secret Manager resource name** — never a value:
@@ -370,8 +358,6 @@ images:
         <plugin-fields>: ...
     commands:                 # Optional: shell commands (no RUN prefix)
       - echo "hello"
-    build_args:               # Optional: values for ARGs the Dockerfile declares
-      FLAVOUR: slim
     secrets:                  # Optional: secret id -> Secret Manager resource name
       gh_token: projects/p/secrets/gh-token/versions/latest
     tag: <registry>/<repo>:<v>  # Optional: full destination. Excludes registry/version.
@@ -1085,7 +1071,6 @@ from a build log.
 | `context_uri` **and** plugin `context_files` together | **no** — see below | yes |
 | Plugin `context_files` (idea/pycharm scripts) | yes, via a git checkout | yes, packed into the context tar |
 | BuildKit-only syntax (heredocs, `RUN --mount`, `COPY --link`) | **no** — rejected | yes, via `BUILDKIT_SYNTAX` |
-| `build_args` | yes | yes |
 | `secret_build_args` (from the orchestrator's environment) | yes | yes |
 | `secrets` (Secret Manager) | as build args — **exposed**, see below | as BuildKit secret mounts |
 | `machine_type` / `disk_size_gb` | no — use `resources` | yes |
@@ -1169,7 +1154,7 @@ Two things remain true, neither introduced by the inline-base flow:
   per-image `resources` field is the lever; on Cloud Build it is `machine_type` / `disk_size_gb`.
 
 The tag is a pure function of `(base_dockerfile, base_stage, context_uri, plugins, commands,
-build_args, secret names)`. Build resources and the destination registry deliberately do **not**
+secret names)`. Build resources and the destination registry deliberately do **not**
 participate — they do not change image content. Supplying `version` opts out of hash-based dedupe
 entirely, which is the point when a caller maintains its own content-addressed tags.
 

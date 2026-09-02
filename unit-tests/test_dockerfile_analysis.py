@@ -1,14 +1,13 @@
 """Unit tests for the pure Dockerfile text analysis in `idegym.api.dockerfile_analysis`.
 
 These cover the parsing edge cases the rest of the inline-base feature relies on being right:
-continuation joining, heredoc bodies not being scanned as instructions, stage aliases, and the
-local-vs-stage-vs-remote classification that decides whether a build needs a context at all.
+continuation joining, heredoc bodies not being scanned as instructions, stage aliases, and whether
+a ``COPY``/``ADD`` source needs a build context at all.
 """
 
 import pytest
 from idegym.api.dockerfile_analysis import (
     DEFAULT_ESCAPE,
-    SourceKind,
     buildkit_only_features,
     copy_add_sources,
     escape_character,
@@ -143,9 +142,9 @@ def test_logical_lines_does_not_treat_a_here_string_as_a_heredoc():
 def test_stages_returns_images_and_aliases_in_order():
     content = "FROM debian:bookworm-slim AS builder\nRUN true\nFROM debian:bookworm-slim\n"
     found = stages(content)
-    assert [(stage.index, stage.image, stage.alias) for stage in found] == [
-        (0, "debian:bookworm-slim", "builder"),
-        (1, "debian:bookworm-slim", None),
+    assert [(stage.image, stage.alias) for stage in found] == [
+        ("debian:bookworm-slim", "builder"),
+        ("debian:bookworm-slim", None),
     ]
 
 
@@ -170,44 +169,41 @@ def test_stages_records_the_line_span_of_a_continued_from():
 
 
 # ---------------------------------------------------------------------------
-# COPY / ADD classification
+# COPY / ADD sources
+#
+# The only question any caller asks is whether the source needs a build context to exist.
 # ---------------------------------------------------------------------------
 
 
-def test_copy_add_sources_classifies_a_local_source():
+def test_a_plain_copy_reads_the_build_context():
     found = copy_add_sources("COPY setup.sh /usr/local/bin/setup.sh\n")
-    assert [(item.instruction, item.source, item.kind) for item in found] == [("COPY", "setup.sh", SourceKind.LOCAL)]
+    assert [(item.instruction, item.source, item.reads_build_context) for item in found] == [("COPY", "setup.sh", True)]
 
 
-def test_copy_add_sources_classifies_multiple_local_sources():
+def test_every_source_of_a_multi_source_copy_reads_the_context():
     found = copy_add_sources("COPY a.txt b.txt /dest/\n")
     assert [item.source for item in found] == ["a.txt", "b.txt"]
-    assert all(item.kind is SourceKind.LOCAL for item in found)
+    assert all(item.reads_build_context for item in found)
 
 
-def test_copy_add_sources_classifies_a_stage_source():
-    found = copy_add_sources("COPY --from=builder /usr/bin/foo /usr/bin/foo\n")
-    assert [item.kind for item in found] == [SourceKind.STAGE]
-
-
-def test_copy_add_sources_classifies_a_url_source():
-    found = copy_add_sources("ADD https://example.com/f.tar.gz /tmp/f.tar.gz\n")
-    assert [item.kind for item in found] == [SourceKind.REMOTE]
-
-
-def test_copy_add_sources_classifies_a_git_source():
-    found = copy_add_sources("ADD git@github.com:org/repo.git /src\n")
-    assert [item.kind for item in found] == [SourceKind.REMOTE]
-
-
-def test_copy_add_sources_classifies_a_heredoc_as_inline():
-    found = copy_add_sources("COPY <<EOF /etc/motd\nhello\nEOF\n")
-    assert [item.kind for item in found] == [SourceKind.INLINE]
+@pytest.mark.parametrize(
+    "content",
+    [
+        "COPY --from=builder /usr/bin/foo /usr/bin/foo\n",  # another stage
+        "ADD https://example.com/f.tar.gz /tmp/f.tar.gz\n",  # a URL
+        "ADD git@github.com:org/repo.git /src\n",  # a git reference
+        "COPY <<EOF /etc/motd\nhello\nEOF\n",  # an inline heredoc
+    ],
+)
+def test_sources_that_need_no_build_context(content):
+    found = copy_add_sources(content)
+    assert found
+    assert not any(item.reads_build_context for item in found)
 
 
 def test_copy_add_sources_handles_the_json_array_form():
     found = copy_add_sources('COPY ["setup.sh", "/usr/local/bin/setup.sh"]\n')
-    assert [(item.source, item.kind) for item in found] == [("setup.sh", SourceKind.LOCAL)]
+    assert [(item.source, item.reads_build_context) for item in found] == [("setup.sh", True)]
 
 
 def test_copy_add_sources_joins_a_continued_copy():
@@ -327,7 +323,7 @@ def test_copy_add_sources_accepts_an_escape_override():
 def test_copy_add_sources_handles_the_space_free_json_form():
     # Arrives as a single token, so an arity check alone would drop it and skip the context guard.
     found = copy_add_sources('COPY ["setup.sh","/usr/local/bin/setup.sh"]\n')
-    assert [(item.source, item.kind) for item in found] == [("setup.sh", SourceKind.LOCAL)]
+    assert [(item.source, item.reads_build_context) for item in found] == [("setup.sh", True)]
 
 
 def test_copy_add_sources_strips_quotes_from_a_shell_form_source():

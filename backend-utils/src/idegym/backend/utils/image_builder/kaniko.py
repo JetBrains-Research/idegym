@@ -182,7 +182,7 @@ class KanikoImageBuilder(ImageBuilder):
             node_pool_preference_weight=self._node_pool_preference_weight,
             secret_build_args=spec.secret_build_args,
             context=context,
-            build_args={**spec.build_args, **secret_values},
+            build_args=secret_values,
         )
 
         # Kaniko has no build timeout of its own, so a per-request one is purely the monitor's

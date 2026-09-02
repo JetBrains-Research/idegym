@@ -130,7 +130,6 @@ class DockerService:
             platforms=compiled.platforms,
             dockerfile_content=compiled.dockerfile_content,
             secret_build_args=compiled.secret_build_args,
-            build_args=compiled.build_args,
         )
 
     def build(
@@ -148,7 +147,6 @@ class DockerService:
         platforms: Optional[list[str]] = None,
         dockerfile_content: Optional[str] = None,
         secret_build_args: Optional[list[str]] = None,
-        build_args: Optional[dict[str, str]] = None,
     ) -> DockerImage:
         commands = [] if commands is None else commands
         commands = "\n".join(commands) if isiterable(commands) else commands
@@ -171,7 +169,6 @@ class DockerService:
                 platforms=platforms,
                 rendered=rendered,
                 secret_build_args=secret_build_args,
-                build_args=build_args,
             )
 
     @staticmethod
@@ -238,7 +235,6 @@ class DockerService:
         platforms: Optional[list[str]],
         rendered: str,
         secret_build_args: Optional[list[str]] = None,
-        build_args: Optional[dict[str, str]] = None,
     ) -> DockerImage:
         with NamedTemporaryFile(mode="w", prefix="Dockerfile.", dir=temporary_dir, delete=True) as dockerfile:
             dockerfile.write(rendered)
@@ -249,16 +245,10 @@ class DockerService:
                 raise ValueError("Image name is required when build request is not provided")
 
             tag = f"{self._registry}/{resolved_image_name}:{image_version}"
-            # Caller ARG values go in first so a generated name always wins a collision; the spec's
-            # reserved-prefix check makes that unreachable, but the ordering states the intent.
-            resolved_build_args: dict[str, Optional[str]] = dict(build_args or {})
-            resolved_build_args.update(
-                {
-                    "IDEGYM_REGISTRY": registry,
-                    "IDEGYM_VERSION": service_version,
-                }
-            )
-            build_args = resolved_build_args
+            build_args = {
+                "IDEGYM_REGISTRY": registry,
+                "IDEGYM_VERSION": service_version,
+            }
             if request is not None:
                 build_args.update(
                     {

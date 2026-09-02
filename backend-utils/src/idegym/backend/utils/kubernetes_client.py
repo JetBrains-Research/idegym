@@ -939,9 +939,9 @@ async def build_and_push_image_with_kaniko(
     `/workspace/Dockerfile` mount, independent of the context, so the `COPY` paths resolve
     against whatever the context turns out to be.
 
-    `build_args` supplies values for ARGs the Dockerfile declares. Values are visible in the Job
-    spec and recorded in the image history, so a credential belongs in `secret_build_args` (or,
-    on the Cloud Build backend, a real BuildKit secret mount) rather than here.
+    `build_args` carries already-resolved ARG values, which is how the Kaniko backend passes
+    Secret Manager-backed secrets: it has no `--mount=type=secret`, so a value can only travel as
+    a build arg. Those values are visible in the Job spec and recorded in the image history.
 
     When `insecure_registry` is True the regcred secret volume is omitted and --insecure is
     passed to Kaniko, which allows pushing to plain-HTTP registries (e.g. in-cluster registries

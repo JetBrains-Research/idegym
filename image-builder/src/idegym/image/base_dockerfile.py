@@ -18,7 +18,6 @@ from typing import Optional
 
 from idegym.api.dockerfile_analysis import (
     CopySource,
-    SourceKind,
     copy_add_sources,
     declared_instructions,
     escape_character,
@@ -113,7 +112,7 @@ def local_context_sources(content: str) -> list[CopySource]:
     front rather than letting Kaniko or BuildKit fail halfway through. ``COPY --from=`` and
     ``ADD <url>`` are excluded — they need no context.
     """
-    return [source for source in copy_add_sources(content) if source.kind is SourceKind.LOCAL]
+    return [source for source in copy_add_sources(content) if source.reads_build_context]
 
 
 def overridden_instruction_warning(base_dockerfile: str, generated: str) -> Optional[str]:

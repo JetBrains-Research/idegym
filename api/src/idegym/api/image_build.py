@@ -75,28 +75,18 @@ def validate_build_arg_names(mapping: dict[str, str], *, field: str) -> dict[str
     return mapping
 
 
-def check_build_arg_collisions(
-    build_args: dict[str, str],
-    secrets: dict[str, str],
-    secret_build_args: list[str],
-) -> None:
-    """Reject a name claimed by more than one build-arg source.
+def check_build_arg_collisions(secrets: dict[str, str], secret_build_args: list[str]) -> None:
+    """Reject a name claimed by both secret sources.
 
-    All three end up as ``--build-arg`` on at least one backend, so a name appearing in two of them
-    would emit the instruction twice and leave which value wins up to argument order — silently, and
-    differently per backend.
+    Both end up as ``--build-arg`` on the Kaniko backend, so a name in each would emit the
+    instruction twice and leave which value wins up to argument order — silently.
     """
-
-    def _collide(first: str, second: str, names: set[str]) -> None:
-        if names:
-            raise ValueError(
-                f"{', '.join(sorted(names))} is set in both '{first}' and '{second}'. "
-                "Each build arg name may come from only one source."
-            )
-
-    _collide("build_args", "secrets", set(build_args) & set(secrets))
-    _collide("build_args", "secret_build_args", set(build_args) & set(secret_build_args))
-    _collide("secrets", "secret_build_args", set(secrets) & set(secret_build_args))
+    collisions = set(secrets) & set(secret_build_args)
+    if collisions:
+        raise ValueError(
+            f"{', '.join(sorted(collisions))} is set in both 'secrets' and 'secret_build_args'. "
+            "Each build arg name may come from only one source."
+        )
 
 
 def validate_image_tag(value: str) -> str:
@@ -234,13 +224,6 @@ class ImageBuildSpec(BaseModel):
             "ever receiving context bytes over the API."
         ),
     )
-    build_args: dict[str, str] = Field(
-        default_factory=dict,
-        description=(
-            "Values for ARGs the Dockerfile declares. Not for credentials — a build arg's value is "
-            "recorded in the image history; use 'secrets' or 'secret_build_args' instead."
-        ),
-    )
     secrets: dict[str, str] = Field(
         default_factory=dict,
         description=(
@@ -315,11 +298,6 @@ class ImageBuildSpec(BaseModel):
     def check_context_uri(cls, value: Optional[str]) -> Optional[str]:
         return None if value is None else validate_context_uri(value)
 
-    @field_validator("build_args")
-    @classmethod
-    def check_build_args(cls, value: dict[str, str]) -> dict[str, str]:
-        return validate_build_arg_names(value, field="Build arg")
-
     @field_validator("secrets")
     @classmethod
     def check_secrets(cls, value: dict[str, str]) -> dict[str, str]:
@@ -327,7 +305,7 @@ class ImageBuildSpec(BaseModel):
 
     @model_validator(mode="after")
     def validate_build_arg_namespaces(self):
-        check_build_arg_collisions(self.build_args, self.secrets, self.secret_build_args)
+        check_build_arg_collisions(self.secrets, self.secret_build_args)
         return self
 
     @model_validator(mode="after")
@@ -360,8 +338,6 @@ class ImageBuildSpec(BaseModel):
         # stale cache hit would look like. See the build-context docs.
         if self.context_uri is not None:
             identifiers.append(f"context_uri={self.context_uri}")
-        if self.build_args:
-            identifiers.append(f"build_args={dump_json(self.build_args, sort_keys=True)}")
         if self.secrets:
             # Names only, like ``secret_build_args`` above: a rotated secret behind the same id is
             # the same image as far as the cache is concerned, and hashing the resource names keeps

@@ -530,27 +530,23 @@ def test_context_uri_scheme_is_left_to_the_backend():
 
 
 # ---------------------------------------------------------------------------
-# Build args and secrets
+# Build secrets
 # ---------------------------------------------------------------------------
 
 _SECRET_RESOURCE = "projects/my-project/secrets/gh-token/versions/latest"
 
 
-def test_with_build_args_merges_and_reaches_the_spec():
-    image = Image.from_dockerfile("FROM scratch\n").with_build_args(VERSION="1.2.3").with_build_args(FLAVOUR="slim")
-    assert image.to_spec().build_args == {"VERSION": "1.2.3", "FLAVOUR": "slim"}
-
-
 @mark.parametrize("name", ["1STARTS_WITH_DIGIT", "HAS-HYPHEN", "HAS SPACE", "HAS=EQUALS", ""])
-def test_invalid_build_arg_names_are_rejected(name):
+def test_invalid_secret_ids_are_rejected(name):
+    # A secret id becomes a build arg name on Kaniko, so it is held to the ARG naming rules.
     with raises(ValueError, match="not a valid Dockerfile ARG name"):
-        Image(base="debian:bookworm-slim", build_args={name: "x"})
+        Image(base="debian:bookworm-slim", secrets={name: _SECRET_RESOURCE})
 
 
-def test_reserved_build_arg_prefix_is_rejected():
+def test_reserved_prefix_is_rejected_for_a_secret_id():
     # IDEGYM_* belongs to the generated args; a caller name there would silently shadow one.
     with raises(ValueError, match="reserved"):
-        Image(base="debian:bookworm-slim", build_args={"IDEGYM_VERSION": "9"})
+        Image(base="debian:bookworm-slim", secrets={"IDEGYM_VERSION": _SECRET_RESOURCE})
 
 
 def test_with_secrets_reaches_the_spec():
@@ -640,24 +636,12 @@ def test_the_destination_does_not_participate_in_the_tag():
     assert base.to_spec().image_version() == moved.to_spec().image_version()
 
 
-def test_a_name_in_both_build_args_and_secrets_is_rejected():
+def test_a_name_claimed_by_both_secret_sources_is_rejected():
     # Both become --build-arg on Kaniko, so the winner would depend on argument order.
-    with raises(ValueError, match="both 'build_args' and 'secrets'"):
-        Image(base="debian:bookworm-slim", build_args={"tok": "x"}, secrets={"tok": _SECRET_RESOURCE})
-
-
-def test_the_collision_guard_also_covers_the_fluent_setters():
-    image = Image.from_dockerfile("FROM scratch\n").with_build_args(tok="x")
-    with raises(ValueError, match="both 'build_args' and 'secrets'"):
-        image.with_secrets(tok=_SECRET_RESOURCE)
-
-
-def test_a_plugin_declared_secret_colliding_with_a_build_arg_is_rejected():
-    # secret_build_args are only known once the plugin pipeline runs, so the spec enforces this.
-    with raises(ValueError, match="both 'build_args' and 'secret_build_args'"):
+    with raises(ValueError, match="both 'secrets' and 'secret_build_args'"):
         ImageBuildSpec(
             dockerfile_content="FROM scratch\n",
-            build_args={"MY_TOKEN": "x"},
+            secrets={"MY_TOKEN": _SECRET_RESOURCE},
             secret_build_args=["MY_TOKEN"],
         )
 
@@ -716,13 +700,6 @@ def test_an_inline_base_and_an_equivalent_reference_differ_by_tag():
     assert inline.image_version() != referenced.image_version()
 
 
-def test_changing_a_build_arg_changes_the_tag():
-    base = Image.from_dockerfile("FROM scratch\nARG V\n")
-    assert (
-        base.with_build_args(V="1").to_spec().image_version() != base.with_build_args(V="2").to_spec().image_version()
-    )
-
-
 def test_changing_a_secret_id_changes_the_tag():
     base = Image.from_dockerfile("FROM scratch\n")
     one = base.with_secrets(alpha=_SECRET_RESOURCE).to_spec()
@@ -741,7 +718,7 @@ def test_rotating_a_secret_behind_the_same_id_does_not_change_the_tag():
     assert one.image_version() == two.image_version()
 
 
-def test_adding_no_build_args_or_secrets_leaves_the_tag_alone():
+def test_adding_no_secrets_leaves_the_tag_alone():
     # The conditional hash inputs must not perturb definitions that use none of them.
     plain = Image.from_dockerfile("FROM scratch\n").to_spec()
     assert plain.image_version() == ImageBuildSpec(dockerfile_content=plain.dockerfile_content).image_version()
@@ -816,18 +793,15 @@ def test_local_build_rejects_secret_manager_secrets_with_a_clear_message(mocker)
         service.build_image(image)
 
 
-def test_local_build_accepts_an_inline_base_and_forwards_build_args(mocker):
+def test_local_build_accepts_an_inline_base(mocker):
     # An inline base needs nothing special locally -- it is just Dockerfile text.
     client = mocker.MagicMock()
     client.build.return_value = []
     service = DockerService(client=client)
-    image = Image.from_dockerfile("FROM scratch\nARG FLAVOUR\n", name="env").with_build_args(FLAVOUR="slim")
 
-    service.build_image(image)
+    service.build_image(Image.from_dockerfile("FROM scratch\nRUN true\n", name="env"))
 
-    build_args = client.build.call_args.kwargs["build_args"]
-    assert build_args["FLAVOUR"] == "slim"
-    assert "IDEGYM_VERSION" in build_args
+    assert "IDEGYM_VERSION" in client.build.call_args.kwargs["build_args"]
 
 
 def test_local_build_uses_a_caller_version_for_the_local_tag(mocker):

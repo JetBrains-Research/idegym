@@ -19,8 +19,6 @@ for _ep in _entry_points(group="idegym.plugins.image"):
 from idegym.api.docker import BaseImage
 from idegym.api.image_build import (
     ImageBuildSpec,
-    check_build_arg_collisions,
-    validate_build_arg_names,
     validate_context_uri,
     validate_image_tag,
     validate_image_version,
@@ -137,13 +135,6 @@ class Image(BaseModel):
             "Dockerfile's COPY/ADD sources resolve (e.g. 'gs://bucket/contexts/abc123.tar.gz')."
         ),
     )
-    build_args: dict[str, str] = Field(
-        default_factory=dict,
-        description=(
-            "Values for ARGs the base Dockerfile declares. Never credentials — a build arg's value "
-            "is recorded in the image history; use 'secrets' for those."
-        ),
-    )
     secrets: dict[str, str] = Field(
         default_factory=dict,
         description="Maps a Dockerfile secret id to a Secret Manager resource name. Names only, never values.",
@@ -219,11 +210,6 @@ class Image(BaseModel):
     def check_version(cls, value: Optional[str]) -> Optional[str]:
         return None if value is None else validate_image_version(value)
 
-    @field_validator("build_args")
-    @classmethod
-    def check_build_args(cls, value: dict[str, str]) -> dict[str, str]:
-        return validate_build_arg_names(value, field="Build arg")
-
     @field_validator("secrets")
     @classmethod
     def check_secrets(cls, value: dict[str, str]) -> dict[str, str]:
@@ -235,13 +221,6 @@ class Image(BaseModel):
             raise ValueError(
                 "'tag' is a fully qualified destination and cannot be combined with 'registry' or 'version'"
             )
-        return self
-
-    @model_validator(mode="after")
-    def validate_build_arg_namespaces(self) -> Self:
-        # Plugin-declared secret_build_args are only known once to_spec() runs the pipeline, so the
-        # three-way check lives on ImageBuildSpec; this catches the two-way case at definition time.
-        check_build_arg_collisions(self.build_args, self.secrets, [])
         return self
 
     @model_validator(mode="after")
@@ -446,18 +425,6 @@ class Image(BaseModel):
             }
         )
 
-    def with_build_args(self, **build_args: str) -> Self:
-        """Return a copy with additional ``ARG`` values supplied to the build.
-
-        Values are recorded in the image history, so this is for configuration, not credentials.
-        Note that an ``ARG`` left unset is *unset* rather than empty, so a ``set -u`` script in the
-        base Dockerfile needs ``${VAR:-}``.
-        """
-        merged = {**self.build_args, **build_args}
-        validate_build_arg_names(merged, field="Build arg")
-        check_build_arg_collisions(merged, self.secrets, [])
-        return self.model_copy(update={"build_args": merged})
-
     def with_secrets(self, **secrets: str) -> Self:
         """Return a copy with additional build secrets, given as Secret Manager resource names.
 
@@ -468,7 +435,6 @@ class Image(BaseModel):
         """
         merged = {**self.secrets, **secrets}
         validate_secret_mapping(merged)
-        check_build_arg_collisions(self.build_args, merged, [])
         return self.model_copy(update={"secrets": merged})
 
     def with_runtime(
@@ -557,7 +523,6 @@ class Image(BaseModel):
             resources=self.resources,
             secret_build_args=secret_build_args,
             context_uri=self.context_uri,
-            build_args=dict(self.build_args),
             secrets=dict(self.secrets),
             tag=self.tag,
             registry=self.registry,

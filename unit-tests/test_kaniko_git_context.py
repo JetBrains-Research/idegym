@@ -233,12 +233,6 @@ def _fake_secret_client(mocker, value: str = "s3cret"):
     return client
 
 
-async def test_build_args_reach_the_builder(mocker):
-    spec = ImageBuildSpec(dockerfile_content="FROM scratch", build_args={"FLAVOUR": "slim"})
-    kwargs, _ = await _submit(mocker, spec)
-    assert kwargs["build_args"] == {"FLAVOUR": "slim"}
-
-
 async def test_build_args_become_kaniko_build_arg_flags(mocker):
     args = await _kaniko_args(mocker, build_args={"FLAVOUR": "slim"})
     assert "--build-arg=FLAVOUR=slim" in args
@@ -264,19 +258,8 @@ async def test_a_secret_without_a_version_is_pinned_to_latest(mocker):
     client.access_secret_version.assert_awaited_once_with(name="projects/p/secrets/s/versions/latest")
 
 
-async def test_build_args_and_secrets_are_merged(mocker):
-    spec = ImageBuildSpec(
-        dockerfile_content="FROM scratch",
-        build_args={"FLAVOUR": "slim"},
-        secrets={"gh_token": _SECRET_RESOURCE},
-    )
-    kwargs, _ = await _submit(mocker, spec, secret_manager_client=_fake_secret_client(mocker))
-    assert kwargs["build_args"] == {"FLAVOUR": "slim", "gh_token": "s3cret"}
-
-
 async def test_a_build_with_no_secrets_warns_about_nothing(mocker):
-    spec = ImageBuildSpec(dockerfile_content="FROM scratch", build_args={"FLAVOUR": "slim"})
-    _, handle = await _submit(mocker, spec)
+    _, handle = await _submit(mocker, ImageBuildSpec(dockerfile_content="FROM scratch"))
     assert handle.warnings == ()
 
 

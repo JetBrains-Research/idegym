@@ -91,9 +91,6 @@ def build_cloudbuild_config(
         if spec.request.auth.token is not None:
             docker_args += ["--secret", f"id={AUTH_SECRET_ID},src=./{AUTH_SECRET_SRC}"]
 
-    for key, value in sorted(spec.build_args.items()):
-        docker_args += ["--build-arg", f"{key}={value}"]
-
     # Plugin-declared secrets, resolved from the orchestrator's own environment. Matches the Kaniko
     # backend, which has always done this; this backend used to drop the field entirely, silently
     # breaking the `external_plugins` feature. Empty values are skipped -- an empty credential is
@@ -162,11 +159,9 @@ def needs_buildkit_frontend(spec: ImageBuildSpec) -> bool:
     Docker Hub, adding a rate limit and an egress dependency to builds that never needed either.
     So it is injected only when the Dockerfile actually uses a construct that requires it.
 
-    Skipped when the author pinned their own ``# syntax=``, and when the caller passed an explicit
-    ``BUILDKIT_SYNTAX`` build arg — otherwise ours would be emitted first and silently overridden.
+    Skipped when the author pinned their own ``# syntax=``, which is the documented way to choose a
+    specific frontend.
     """
-    if BUILDKIT_SYNTAX_ARG in spec.build_args:
-        return False
     if has_syntax_directive(spec.dockerfile_content):
         return False
     return bool(buildkit_only_features(spec.dockerfile_content))
