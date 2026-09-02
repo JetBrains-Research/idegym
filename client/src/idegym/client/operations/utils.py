@@ -6,11 +6,12 @@ from json import JSONDecodeError, loads
 from typing import Any, Optional, TypeVar
 from uuid import UUID
 
-from httpx import AsyncClient, HTTPStatusError
+from httpx import AsyncClient, HTTPStatusError, TimeoutException
 from idegym.api.orchestrator.operations import (
     AsyncOperationStatus,
     AsyncOperationStatusResponse,
 )
+from idegym.client.exceptions import IdeGYMTimeoutError, http_error
 from idegym.utils.logging import get_logger
 from pydantic import BaseModel, Field
 
@@ -122,7 +123,14 @@ class HTTPUtils:
             logger.warning(f"Request cancelled: url={url}")
             raise
 
+        except TimeoutException as ex:
+            message = f"Request timed out: url={url} error='{ex}'"
+            logger.error(message)
+            raise IdeGYMTimeoutError(message, method=method, url=url)
+
         except HTTPStatusError as ex:
+            # The message is deliberately unchanged: it predates the typed exceptions and
+            # callers parse it. New code should read `status_code` and `body` instead.
             message = (
                 f"Request failed: url={url} "
                 f"status={ex.response.status_code} "
@@ -130,7 +138,13 @@ class HTTPUtils:
                 f"data='{ex.response.text}'"
             )
             logger.error(message)
-            raise RuntimeError(message)
+            raise http_error(
+                message,
+                status_code=ex.response.status_code,
+                body=ex.response.text,
+                method=method,
+                url=url,
+            )
 
         except JSONDecodeError:
             logger.exception(f"Failed to parse JSON response: url={url} data={response.text!r}")

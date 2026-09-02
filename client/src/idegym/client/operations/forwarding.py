@@ -7,6 +7,7 @@ from idegym.api.exceptions import InspectionsNotReadyException
 from idegym.api.orchestrator.operations import ForwardRequestResponse
 from idegym.api.orchestrator.servers import ErrorResponse
 from idegym.api.paths import API_BASE_PATH
+from idegym.client.exceptions import http_error
 from idegym.client.operations.utils import HTTPUtils, PollingConfig
 from pydantic import BaseModel
 
@@ -56,5 +57,12 @@ class ForwardingOperations:
             if response.status_code == HTTPStatus.TOO_EARLY.value:
                 raise InspectionsNotReadyException()
 
-            # Branching on a response union, not validating an argument's type — RuntimeError is correct.
-            raise RuntimeError(f"Failed to forward request {method} {url}: {response.model_dump()}")  # noqa: TRY004
+            # The message is deliberately unchanged: it predates the typed exceptions and
+            # callers parse it. New code should read `status_code` and `body` instead.
+            raise http_error(
+                f"Failed to forward request {method} {url}: {response.model_dump()}",
+                status_code=response.status_code,
+                body=response.body,
+                method=method,
+                url=url,
+            )
