@@ -185,7 +185,24 @@ print(result.stderr)  # ""
 
 The default retains the beginning and end of stdout and stderr independently and inserts a
 marker when bytes are omitted. Use `max_output_bytes=None` when a caller must parse complete,
-trusted output.
+trusted output. Output is returned verbatim within that window; pass `strip_output=True` if you
+want surrounding whitespace trimmed.
+
+`cwd`, `env` and `user` set per-command context, so you do not have to build `cd`, `export` and
+`runuser` into the script yourself:
+
+```python
+result = await server.execute_bash(
+    "python -m pytest -q",
+    cwd="tests",  # relative paths resolve against the project directory
+    env={"PYTHONHASHSEED": "0"},  # merged over the server's cleaned environment
+    user="devuser",  # requires the server to run as root
+)
+```
+
+Values passed through `env` never enter the command text, so they are not written to the
+command log — prefer it to an `export` line for anything sensitive. See
+[Tools — Per-command context](tools.md#per-command-context).
 
 ### `reset_project(...)`
 

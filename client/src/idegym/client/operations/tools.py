@@ -25,12 +25,20 @@ class ToolsOperations:
         request_timeout: Optional[int] = None,
         polling_config: PollingConfig = PollingConfig(),
         max_output_bytes: Optional[int] = DEFAULT_MAX_OUTPUT_BYTES,
+        strip_output: bool = False,
+        cwd: Optional[str] = None,
+        env: Optional[dict[str, str]] = None,
+        user: Optional[str] = None,
     ) -> BashCommandResponse:
         request = BashCommandRequest(
             command=script,
             timeout=command_timeout,
             graceful_termination_timeout=graceful_termination_timeout,
             max_output_bytes=max_output_bytes,
+            strip_output=strip_output,
+            cwd=cwd,
+            env=env or {},
+            user=user,
         )
         response_raw = await self._forward.forward_request(
             "POST", server_id, ToolsPath.BASH, request, client_id, request_timeout, polling_config

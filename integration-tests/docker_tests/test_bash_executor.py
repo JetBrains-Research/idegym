@@ -8,6 +8,7 @@ from pathlib import Path
 
 import psutil
 import pytest
+from idegym.backend.utils import bash_executor as bash_executor_module
 from idegym.backend.utils.bash_executor import BashCommandExecutionTimeoutError, BashExecutor
 from structlog.testing import capture_logs
 
@@ -79,14 +80,43 @@ class TestBashExecutor:
         assert exit_code != 0
 
     @pytest.mark.asyncio
-    async def test_empty_command(self):
-        """Test executing an empty command."""
+    async def test_empty_command_is_a_no_op(self):
+        """An empty script runs the init prefix and nothing else, rather than failing to parse."""
         executor = BashExecutor()
         stdout, stderr, exit_code = await executor.execute_bash_command("")
 
         assert stdout == ""
-        assert "syntax error" in stderr.lower()
+        assert stderr == ""
+        assert exit_code == 0
+
+    @pytest.mark.asyncio
+    async def test_every_statement_runs_not_just_the_first(self):
+        """`source ... && a; b; c` used to make only `a` conditional; all three must run now."""
+        executor = BashExecutor()
+
+        stdout, _stderr, exit_code = await executor.execute_bash_command(
+            "printf a; printf b; printf c", strip_output=True
+        )
+
+        assert (stdout, exit_code) == ("abc", 0)
+
+    @pytest.mark.asyncio
+    async def test_a_failing_first_statement_still_short_circuits_the_callers_own_chain(self):
+        """The caller's own `&&` must keep working — only the injected one is gone."""
+        executor = BashExecutor()
+
+        stdout, _stderr, exit_code = await executor.execute_bash_command("false && printf 'unreachable'")
+
+        assert stdout == ""
         assert exit_code != 0
+
+    @pytest.mark.asyncio
+    async def test_bash_reports_errors_at_the_callers_own_line_numbers(self):
+        executor = BashExecutor()
+
+        _stdout, stderr, _exit_code = await executor.execute_bash_command("true\ntrue\nthis-command-does-not-exist")
+
+        assert "line 3" in stderr
 
     @pytest.mark.asyncio
     async def test_execute_command_with_working_directory(self):
@@ -135,6 +165,102 @@ class TestBashExecutor:
 
         assert stdout == "��"
         assert exit_code == 3
+
+    @pytest.mark.asyncio
+    async def test_cwd_overrides_the_executor_directory_for_one_command(self, tmp_path):
+        nested = tmp_path / "nested"
+        nested.mkdir()
+        executor = BashExecutor(working_directory=tmp_path)
+
+        relative, _stderr, _code = await executor.execute_bash_command("pwd", cwd="nested", strip_output=True)
+        absolute, _stderr, _code = await executor.execute_bash_command("pwd", cwd=str(nested), strip_output=True)
+        default, _stderr, _code = await executor.execute_bash_command("pwd", strip_output=True)
+
+        assert Path(relative).resolve() == nested.resolve()
+        assert Path(absolute).resolve() == nested.resolve()
+        assert Path(default).resolve() == tmp_path.resolve()
+
+    @pytest.mark.asyncio
+    async def test_env_reaches_the_command_without_entering_the_script(self):
+        executor = BashExecutor()
+
+        with capture_logs() as logs:
+            stdout, _stderr, exit_code = await executor.execute_bash_command(
+                'printf "%s" "$SECRET_TOKEN"', env={"SECRET_TOKEN": "s3cr3t"}
+            )
+
+        assert (stdout, exit_code) == ("s3cr3t", 0)
+        command_log = next(entry for entry in logs if entry["event"] == "Bash command")
+        assert "s3cr3t" not in command_log["command"]
+        start_log = next(entry for entry in logs if entry["event"] == "Executing bash command")
+        assert start_log["env_names"] == ["SECRET_TOKEN"]
+
+    @pytest.mark.asyncio
+    async def test_env_overrides_an_inherited_variable(self, monkeypatch):
+        monkeypatch.setenv("IDEGYM_TEST_MARKER", "inherited")
+        executor = BashExecutor()
+
+        stdout, _stderr, _code = await executor.execute_bash_command(
+            'printf "%s" "$IDEGYM_TEST_MARKER"', env={"IDEGYM_TEST_MARKER": "overridden"}
+        )
+
+        assert stdout == "overridden"
+
+    @pytest.mark.asyncio
+    async def test_a_script_far_larger_than_the_argument_limit_runs(self):
+        """MAX_ARG_STRLEN is 128 KiB; this script is well past it and used to fail with E2BIG."""
+        executor = BashExecutor()
+        payload = "x" * (512 * 1024)
+        script = f'PAYLOAD={payload}\nprintf "%s" "${{#PAYLOAD}}"'
+
+        stdout, stderr, exit_code = await executor.execute_bash_command(script)
+
+        assert (stdout, exit_code) == (str(len(payload)), 0)
+        assert stderr == ""
+
+    @pytest.mark.asyncio
+    async def test_the_script_file_is_removed_after_the_command(self, monkeypatch):
+        executor = BashExecutor()
+        written: list[str] = []
+        original = bash_executor_module._write_script
+
+        def record(script, readable_by_other_user):
+            path = original(script, readable_by_other_user)
+            written.append(path)
+            return path
+
+        monkeypatch.setattr(bash_executor_module, "_write_script", record)
+
+        await executor.execute_bash_command("true")
+
+        assert written and not Path(written[0]).exists()
+
+    @pytest.mark.asyncio
+    async def test_the_script_file_is_removed_after_a_timeout(self, monkeypatch):
+        executor = BashExecutor()
+        written: list[str] = []
+        original = bash_executor_module._write_script
+
+        def record(script, readable_by_other_user):
+            path = original(script, readable_by_other_user)
+            written.append(path)
+            return path
+
+        monkeypatch.setattr(bash_executor_module, "_write_script", record)
+
+        with pytest.raises(BashCommandExecutionTimeoutError):
+            await executor.execute_bash_command("sleep 10", timeout=0.2, graceful_termination_timeout=0.1)
+
+        assert written and not Path(written[0]).exists()
+
+    @pytest.mark.asyncio
+    async def test_a_command_reading_stdin_does_not_consume_the_rest_of_the_script(self):
+        """A script fed to bash on stdin would be eaten by `cat`; running it from a file is safe."""
+        executor = BashExecutor()
+
+        stdout, _stderr, exit_code = await executor.execute_bash_command("cat > /dev/null\nprintf 'still here'")
+
+        assert (stdout, exit_code) == ("still here", 0)
 
     @pytest.mark.asyncio
     async def test_command_with_timeout(self):

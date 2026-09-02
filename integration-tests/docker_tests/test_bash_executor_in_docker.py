@@ -37,7 +37,7 @@ class TestBashExecutorInDocker:
 
     def test_empty_command_in_docker(self):
         """Test executing an empty command in a Docker container."""
-        self._run_test("test_empty_command")
+        self._run_test("test_empty_command_is_a_no_op")
 
     def test_execute_command_with_working_directory_in_docker(self):
         """Test executing a command with a working directory in a Docker container."""
