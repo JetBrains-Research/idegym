@@ -9,8 +9,19 @@ from idegym.api.pod_spec import (
     KubernetesVolumeMount,
 )
 from idegym.api.resources import KubernetesResources
-from idegym.api.type import KubernetesNodeSelector, KubernetesObjectName, OCIImageName
-from pydantic import BaseModel, Field
+from idegym.api.type import (
+    KubernetesAnnotations,
+    KubernetesLabels,
+    KubernetesNodeSelector,
+    KubernetesObjectName,
+    OCIImageName,
+)
+from pydantic import BaseModel, Field, field_validator
+
+# Labels IdeGYM sets itself: the Service selector, the PodDisruptionBudget and the watcher's
+# pod queries all match on these, so a caller must not be able to take them over.
+MANAGED_LABEL_KEYS = frozenset({"app"})
+MANAGED_LABEL_PREFIXES = ("app.kubernetes.io/", "idegym.jetbrains.com/")
 
 
 class ServerReuseStrategy(StrEnum):
@@ -94,6 +105,25 @@ class StartServerRequest(BaseModel):
         description="Kubernetes node selector labels for scheduling the server pod",
         examples=[{"kubernetes.io/os": "linux"}],
     )
+    labels: KubernetesLabels = Field(
+        default_factory=dict,
+        description=(
+            "Extra labels applied to the server's Deployment, Pod, Service and PodDisruptionBudget, "
+            "so a sandbox can be found with 'kubectl get pods -l ...' and grouped for cost "
+            "attribution. Keys IdeGYM manages ('app', 'app.kubernetes.io/*', 'idegym.jetbrains.com/*') "
+            "are rejected rather than silently ignored, since overwriting them would break the "
+            "selectors that address the pod."
+        ),
+        examples=[{"team": "research", "job": "swe-bench-run-42"}],
+    )
+    annotations: KubernetesAnnotations = Field(
+        default_factory=dict,
+        description=(
+            "Extra annotations applied to the server pod. Use for metadata too long or too "
+            "unstructured to be a label, such as a task URL or a serialized request id."
+        ),
+        examples=[{"idegym.example.com/task-url": "https://tracker.example.com/TASK-1"}],
+    )
     volumes: list[KubernetesVolume] = Field(
         default_factory=list,
         description="Pod-level volumes (native Kubernetes shape), mounted into the server container via 'volume_mounts'",
@@ -169,6 +199,20 @@ class StartServerRequest(BaseModel):
         ),
         examples=[0, 3],
     )
+
+    @field_validator("labels")
+    @classmethod
+    def _reject_managed_label_keys(cls, labels: KubernetesLabels) -> KubernetesLabels:
+        """Refuse to accept a label IdeGYM owns rather than accepting and then overwriting it.
+
+        The managed labels are what the Service selector, the PodDisruptionBudget and the
+        watcher's pod queries match on, so a caller who overwrote one would detach their own
+        sandbox from the machinery that manages it.
+        """
+        reserved = sorted(key for key in labels if key in MANAGED_LABEL_KEYS or key.startswith(MANAGED_LABEL_PREFIXES))
+        if reserved:
+            raise ValueError(f"labels may not set IdeGYM-managed keys: {', '.join(reserved)}")
+        return labels
 
 
 class ServerScopedRequest(BaseModel):

@@ -269,6 +269,8 @@ async def deploy_server(
     server_kind: ServerKind = ServerKind.IDEGYM,
     snapshot_id: Optional[str] = None,
     snapshot_tag: Optional[str] = None,
+    extra_labels: Optional[dict[str, str]] = None,
+    extra_annotations: Optional[dict[str, str]] = None,
 ):
     """
     Create a Kubernetes Deployment, Service, and PodDisruptionBudget for a server.
@@ -327,7 +329,10 @@ async def deploy_server(
     )
 
     image_pull_secret = V1LocalObjectReference(name="regcred")
+    # Caller metadata goes on first so a managed key always wins: the selectors that address the
+    # pod are built from the managed labels, and prometheus scraping from the managed annotations.
     annotations = {
+        **(extra_annotations or {}),
         "cluster-autoscaler.kubernetes.io/safe-to-evict": "false",
         **prometheus_annotations,
     }
@@ -341,6 +346,7 @@ async def deploy_server(
         "app.kubernetes.io/part-of": "idegym",
     }
     labels = {
+        **(extra_labels or {}),
         **match_labels,
         "app.kubernetes.io/version": __version__,
         "idegym.jetbrains.com/snapshot-id": snapshot_id or server_name,

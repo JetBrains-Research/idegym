@@ -59,7 +59,12 @@ KubernetesLabelValue = Annotated[
 ]
 
 
+# An annotation key follows the label-key syntax; the value is arbitrary and may be long.
+KubernetesAnnotationKey: TypeAlias = KubernetesLabelKey
+
 KubernetesNodeSelector: TypeAlias = dict[KubernetesLabelKey, KubernetesLabelValue]
+KubernetesLabels: TypeAlias = dict[KubernetesLabelKey, KubernetesLabelValue]
+KubernetesAnnotations: TypeAlias = dict[KubernetesAnnotationKey, str]
 AuthType: TypeAlias = Literal["Basic", "Bearer", "Token"]
 Duration: TypeAlias = timedelta
 LogLevel: TypeAlias = int

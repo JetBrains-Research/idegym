@@ -484,6 +484,8 @@ async def _task_start_server(
                 server_kind=request.server_kind,
                 snapshot_id=request.snapshot.id if request.snapshot else None,
                 snapshot_tag=request.snapshot.tag if request.snapshot else None,
+                extra_labels=request.labels,
+                extra_annotations=request.annotations,
             )
 
             await wait_for_pods_ready(
