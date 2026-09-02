@@ -248,10 +248,11 @@ class FileOperations:
         offset = 0
         # An empty source still sends one request, otherwise the file would never be created.
         while True:
+            chunk = await read_chunk_at(offset)
             response = await self.upload_chunk(
                 server_id=server_id,
                 file_path=file_path,
-                data=await read_chunk_at(offset),
+                data=chunk,
                 offset=offset,
                 client_id=client_id,
                 request_timeout=request_timeout,
@@ -260,6 +261,14 @@ class FileOperations:
             offset += response.bytes_written
             if offset >= total:
                 return response.size
+            if not chunk:
+                # The loop advances by bytes written, so a short read before `total` would spin
+                # forever sending empty chunks. Happens when the source shrinks mid-upload:
+                # `total` was measured up front, and reads past the new end return nothing.
+                raise RuntimeError(
+                    f"Upload source ended at {offset} bytes, before the expected {total}: "
+                    f"it shrank while {file_path} was being uploaded"
+                )
 
     async def _download_chunks(
         self,
