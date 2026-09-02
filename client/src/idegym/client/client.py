@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Optional
 from uuid import UUID, uuid4
 
-from httpx import AsyncClient
+from httpx import AsyncBaseTransport, AsyncClient, Limits
 from idegym.api.auth import BasicAuth
 from idegym.api.config import OTELConfig, TracingConfig
 from idegym.api.health import HealthCheckResponse
@@ -62,6 +62,11 @@ class ServerCloseAction(StrEnum):
 class IdeGYMClient:
     """
     HTTP client for interacting with the IdeGYM orchestrator and server APIs.
+
+    **This object is bound to the event loop that created it.** It owns an ``httpx`` session and
+    a heartbeat task, so every call has to be awaited on that same loop. If you drive sandboxes
+    from more than one loop, use :class:`~idegym.client.shared.SharedIdeGYMClient`, which owns a
+    loop in its own thread and lets any caller share one registration.
     """
 
     def __init__(
@@ -75,6 +80,9 @@ class IdeGYMClient:
         heartbeat_interval_in_seconds: int = 60,
         request_timeout_in_seconds: int = 60,
         otel_config: Optional[OTELConfig] = None,
+        transport: Optional[AsyncBaseTransport] = None,
+        limits: Optional[Limits] = None,
+        http_client: Optional[AsyncClient] = None,
     ):
         """
         Initialize the IdeGYM HTTP client.
@@ -94,6 +102,17 @@ class IdeGYMClient:
             otel_config: OpenTelemetry configuration for tracing. Falls back to ``IDEGYM_OTEL_*``
                 environment variables when not provided. Tracing stays off unless an endpoint is
                 configured, either here or through ``IDEGYM_OTEL_TRACING_ENDPOINT``.
+            transport: Transport for the HTTP client this object builds — for an alternative HTTP
+                stack, a recording transport in tests, or a proxy.
+            limits: Connection-pool limits for the HTTP client this object builds.
+            http_client: A fully configured ``httpx.AsyncClient`` to use verbatim. Nothing about it
+                is modified, so it must already carry ``base_url`` and any authentication, and it
+                is not closed on exit — its owner closes it. Mutually exclusive with ``transport``
+                and ``limits``.
+
+        Raises:
+            ValueError: if ``http_client`` is combined with ``transport`` or ``limits``, since the
+                supplied client is used as-is and those arguments would be silently ignored.
         """
         if orchestrator_url == "idegym.test":
             orchestrator_url = f"http://{orchestrator_url}"
@@ -107,20 +126,34 @@ class IdeGYMClient:
         if not orchestrator_url == "http://idegym.test" and not (auth.username and auth.password):
             raise ValueError("Username and password must be provided or set in environment variables")
 
-        http_client = AsyncClient(
-            base_url=orchestrator_url,
-            timeout=request_timeout_in_seconds,
-            headers=(
-                {
-                    "Authorization": f"Basic {credential}",
-                    "Content-Type": "application/json",
-                }
-                if (credential := auth.base64)
-                else {
-                    "Content-Type": "application/json",
-                }
-            ),
-        )
+        if http_client is not None and (transport is not None or limits is not None):
+            raise ValueError(
+                "transport and limits configure the client IdeGYM builds; they do not apply to http_client"
+            )
+
+        # A supplied client belongs to its caller: used as-is, and closed by them, not here.
+        owns_http_client = http_client is None
+        if http_client is None:
+            http_client = AsyncClient(
+                base_url=orchestrator_url,
+                timeout=request_timeout_in_seconds,
+                transport=transport,
+                # Only override when asked: a bare `Limits()` is not httpx's default. It sets
+                # max_connections=None, which removes the 100-connection pool cap entirely, so
+                # passing it unconditionally would unbound the pool for every caller that never
+                # asked to configure one.
+                **({"limits": limits} if limits is not None else {}),
+                headers=(
+                    {
+                        "Authorization": f"Basic {credential}",
+                        "Content-Type": "application/json",
+                    }
+                    if (credential := auth.base64)
+                    else {
+                        "Content-Type": "application/json",
+                    }
+                ),
+            )
 
         # Tracing is opt-in: with no endpoint the exporter is never built, so a caller who
         # does not know about OTEL cannot end up shipping telemetry off their infrastructure.
@@ -142,6 +175,7 @@ class IdeGYMClient:
         )
 
         self._http_client: AsyncClient = http_client
+        self._owns_http_client: bool = owns_http_client
         self._otel_config: OTELConfig = otel_config
 
         self._heartbeat_interval_in_seconds: int = heartbeat_interval_in_seconds
@@ -216,7 +250,8 @@ class IdeGYMClient:
             client=self._http_client,
             config=self._otel_config,
         )
-        await self._http_client.aclose()
+        if self._owns_http_client:
+            await self._http_client.aclose()
 
     async def health_check(self) -> HealthCheckResponse:
         response_raw = await self._utils.make_request("GET", "/health")

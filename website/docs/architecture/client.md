@@ -67,9 +67,16 @@ async with IdeGYMClient(
 ```
 
 Key methods: `with_server(...)` (start + auto-cleanup), explicit `start_server` /
-`stop_server` / `finish_server`, `jobs.build_and_push_images(...)`, and `health_check()`.
-The `reuse_strategy` (`NONE` / `RESTART` / `RESET`) and `close_action` (`FINISH` / `STOP`)
-control reuse — central to fast RL episodes.
+`stop_server` / `finish_server`, `list_servers()` (what this registration owns),
+`jobs.build_and_push_images(...)`, and `health_check()`. The `reuse_strategy`
+(`NONE` / `RESTART` / `RESET`) and `close_action` (`FINISH` / `STOP`) control reuse — central
+to fast RL episodes.
+
+The client is **bound to the loop that created it**: it owns an `httpx` session and a heartbeat
+task. Since deregistering terminates every server a client owns, an integration that drives
+sandboxes from several loops has to share one registration rather than open two — which is what
+`SharedIdeGYMClient` is for. It owns a loop in a dedicated thread and marshals calls onto it.
+See the [client reference](/reference/client).
 
 ## `IdeGYMServer`
 

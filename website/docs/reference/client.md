@@ -64,6 +64,9 @@ IdeGYMClient(
     heartbeat_interval_in_seconds: int = 60,
     request_timeout_in_seconds: int = 60,
     otel_config: Optional[OTELConfig] = None,
+    transport: Optional[httpx.AsyncBaseTransport] = None,
+    limits: Optional[httpx.Limits] = None,
+    http_client: Optional[httpx.AsyncClient] = None,
 )
 ```
 
@@ -78,6 +81,29 @@ IdeGYMClient(
 | `heartbeat_interval_in_seconds` | How often to send liveness heartbeats to the orchestrator (default: `60`) |
 | `request_timeout_in_seconds` | Default HTTP request timeout (default: `60`) |
 | `otel_config` | OpenTelemetry tracing configuration |
+| `transport` | Transport for the HTTP client IdeGYM builds — an alternative HTTP stack, a proxy, or a recording transport in tests |
+| `limits` | Connection-pool limits for the HTTP client IdeGYM builds; omit for httpx's defaults (100 connections, 20 keep-alive) |
+| `http_client` | A fully configured `httpx.AsyncClient` to use verbatim |
+
+**Configuring the HTTP stack:**
+
+```python
+import httpx
+
+client = IdeGYMClient(
+    orchestrator_url="https://idegym.yourdomain.com",
+    name="my-training-run",
+    namespace="idegym",
+    limits=httpx.Limits(max_connections=64, max_keepalive_connections=16),
+    transport=my_transport,
+)
+```
+
+`http_client` is the full escape hatch. It is used exactly as given — nothing about it is
+modified, so it must already carry `base_url` and any authentication — and it is **not** closed
+when the `IdeGYMClient` context exits, because it belongs to its caller. A client IdeGYM builds
+itself is closed on exit as before. Passing `http_client` together with `transport` or `limits`
+raises `ValueError` rather than ignoring them.
 
 **Authentication via environment variables:**
 
@@ -130,6 +156,19 @@ server = await client.start_server(image_tag=..., server_name=..., ...)
 await client.finish_server(server)  # release without stopping
 # or
 await client.stop_server(server)    # stop and delete
+```
+
+`stop_server` and `restart_server` **raise** when the operation fails, like the rest of the
+API — they do not report failure as a return value. There is no return value to check, so a
+failed delete cannot be mistaken for a successful one and leak the pod:
+
+```python
+from idegym.client import IdeGYMHTTPError
+
+try:
+    await client.stop_server(server)
+except IdeGYMHTTPError as e:
+    ...  # the pod may still be running; the server is not stopped
 ```
 
 #### Server reuse
@@ -205,6 +244,47 @@ image_tag = summary.jobs_results[0].tag
 response = await client.health_check()
 print(response.status)  # → "healthy"
 ```
+
+---
+
+## Threads and event loops
+
+`IdeGYMClient` is **bound to the event loop that created it**. It owns an `httpx` session and a
+heartbeat task, so every call has to be awaited on that same loop. One asyncio program with one
+loop needs to know nothing more than this.
+
+It matters when a caller drives sandboxes from several loops — a synchronous facade with one
+loop per sandbox, for instance. Sharing one registration across them is not optional
+bookkeeping: **deregistering a client terminates every server it owns**, so two registrations in
+one process means either can tear down the other's sandboxes.
+
+`SharedIdeGYMClient` owns a loop in a dedicated thread and marshals every call onto it, so any
+thread — including one already running its own loop — can share the single registration:
+
+```python
+from idegym.client import SharedIdeGYMClient
+
+with SharedIdeGYMClient(
+    orchestrator_url="https://idegym.yourdomain.com",
+    name="my-training-run",
+    namespace="idegym",
+) as shared:
+    server = shared.run(lambda client: client.start_server(image_tag="registry.example.com/env:latest"))
+    result = shared.run(lambda _: server.execute_bash("echo hi"))
+    shared.run(lambda client: client.stop_server(server))
+```
+
+It takes the same arguments as `IdeGYMClient` and registers on entry, exactly as
+`async with IdeGYMClient(...)` would.
+
+| Method | Description |
+|--------|-------------|
+| `run(call, timeout=None)` | Run `call(client)` on the owned loop and return its result |
+| `submit(call)` | Schedule `call(client)` and return a `concurrent.futures.Future` |
+| `client` | The underlying `IdeGYMClient`; only touch it from inside a `call` |
+
+`call` takes the client and returns an awaitable, rather than being an awaitable itself, so the
+awaitable is created on the owning loop — nothing ever binds to the caller's.
 
 ---
 
