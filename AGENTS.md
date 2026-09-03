@@ -42,10 +42,10 @@ Dependency direction matters and is easy to break:
   else may import both. Keep their third-party dependency lists small — every service pays
   for anything added there.
 - `backend-utils` depends on `api` and **not** on `image-builder`. So logic a build backend
-  needs — anything under `backend-utils/.../image_builder/` — has to live in `api/` or in
-  `backend-utils` itself, never beside the `Image` model. `api/src/idegym/api/dockerfile_analysis.py`
-  exists for exactly this reason: both backends must reason about Dockerfile text, and
-  `image-builder` builds its base-Dockerfile normalization on the same primitives.
+  needs — anything under `backend-utils/.../image_builder/` — has to live in `common-utils/`,
+  `api/`, or `backend-utils` itself, never beside the `Image` model. Prefer `common-utils` when
+  it carries no models: `idegym.utils.dockerfile` is pure text analysis, shared by both backends
+  and by `image-builder`'s base-Dockerfile normalization.
 - `watcher` depends on `orchestrator` deliberately, for the shared database layer and
   process setup. It is the one service-to-service dependency; do not add more.
 - `server` runs in a *different image* from the control plane and must never import

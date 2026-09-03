@@ -3,12 +3,12 @@ from dataclasses import dataclass
 from os import environ as env
 from typing import Optional
 
-from idegym.api.dockerfile_analysis import buildkit_only_features
 from idegym.api.image_build import ImageBuildSpec, context_uri_scheme
 from idegym.api.status import Status
 from idegym.backend.utils.image_builder.base import BuildHandle, ImageBuilder
 from idegym.backend.utils.image_builder.secrets import build_arg_exposure_warning, resolve_secret_values
 from idegym.backend.utils.kubernetes_client import build_and_push_image_with_kaniko, get_job_status
+from idegym.utils.dockerfile import buildkit_only_features
 from idegym.utils.logging import get_logger
 
 logger = get_logger(__name__)

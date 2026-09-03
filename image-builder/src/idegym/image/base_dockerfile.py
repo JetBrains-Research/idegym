@@ -6,13 +6,13 @@ Making that merge safe is the job here: the text is emitted verbatim apart from 
 alias on the stage acting as the base, and only when it does not already declare one — renaming a
 user stage would break their own ``COPY --from=`` references.
 
-Parsing is delegated to `idegym.api.dockerfile_analysis`.
+Parsing is delegated to `idegym.utils.dockerfile`.
 """
 
 from dataclasses import dataclass
 from typing import Optional
 
-from idegym.api.dockerfile_analysis import (
+from idegym.utils.dockerfile import (
     CopySource,
     copy_add_sources,
     declared_instructions,

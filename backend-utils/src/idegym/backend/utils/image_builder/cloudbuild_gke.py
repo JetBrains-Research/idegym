@@ -10,11 +10,11 @@ from shlex import quote
 from typing import Any, Optional, TypeVar
 from urllib.parse import quote as url_quote
 
-from idegym.api.dockerfile_analysis import buildkit_only_features, has_syntax_directive
 from idegym.api.image_build import ImageBuildSpec, context_uri_scheme
 from idegym.api.status import Status
 from idegym.backend.utils.image_builder.base import BuildHandle, ImageBuilder
 from idegym.backend.utils.image_builder.secrets import secret_version_name
+from idegym.utils.dockerfile import buildkit_only_features, has_syntax_directive
 from idegym.utils.logging import get_logger
 
 logger = get_logger(__name__)

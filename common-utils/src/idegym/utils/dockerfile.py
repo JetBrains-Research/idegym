@@ -1,14 +1,3 @@
-"""Pure text analysis of Dockerfile content.
-
-Lives in ``api`` because both build backends need it and ``backend-utils`` depends on ``api``
-alone; `idegym.image.base_dockerfile` builds its normalization on the same primitives. No
-Pydantic, no I/O.
-
-Scanning happens at *logical* line level, the way Docker parses: continuations are joined and
-heredoc bodies are skipped, so a ``RUN cat <<EOF`` whose body mentions ``FROM`` is not read as a
-stage declaration.
-"""
-
 import json
 import re
 from collections.abc import Iterable
