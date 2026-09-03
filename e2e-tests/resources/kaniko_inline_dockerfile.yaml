@@ -2,12 +2,15 @@
 # pre-published image reference. Exercises the whole merge on a real Kaniko build:
 #
 #   * two user stages with a COPY --from between them, which must survive aliasing untouched;
+#     the base image runs as appuser, and the user's stages are emitted verbatim, so the first
+#     stage has to take root itself — the generated idegym stage is the only one given it;
 #   * an ENV set in the base stage, which the generated idegym stage must inherit via FROM <alias>;
 #   * a commands block running against that inherited configuration.
 images:
   - name: inline-base-env
     base_dockerfile: |
       FROM registry.kube-system.svc.cluster.local/server-debian-bookworm-20250520-slim:latest AS toolchain
+      USER root
       RUN set -eux; \
           mkdir -p /artifacts; \
           printf '%s\n' 'built-in-an-earlier-stage' > /artifacts/marker.txt
