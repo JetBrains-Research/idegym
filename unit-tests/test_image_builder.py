@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 from textwrap import dedent
 
+from idegym.api.image_build import ImageBuildSpec
 from idegym.api.plugin import BuildContext, PluginBase, get_all_server_plugins, image_plugin, server_plugin
 from idegym.image.builder import Image
 from idegym.image.docker_service import DockerService
@@ -341,8 +342,477 @@ def test_image_to_spec_image_version_differs_on_change():
 
 
 # ---------------------------------------------------------------------------
+# Inline Dockerfile base
+# ---------------------------------------------------------------------------
+
+_BASE_DOCKERFILE = dedent(
+    """\
+    FROM debian:bookworm-slim AS builder
+    RUN apt-get update && apt-get install -y build-essential
+    FROM debian:bookworm-slim
+    COPY --from=builder /usr/bin/foo /usr/bin/foo
+    """
+)
+
+
+class _StagePlugin(PluginBase):
+    """Emits a build stage, to prove plugin stages coexist with an inline base."""
+
+    def get_build_stages(self, ctx: BuildContext) -> list[str]:
+        return ["FROM alpine:3 AS helper\nRUN touch /artifact"]
+
+    def render(self, ctx: BuildContext) -> str:
+        return "COPY --from=helper /artifact /artifact"
+
+
+def test_image_requires_exactly_one_base_form():
+    with raises(ValueError, match="Exactly one of 'base'"):
+        Image()
+    with raises(ValueError, match="Exactly one of 'base'"):
+        Image(base="debian:bookworm-slim", base_dockerfile="FROM scratch\n")
+
+
+def test_image_rejects_base_stage_without_a_base_dockerfile():
+    with raises(ValueError, match="has no meaning alongside 'base'"):
+        Image(base="debian:bookworm-slim", base_stage="builder")
+
+
+def test_from_dockerfile_builds_an_image():
+    image = Image.from_dockerfile(_BASE_DOCKERFILE, name="my-env")
+    assert image.base is None
+    assert image.base_dockerfile == _BASE_DOCKERFILE
+    assert image.name == "my-env"
+
+
+def test_from_dockerfile_path_inlines_the_content_at_authoring_time(tmp_path):
+    # The orchestrator only ever receives yaml_content as a string, so a path must not survive.
+    path = tmp_path / "Dockerfile"
+    path.write_text(_BASE_DOCKERFILE)
+    image = Image.from_dockerfile_path(path)
+    assert image.base_dockerfile == _BASE_DOCKERFILE
+
+
+def test_inline_base_renders_user_stages_verbatim_then_the_idegym_stage():
+    dockerfile = Image.from_dockerfile(_BASE_DOCKERFILE).to_spec().dockerfile_content
+    builder_pos = dockerfile.index("FROM debian:bookworm-slim AS builder")
+    aliased_pos = dockerfile.index("FROM debian:bookworm-slim AS idegym_base")
+    copy_pos = dockerfile.index("COPY --from=builder /usr/bin/foo /usr/bin/foo")
+    base_pos = dockerfile.index("FROM idegym_base")
+    assert builder_pos < aliased_pos < copy_pos < base_pos
+
+
+def test_inline_base_generated_segment_is_byte_identical_to_the_base_reference_form():
+    """Switching an existing definition to an inline base must produce an equivalent image.
+
+    Everything after the primary ``FROM`` is generated, so it has to match the pre-published-base
+    rendering exactly; only the ``FROM`` target itself may differ.
+    """
+    plugins = (BaseSystem(), User(username="appuser", uid=1000, gid=1000))
+    inline = Image.from_dockerfile("FROM debian:bookworm-slim\n")
+    referenced = Image.from_base("debian:bookworm-slim")
+    for plugin in plugins:
+        inline = inline.with_plugin(plugin)
+        referenced = referenced.with_plugin(plugin)
+
+    inline_rendered = inline.to_spec().dockerfile_content
+    referenced_rendered = referenced.to_spec().dockerfile_content
+    marker = 'SHELL ["/bin/bash", "-c"]'
+    assert inline_rendered[inline_rendered.index(marker) :] == referenced_rendered[referenced_rendered.index(marker) :]
+
+
+def test_inline_base_coexists_with_plugin_build_stages():
+    dockerfile = Image.from_dockerfile(_BASE_DOCKERFILE).with_plugin(_StagePlugin()).to_spec().dockerfile_content
+    # The user's stages come first so their pre-FROM ARGs stay in scope; the plugin stage follows
+    # so it may reference the base alias.
+    assert dockerfile.index("AS builder") < dockerfile.index("FROM alpine:3 AS helper")
+    assert dockerfile.index("FROM alpine:3 AS helper") < dockerfile.index("FROM idegym_base")
+
+
+class _EntrypointPlugin(PluginBase):
+    """Stands in for idegym-server, which emits ENTRYPOINT/CMD/HEALTHCHECK of its own."""
+
+    def render(self, ctx: BuildContext) -> str:
+        return 'ENTRYPOINT ["dumb-init", "--"]\nCMD ["entrypoint"]'
+
+
+def test_a_base_entrypoint_the_pipeline_overrides_is_reported_on_the_spec():
+    """Otherwise a base whose ENTRYPOINT performs the setup loses it with nothing reporting it."""
+    image = Image.from_dockerfile('FROM scratch\nENTRYPOINT ["/setup.sh"]\n').with_plugin(_EntrypointPlugin())
+    (warning,) = image.to_spec().warnings
+    assert "ENTRYPOINT (line 2)" in warning
+
+
+def test_no_warning_when_nothing_overrides_the_base_entrypoint():
+    image = Image.from_dockerfile('FROM scratch\nENTRYPOINT ["/setup.sh"]\n').with_plugin(BaseSystem())
+    assert image.to_spec().warnings == []
+
+
+def test_the_base_reference_form_never_warns_about_instructions():
+    # There is no base_dockerfile to inspect, so the check does not apply.
+    assert Image.from_base("debian:bookworm-slim").with_plugin(_EntrypointPlugin()).to_spec().warnings == []
+
+
+def test_warnings_do_not_participate_in_the_tag():
+    # They describe the image; they never change it.
+    dockerfile = 'FROM scratch\nENTRYPOINT ["/setup.sh"]\n'
+    warned = Image.from_dockerfile(dockerfile).with_plugin(_EntrypointPlugin()).to_spec()
+    assert warned.warnings
+    assert warned.image_version() == warned.model_copy(update={"warnings": []}).image_version()
+
+
+def test_inline_base_sets_the_build_context_base_to_the_alias():
+    # BuildContext.base must stay a valid FROM target for plugins that interpolate it.
+    assert "FROM idegym_base" in Image.from_dockerfile("FROM scratch\n").to_spec().dockerfile_content
+
+
+def test_inline_base_honours_base_stage():
+    dockerfile = Image.from_dockerfile(_BASE_DOCKERFILE, base_stage="builder").to_spec().dockerfile_content
+    assert "FROM builder" in dockerfile
+    assert "idegym_base" not in dockerfile
+
+
+def test_inline_base_rejects_a_reserved_user_stage_name():
+    with raises(ValueError, match="reserved"):
+        Image.from_dockerfile("FROM scratch AS idegym_mine\nFROM scratch\n")
+
+
+def test_inline_base_rejects_a_dockerfile_without_a_from():
+    with raises(ValueError, match="contains no FROM instruction"):
+        Image.from_dockerfile("RUN echo hello\n")
+
+
+def test_inline_base_rejects_an_unknown_base_stage():
+    with raises(ValueError, match="Declared stages: builder"):
+        Image.from_dockerfile(_BASE_DOCKERFILE, base_stage="nope")
+
+
+def test_inline_base_rejects_a_reference_to_the_auth_token_arg():
+    with raises(ValueError, match="IDEGYM_AUTH_TOKEN"):
+        Image.from_dockerfile("FROM scratch\nARG IDEGYM_AUTH_TOKEN\nRUN echo $IDEGYM_AUTH_TOKEN\n")
+
+
+# ---------------------------------------------------------------------------
+# Build context by reference
+# ---------------------------------------------------------------------------
+
+
+def test_local_copy_without_a_context_is_rejected():
+    image = Image.from_dockerfile("FROM scratch\nCOPY setup.sh /setup.sh\n")
+    with raises(ValueError, match="no 'context_uri' is set"):
+        image.to_spec()
+
+
+def test_local_copy_with_a_context_is_accepted():
+    image = Image.from_dockerfile("FROM scratch\nCOPY setup.sh /setup.sh\n", context_uri="gs://bucket/ctx.tar.gz")
+    assert image.to_spec().context_uri == "gs://bucket/ctx.tar.gz"
+
+
+def test_stage_and_url_copies_need_no_context():
+    content = "FROM scratch AS a\nFROM scratch\nCOPY --from=a /x /x\nADD https://example.com/f /f\n"
+    assert Image.from_dockerfile(content).to_spec().context_uri is None
+
+
+def test_with_context_is_chainable_after_from_dockerfile():
+    image = Image.from_dockerfile("FROM scratch\nCOPY setup.sh /setup.sh\n").with_context("gs://bucket/ctx.tar.gz")
+    assert image.to_spec().context_uri == "gs://bucket/ctx.tar.gz"
+
+
+@mark.parametrize("value", ["bucket/object.tar.gz", "gs:/bucket/object", "not a uri", "://bucket/o"])
+def test_malformed_context_uri_is_rejected(value):
+    with raises(ValueError, match="not well formed"):
+        Image(base="debian:bookworm-slim", context_uri=value)
+
+
+def test_context_uri_scheme_is_left_to_the_backend():
+    # The model is deliberately opaque about the scheme; Kaniko supports several, Cloud Build one.
+    for uri in ("gs://b/o.tar.gz", "s3://b/o.tar.gz", "https://example.com/o.tar.gz"):
+        assert Image(base="debian:bookworm-slim", context_uri=uri).context_uri == uri
+
+
+# ---------------------------------------------------------------------------
+# Build secrets
+# ---------------------------------------------------------------------------
+
+_SECRET_RESOURCE = "projects/my-project/secrets/gh-token/versions/latest"
+
+
+@mark.parametrize("name", ["1STARTS_WITH_DIGIT", "HAS-HYPHEN", "HAS SPACE", "HAS=EQUALS", ""])
+def test_invalid_secret_ids_are_rejected(name):
+    # A secret id becomes a build arg name on Kaniko, so it is held to the ARG naming rules.
+    with raises(ValueError, match="not a valid Dockerfile ARG name"):
+        Image(base="debian:bookworm-slim", secrets={name: _SECRET_RESOURCE})
+
+
+def test_reserved_prefix_is_rejected_for_a_secret_id():
+    # IDEGYM_* belongs to the generated args; a caller name there would silently shadow one.
+    with raises(ValueError, match="reserved"):
+        Image(base="debian:bookworm-slim", secrets={"IDEGYM_VERSION": _SECRET_RESOURCE})
+
+
+def test_with_secrets_reaches_the_spec():
+    image = Image.from_dockerfile("FROM scratch\n").with_secrets(gh_token=_SECRET_RESOURCE)
+    assert image.to_spec().secrets == {"gh_token": _SECRET_RESOURCE}
+
+
+def test_secrets_accept_a_resource_name_without_a_version():
+    image = Image(base="debian:bookworm-slim", secrets={"tok": "projects/p/secrets/s"})
+    assert image.secrets == {"tok": "projects/p/secrets/s"}
+
+
+@mark.parametrize("resource", ["ghp_averyrealtokenvalue", "secrets/s", "projects/p/secrets", ""])
+def test_secrets_reject_anything_that_is_not_a_resource_name(resource):
+    # Guards against a caller pasting the secret value into a field that is serialized into a
+    # build request and a job record.
+    with raises(ValueError, match="Secret Manager resource name"):
+        Image(base="debian:bookworm-slim", secrets={"tok": resource})
+
+
+def test_secret_ids_are_held_to_the_build_arg_name_rules():
+    # Kaniko has no secret mounts and passes each id as a build arg, so the id must be a valid one.
+    with raises(ValueError, match="not a valid Dockerfile ARG name"):
+        Image(base="debian:bookworm-slim", secrets={"bad id": _SECRET_RESOURCE})
+
+
+def test_secret_ids_differing_only_in_case_are_rejected():
+    # Cloud Build derives the env var name by upper-casing, so these would collide into one.
+    with raises(ValueError, match="differ only in case"):
+        Image(base="debian:bookworm-slim", secrets={"tok": _SECRET_RESOURCE, "TOK": _SECRET_RESOURCE})
+
+
+@mark.parametrize("version", ["v1 && evil:tag", "has space", "-leading-hyphen", "a" * 129, ""])
+def test_an_invalid_destination_version_is_rejected(version):
+    # `version` becomes the push destination and the persisted job tag, so it is validated like one.
+    with raises(ValueError, match="not a valid tag component"):
+        Image(base="debian:bookworm-slim", version=version)
+
+
+@mark.parametrize("registry", ["has space", "europe-west1-docker.pkg.dev/p/r:v1", "/leading-slash", ""])
+def test_an_invalid_destination_registry_is_rejected(registry):
+    with raises(ValueError, match="not a valid reference"):
+        Image(base="debian:bookworm-slim", registry=registry)
+
+
+def test_a_valid_registry_and_version_are_accepted():
+    image = Image(base="debian:bookworm-slim", registry="europe-west1-docker.pkg.dev/p/r", version="abc123")
+    assert (image.registry, image.version) == ("europe-west1-docker.pkg.dev/p/r", "abc123")
+
+
+def test_chaining_with_destination_cannot_leave_tag_and_registry_both_set():
+    # model_copy() skips the model validator, so the merged result is re-checked in the setter.
+    image = Image.from_dockerfile("FROM scratch\n").with_destination(registry="europe-west1-docker.pkg.dev/p/r")
+    with raises(ValueError, match="cannot be combined"):
+        image.with_destination(tag="europe-west1-docker.pkg.dev/p/r/env:v1")
+
+
+def test_with_destination_validates_its_registry_and_version():
+    with raises(ValueError, match="not a valid tag component"):
+        Image.from_dockerfile("FROM scratch\n").with_destination(version="v1 && evil:tag")
+
+
+@mark.parametrize("field", ["timeout_seconds", "disk_size_gb"])
+def test_with_build_resources_rejects_a_non_positive_value(field):
+    # model_copy() bypasses field validation, so the fluent setter has to re-check.
+    with raises(ValueError, match="must be at least 1"):
+        Image.from_dockerfile("FROM scratch\n").with_build_resources(**{field: 0})
+
+
+def test_with_build_resources_accepts_valid_values():
+    image = Image.from_dockerfile("FROM scratch\n").with_build_resources(
+        timeout_seconds=5400, machine_type="E2_HIGHCPU_8", disk_size_gb=500
+    )
+    spec = image.to_spec()
+    assert (spec.timeout_seconds, spec.machine_type, spec.disk_size_gb) == (5400, "E2_HIGHCPU_8", 500)
+
+
+def test_build_resources_do_not_participate_in_the_tag():
+    # They do not change image content, so folding them in would cause needless rebuilds.
+    base = Image.from_dockerfile("FROM scratch\n")
+    assert base.to_spec().image_version() == base.with_build_resources(timeout_seconds=5400).to_spec().image_version()
+
+
+def test_the_destination_does_not_participate_in_the_tag():
+    base = Image.from_dockerfile("FROM scratch\n", name="env")
+    moved = base.with_destination(registry="europe-west1-docker.pkg.dev/p/r")
+    assert base.to_spec().image_version() == moved.to_spec().image_version()
+
+
+def test_a_name_claimed_by_both_secret_sources_is_rejected():
+    # Both become --build-arg on Kaniko, so the winner would depend on argument order.
+    with raises(ValueError, match="both 'secrets' and 'secret_build_args'"):
+        ImageBuildSpec(
+            dockerfile_content="FROM scratch\n",
+            secrets={"MY_TOKEN": _SECRET_RESOURCE},
+            secret_build_args=["MY_TOKEN"],
+        )
+
+
+# ---------------------------------------------------------------------------
+# Tag determinism
+# ---------------------------------------------------------------------------
+
+
+def test_existing_definitions_keep_their_tag():
+    """A new hash input must not invalidate already-built images.
+
+    The identifiers for a spec with no context are labels, context path, Dockerfile and secret
+    names, in that order — this is that concatenation, hashed independently of the model.
+    """
+    from hashlib import md5
+
+    spec = ImageBuildSpec(dockerfile_content="FROM scratch\n")
+    assert spec.image_version() == md5(b"{}.FROM scratch\n[]").hexdigest()
+
+
+def test_identical_inline_definitions_produce_the_same_tag():
+    def build():
+        return (
+            Image.from_dockerfile(_BASE_DOCKERFILE, context_uri="gs://bucket/ctx.tar.gz")
+            .with_plugin(BaseSystem())
+            .run_commands("echo hello")
+            .to_spec()
+        )
+
+    assert build().image_version() == build().image_version()
+
+
+def test_changing_the_base_dockerfile_changes_the_tag():
+    one = Image.from_dockerfile("FROM scratch\nRUN echo one\n").to_spec()
+    two = Image.from_dockerfile("FROM scratch\nRUN echo two\n").to_spec()
+    assert one.image_version() != two.image_version()
+
+
+def test_changing_the_base_stage_changes_the_tag():
+    one = Image.from_dockerfile(_BASE_DOCKERFILE).to_spec()
+    two = Image.from_dockerfile(_BASE_DOCKERFILE, base_stage="builder").to_spec()
+    assert one.image_version() != two.image_version()
+
+
+def test_changing_the_context_uri_changes_the_tag():
+    content = "FROM scratch\nCOPY setup.sh /setup.sh\n"
+    one = Image.from_dockerfile(content, context_uri="gs://bucket/one.tar.gz").to_spec()
+    two = Image.from_dockerfile(content, context_uri="gs://bucket/two.tar.gz").to_spec()
+    assert one.image_version() != two.image_version()
+
+
+def test_an_inline_base_and_an_equivalent_reference_differ_by_tag():
+    inline = Image.from_dockerfile("FROM debian:bookworm-slim\n").to_spec()
+    referenced = Image.from_base("debian:bookworm-slim").to_spec()
+    assert inline.image_version() != referenced.image_version()
+
+
+def test_changing_a_secret_id_changes_the_tag():
+    base = Image.from_dockerfile("FROM scratch\n")
+    one = base.with_secrets(alpha=_SECRET_RESOURCE).to_spec()
+    two = base.with_secrets(beta=_SECRET_RESOURCE).to_spec()
+    assert one.image_version() != two.image_version()
+
+
+def test_rotating_a_secret_behind_the_same_id_does_not_change_the_tag():
+    """Only secret *names* are hashed, matching how secret_build_args is treated.
+
+    A rotated credential produces the same image, so rebuilding on a version bump would be churn.
+    """
+    base = Image.from_dockerfile("FROM scratch\n")
+    one = base.with_secrets(tok="projects/p/secrets/s/versions/1").to_spec()
+    two = base.with_secrets(tok="projects/p/secrets/s/versions/2").to_spec()
+    assert one.image_version() == two.image_version()
+
+
+def test_adding_no_secrets_leaves_the_tag_alone():
+    # The conditional hash inputs must not perturb definitions that use none of them.
+    plain = Image.from_dockerfile("FROM scratch\n").to_spec()
+    assert plain.image_version() == ImageBuildSpec(dockerfile_content=plain.dockerfile_content).image_version()
+
+
+# ---------------------------------------------------------------------------
 # YAML serialization round-trip
 # ---------------------------------------------------------------------------
+
+
+def test_image_yaml_round_trip_with_an_inline_base():
+    image = Image.from_dockerfile(_BASE_DOCKERFILE, name="my-env", context_uri="gs://bucket/ctx.tar.gz")
+    yaml_str = image.to_yaml()
+    # The multiline Dockerfile must round-trip as a block scalar, not an escaped one-liner.
+    assert "base_dockerfile: |" in yaml_str
+    restored = Image.from_yaml(yaml_str)
+    assert restored.base_dockerfile == _BASE_DOCKERFILE
+    assert restored.context_uri == "gs://bucket/ctx.tar.gz"
+    assert restored.to_spec().dockerfile_content == image.to_spec().dockerfile_content
+
+
+def test_image_yaml_round_trip_preserves_base_stage():
+    image = Image.from_dockerfile(_BASE_DOCKERFILE, base_stage="builder")
+    assert Image.from_yaml(image.to_yaml()).base_stage == "builder"
+
+
+# ---------------------------------------------------------------------------
+# Local Docker driver
+# ---------------------------------------------------------------------------
+
+
+def test_local_build_rejects_a_staged_context_with_a_clear_message(mocker):
+    """A gs:// context needs cloud credentials this driver deliberately does not have.
+
+    Better a message naming the alternatives than a confusing COPY failure mid-build.
+    """
+    service = DockerService(client=mocker.MagicMock())
+    image = Image.from_dockerfile("FROM scratch\nCOPY a.sh /a.sh\n", context_uri="gs://bucket/ctx.tar.gz")
+    with raises(ValueError, match="cannot resolve the build context"):
+        service.build_image(image)
+
+
+@mark.parametrize(
+    ("field", "value"),
+    [("tag", "europe-west1-docker.pkg.dev/p/r/env:v1"), ("registry", "europe-west1-docker.pkg.dev/p/r")],
+)
+def test_local_build_rejects_a_destination_it_cannot_honour(mocker, field, value):
+    # The local driver's registry is fixed at construction; honouring these would quietly tag
+    # something other than what the definition asks for.
+    service = DockerService(client=mocker.MagicMock())
+    image = Image(base="debian:bookworm-slim", name="env", **{field: value})
+    with raises(ValueError, match=f"cannot push to the '{field}'"):
+        service.build_image(image)
+
+
+def test_local_build_warns_about_cluster_only_build_resources(mocker):
+    client = mocker.MagicMock()
+    client.build.return_value = []
+    warn = mocker.patch("idegym.image.docker_service.logger.warning")
+    service = DockerService(client=client)
+    image = Image.from_dockerfile("FROM scratch\n", name="env").with_build_resources(disk_size_gb=500)
+
+    service.build_image(image)
+
+    assert warn.call_args.kwargs["ignored_fields"] == ["disk_size_gb"]
+
+
+def test_local_build_rejects_secret_manager_secrets_with_a_clear_message(mocker):
+    service = DockerService(client=mocker.MagicMock())
+    image = Image.from_dockerfile("FROM scratch\n").with_secrets(gh_token=_SECRET_RESOURCE)
+    with raises(ValueError, match="cannot resolve Secret Manager-backed secrets"):
+        service.build_image(image)
+
+
+def test_local_build_accepts_an_inline_base(mocker):
+    # An inline base needs nothing special locally -- it is just Dockerfile text.
+    client = mocker.MagicMock()
+    client.build.return_value = []
+    service = DockerService(client=client)
+
+    service.build_image(Image.from_dockerfile("FROM scratch\nRUN true\n", name="env"))
+
+    assert "IDEGYM_VERSION" in client.build.call_args.kwargs["build_args"]
+
+
+def test_local_build_uses_a_caller_version_for_the_local_tag(mocker):
+    client = mocker.MagicMock()
+    client.build.return_value = []
+    service = DockerService(client=client)
+    image = Image.from_dockerfile("FROM scratch\n", name="env").with_destination(version="v42")
+
+    service.build_image(image)
+
+    assert client.build.call_args.kwargs["tags"] == [f"{DockerService.REGISTRY}/env:v42"]
 
 
 def test_image_yaml_round_trip_basic():

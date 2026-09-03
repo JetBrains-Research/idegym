@@ -1,3 +1,4 @@
+import re
 from enum import StrEnum
 from hashlib import md5 as _hashlib_md5
 from json import dumps as dump_json
@@ -6,7 +7,7 @@ from typing import Optional
 from idegym.api.download import DownloadRequest
 from idegym.api.resources import KubernetesResources
 from idegym.utils.hashing import md5
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class BuildBackend(StrEnum):
@@ -15,6 +16,176 @@ class BuildBackend(StrEnum):
 
     KANIKO = "kaniko"
     CLOUDBUILD_GKE = "cloudbuild_gke"
+
+
+_CONTEXT_URI_RE = re.compile(r"^(?P<scheme>[a-z][a-z0-9+.-]*)://(?P<remainder>\S+)$", re.IGNORECASE)
+
+
+def validate_context_uri(value: str) -> str:
+    """Check a build-context URI is well formed, leaving scheme support to the backend.
+
+    Which schemes work is a property of the configured backend — Kaniko fetches ``gs://``, ``s3://``,
+    ``https://`` and ``git://``, Cloud Build's ``StorageSource`` is GCS-only — so typing this field
+    to GCS would make the Kaniko path needlessly GCP-shaped.
+    """
+    stripped = value.strip()
+    if not _CONTEXT_URI_RE.match(stripped):
+        raise ValueError(
+            f"Build context URI {value!r} is not well formed. Expected '<scheme>://<location>', "
+            "e.g. 'gs://my-bucket/contexts/abc123.tar.gz'."
+        )
+    return stripped
+
+
+def context_uri_scheme(value: str) -> str:
+    """Return the lowercased scheme of a build-context URI, for a backend's support check."""
+    match = _CONTEXT_URI_RE.match(value.strip())
+    if match is None:
+        raise ValueError(f"Build context URI {value!r} is not well formed")
+    return match.group("scheme").lower()
+
+
+# A Dockerfile ``ARG`` name. Secret ids are held to the same pattern: Kaniko passes each one as a
+# build arg, and a name containing spaces or ``=`` could inject extra arguments there.
+_BUILD_ARG_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+# ``projects/<project>/secrets/<secret>``, optionally pinned to ``/versions/<version>``.
+_SECRET_RESOURCE_RE = re.compile(r"^projects/[^/\s]+/secrets/[^/\s]+(?:/versions/[^/\s]+)?$")
+
+# Owned by the generated build args (IDEGYM_VERSION, IDEGYM_AUTH_TOKEN, ...), which a
+# caller-supplied name in this namespace would shadow.
+RESERVED_BUILD_ARG_PREFIX = "IDEGYM_"
+
+
+def validate_build_arg_names(mapping: dict[str, str], *, field: str) -> dict[str, str]:
+    """Check every key of a build-arg or secret mapping is a usable, non-reserved ``ARG`` name."""
+    for name in mapping:
+        if not _BUILD_ARG_NAME_RE.match(name):
+            raise ValueError(
+                f"{field} name {name!r} is not a valid Dockerfile ARG name. "
+                "Expected a letter or underscore followed by letters, digits or underscores."
+            )
+        if name.upper().startswith(RESERVED_BUILD_ARG_PREFIX):
+            raise ValueError(
+                f"{field} name {name!r} uses the reserved '{RESERVED_BUILD_ARG_PREFIX}' prefix, "
+                "which belongs to build args the image builder generates."
+            )
+    return mapping
+
+
+def check_build_arg_collisions(secrets: dict[str, str], secret_build_args: list[str]) -> None:
+    """Reject a name claimed by both secret sources.
+
+    Both become ``--build-arg`` on Kaniko, so a name in each would be passed twice and leave which
+    value wins up to argument order.
+    """
+    collisions = set(secrets) & set(secret_build_args)
+    if collisions:
+        raise ValueError(
+            f"{', '.join(sorted(collisions))} is set in both 'secrets' and 'secret_build_args'. "
+            "Each build arg name may come from only one source."
+        )
+
+
+def validate_image_tag(value: str) -> str:
+    """Check a fully qualified destination tag is well formed.
+
+    Splits on the *last* colon so a registry port survives, and rejects a reference with no version
+    at all — ``localhost:5000/img`` would otherwise parse as version ``5000/img``.
+    """
+    stripped = value.strip()
+    repository, separator, version = stripped.rpartition(":")
+    if not separator or not repository or not version or "/" in version or any(ch.isspace() for ch in stripped):
+        raise ValueError(
+            f"Image tag {value!r} is not well formed. Expected '<registry>/<repository>:<version>', "
+            "e.g. 'europe-west1-docker.pkg.dev/my-project/my-repo/my-image:abc123'."
+        )
+    return stripped
+
+
+# An OCI tag component, and a registry/repository reference. Both are validated because either
+# becomes part of the pushed destination and of the persisted job record.
+_IMAGE_VERSION_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$")
+_REGISTRY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*(?:/[A-Za-z0-9][A-Za-z0-9._-]*)*$")
+
+
+def validate_image_version(value: str) -> str:
+    """Check a destination version is a legal OCI tag component."""
+    stripped = value.strip()
+    if not _IMAGE_VERSION_RE.match(stripped):
+        raise ValueError(
+            f"Image version {value!r} is not a valid tag component. Expected up to 128 characters of "
+            "letters, digits, '.', '_' or '-', starting with a letter, digit or underscore."
+        )
+    return stripped
+
+
+def validate_registry(value: str) -> str:
+    """Check a destination registry prefix is a legal host-and-path reference, with no tag."""
+    stripped = value.strip().rstrip("/")
+    if not _REGISTRY_RE.match(stripped):
+        raise ValueError(
+            f"Registry {value!r} is not a valid reference. Expected '<host>[:<port>]/<path>', "
+            "e.g. 'europe-west1-docker.pkg.dev/my-project/my-repo', with no ':<version>' suffix."
+        )
+    return stripped
+
+
+def check_registry_allowed(tag: str, allowed_prefixes: list[str]) -> None:
+    """Reject a caller-chosen destination outside the deployment's allowlist.
+
+    An allowlist rather than a format check, because a caller-supplied registry means pushing
+    anywhere the builder's service account can write. Empty (the default) means opted out.
+    """
+    if not allowed_prefixes:
+        raise ValueError(
+            f"This deployment does not accept caller-supplied image destinations, so {tag!r} was refused. "
+            "Set build.allowed_registry_prefixes to the registries builds may push to."
+        )
+    if not any(_under_prefix(tag, prefix) for prefix in allowed_prefixes):
+        permitted = ", ".join(allowed_prefixes)
+        raise ValueError(f"Image destination {tag!r} is not under a permitted registry prefix. Allowed: {permitted}.")
+
+
+def _under_prefix(tag: str, prefix: str) -> bool:
+    """Whether ``tag`` sits under ``prefix`` at a path boundary.
+
+    A bare ``startswith`` would let the prefix ``…/my-repo`` authorize ``…/my-repo-attacker/env:v1``,
+    a repository the operator never granted, so the next character must end the prefix.
+    """
+    normalized = prefix.rstrip("/")
+    if not tag.startswith(normalized):
+        return False
+    return tag[len(normalized) : len(normalized) + 1] in ("/", ":")
+
+
+def validate_secret_mapping(mapping: dict[str, str]) -> dict[str, str]:
+    """Check a ``secrets`` mapping holds Secret Manager resource names, never values.
+
+    The resource-name shape guards against a caller pasting the secret itself into a field that is
+    serialized into a build request and a job record.
+    """
+    validate_build_arg_names(mapping, field="Secret id")
+
+    # Cloud Build derives an env var name by upper-casing the id, so two ids differing only in case
+    # would resolve to one variable and share a value.
+    folded: dict[str, str] = {}
+    for secret_id in mapping:
+        clash = folded.setdefault(secret_id.upper(), secret_id)
+        if clash != secret_id:
+            raise ValueError(
+                f"Secret ids {clash!r} and {secret_id!r} differ only in case. They would map to the same "
+                "build environment variable, so one would silently take the other's value."
+            )
+
+    for secret_id, resource in mapping.items():
+        if not _SECRET_RESOURCE_RE.match(resource):
+            raise ValueError(
+                f"Secret '{secret_id}' must map to a Secret Manager resource name, got {resource!r}. "
+                "Expected 'projects/<project>/secrets/<secret>' with an optional '/versions/<version>'. "
+                "Never put the secret value here."
+            )
+    return mapping
 
 
 class ImageBuildSpec(BaseModel):
@@ -39,8 +210,105 @@ class ImageBuildSpec(BaseModel):
             "here — never the secret values."
         ),
     )
+    context_uri: Optional[str] = Field(
+        default=None,
+        description=(
+            "URI of a build context archive the caller has already staged (e.g. "
+            "'gs://bucket/contexts/abc123.tar.gz'), fetched by the build backend so an inline base "
+            "Dockerfile's COPY/ADD sources resolve without the orchestrator handling context bytes."
+        ),
+    )
+    secrets: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Maps a Dockerfile secret id to a Secret Manager resource name, never to a value. "
+            "Cloud Build mounts each as a BuildKit secret; Kaniko has no mount mechanism and passes "
+            "them as build args instead, which exposes them in the image history."
+        ),
+    )
+    tag: Optional[str] = Field(
+        default=None,
+        description=(
+            "Fully qualified destination tag. Overrides registry/name/version. Checked against the "
+            "deployment's registry allowlist; absent means the orchestrator's own naming."
+        ),
+    )
+    registry: Optional[str] = Field(
+        default=None,
+        description="Destination registry prefix, combined with 'name' and 'version'. Mutually exclusive with 'tag'.",
+    )
+    version: Optional[str] = Field(
+        default=None,
+        description=(
+            "Destination tag's version component. Defaults to image_version(), the content hash; "
+            "supplying one decouples the pushed tag from that hash and moves dedupe to the caller."
+        ),
+    )
+    timeout_seconds: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="Per-build timeout, clamped to the deployment maximum. None uses the deployment default.",
+    )
+    machine_type: Optional[str] = Field(
+        default=None,
+        description=(
+            "Build worker machine type (Cloud Build only; Kaniko's lever is the per-image 'resources' "
+            "field). Checked against the deployment's allowlist."
+        ),
+    )
+    disk_size_gb: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="Build worker disk size in GB (Cloud Build only), clamped to the deployment maximum.",
+    )
+    warnings: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Caveats found while compiling this spec, recorded on the build's job record so they "
+            "outlive the request. Informational: they describe the image rather than changing it, "
+            "so they do not participate in image_version()."
+        ),
+    )
 
     model_config = ConfigDict(extra="forbid")
+
+    @field_validator("tag")
+    @classmethod
+    def check_tag(cls, value: Optional[str]) -> Optional[str]:
+        return None if value is None else validate_image_tag(value)
+
+    @field_validator("registry")
+    @classmethod
+    def check_registry(cls, value: Optional[str]) -> Optional[str]:
+        return None if value is None else validate_registry(value)
+
+    @field_validator("version")
+    @classmethod
+    def check_version(cls, value: Optional[str]) -> Optional[str]:
+        return None if value is None else validate_image_version(value)
+
+    @field_validator("context_uri")
+    @classmethod
+    def check_context_uri(cls, value: Optional[str]) -> Optional[str]:
+        return None if value is None else validate_context_uri(value)
+
+    @field_validator("secrets")
+    @classmethod
+    def check_secrets(cls, value: dict[str, str]) -> dict[str, str]:
+        return validate_secret_mapping(value)
+
+    @model_validator(mode="after")
+    def validate_build_arg_namespaces(self):
+        check_build_arg_collisions(self.secrets, self.secret_build_args)
+        return self
+
+    @model_validator(mode="after")
+    def validate_destination(self):
+        if self.tag is not None and (self.registry is not None or self.version is not None):
+            raise ValueError(
+                "'tag' is a fully qualified destination and cannot be combined with 'registry' or 'version'"
+            )
+        return self
 
     def image_version(self) -> str:
         identifiers = []
@@ -55,4 +323,13 @@ class ImageBuildSpec(BaseModel):
         # Distinguishes images whose build secrets differ even if a future plugin declares
         # a secret without emitting a matching ``ARG`` into the Dockerfile. Names only.
         identifiers.append(dump_json(self.secret_build_args, sort_keys=True))
+        # Appended only when set, and labelled, so an existing definition keeps the hash it already
+        # has and the unseparated concatenation stays unambiguous. Only the URI is hashed, not the
+        # bytes the backend fetches, so callers must name a context object by its content.
+        if self.context_uri is not None:
+            identifiers.append(f"context_uri={self.context_uri}")
+        if self.secrets:
+            # Names only, like ``secret_build_args`` above: a rotated secret behind the same id is
+            # the same image, and hashing names keeps values out of anything derived from the spec.
+            identifiers.append(f"secrets={dump_json(sorted(self.secrets), sort_keys=True)}")
         return md5(*identifiers)

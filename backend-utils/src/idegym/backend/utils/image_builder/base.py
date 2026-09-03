@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Optional
 
 from idegym.api.image_build import ImageBuildSpec
 from idegym.api.status import Status
@@ -12,11 +13,22 @@ class BuildHandle:
     `name` is the string the orchestrator persists as ``JobStatusRecord.job_name`` and
     returns to clients to query status later, so it must be unique and stable for the
     lifetime of the build. Backends may subclass to carry extra fields (project, region,
-    namespace, ...) needed by `ImageBuilder.get_status`; only `name` crosses the
-    persistence/API boundary.
+    namespace, ...) needed by `ImageBuilder.get_status`; only `name` and `warnings` cross
+    the persistence/API boundary.
+
+    `warnings` carries caveats about *this* build that the orchestrator records on the job,
+    so they outlive a build-time log line. The build-arg exposure a Kaniko build with
+    `secrets` incurs is the motivating case.
+
+    `monitor_timeout` is how long to poll *this* build, which the backend knows because it
+    granted it. `ImageBuilder.monitor_timeout` describes only the deployment default, so a
+    build given a longer per-request timeout would otherwise be declared failed while
+    still running.
     """
 
     name: str
+    warnings: tuple[str, ...] = ()
+    monitor_timeout: Optional[float] = None
 
 
 class ImageBuilder(ABC):

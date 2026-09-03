@@ -30,6 +30,45 @@ def isiterable(value: Any) -> bool:
     return isinstance(value, Iterable) and not isinstance(value, str)
 
 
+def _reject_cluster_only_features(spec) -> None:
+    """Refuse the parts of a spec that only a cluster backend can satisfy.
+
+    An inline ``base_dockerfile`` is just Dockerfile text and needs nothing here, but resolving a
+    ``context_uri`` or ``secrets`` would need cloud credentials this driver deliberately lacks.
+    Saying so beats a confusing ``COPY`` failure or an empty build arg.
+    """
+    if spec.context_uri is not None:
+        raise ValueError(
+            f"The local Docker build cannot resolve the build context {spec.context_uri!r}. Build with a "
+            "local context instead (COPY reads from 'context_path'), or submit this image to the "
+            "orchestrator, whose kaniko and cloudbuild_gke backends fetch a staged context."
+        )
+    if spec.secrets:
+        listed = ", ".join(sorted(spec.secrets))
+        raise ValueError(
+            f"The local Docker build cannot resolve Secret Manager-backed secrets ({listed}). Supply the "
+            "values through the environment as 'secret_build_args', or submit this image to the "
+            "orchestrator."
+        )
+    # The registry is fixed at construction, so honouring these would mean tagging something other
+    # than what the definition asks for.
+    for field in ("tag", "registry"):
+        if getattr(spec, field) is not None:
+            raise ValueError(
+                f"The local Docker build cannot push to the '{field}' this image declares "
+                f"({getattr(spec, field)!r}). Pass the registry when constructing the builder — "
+                "IdeGYMDockerAPI(registry=...) — or submit this image to the orchestrator."
+            )
+
+    # Not fatal: these size a cluster build worker, and there is none here.
+    ignored = [name for name in ("timeout_seconds", "machine_type", "disk_size_gb") if getattr(spec, name) is not None]
+    if ignored:
+        logger.warning(
+            "Ignoring build resource settings that only apply to a cluster backend",
+            ignored_fields=ignored,
+        )
+
+
 class DockerService:
     CLIENT: Final[DockerClient] = DockerClient()
     REGISTRY: Final[str] = "ghcr.io/jetbrains-research/idegym"
@@ -78,9 +117,10 @@ class DockerService:
         image,
     ) -> DockerImage:
         compiled = image.to_spec()
+        _reject_cluster_only_features(compiled)
         return self.build(
             request=compiled.request,
-            image_version=compiled.image_version(),
+            image_version=compiled.version or compiled.image_version(),
             image_base=None,
             labels=compiled.labels,
             image_name=compiled.name,

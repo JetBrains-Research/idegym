@@ -210,6 +210,76 @@ async def test_kaniko_build_minimal(test_id):
 
 
 @pytest.mark.asyncio
+async def test_kaniko_build_from_inline_dockerfile(test_id, kaniko_image_loader):
+    """
+    Test building an environment whose base is an inline multi-stage Dockerfile, merged into the
+    same Kaniko build as the generated idegym stage rather than built and pushed separately.
+
+    Verifies on a real build:
+    - the user's two stages survive the merge, including a COPY --from between them, so aliasing
+      the base stage did not disturb their own references
+    - an ENV set in the base stage is inherited by the generated stage via FROM <alias>
+    - the commands block runs against that inherited configuration
+
+    A caller-staged `context_uri` is not covered: it needs an object-storage bucket the cluster can
+    read, which the Minikube e2e environment has none of. Unit tests cover that plumbing instead.
+    """
+    with as_file(files(e2e_resources).joinpath("kaniko_inline_dockerfile.yaml")) as yaml_path:
+        async with create_http_client(
+            name=f"kaniko-inline-{test_id}", nodes_count=0, request_timeout_in_seconds=600
+        ) as client:
+            build_summary = await client.jobs.build_and_push_images(
+                path=yaml_path,
+                namespace=DEFAULT_NAMESPACE,
+                timeout=600,
+                poll_interval=10,
+            )
+
+            assert build_summary.total_jobs == 1, f"Expected 1 job, got {build_summary.total_jobs}"
+            assert build_summary.failed_jobs == 0, f"Build failed: {build_summary.jobs_results[0].details}"
+
+            job_result = build_summary.jobs_results[0]
+            assert job_result.status == Status.SUCCESS, f"Job status: {job_result.status}"
+            assert job_result.tag is not None, "No image tag returned"
+
+            image_tag = _to_runtime_tag(job_result.tag)
+            await kaniko_image_loader(image_tag)
+
+            async with client.with_server(
+                image_tag=image_tag,
+                server_name=f"inline-base-server-{test_id}",
+                runtime_class_name="gvisor",
+                run_as_root=True,
+                resources=KubernetesResources(
+                    requests=ResourceQuantities(
+                        cpu=CpuQuantity(millicores=500),
+                        memory=MemoryQuantity(mi=500),
+                        ephemeral_storage=MemoryQuantity(gi=1),
+                    ),
+                    limits=ResourceQuantities(
+                        cpu=CpuQuantity(millicores=500),
+                        memory=MemoryQuantity(mi=500),
+                        ephemeral_storage=MemoryQuantity(gi=1),
+                    ),
+                ),
+                server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
+            ) as server:
+                # The artifact came from the user's first stage via COPY --from=toolchain.
+                result = await server.execute_bash(
+                    script="cat /home/appuser/inline-base-marker.txt", command_timeout=60.0
+                )
+                assert result.exit_code == 0, f"Failed to read the staged artifact: {result.stderr}"
+                assert "built-in-an-earlier-stage" in result.stdout, f"Unexpected content: {result.stdout}"
+
+                # The generated stage inherited ENV from the aliased base stage at build time.
+                result = await server.execute_bash(script="cat /home/appuser/inline-base-env.txt", command_timeout=60.0)
+                assert result.exit_code == 0, f"Failed to read the inherited env marker: {result.stderr}"
+                assert "inline-base-was-here" in result.stdout, (
+                    f"ENV from the base stage was not inherited by the idegym stage: {result.stdout}"
+                )
+
+
+@pytest.mark.asyncio
 async def test_kaniko_build_without_project(test_id, kaniko_image_loader):
     """
     Test building a Kaniko image that uses no project plugin.

@@ -17,7 +17,14 @@ for _ep in _entry_points(group="idegym.plugins.image"):
         _logger.warning("Failed to load image plugin %r", _ep.name, exc_info=True)
 
 from idegym.api.docker import BaseImage
-from idegym.api.image_build import ImageBuildSpec
+from idegym.api.image_build import (
+    ImageBuildSpec,
+    validate_context_uri,
+    validate_image_tag,
+    validate_image_version,
+    validate_registry,
+    validate_secret_mapping,
+)
 from idegym.api.plugin import (
     MCP_UPSTREAMS_DIR,
     SAFE_PLUGIN_NAME_RE,
@@ -26,9 +33,17 @@ from idegym.api.plugin import (
     get_plugin_type_name,
 )
 from idegym.api.type import OCIImageName
+from idegym.image.base_dockerfile import (
+    AUTH_TOKEN_ARG,
+    NormalizedBase,
+    local_context_sources,
+    normalize_base_dockerfile,
+    overridden_instruction_warning,
+    references_auth_token,
+)
 from idegym.image.docker_api import IdeGYMDockerAPI
 from idegym.image.serialization import deserialize_plugin, dump_images, load_images, serialize_plugin
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_serializer, field_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_serializer, field_validator, model_validator
 
 # TypeAdapter reuses the OCIImageName constraints without duplicating the regex.
 # Needed because model_copy() bypasses Pydantic field validation.
@@ -79,7 +94,8 @@ def _mcp_upstream_fragment(plugin: PluginBase, ctx: BuildContext) -> str:
 class Image(BaseModel):
     """Fluent, immutable builder for container images.
 
-    Construct an ``Image`` with a base image reference, chain builder methods to attach plugins
+    Construct an ``Image`` with a base — either a registry reference (``base``) or Dockerfile text
+    to compile in the same build (``base_dockerfile``) — chain builder methods to attach plugins
     and commands, then call ``to_spec()`` to compile a ``ImageBuildSpec`` that can be passed to
     a build backend (Kaniko, Docker, etc.).
 
@@ -98,7 +114,51 @@ class Image(BaseModel):
         spec = image.to_spec()
     """
 
-    base: str = Field(min_length=1)
+    base: Optional[str] = Field(default=None, min_length=1)
+    base_dockerfile: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "Dockerfile text used as the base, compiled into the same build as the plugin stages "
+            "so no intermediate image is pushed. Mutually exclusive with 'base'."
+        ),
+    )
+    base_stage: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        description="Which stage of a multi-stage 'base_dockerfile' is the base. Defaults to the last one.",
+    )
+    context_uri: Optional[str] = Field(
+        default=None,
+        description=(
+            "URI of a build context archive the caller has already staged, so the base "
+            "Dockerfile's COPY/ADD sources resolve (e.g. 'gs://bucket/contexts/abc123.tar.gz')."
+        ),
+    )
+    secrets: dict[str, str] = Field(
+        default_factory=dict,
+        description="Maps a Dockerfile secret id to a Secret Manager resource name. Names only, never values.",
+    )
+    tag: Optional[str] = Field(
+        default=None,
+        description="Fully qualified destination tag. Overrides registry/name/version; subject to the "
+        "deployment's registry allowlist.",
+    )
+    registry: Optional[str] = Field(default=None, description="Destination registry prefix. Excludes 'tag'.")
+    version: Optional[str] = Field(
+        default=None,
+        description="Destination version component. Defaults to the content hash, which is what makes "
+        "resubmitting an identical definition a no-op.",
+    )
+    timeout_seconds: Optional[int] = Field(
+        default=None, ge=1, description="Per-build timeout, clamped to the deployment maximum."
+    )
+    machine_type: Optional[str] = Field(
+        default=None, description="Build worker machine type (Cloud Build only), from the deployment's allowlist."
+    )
+    disk_size_gb: Optional[int] = Field(
+        default=None, ge=1, description="Build worker disk size in GB (Cloud Build only), clamped."
+    )
     name: Optional[OCIImageName] = Field(default=None)
     plugins: tuple[PluginBase, ...] = Field(default_factory=tuple)
     commands: tuple[str, ...] = Field(default_factory=tuple)
@@ -130,11 +190,129 @@ class Image(BaseModel):
     def dump_plugins(self, plugins: tuple[PluginBase, ...]) -> list[dict[str, Any]]:
         return [serialize_plugin(plugin) for plugin in plugins]
 
+    @field_validator("context_uri")
+    @classmethod
+    def check_context_uri(cls, value: Optional[str]) -> Optional[str]:
+        return None if value is None else validate_context_uri(value)
+
+    @field_validator("tag")
+    @classmethod
+    def check_tag(cls, value: Optional[str]) -> Optional[str]:
+        return None if value is None else validate_image_tag(value)
+
+    @field_validator("registry")
+    @classmethod
+    def check_registry(cls, value: Optional[str]) -> Optional[str]:
+        return None if value is None else validate_registry(value)
+
+    @field_validator("version")
+    @classmethod
+    def check_version(cls, value: Optional[str]) -> Optional[str]:
+        return None if value is None else validate_image_version(value)
+
+    @field_validator("secrets")
+    @classmethod
+    def check_secrets(cls, value: dict[str, str]) -> dict[str, str]:
+        return validate_secret_mapping(value)
+
+    @model_validator(mode="after")
+    def validate_destination(self) -> Self:
+        if self.tag is not None and (self.registry is not None or self.version is not None):
+            raise ValueError(
+                "'tag' is a fully qualified destination and cannot be combined with 'registry' or 'version'"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_base_definition(self) -> Self:
+        """Enforce exactly-one-of ``base`` / ``base_dockerfile`` and reject unbuildable input."""
+        if (self.base is None) == (self.base_dockerfile is None):
+            raise ValueError(
+                "Exactly one of 'base' (a registry reference) or 'base_dockerfile' (Dockerfile text) must be set"
+            )
+        if self.base_stage is not None and self.base_dockerfile is None:
+            raise ValueError("'base_stage' selects a stage of 'base_dockerfile' and has no meaning alongside 'base'")
+
+        if self.base_dockerfile is None:
+            return self
+
+        # Surfaces a missing FROM, an unknown base_stage, or a reserved stage name at definition
+        # time. Recomputed in to_spec() rather than cached: the model is frozen, and normalization
+        # is pure text work.
+        normalize_base_dockerfile(self.base_dockerfile, self.base_stage)
+
+        if references_auth_token(self.base_dockerfile):
+            raise ValueError(
+                f"'base_dockerfile' references the reserved build arg {AUTH_TOKEN_ARG}. The Cloud Build "
+                "backend rewrites that name into a BuildKit secret mount on the generated stage, so a "
+                "user-side occurrence would be rewritten into a stage where no secret is mounted. "
+                "Rename it."
+            )
+        return self
+
+    def _require_context_for_local_copies(self) -> None:
+        """Reject a base Dockerfile that copies from a context when none is supplied.
+
+        Checked when compiling rather than when validating, so ``with_context()`` stays chainable:
+        rejecting at construction would make ``from_dockerfile(text)`` unreachable for exactly the
+        definitions that need a context. ``to_spec()`` still runs inside the build request.
+        """
+        if self.base_dockerfile is None or self.context_uri is not None:
+            return
+        local = local_context_sources(self.base_dockerfile)
+        if not local:
+            return
+        offenders = ", ".join(f"{item.instruction} {item.source} (line {item.line.number})" for item in local)
+        raise ValueError(
+            f"'base_dockerfile' copies from the build context but no 'context_uri' is set: {offenders}. "
+            "Stage the context as an archive and pass its URI, or use COPY --from=<stage> / ADD <url>, "
+            "which need no context."
+        )
+
     @classmethod
     def from_base(cls, base: str | BaseImage, *, name: Optional[str] = None) -> Self:
         """Create an image from a base image reference or ``BaseImage`` enum value."""
         image = base.value if isinstance(base, BaseImage) else base
         return cls(base=image, name=name)
+
+    @classmethod
+    def from_dockerfile(
+        cls,
+        content: str,
+        *,
+        name: Optional[str] = None,
+        base_stage: Optional[str] = None,
+        context_uri: Optional[str] = None,
+    ) -> Self:
+        """Create an image whose base is compiled from ``content`` in the same build.
+
+        Avoids the registry round-trip a custom base otherwise needs: ``content``'s stages are
+        merged ahead of the plugin stages, so one build produces the final image. ``base_stage``
+        selects which stage of a multi-stage ``content`` is the base (default: the last one), and
+        ``context_uri`` is needed when ``content`` copies from a build context.
+        """
+        return cls(base_dockerfile=content, name=name, base_stage=base_stage, context_uri=context_uri)
+
+    @classmethod
+    def from_dockerfile_path(
+        cls,
+        path: str | Path,
+        *,
+        name: Optional[str] = None,
+        base_stage: Optional[str] = None,
+        context_uri: Optional[str] = None,
+    ) -> Self:
+        """Create an image from a Dockerfile on disk, inlining its content immediately.
+
+        Read at authoring time and carried as text from then on, because the orchestrator has no
+        access to the caller's filesystem and could not resolve a path.
+        """
+        return cls.from_dockerfile(
+            Path(path).read_text(),
+            name=name,
+            base_stage=base_stage,
+            context_uri=context_uri,
+        )
 
     def named(self, name: str) -> Self:
         """Return a copy with the image name set, validating OCI naming rules."""
@@ -168,6 +346,87 @@ class Image(BaseModel):
         """Return a copy targeting the given build platforms (e.g. ``linux/amd64``)."""
         return self.model_copy(update={"platforms": tuple(platforms)})
 
+    def with_context(self, context_uri: str) -> Self:
+        """Return a copy that resolves ``COPY``/``ADD`` sources against a pre-staged context archive.
+
+        ``context_uri`` names an archive the caller has already staged where the build backend can
+        read it (e.g. ``gs://bucket/contexts/abc123.tar.gz``). Name the object by its content: the
+        tag is derived from the URI, not from the bytes fetched later, so reusing a name for changed
+        contents reads as an unchanged image.
+        """
+        return self.model_copy(update={"context_uri": validate_context_uri(context_uri)})
+
+    def with_destination(
+        self,
+        *,
+        tag: Optional[str] = None,
+        registry: Optional[str] = None,
+        version: Optional[str] = None,
+    ) -> Self:
+        """Return a copy pushing to a caller-chosen destination instead of the orchestrator's default.
+
+        Pass either a fully qualified ``tag`` or a ``registry`` (combined with the image name and
+        ``version``). The destination is checked against the deployment's registry allowlist at
+        build time, so an orchestrator that has not opted in refuses it.
+
+        Supplying ``version`` decouples the pushed tag from the content hash, handing dedupe to the
+        caller — what a consumer keeping its own content-addressed tags wants, a footgun otherwise.
+        """
+        merged = {
+            "tag": validate_image_tag(tag) if tag is not None else self.tag,
+            "registry": validate_registry(registry) if registry is not None else self.registry,
+            "version": validate_image_version(version) if version is not None else self.version,
+        }
+        # Checked against the *merged* result: model_copy() skips the model validator, so chaining
+        # .with_destination(registry=…).with_destination(tag=…) would otherwise leave both set.
+        if merged["tag"] is not None and (merged["registry"] is not None or merged["version"] is not None):
+            raise ValueError(
+                "'tag' is a fully qualified destination and cannot be combined with 'registry' or 'version'"
+            )
+        return self.model_copy(update=merged)
+
+    def with_build_resources(
+        self,
+        *,
+        timeout_seconds: Optional[int] = None,
+        machine_type: Optional[str] = None,
+        disk_size_gb: Optional[int] = None,
+    ) -> Self:
+        """Return a copy asking for more build capacity than the deployment's default.
+
+        An inline base means one build covers the base *and* the idegym layer, so a deployment
+        sized for IdeGYM's own images can starve a multi-gigabyte environment image. Every value is
+        clamped or allowlisted by the orchestrator, and none affects image content, so none
+        participates in the tag.
+
+        ``machine_type`` and ``disk_size_gb`` are Cloud Build only; Kaniko's lever is the per-image
+        ``resources`` field set by `with_runtime`.
+        """
+        # model_copy() bypasses field validation, so the fields' positivity constraints are
+        # re-checked here; a negative timeout would otherwise reach the backend intact.
+        for name, value in (("timeout_seconds", timeout_seconds), ("disk_size_gb", disk_size_gb)):
+            if value is not None and value < 1:
+                raise ValueError(f"{name} must be at least 1, got {value}")
+        return self.model_copy(
+            update={
+                "timeout_seconds": timeout_seconds if timeout_seconds is not None else self.timeout_seconds,
+                "machine_type": machine_type if machine_type is not None else self.machine_type,
+                "disk_size_gb": disk_size_gb if disk_size_gb is not None else self.disk_size_gb,
+            }
+        )
+
+    def with_secrets(self, **secrets: str) -> Self:
+        """Return a copy with additional build secrets, given as Secret Manager resource names.
+
+        Only names travel in the definition; the value is resolved at build time, and how it reaches
+        the build depends on the backend. Cloud Build mounts it (``RUN --mount=type=secret,id=<id>``)
+        while Kaniko passes it as a build arg, recording it in the image history — so a Dockerfile
+        written against a mount is Cloud-Build-only.
+        """
+        merged = {**self.secrets, **secrets}
+        validate_secret_mapping(merged)
+        return self.model_copy(update={"secrets": merged})
+
     def with_runtime(
         self,
         *,
@@ -194,8 +453,21 @@ class Image(BaseModel):
         Build stages returned by ``get_build_stages()`` are prepended before the primary
         ``FROM`` instruction so plugins can compile artifacts in a separate stage and copy
         them into the final image via ``COPY --from=<stage>``.
+
+        With a ``base_dockerfile``, the user's stages are emitted ahead of the plugin stages and
+        ``ctx.base`` becomes the alias of the stage acting as the base, so ``FROM <alias>`` inherits
+        its full image config (``ENV``, ``WORKDIR``, ``USER``, ``ENTRYPOINT``, ``CMD``) — as
+        publishing that base and referencing it by tag would have done.
         """
-        ctx = BuildContext(base=self.base)
+        self._require_context_for_local_copies()
+        normalized = (
+            normalize_base_dockerfile(self.base_dockerfile, self.base_stage)
+            if self.base_dockerfile is not None
+            else None
+        )
+        base_reference = normalized.alias if normalized is not None else self.base
+
+        ctx = BuildContext(base=base_reference)
         build_stages: list[str] = []
         fragments: list[str] = []
         context_files: dict[str, bytes] = {}
@@ -217,7 +489,18 @@ class Image(BaseModel):
                 if secret not in secret_build_args:
                     secret_build_args.append(secret)
 
-        dockerfile_content = self._render_dockerfile(ctx, fragments, build_stages)
+        dockerfile_content = self._render_dockerfile(ctx, fragments, build_stages, normalized)
+
+        # Against the plugin fragments rather than the finished Dockerfile: those are the
+        # instructions rendered after the primary FROM, which is what kills a base's
+        # ENTRYPOINT/CMD/HEALTHCHECK.
+        warnings: list[str] = []
+        if self.base_dockerfile is not None:
+            overridden = overridden_instruction_warning(self.base_dockerfile, "\n".join(fragments))
+            if overridden:
+                _logger.warning(overridden)
+                warnings.append(overridden)
+
         return ImageBuildSpec(
             name=self.name,
             request=ctx.request,
@@ -229,12 +512,21 @@ class Image(BaseModel):
             runtime_class_name=self.runtime_class_name,
             resources=self.resources,
             secret_build_args=secret_build_args,
+            context_uri=self.context_uri,
+            secrets=dict(self.secrets),
+            tag=self.tag,
+            registry=self.registry,
+            version=self.version,
+            timeout_seconds=self.timeout_seconds,
+            machine_type=self.machine_type,
+            disk_size_gb=self.disk_size_gb,
+            warnings=warnings,
         )
 
-    def _render_base_stage_header(self) -> str:
+    def _render_base_stage_header(self, base_reference: str) -> str:
         return "\n\n".join(
             [
-                f"FROM {self.base}",
+                f"FROM {base_reference}",
                 'SHELL ["/bin/bash", "-c"]',
                 "USER root",
             ]
@@ -256,12 +548,25 @@ class Image(BaseModel):
         ctx: BuildContext,
         fragments: list[str],
         build_stages: Optional[list[str]] = None,
+        normalized_base: Optional[NormalizedBase] = None,
     ) -> str:
+        """Assemble the merged Dockerfile.
+
+        Section order is ``[parser directives][base_dockerfile][plugin stages][idegym stage]``: the
+        user's Dockerfile first, so their pre-``FROM`` global ``ARG``s stay in scope for their own
+        stages, then the plugin stages, which may reference the base alias. Directives are hoisted
+        to the very top, the only place Docker still reads them (Kaniko ignores ``# syntax``).
+
+        Everything from `_render_base_stage_header` onwards is identical whichever base form was
+        used, which is what makes switching to an inline base produce an equivalent image.
+        """
         if build_stages is None:
             build_stages = []
         sections = [
+            "\n".join(normalized_base.directives) if normalized_base is not None else "",
+            normalized_base.body if normalized_base is not None else "",
             *build_stages,
-            self._render_base_stage_header(),
+            self._render_base_stage_header(ctx.base),
             self._render_project_archive_env() if ctx.request is not None else "",
             f'ENV IDEGYM_PROJECT_ROOT="{ctx.project_root}"',
             *fragments,

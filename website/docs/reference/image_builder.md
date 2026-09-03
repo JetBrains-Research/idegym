@@ -24,6 +24,9 @@ cluster with Kaniko.
   - [Kaniko build (in-cluster)](#kaniko-build-in-cluster)
   - [Build backends](#build-backends)
   - [GKE Cloud Build backend](#gke-cloud-build-backend)
+  - [Backend capability matrix](#backend-capability-matrix)
+  - [Build secrets across backends](#build-secrets-across-backends)
+  - [Build cost and deduplication](#build-cost-and-deduplication)
 - [Writing Custom Plugins](#writing-custom-plugins)
 
 ---
@@ -32,23 +35,29 @@ cluster with Kaniko.
 
 An `Image` is an immutable description of a Docker image. It consists of:
 
-- A **base image** (e.g., a pre-built IdeGYM server image or a plain Debian image)
+- A **base**, given either as an image reference (`base`) or as Dockerfile text compiled in the same
+  build (`base_dockerfile`)
 - An ordered list of **plugins** — each plugin modifies a shared `BuildContext` and emits a Dockerfile fragment
 - Optional **shell commands** appended after all plugin fragments
 - Runtime configuration (Kubernetes runtime class, resource requests/limits)
 
 When you call `image.to_spec()` (or `image.build()`), the builder:
 
-1. Creates a `BuildContext` with defaults (`current_user="root"`, `home="/root"`, `project_root="/root/work"`)
-2. Iterates through plugins in order; each plugin:
+1. Normalizes `base_dockerfile`, if given: the stage acting as the base is aliased so the generated
+   stage can target it, and parser directives are hoisted
+2. Creates a `BuildContext` whose `base` is that alias (or the `base` reference), with defaults
+   (`current_user="root"`, `home="/root"`, `project_root="/root/work"`)
+3. Iterates through plugins in order; each plugin:
    - `apply(ctx)` — updates the context (e.g., sets `current_user` after creating a user)
    - `render(ctx)` — returns a Dockerfile fragment string
-3. Assembles the final Dockerfile: `FROM` clause, optional ARGs for downloads, `ENV` declarations,
-   all plugin fragments, the final `USER` line, and the commands block
+4. Assembles the final Dockerfile: hoisted parser directives, the user's own stages, plugin build
+   stages, then the `FROM` clause, optional ARGs for downloads, `ENV` declarations, all plugin
+   fragments, the final `USER` line, and the commands block
 
 ```
 Image.to_spec()
-  ├─ BuildContext(base=..., current_user="root", home="/root", ...)
+  ├─ normalize base_dockerfile → directives, aliased stages, base alias
+  ├─ BuildContext(base=<alias or reference>, current_user="root", home="/root", ...)
   ├─ plugin[0].apply(ctx) → new ctx
   ├─ plugin[0].render(ctx) → Dockerfile fragment
   ├─ plugin[1].apply(ctx) → new ctx
@@ -56,8 +65,12 @@ Image.to_spec()
   └─ assemble Dockerfile → ImageBuildSpec
 ```
 
+Everything from the primary `FROM` onwards is generated identically whichever base form was used,
+which is what makes switching an existing definition to an inline base produce an equivalent image.
+
 The resulting `ImageBuildSpec` contains the complete `dockerfile_content` string and any associated
-metadata (download request, labels, platforms, runtime config).
+metadata (download request, labels, platforms, runtime config, build context reference, build args,
+secret names, destination overrides).
 
 ---
 
@@ -79,6 +92,164 @@ Create an image from a base image reference:
 ```python
 image = Image.from_base("ghcr.io/jetbrains-research/idegym/server-debian-bookworm-20250520-slim:latest")
 ```
+
+### `Image.from_dockerfile(content)` / `Image.from_dockerfile_path(path)`
+
+Create an image whose base is **an inline Dockerfile compiled in the same build**, so a custom base
+needs no separate build-and-push cycle:
+
+```python
+image = Image.from_dockerfile(
+    """
+    FROM debian:bookworm-slim AS builder
+    RUN apt-get update && apt-get install -y build-essential
+    FROM debian:bookworm-slim
+    COPY --from=builder /usr/bin/foo /usr/bin/foo
+    """,
+    name="my-env",
+)
+```
+
+`Image.from_dockerfile_path("path/to/Dockerfile")` is the same thing, reading the file **immediately**
+— the content is inlined at authoring time. It has to be: the orchestrator receives only
+`yaml_content` as a string and has no access to your filesystem, so a path would be unresolvable by
+the time the build runs.
+
+Exactly one of `base` and `base_dockerfile` may be set. Pass `base_stage=` to nominate which stage of
+a multi-stage Dockerfile acts as the base; the default is the last one, matching what `docker build`
+would produce from the file on its own.
+
+**How the merge works.** The stage acting as the base gains an `AS idegym_base` alias — and only if
+it does not already declare one, since renaming your stage would break your own `COPY --from=`
+references. Your stages are then emitted first, followed by any plugin build stages, followed by the
+generated idegym stage:
+
+```dockerfile
+FROM debian:bookworm-slim AS builder
+RUN apt-get update && apt-get install -y build-essential
+FROM debian:bookworm-slim AS idegym_base      # ← alias added
+COPY --from=builder /usr/bin/foo /usr/bin/foo
+# --- plugin build stages, unchanged ---
+FROM idegym_base                              # ← the generated stage
+SHELL ["/bin/bash", "-c"]
+USER root
+...
+```
+
+`FROM idegym_base` inherits that stage's full image config — `ENV`, `WORKDIR`, `USER`, `ENTRYPOINT`,
+`CMD` — which is what makes this **equivalent** to publishing the base and referencing it by tag. A
+test asserts the generated segment is byte-identical between the two forms.
+
+:::warning Your ENTRYPOINT, CMD and HEALTHCHECK do not survive
+Inheritance happens at the `FROM`, but plugin fragments render *after* it, so a plugin that declares
+its own wins. The `idegym-server` plugin declares **all three** — it has to, since it owns how the
+container starts.
+
+The consequence is easy to miss and expensive: a base whose `ENTRYPOINT` performs the real setup —
+cloning a repository, warming a build cache — loses it, the container starts against an empty
+working directory, and **nothing reports an error**. This is not specific to an inline base; a
+pre-published `base:` behaves identically. It simply bites far more often here, because bringing
+your own image is the whole point.
+
+Compiling such a definition records a warning on the build's job record, so it is visible from
+`/api/jobs/status/{job_name}` after the fact rather than only in an orchestrator log.
+
+Two ways to keep the setup:
+
+- **Move it into a build-time `RUN`** (recommended). The image becomes self-contained, the work
+  happens once at build time instead of on every container start, and no network is needed at run
+  time. For a Dockerfile that writes its setup as a heredoc script and then invokes it via
+  `ENTRYPOINT`, this is a mechanical rewrite.
+- **Install a script into `/docker-entrypoint.d/`.** The image's entrypoint runs every `*.sh` there
+  to completion before starting the server, and a non-zero exit fails the container. Three caveats:
+  the glob is **not sorted**, so ship exactly one script; output is captured and only logged when
+  the script finishes, so a long step appears to hang; and `exec "$@"` must be stripped, since the
+  script is run directly rather than as an entrypoint wrapper.
+:::
+
+Rejected up front, rather than as a build failure minutes later:
+
+| Input | Why |
+|---|---|
+| No `FROM` instruction | Declares no base image |
+| `base_stage` naming an undeclared stage | Error lists the stages that do exist |
+| A stage named `idegym_*` | Reserved for generated stages |
+| A reference to `IDEGYM_AUTH_TOKEN` | The Cloud Build backend rewrites that name into a secret mount on the generated stage, so a user-side occurrence would be rewritten into a stage where no secret is mounted |
+| `COPY`/`ADD` from the build context with no `context_uri` | Nothing to copy from. `COPY --from=<stage>` and `ADD <url>` need no context and are always fine |
+
+### `.with_context(context_uri)`
+
+Point the build at a context archive you have already staged, so an inline Dockerfile's `COPY`/`ADD`
+resolve:
+
+```python
+image = Image.from_dockerfile(dockerfile_text).with_context("gs://my-bucket/contexts/abc123.tar.gz")
+```
+
+The orchestrator never receives context bytes over the API — you stage a `tar` (optionally gzipped)
+somewhere the build backend can read, and pass its URI. The field is deliberately opaque about the
+scheme, because which schemes work is a property of the configured backend:
+
+| Scheme | `kaniko` | `cloudbuild_gke` |
+|---|---|---|
+| `gs://` | yes | yes |
+| `s3://`, `https://`, `git://` | yes | no — `StorageSource` is GCS-only |
+
+:::warning Name the object by its content
+The image tag is derived from the **URI**, not from the bytes the backend later fetches. Reusing one
+object name for changed contents therefore reads as an unchanged image and you get a stale cache hit.
+Use a content-addressed object name.
+:::
+
+**Collisions resolve in favour of the generated build.** The archive is unpacked *over* a workspace
+that already holds the generated Dockerfile and any plugin assets, skipping files that are already
+there. So a `Dockerfile` in your archive is ignored, and so is anything landing on a plugin's `COPY`
+path — the build you asked for cannot be silently replaced by a file in your context.
+
+`.dockerignore` is the deliberate exception: yours is kept, and the auth-token exclusion is
+*appended* to it. Discarding your rules would let a broad `COPY .` sweep in files you excluded on
+purpose. The flip side is that your rules genuinely apply to the whole context, so a pattern like
+`*` or `plugins/**` will also exclude the plugin assets an `idea`/`pycharm` image needs and its
+`COPY` will fail.
+
+### `.with_secrets(**mapping)`
+
+Map a Dockerfile secret id to a **Secret Manager resource name** — never a value:
+
+```python
+image = image.with_secrets(gh_token="projects/my-project/secrets/gh-token/versions/latest")
+```
+
+Only names travel in the definition; the value is resolved at build time. **How it reaches the build
+differs by backend, and so does the Dockerfile you must write** — see
+[Build secrets across backends](#build-secrets-across-backends).
+
+### `.with_destination(tag=... | registry=..., version=...)`
+
+Push somewhere other than the orchestrator's default registry:
+
+```python
+image = image.with_destination(tag="europe-west1-docker.pkg.dev/my-project/my-repo/env:abc123")
+```
+
+Checked against the deployment's `build.allowed_registry_prefixes` allowlist, which is **empty by
+default** — an arbitrary destination means pushing anywhere the builder's service account can write,
+so a deployment has to opt in. Supplying only `version` keeps the default registry and merely opts
+you out of hash-based deduplication.
+
+### `.with_build_resources(timeout_seconds=..., machine_type=..., disk_size_gb=...)`
+
+Ask for more build capacity than the deployment default:
+
+```python
+image = image.with_build_resources(timeout_seconds=5400, disk_size_gb=500)
+```
+
+Timeouts and disk sizes are clamped to configured ceilings; `machine_type` is checked against an
+allowlist and **refused** if absent from it, rather than silently downgraded. `machine_type` and
+`disk_size_gb` are Cloud Build only — a Kaniko build runs in a pod, so its lever is the per-image
+`resources` field set by [`.with_runtime()`](#with_runtimeruntime_class_name-resources). Kaniko
+records them as ignored on the job rather than letting the request look honoured.
 
 ### `.named(name)`
 
@@ -184,13 +355,28 @@ for submitting build jobs to the orchestrator.
 
 ```yaml
 images:
-  - base: <base-image>        # Required: full Docker image reference
+  - base: <base-image>        # Full Docker image reference. Exactly one of
+                              # `base` / `base_dockerfile` is required.
+    base_dockerfile: |        # Inline Dockerfile compiled in the same build
+      FROM debian:bookworm-slim
+      ...
+    base_stage: <stage-name>  # Optional: which stage of base_dockerfile is the
+                              # base. Default: the last one.
+    context_uri: gs://...     # Optional: pre-staged build context archive
     name: <output-tag>        # Optional: tag for the built image
     plugins:                  # Optional: list of plugins
       - type: <plugin-type>
         <plugin-fields>: ...
     commands:                 # Optional: shell commands (no RUN prefix)
       - echo "hello"
+    secrets:                  # Optional: secret id -> Secret Manager resource name
+      gh_token: projects/p/secrets/gh-token/versions/latest
+    tag: <registry>/<repo>:<v>  # Optional: full destination. Excludes registry/version.
+    registry: <registry>        # Optional: destination registry prefix
+    version: <version>          # Optional: destination version. Default: content hash.
+    timeout_seconds: 5400       # Optional: per-build timeout, clamped
+    machine_type: E2_HIGHCPU_8  # Optional: Cloud Build only, allowlisted
+    disk_size_gb: 500           # Optional: Cloud Build only, clamped
     runtime_class_name: gvisor  # Default: gvisor
     resources:                  # Optional: Kubernetes resource spec
       requests:
@@ -200,6 +386,30 @@ images:
         cpu: "1"
         memory: "1Gi"
 ```
+
+### Inline Dockerfile base
+
+`base_dockerfile` takes a YAML block scalar, and round-trips as one — `to_yaml()` emits multiline
+strings with `|`, so a definition loaded and re-dumped is unchanged:
+
+```yaml
+images:
+  - name: my-env
+    base_dockerfile: |
+      FROM debian:bookworm-slim AS builder
+      RUN apt-get update && apt-get install -y build-essential
+      FROM debian:bookworm-slim
+      COPY --from=builder /usr/bin/foo /usr/bin/foo
+      COPY setup.sh /usr/local/bin/setup.sh
+    context_uri: gs://my-bucket/contexts/abc123.tar.gz
+    plugins:
+      - type: base-system
+      - type: idea
+        headless: true
+```
+
+See [`Image.from_dockerfile`](#imagefrom_dockerfilecontent--imagefrom_dockerfile_pathpath) for how the
+merge works and what is rejected.
 
 Multiple images can be defined in a single file:
 
@@ -807,6 +1017,15 @@ shared rendered Dockerfile — and the Kaniko path, which cannot parse `RUN --mo
 | `IDEGYM_CLOUDBUILD_DISK_SIZE_GB` | Worker disk size in GB | project default |
 | `IDEGYM_CLOUDBUILD_TIMEOUT_SECONDS` | Per-build timeout | `2400` |
 | `IDEGYM_CLOUDBUILD_SKIP_EXISTING` | Skip the build if the image already exists in Artifact Registry | `false` |
+| `IDEGYM_CLOUDBUILD_MAX_DISK_SIZE_GB` | Ceiling for a per-request `disk_size_gb` | `1000` |
+| `IDEGYM_CLOUDBUILD_ALLOWED_MACHINE_TYPES` | Machine types a request may ask for. Empty rejects any | _(empty)_ |
+
+Two settings apply to **every** backend, under `orchestrator.build`:
+
+| Variable | Description | Default |
+|---|---|---|
+| `IDEGYM_BUILD_ALLOWED_REGISTRY_PREFIXES` | Registry prefixes a request may push to when it supplies its own `tag`/`registry`. Empty refuses caller-supplied destinations altogether | _(empty)_ |
+| `IDEGYM_BUILD_MAX_TIMEOUT_SECONDS` | Ceiling for a per-request `timeout_seconds` | `7200` |
 
 `project_id`, `region`, and `staging_bucket` are required when this backend is selected (validated at
 config load). `DOCKER_REGISTRY` should point at an Artifact Registry repository
@@ -847,6 +1066,108 @@ uv run python scripts/cloudbuild_gke_smoke_test.py \
 The example YAML builds two images without a project download; add a `project` plugin with a URL and
 token to also exercise the auth-token BuildKit secret mount. The script exits non-zero if any build
 fails or its image is not found afterwards.
+
+---
+
+### Backend capability matrix
+
+Everything above works on both backends except where the underlying builder makes it impossible.
+Those cases are validated **before** a build is submitted and reported as an error, not discovered
+from a build log.
+
+| Capability | `kaniko` | `cloudbuild_gke` |
+|---|---|---|
+| Inline `base_dockerfile` | yes | yes |
+| `context_uri` | `gs://`, `s3://`, `https://`, `git://` | `gs://` only |
+| `context_uri` **and** plugin `context_files` together | **no** — see below | yes |
+| Plugin `context_files` (idea/pycharm scripts) | yes, via a git checkout | yes, packed into the context tar |
+| BuildKit-only syntax (heredocs, `RUN --mount`, `COPY --link`) | **no** — rejected | yes, via `BUILDKIT_SYNTAX` |
+| `secret_build_args` (from the orchestrator's environment) | yes | yes |
+| `secrets` (Secret Manager) | as build args — **exposed**, see below | as BuildKit secret mounts |
+| `machine_type` / `disk_size_gb` | no — use `resources` | yes |
+| `timeout_seconds` | yes (monitor deadline only) | yes |
+| `skip_existing` | no — an identical resubmission rebuilds | yes |
+
+**`context_uri` and `context_files` cannot combine on Kaniko.** Kaniko accepts a single `--context`.
+Plugin context files are resolved by pointing that context at a git checkout of the idegym repo, so a
+caller-supplied context takes the same slot. An image that needs both — for instance a caller context
+*plus* the `idea` plugin — must use `cloudbuild_gke`, which overlays them. The error names both
+sources.
+
+**`skip_existing` is Cloud Build only.** On Kaniko, resubmitting an identical definition rebuilds
+rather than short-circuiting. Callers that care about avoiding redundant builds should check the
+registry themselves before submitting.
+
+### Build secrets across backends
+
+There are two separate mechanisms, and they need **different Dockerfiles**:
+
+| | `secret_build_args` | `secrets` |
+|---|---|---|
+| Value comes from | the orchestrator's own environment | Secret Manager, per request |
+| Declared by | a plugin's `get_build_secrets()` | the caller |
+| Read in the Dockerfile as | `$NAME` | `$NAME` on Kaniko, a **mount** on Cloud Build |
+
+On `cloudbuild_gke`, a `secrets` entry becomes a real BuildKit secret mount and is read from the
+filesystem:
+
+```dockerfile
+RUN --mount=type=secret,id=gh_token \
+    git clone https://x-access-token:"$(cat /run/secrets/gh_token)"@github.com/org/private.git
+```
+
+:::danger `secrets` under Kaniko is exposed in the image
+Kaniko has no `--mount=type=secret`. A `secrets` entry there is resolved and passed as a
+`--build-arg`, which means:
+
+- the value is **recorded in the image layer history** — `docker history` on the pushed image reveals
+  it;
+- the value is readable by anyone with `get jobs` / `get pods` in the build namespace.
+
+The build emits a warning naming the backend and the affected ids, and that warning is persisted on
+the job record so it is visible after the fact. Treat images built this way as sensitive, prefer
+short-lived credentials, and keep the build namespace's RBAC tight.
+:::
+
+Because the two mechanisms read the secret differently, **supplying `secrets` on Kaniko does not make
+a mount-style Dockerfile work there** — `RUN --mount` is still rejected. A Dockerfile that consumes
+secrets via mounts is `cloudbuild_gke`-only, whatever else you configure.
+
+**Additional IAM.** Beyond the roles listed above, the builder's service account needs
+`roles/secretmanager.secretAccessor` on every secret named in `secrets`, and read access on the bucket
+a `context_uri` points at. A cross-project context needs an explicit grant. Scope both deliberately
+rather than broadly: a caller-supplied `context_uri` means the build reads from a bucket the caller
+controls.
+
+### Build cost and deduplication
+
+Deduplication is a property of **tag identity**, not of who assembles the Dockerfile. Two byte-identical
+definitions produce an identical merged Dockerfile, therefore an identical `image_version()`, therefore
+the same tag — so the second submission is a tag hit rather than a rebuild. Counting builds for two
+tasks:
+
+| | identical environments | different environments |
+|---|---|---|
+| Published base, referenced by tag | 1 base + 1 derived | 2 base + 2 derived |
+| Inline base | **1 total** (second is a tag hit) | 2 total |
+
+An inline base is therefore equal or better on build count, and additionally saves a build submission
+and an intermediate push per image.
+
+Two things remain true, neither introduced by the inline-base flow:
+
+- **No layer reuse between different-but-similar images.** Fifty environments sharing a 2 GB toolchain
+  layer but differing in one commit rebuild that layer fifty times. This is equally true of the
+  published-base flow, since each of those is a distinct base image. Layer caching
+  (`--cache=true --cache-repo=…` for Kaniko; `--cache-from` with `BUILDKIT_INLINE_CACHE=1` for Cloud
+  Build) would fix it for both, and is not implemented.
+- **Kaniko snapshots every stage**, so build-pod memory and disk grow with an inline base. The
+  per-image `resources` field is the lever; on Cloud Build it is `machine_type` / `disk_size_gb`.
+
+The tag is a pure function of `(base_dockerfile, base_stage, context_uri, plugins, commands,
+secret names)`. Build resources and the destination registry deliberately do **not**
+participate — they do not change image content. Supplying `version` opts out of hash-based dedupe
+entirely, which is the point when a caller maintains its own content-addressed tags.
 
 ---
 
