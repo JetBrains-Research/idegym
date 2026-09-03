@@ -225,11 +225,7 @@ class Image(BaseModel):
 
     @model_validator(mode="after")
     def validate_base_definition(self) -> Self:
-        """Enforce exactly-one-of ``base`` / ``base_dockerfile`` and reject unbuildable input.
-
-        Everything checked here would otherwise surface minutes into a cluster build, with the
-        diagnostic buried in build logs.
-        """
+        """Enforce exactly-one-of ``base`` / ``base_dockerfile`` and reject unbuildable input."""
         if (self.base is None) == (self.base_dockerfile is None):
             raise ValueError(
                 "Exactly one of 'base' (a registry reference) or 'base_dockerfile' (Dockerfile text) must be set"

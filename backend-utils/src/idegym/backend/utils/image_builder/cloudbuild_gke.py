@@ -65,13 +65,9 @@ def build_cloudbuild_config(
     """Build the Cloud Build request body (the programmatic equivalent of ``cloudbuild.yaml``).
 
     Uses a ``docker build`` step with BuildKit enabled so Dockerfile heredocs and
-    ``--mount=type=secret`` work (``--tag`` on ``gcloud builds submit`` does not support BuildKit),
-    preceded by a fetch step when the caller staged their own build context. The same archive URL /
-    auth args Kaniko receives are forwarded here, so the rendered Dockerfile behaves identically
-    across backends -- except the auth token, which travels as a BuildKit secret (see
-    `_inject_auth_secret`) to stay out of the Build resource and image history.
-    ``CLOUD_LOGGING_ONLY`` avoids a non-zero exit when the default GCS logs bucket is unreadable
-    (VPC-SC / missing ``storage.objects.get``).
+    ``--mount=type=secret`` work -- ``gcloud builds submit --tag`` does not. ``CLOUD_LOGGING_ONLY``
+    avoids a non-zero exit when the default GCS logs bucket is unreadable (VPC-SC / missing
+    ``storage.objects.get``).
     """
     docker_args: list[str] = ["build", "--build-arg", f"IDEGYM_VERSION={service_version}"]
 
@@ -90,9 +86,8 @@ def build_cloudbuild_config(
         if spec.request.auth.token is not None:
             docker_args += ["--secret", f"id={AUTH_SECRET_ID},src=./{AUTH_SECRET_SRC}"]
 
-    # Plugin-declared secrets, resolved from the orchestrator's own environment as the Kaniko
-    # backend has always done; this one used to drop them, silently breaking `external_plugins`.
-    # An empty value is skipped so the Dockerfile's ARG default applies instead.
+    # Plugin-declared secrets, resolved from the orchestrator's own environment. An empty value is
+    # skipped so the Dockerfile's ARG default applies instead.
     for name in spec.secret_build_args:
         value = env.get(name)
         if value:
@@ -176,16 +171,15 @@ def fetch_context_step(context_uri: str, *, exclude: Optional[str] = None) -> di
     plugin context files -- into ``/workspace``, so the caller's archive goes over the top with
     ``--skip-old-files`` and generated files win every collision. Overlaying in-build rather than
     merging archives in the orchestrator keeps a multi-gigabyte context off its network and memory.
-    The download goes via a file because ``tar`` can only auto-detect compression on a seekable
-    input.
 
-    ``exclude`` is appended to ``.dockerignore`` after extraction, the one exception to
-    generated-files-win: shipping ours would discard the caller's, sweeping files they deliberately
-    excluded into the image via a broad ``COPY .``.
+    ``exclude`` is appended to ``.dockerignore``, the one exception to generated-files-win: shipping
+    ours would discard the caller's, sweeping files they deliberately excluded into the image via a
+    broad ``COPY .``.
     """
     archive = "/tmp/idegym-build-context.archive"
     commands = [
         "set -eu",
+        # Downloaded to a file, not piped: `tar` auto-detects compression only on a seekable input.
         f"gcloud storage cp {quote(context_uri)} {archive}",
         f"tar -xf {archive} -C /workspace --skip-old-files",
         f"rm -f {archive}",
@@ -222,15 +216,11 @@ def build_context_tar(
 
     Carries the generated Dockerfile plus any plugin ``context_files`` -- the assets the
     idea/pycharm plugins ``COPY`` from the idegym repo, which Kaniko instead resolves from a git
-    checkout. Project sources are still fetched at build time via the archive build args, and a
-    caller-staged context is overlaid by `fetch_context_step`, so this archive stays small. It is
-    byte-stable for identical inputs (sorted entries, zero mtimes, pinned gzip header), which is
-    what lets the staging object be named after a digest of its own contents.
+    checkout. Byte-stable for identical inputs (sorted entries, zero mtimes, pinned gzip header),
+    which is what lets the staging object be named after a digest of its own contents.
 
-    An ``auth_token`` is added as a separate file consumed via a BuildKit secret mount (never
-    ``COPY``-ed), so it stays out of the image while still reaching the ``download`` step, and
-    ``own_dockerignore`` writes the ``.dockerignore`` that keeps it out. Set that False when a
-    caller context will be overlaid, as `fetch_context_step` then owns the file.
+    Set ``own_dockerignore`` False when a caller context will be overlaid: `fetch_context_step`
+    then owns the file.
     """
     raw = io.BytesIO()
     with tarfile.open(fileobj=raw, mode="w") as tar:

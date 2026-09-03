@@ -2,8 +2,7 @@
 
 Only backends with no secret-mount mechanism need this: Cloud Build hands the resource name to
 BuildKit via ``available_secrets`` and never sees the value, while Kaniko has no equivalent, so the
-value is fetched here and passed as a build arg. The client is lazy and injectable, so unit tests
-need no credentials.
+value is fetched here and passed as a build arg.
 """
 
 from typing import Any, Optional
@@ -24,10 +23,7 @@ def secret_version_name(resource: str) -> str:
 
 
 def build_arg_exposure_warning(secret_ids: list[str]) -> str:
-    """Return the warning text for secrets a backend can only pass as build args.
-
-    Spells out the consequence rather than saying "insecure": the value lands in the image history.
-    """
+    """Return the warning text for secrets a backend can only pass as build args."""
     listed = ", ".join(sorted(secret_ids))
     return (
         f"Build secrets [{listed}] were passed to Kaniko as --build-arg: Kaniko has no "

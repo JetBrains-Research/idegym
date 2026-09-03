@@ -49,12 +49,7 @@ def _kaniko_git_context(version: str) -> str:
 
 
 def validate_kaniko_spec(spec: ImageBuildSpec) -> None:
-    """Reject a spec Kaniko cannot build, before any Job is created.
-
-    Otherwise each surfaces minutes later as a build-log failure that reads as an infrastructure
-    problem. Raised from ``submit_build``, which the orchestrator awaits, so the caller gets it on
-    their build request.
-    """
+    """Reject a spec Kaniko cannot build, before any Job is created."""
     features = buildkit_only_features(spec.dockerfile_content)
     if features:
         listed = ", ".join(f"{feature.name} on line {feature.line.number}" for feature in features)
