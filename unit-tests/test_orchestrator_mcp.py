@@ -168,7 +168,7 @@ async def test_run_bash_command_mcp_tool_calls_forwarding_endpoint(mocker):
     assert isinstance(endpoint.await_args.kwargs["headers"], Headers)
     assert endpoint.await_args.kwargs["headers"]["content-type"] == "application/json"
     assert endpoint.await_args.kwargs["body"] == (
-        '{"command":"echo hello","timeout":600.0,"graceful_termination_timeout":2.0,"max_output_bytes":1048576}'
+        '{"command":"echo hello","timeout":600.0,"graceful_termination_timeout":2.0,"max_output_bytes":1048576,"strip_output":false}'
     )
     assert result.structured_content == {"async_operation_id": 43}
 

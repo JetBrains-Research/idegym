@@ -115,8 +115,42 @@ def test_collector_exposes_bounded_partial_output() -> None:
     assert collector.total == 12
 
 
-def test_decode_output_replaces_invalid_utf8_and_preserves_leading_whitespace() -> None:
-    assert bash_executor._decode_output(b"  indented\xff\n") == "  indented�"
+def test_decode_output_replaces_invalid_utf8_and_preserves_surrounding_whitespace() -> None:
+    assert bash_executor._decode_output(b"  indented\xff\n") == "  indented�\n"
+
+
+def test_decode_output_trims_only_when_asked() -> None:
+    assert bash_executor._decode_output(b"\n  spaced  \n", strip=True) == "spaced"
+
+
+def test_decode_output_of_empty_stream_is_empty_either_way() -> None:
+    assert bash_executor._decode_output(b"") == ""
+    assert bash_executor._decode_output(b"", strip=True) == ""
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("export TOKEN=s3cr3t", "export TOKEN=<redacted>"),
+        ("export TOKEN='s3 cr3t'", "export TOKEN=<redacted>"),
+        ('export TOKEN="s3 cr3t"', "export TOKEN=<redacted>"),
+        ("export EMPTY=", "export EMPTY=<redacted>"),
+        ("export A=1; export B=2 && echo done", "export A=<redacted>; export B=<redacted> && echo done"),
+        ("exporting TOKEN=keepme", "exporting TOKEN=keepme"),
+        ("TOKEN=keepme echo hi", "TOKEN=keepme echo hi"),
+    ],
+)
+def test_redact_exports_masks_only_the_assigned_value(command, expected) -> None:
+    assert bash_executor._redact_exports(command) == expected
+
+
+def test_command_excerpt_redacts_before_truncating() -> None:
+    command = "export TOKEN=" + "s" * 4000
+
+    excerpt = bash_executor._command_excerpt(command)
+
+    assert "s" * 20 not in excerpt
+    assert excerpt.startswith("export TOKEN=<redacted>")
 
 
 def test_log_excerpt_is_bounded_to_one_page() -> None:
@@ -135,3 +169,7 @@ def test_bash_request_rejects_invalid_output_limit(limit) -> None:
 
 def test_bash_request_supports_explicit_unlimited_output() -> None:
     assert BashCommandRequest(command="echo hello", max_output_bytes=None).max_output_bytes is None
+
+
+def test_bash_request_keeps_output_verbatim_by_default() -> None:
+    assert BashCommandRequest(command="echo hello").strip_output is False

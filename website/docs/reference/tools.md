@@ -31,6 +31,7 @@ Execute a bash script inside the container.
 | `timeout` | float | 600.0 | Maximum execution time in seconds |
 | `graceful_termination_timeout` | float | 2.0 | Seconds to wait for graceful process exit before SIGKILL |
 | `max_output_bytes` | integer or null | 1048576 | Maximum retained bytes per stream; `null` retains complete output |
+| `strip_output` | bool | `false` | Trim leading and trailing whitespace from `stdout` and `stderr` |
 
 **Response:**
 
@@ -45,6 +46,31 @@ beginning and end and includes a marker with the number of omitted bytes; the ma
 is outside the configured limit. Set `max_output_bytes` to `null` only when complete output
 is required and its size is trusted. IdeGYM still drains all produced output until the command
 finishes or reaches its execution timeout so subprocess pipes cannot deadlock.
+
+#### Output fidelity
+
+Within the retained window, output is returned exactly as the command wrote it. Nothing is
+trimmed, so a trailing newline that belongs to a `git diff` survives and `printf 'x'` stays
+distinguishable from `printf '  x  '`. Set `strip_output` to `true` if you would otherwise call
+`.strip()` on the result yourself.
+
+Bytes that are not valid UTF-8 are replaced with `U+FFFD` rather than failing the request, so
+`cat` on a binary file or a compiler emitting latin-1 diagnostics still returns the command's
+real exit code. The response is JSON text: to move binary data out of the container intact,
+encode it inside the command (`base64 -w0 …`) or use the
+[file endpoints](client.md).
+
+#### What gets logged
+
+The server never writes a command or its output to the log at INFO. An INFO record carries the
+shape of the call only — the command's length on the way in, then the exit code and the byte
+count of each stream on the way out.
+
+The command itself and excerpts of both streams are logged at DEBUG, and the command passes
+through a redaction step first that replaces the value of every `export NAME=...` assignment
+with `<redacted>`. Raise the level with `IDEGYM_LOG_LEVEL=DEBUG` when you need to see what a
+sandbox actually ran, and be aware that anything a script sets by other means — an inline
+`NAME=value cmd` prefix, a heredoc, a literal in an argument — is not redacted.
 
 **Via orchestrator MCP (`run_bash_command`):**
 

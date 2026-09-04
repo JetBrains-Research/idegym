@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 import shlex
 import signal
 from asyncio.subprocess import Process
@@ -20,6 +21,9 @@ _LOG_EXCERPT_CHARS = 1800
 _OUTPUT_DRAIN_TIMEOUT_SECONDS = 0.25
 _PROCESS_GROUP_POLL_INTERVAL_SECONDS = 0.01
 _PROCESS_REAP_TIMEOUT_SECONDS = 0.25
+_EXPORT_ASSIGNMENT_PATTERN = re.compile(
+    r"""\bexport[ \t]+(?P<name>[A-Za-z_][A-Za-z0-9_]*)=(?:'[^']*'|"[^"]*"|[^\s;&|)]*)"""
+)
 
 
 class BashExecutorError(Exception):
@@ -148,8 +152,17 @@ async def _reap_process(process: Process) -> None:
         )
 
 
-def _decode_output(output: bytes) -> str:
-    return output.decode("utf-8", errors="replace").rstrip() if output else ""
+def _decode_output(output: bytes, strip: bool = False) -> str:
+    """Decode one stream, replacing undecodable bytes so a binary write cannot fail the request.
+
+    Output is returned byte-for-byte otherwise: a trailing newline is part of a ``git diff`` and
+    ``printf 'x'`` must stay distinguishable from ``printf '  x  '``. ``strip`` is the opt-in for
+    callers that would otherwise trim the result themselves.
+    """
+    if not output:
+        return ""
+    text = output.decode("utf-8", errors="replace")
+    return text.strip() if strip else text
 
 
 def _log_excerpt(text: str) -> str:
@@ -157,6 +170,20 @@ def _log_excerpt(text: str) -> str:
         return text
     half = _LOG_EXCERPT_CHARS // 2
     return f"{text[:half]}\n... [log excerpt truncated] ...\n{text[-half:]}"
+
+
+def _redact_exports(command: str) -> str:
+    """Mask the values of ``export NAME=...`` assignments in a script before it is logged.
+
+    A script is the only channel for setting per-command environment, so callers routinely
+    ship credentials inside it. The variable name is kept because it is what makes a log line
+    useful; only the value goes.
+    """
+    return _EXPORT_ASSIGNMENT_PATTERN.sub(lambda match: f"export {match.group('name')}=<redacted>", command)
+
+
+def _command_excerpt(command: str) -> str:
+    return _log_excerpt(_redact_exports(command))
 
 
 def _signal_process_group(process: Process, requested_signal: signal.Signals) -> bool:
@@ -224,6 +251,7 @@ class BashExecutor:
         timeout: Optional[float] = 600.0,
         graceful_termination_timeout: float = 2.0,
         max_output_bytes: Optional[int] = None,
+        strip_output: bool = False,
     ) -> tuple[str, str, int]:
         """
         Execute a bash command asynchronously.
@@ -233,12 +261,16 @@ class BashExecutor:
         variables stripped. The process is started in its own process group so the
         entire group can be killed on timeout.
 
+        Output is returned verbatim unless ``strip_output`` asks for surrounding
+        whitespace to be trimmed.
+
         Returns a tuple of (stdout, stderr, exit_code).
         Raises BashCommandExecutionTimeoutError if the timeout is exceeded.
         """
         stdout_collector = _OutputCollector(max_output_bytes)
         stderr_collector = _OutputCollector(max_output_bytes)
-        logger.info("Executing bash command", command=_log_excerpt(command))
+        logger.info("Executing bash command", command_chars=len(command))
+        logger.debug("Bash command", command=_command_excerpt(command))
 
         bash_command = f"source {__BASH_INIT_FILEPATH__} && {command}"
         process = await asyncio.create_subprocess_shell(
@@ -280,13 +312,16 @@ class BashExecutor:
                 timeout_seconds=timeout,
                 stdout_bytes=stdout_collector.total,
                 stderr_bytes=stderr_collector.total,
+            )
+            logger.debug(
+                "Partial output of the timed-out command",
                 stdout=_log_excerpt(_decode_output(stdout_collector.retained())),
                 stderr=_log_excerpt(_decode_output(stderr_collector.retained())),
             )
             raise BashCommandExecutionTimeoutError(f"Command execution timed out after {timeout} seconds")
 
-        stdout_text = _decode_output(stdout_collector.retained())
-        stderr_text = _decode_output(stderr_collector.retained())
+        stdout_text = _decode_output(stdout_collector.retained(), strip=strip_output)
+        stderr_text = _decode_output(stderr_collector.retained(), strip=strip_output)
         exit_code = process.returncode
         if exit_code is None:
             raise RuntimeError("Bash process completed without an exit code")
@@ -296,6 +331,9 @@ class BashExecutor:
             exit_code=exit_code,
             stdout_bytes=stdout_collector.total,
             stderr_bytes=stderr_collector.total,
+        )
+        logger.debug(
+            "Command output",
             stdout=_log_excerpt(stdout_text),
             stderr=_log_excerpt(stderr_text),
         )
