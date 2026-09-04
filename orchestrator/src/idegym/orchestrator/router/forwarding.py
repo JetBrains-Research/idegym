@@ -5,7 +5,7 @@ from typing import Optional
 from uuid import UUID
 
 import websockets
-from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, Request, Response, WebSocket, WebSocketDisconnect, status
 from httpx import AsyncClient, ConnectError
 from idegym.api.orchestrator.clients import AvailabilityStatus
 from idegym.api.orchestrator.operations import (
@@ -34,6 +34,32 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 
+# Upper bound on how long a blocking forward (``?wait_seconds=N``) may hold the
+# request open before falling back to the 202 async-operation ticket. Caps how
+# long any single forward pins a connection, regardless of what a client asks.
+_MAX_FORWARD_WAIT_SECONDS = 120.0
+
+
+def _parse_wait_seconds(request: Request) -> float:
+    """Read the optional ``?wait_seconds=N`` blocking-forward hint (clamped).
+
+    Absent / non-positive / unparseable ⇒ 0.0 (the original fire-and-forget
+    202-ticket behavior). A positive value is clamped to
+    ``_MAX_FORWARD_WAIT_SECONDS`` so no single request pins a connection longer
+    than the operator-set ceiling.
+    """
+    raw = request.query_params.get("wait_seconds")
+    if raw is None:
+        return 0.0
+    try:
+        value = float(raw)
+    except ValueError:
+        return 0.0
+    if value <= 0:
+        return 0.0
+    return min(value, _MAX_FORWARD_WAIT_SECONDS)
+
+
 @executes_operation_in_background
 @router.api_route(
     "/api/forward/{client_id}/{server_id}/{path:path}",
@@ -41,7 +67,9 @@ logger = get_logger(__name__)
     status_code=status.HTTP_202_ACCEPTED,
 )
 @handle_general_exceptions(error_message="Failed to forward request to IdeGYM server")
-async def forward_request_by_server_id(request: Request, client_id: UUID, server_id: int, path: str):
+async def forward_request_by_server_id(
+    request: Request, response: Response, client_id: UUID, server_id: int, path: str
+):
     logger.info(
         f"Received forwarding request: {request.method} {request.url} "
         f"to IdeGYM server ID {server_id} for client {client_id} with path: {path}"
@@ -55,6 +83,8 @@ async def forward_request_by_server_id(request: Request, client_id: UUID, server
         headers=request.headers,
         body=request_content,
         http_client=request.app.state.http_client,
+        wait_seconds=_parse_wait_seconds(request),
+        response=response,
     )
 
 
@@ -66,6 +96,8 @@ async def forward_request_to_server(
     headers: Headers,
     body: str,
     http_client: AsyncClient,
+    wait_seconds: float = 0.0,
+    response: Response | None = None,
 ) -> ForwardRequestResponse:
     logger.info(f"Forwarding {method} request to IdeGYM server ID {server_id} for client {client_id}: {path}")
     server = await validate_server(client_id=client_id, server_id=server_id)
@@ -85,13 +117,27 @@ async def forward_request_to_server(
         server_id=server_id,
         request=forward_payload,
     )
-    asyncio.create_task(
+    task = asyncio.create_task(
         _task_forward_request(
             http_client=http_client,
             forward_payload=forward_payload,
             async_operation_id=async_operation_id,
         )
     )
+    # Blocking-forward fast path: hold the request open for up to wait_seconds
+    # and return the tool result inline, so the caller never has to poll the
+    # async operation. asyncio.wait does NOT cancel the task on timeout, so a
+    # tool that outruns the window keeps running, writes its result to the DB,
+    # and the caller falls back to polling the returned ticket. wait_seconds <= 0
+    # preserves the original fire-and-forget + 202-ticket behavior exactly.
+    if wait_seconds > 0:
+        done, _pending = await asyncio.wait({task}, timeout=wait_seconds)
+        if task in done and task.exception() is None:
+            result = task.result()
+            if result is not None:
+                if response is not None:
+                    response.status_code = status.HTTP_200_OK
+                return result
     return ForwardRequestResponse(async_operation_id=async_operation_id)
 
 
@@ -132,8 +178,13 @@ async def parse_request_body(request: Request) -> str:
 
 async def _task_forward_request(
     http_client: AsyncClient, forward_payload: ForwardRequestPayload, async_operation_id: int
-):
+) -> ForwardRequestResponse:
     need_to_update_server_heartbeat = False
+    # Built in every branch and returned so the blocking-forward fast path can
+    # hand the result back inline. The update_operation_* DB writes below remain
+    # the source of truth for the poll fallback + observability; the returned
+    # object mirrors what a subsequent status poll of this operation would read.
+    result: ForwardRequestResponse
     try:
         await update_operation_status(
             async_operation_id=async_operation_id,
@@ -143,6 +194,7 @@ async def _task_forward_request(
         status_code, headers, response_text = await forward_request_internally(
             forward_payload=forward_payload, http_client=http_client
         )
+        result = ForwardRequestResponse(status_code=status_code, headers=headers, body=response_text)
 
         if status_code >= 400:
             if status_code < 500:  # 4xx means the server processed the request; update heartbeat
@@ -158,21 +210,24 @@ async def _task_forward_request(
             await update_operation_status(
                 async_operation_id=async_operation_id,
                 async_operation_status=AsyncOperationStatus.SUCCEEDED,
-                result=ForwardRequestResponse(status_code=status_code, headers=headers, body=response_text),
+                result=result,
             )
 
     except ConnectError as ce:
         message = f"Failed to forward request: unable to connect to {forward_payload.target_url}"
         logger.warning(message)
+        error_body = format_error(message=message, exception=ce)
+        result = ForwardRequestResponse(status_code=status.HTTP_410_GONE, body=error_body)
         await update_operation_with_error(
             async_operation_id=async_operation_id,
             status_code=status.HTTP_410_GONE,
-            body=format_error(message=message, exception=ce),
+            body=error_body,
         )
 
     except CancelledError:
         message = f"Failed to forward request: client disconnected while streaming from {forward_payload.target_url}"
         logger.warning(message)
+        result = ForwardRequestResponse(status_code=499, body=message)
         await update_operation_with_error(
             async_operation_id=async_operation_id,
             async_operation_status=AsyncOperationStatus.CANCELLED,
@@ -183,14 +238,18 @@ async def _task_forward_request(
     except Exception as e:
         message = f"Failed to forward request to {forward_payload.target_url}"
         logger.exception(message)
+        error_body = format_error(message=message, exception=e)
+        result = ForwardRequestResponse(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, body=error_body)
         await update_operation_with_error(
             async_operation_id=async_operation_id,
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            body=format_error(message=message, exception=e),
+            body=error_body,
         )
 
     if need_to_update_server_heartbeat:
         await update_server_heartbeat_on_call(forward_payload.path, forward_payload.server_id)
+
+    return result
 
 
 async def forward_request_internally(
