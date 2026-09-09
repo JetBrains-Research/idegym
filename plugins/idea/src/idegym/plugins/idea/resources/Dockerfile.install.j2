@@ -33,8 +33,8 @@ RUN set -eux; \
     tar -xzf /tmp/idea.tar.gz -C ${IDE_DIR} --strip-components=1; \
     rm /tmp/idea.tar.gz /tmp/idea.sha256
 
-ENV JAVA_HOME="${IDE_DIR}/jbr"
-ENV PATH="${JAVA_HOME}/bin:${IDE_DIR}/bin:${PATH}"
+# The launcher finds its bundled JBR. Preserve the task's JDK and command precedence.
+ENV PATH="${PATH}:${IDE_DIR}/bin"
 # IDE-specific config for the shared start-ide entrypoint (installed as /usr/local/bin/start-ide).
 ENV IDE_NAME="IntelliJ IDEA"
 ENV IDE_LAUNCHER="idea.sh"
