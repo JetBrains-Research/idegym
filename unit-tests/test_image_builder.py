@@ -1120,6 +1120,23 @@ def test_image_pip_install_chains_with_run_commands():
 # ---------------------------------------------------------------------------
 
 
+@mark.parametrize("plugin", [param(Idea(), id="idea"), param(PyCharm(), id="pycharm")])
+@mark.parametrize("task_java", [False, True], ids=["no-task-jdk", "task-jdk"])
+def test_ide_plugins_preserve_the_base_java_environment(plugin, task_java):
+    base_env = ['ENV PATH="/task/bin:/usr/bin:/bin"']
+    if task_java:
+        base_env.insert(0, 'ENV JAVA_HOME="/opt/task-jdk"')
+    spec = (
+        Image.from_dockerfile("FROM debian:bookworm-slim\n" + "\n".join(base_env) + "\n").with_plugin(plugin).to_spec()
+    )
+    java_env = [
+        line for line in spec.dockerfile_content.splitlines() if line.startswith(("ENV JAVA_HOME=", "ENV PATH="))
+    ]
+
+    # The task keeps its JDK (or none) and command precedence. Only IDE launchers are added.
+    assert java_env == [*base_env, 'ENV PATH="${PATH}:${IDE_DIR}/bin"']
+
+
 def test_pycharm_default_version():
     plugin = PyCharm()
     assert plugin.version == "2026.1.1"
@@ -1135,7 +1152,6 @@ def test_pycharm_render_contains_install_steps():
     assert 'archive="pycharm-2024.1${suffix}.tar.gz"' in fragment
     assert "dpkg --print-architecture" in fragment
     assert "aarch64" in fragment
-    assert "JAVA_HOME" in fragment
     # PyCharm installs under the shared IDE_DIR var so the entrypoint is IDE-agnostic.
     assert 'IDE_DIR="/opt/pycharm"' in fragment
     # Must not use the curl-pipe-bash pattern (supply chain risk)
@@ -1144,8 +1160,6 @@ def test_pycharm_render_contains_install_steps():
     # Must verify the tarball checksum before extracting
     assert "sha256sum" in fragment
     assert ".sha256" in fragment
-    # Java must come from PyCharm's bundled JBR, not an external install
-    assert "/jbr" in fragment
 
 
 def test_pycharm_render_switches_back_to_current_user():
@@ -1370,13 +1384,10 @@ def test_idea_render_contains_install_steps():
     assert 'archive="idea-2026.1.1${suffix}.tar.gz"' in fragment
     assert "dpkg --print-architecture" in fragment
     assert "aarch64" in fragment
-    assert "JAVA_HOME" in fragment
     assert "IDE_DIR" in fragment
     # Must verify the tarball checksum before extracting
     assert "sha256sum" in fragment
     assert ".sha256" in fragment
-    # Java must come from IDEA's bundled JBR
-    assert "/jbr" in fragment
     # IDEA supports headless mode (unlike PyCharm)
     assert "java.awt.headless=true" in fragment
 
