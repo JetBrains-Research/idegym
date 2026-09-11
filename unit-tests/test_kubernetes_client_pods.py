@@ -247,3 +247,76 @@ async def test_restart_server_pod_raises_when_delete_fails(mocker):
     with pytest.raises(ResourceDeletionFailedException):
         await kc.restart_server_pod("srv-1", "ns", manifest={"kind": "Pod"}, wait_timeout=30)
     core.create_namespaced_pod.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# _create_pod_with_retries
+# ---------------------------------------------------------------------------
+
+
+def _api_error(status, reason, message="x"):
+    import json as _json
+
+    ex = ApiException(status=status, reason=reason)
+    ex.body = _json.dumps({"kind": "Status", "reason": reason, "message": message, "code": status})
+    return ex
+
+
+async def test_create_pod_retries_resource_quota_conflict(mocker):
+    core, _ = _patch_core(mocker)
+    created = _pod()
+    conflict = _api_error(409, "Conflict", "Operation cannot be fulfilled on resourcequotas")
+    core.create_namespaced_pod = mocker.AsyncMock(side_effect=[conflict, conflict, created])
+
+    assert await kc._create_pod_with_retries(core, {"kind": "Pod"}, "srv-1", "ns") is created
+    assert core.create_namespaced_pod.await_count == 3
+    assert kc.sleep.await_count == 2
+
+
+async def test_create_pod_already_exists_returns_the_existing_pod(mocker):
+    core, _ = _patch_core(mocker)
+    existing = _pod()
+    core.create_namespaced_pod = mocker.AsyncMock(side_effect=_api_error(409, "AlreadyExists"))
+    core.read_namespaced_pod = mocker.AsyncMock(return_value=existing)
+
+    assert await kc._create_pod_with_retries(core, {"kind": "Pod"}, "srv-1", "ns") is existing
+    assert core.create_namespaced_pod.await_count == 1
+    core.read_namespaced_pod.assert_awaited_once_with(name="srv-1", namespace="ns")
+
+
+async def test_create_pod_does_not_retry_client_errors(mocker):
+    core, _ = _patch_core(mocker)
+    core.create_namespaced_pod = mocker.AsyncMock(side_effect=_api_error(400, "BadRequest"))
+
+    with pytest.raises(ApiException):
+        await kc._create_pod_with_retries(core, {"kind": "Pod"}, "srv-1", "ns")
+    assert core.create_namespaced_pod.await_count == 1
+
+
+async def test_create_pod_gives_up_after_the_retry_budget(mocker):
+    core, _ = _patch_core(mocker)
+    core.create_namespaced_pod = mocker.AsyncMock(side_effect=_api_error(503, "ServiceUnavailable"))
+
+    with pytest.raises(ApiException):
+        await kc._create_pod_with_retries(core, {"kind": "Pod"}, "srv-1", "ns")
+    assert core.create_namespaced_pod.await_count == kc._CREATE_RETRY_ATTEMPTS
+
+
+async def test_deploy_server_creates_through_the_retrying_helper(mocker):
+    core, apps = _patch_core(mocker)
+    from kubernetes_asyncio.client import ApiClient
+
+    api_client = ApiClient()
+    apps.api_client = api_client
+    try:
+        created = _pod()
+        conflict = _api_error(409, "Conflict", "Operation cannot be fulfilled on resourcequotas")
+        core.create_namespaced_pod = mocker.AsyncMock(side_effect=[conflict, created])
+
+        pod, manifest = await kc.deploy_server(image_tag="img:latest", server_name="srv-1", namespace="ns")
+
+        assert pod is created
+        assert manifest["metadata"]["name"] == "srv-1"
+        assert core.create_namespaced_pod.await_count == 2
+    finally:
+        await api_client.close()

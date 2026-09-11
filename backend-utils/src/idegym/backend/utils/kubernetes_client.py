@@ -2,7 +2,7 @@ import json
 from asyncio import CancelledError, gather, sleep, timeout
 from contextlib import asynccontextmanager
 from os import environ as env
-from random import getrandbits
+from random import getrandbits, uniform
 from typing import Any, AsyncGenerator, Awaitable, Callable, Iterable, Optional, Union, cast
 
 from idegym.api import __version__
@@ -101,6 +101,15 @@ SNAPSHOT_ID_KEY = "idegym.jetbrains.com/snapshot-id"
 POD_DELETION_TIMEOUT_SECONDS = 300
 _POLL_INTERVAL_SECONDS = 2
 _MAX_CONSECUTIVE_UNSCHEDULABLE = 15  # ~30 s at the 2 s poll interval
+
+# The API server rejects a pod create with 409 Conflict when the ResourceQuota admission
+# controller loses its optimistic-concurrency update under a burst of concurrent creates,
+# and with 429 / 5xx under load. A ReplicaSet controller retries those on the caller's
+# behalf; a direct creator has to. Jittered exponential backoff, ~30 s worst case.
+_CREATE_RETRY_ATTEMPTS = 8
+_CREATE_RETRY_BASE_SECONDS = 0.5
+_CREATE_RETRY_MAX_SECONDS = 8.0
+_RETRYABLE_CREATE_STATUSES = frozenset({409, 429, 500, 502, 503, 504})
 
 
 def build_node_affinity(taint_key: str, preference_weight: int) -> V1NodeAffinity:
@@ -427,7 +436,7 @@ async def deploy_server(
     manifest = api_client.sanitize_for_serialization(pod)
 
     async with async_kube_api() as (_, _, core, _, _):
-        created = await core.create_namespaced_pod(body=pod, namespace=namespace)
+        created = await _create_pod_with_retries(core, pod, server_name, namespace)
 
     return created, manifest
 
@@ -530,6 +539,44 @@ async def pods_are_ready(label_selector: str, namespace: str) -> tuple[bool, boo
     )
 
     return pods_ready, has_image_pull_error, has_terminating_pods, has_unschedulable_pods
+
+
+def _api_exception_reason(ex: ApiException) -> str:
+    """Return the Kubernetes Status ``reason`` carried in an ApiException body, or ''."""
+    try:
+        return json.loads(ex.body or "{}").get("reason") or ""
+    except (TypeError, ValueError, AttributeError):
+        return ""
+
+
+async def _create_pod_with_retries(core: CoreV1Api, body: Any, name: str, namespace: str) -> V1Pod:
+    """
+    Create a pod, retrying the API server's transient rejections.
+
+    409 ``Conflict`` is the ResourceQuota admission race under concurrent creates and
+    429 / 5xx are server-side pressure: both are retried with jittered backoff. 409
+    ``AlreadyExists`` means an earlier attempt landed although its response was lost, so
+    the existing pod is read and returned. Anything else is raised as is.
+    """
+    for attempt in range(1, _CREATE_RETRY_ATTEMPTS + 1):
+        try:
+            return await core.create_namespaced_pod(body=body, namespace=namespace)
+        except ApiException as ex:
+            reason = _api_exception_reason(ex)
+            if ex.status == 409 and reason == "AlreadyExists":
+                logger.info(f"Pod '{name}' already exists in namespace '{namespace}'; using it.")
+                return await core.read_namespaced_pod(name=name, namespace=namespace)
+            if ex.status not in _RETRYABLE_CREATE_STATUSES or attempt == _CREATE_RETRY_ATTEMPTS:
+                raise
+            backoff = min(_CREATE_RETRY_MAX_SECONDS, _CREATE_RETRY_BASE_SECONDS * 2 ** (attempt - 1)) * uniform(
+                0.5, 1.0
+            )
+            logger.warning(
+                f"Pod '{name}' create rejected with {ex.status} {reason} "
+                f"(attempt {attempt}/{_CREATE_RETRY_ATTEMPTS}); retrying in {backoff:.1f}s"
+            )
+            await sleep(backoff)
+    raise RuntimeError(f"Pod '{name}' create retries exhausted without an exception")  # pragma: no cover
 
 
 def _pod_signals(pod: V1Pod) -> tuple[bool, bool, bool]:
@@ -881,7 +928,7 @@ async def restart_server_pod(
             if not deleted:
                 raise ResourceDeletionFailedException(f"Failed to delete pod for restart: {name}")
             await _wait_for_pod_deleted(core, name, namespace, timeout_seconds=POD_DELETION_TIMEOUT_SECONDS)
-            await core.create_namespaced_pod(body=manifest, namespace=namespace)
+            await _create_pod_with_retries(core, manifest, name, namespace)
 
         pod = await wait_for_pod_ready(pod_name=name, namespace=namespace, wait_timeout=wait_timeout)
         logger.info(f"Successfully restarted pod '{name}' in namespace '{namespace}'")
