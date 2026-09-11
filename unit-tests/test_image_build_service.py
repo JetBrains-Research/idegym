@@ -401,7 +401,9 @@ async def test_monitor_loop_polls_until_terminal(mocker, builder):
     mocker.patch("idegym.orchestrator.image_build_service.sleep", new=AsyncMock())
 
     service = ImageBuildService(builder=builder)
-    await service.monitor_image_building_job(BuildHandle(name="job-xyz", resource="cloudbuild://project/region/job-xyz"), tag="t", request_id="r")
+    await service.monitor_image_building_job(
+        BuildHandle(name="job-xyz", resource="cloudbuild://project/region/job-xyz"), tag="t", request_id="r"
+    )
 
     assert builder.get_status.await_count == 2
     saved.assert_awaited_once()
