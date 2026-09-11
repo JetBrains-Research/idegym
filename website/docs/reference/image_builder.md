@@ -1236,3 +1236,11 @@ pass data between plugins via `extras`.
 > **See also:** [Plugin Architecture](plugins.md) — full guide covering server plugins, client
 > operation plugins, MCP upstream convention, the `plugins.json` configuration file, and how to
 > write a plugin that participates in all integration points.
+
+
+### Build reconciliation
+
+The watcher uses each build's persisted backend resource to recover completion after an
+orchestrator restart. Its identity needs `cloudbuild.builds.get` for the build project.
+Older records without a resource are reconciled only for the historical `kaniko-build-`
+name prefix; other legacy builds remain the orchestrator monitor's responsibility.
