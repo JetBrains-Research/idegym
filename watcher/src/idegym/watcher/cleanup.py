@@ -6,6 +6,7 @@ from os import environ as env
 from idegym.api.config import WatcherConfig
 from idegym.api.status import Status
 from idegym.api.type import Duration
+from idegym.backend.utils.image_builder.status import get_build_status
 from idegym.backend.utils.kubernetes_client import (
     are_any_pods_alive,
     clean_up_server,
@@ -142,10 +143,10 @@ async def cleanup_requests(db: AsyncSession, current_time: int, max_age: Duratio
     await mark_stale_async_operations_as_finished(db, current_time, stale_inprogress)
 
 
-@log_exceptions("Error checking orphaned kaniko jobs", logger, swallow=True)
-async def check_orphaned_kaniko_jobs(db: AsyncSession, namespace: str):
+@log_exceptions("Error checking orphaned builds", logger, swallow=True)
+async def check_orphaned_builds(db: AsyncSession, namespace: str):
     """
-    Reconcile Kaniko jobs whose DB status is IN_PROGRESS but have already finished in Kubernetes.
+    Reconcile builds using their persisted backend resource.
 
     This handles the case where monitor_image_building_job failed or the orchestrator restarted
     before it could record the final status.
@@ -159,16 +160,22 @@ async def check_orphaned_kaniko_jobs(db: AsyncSession, namespace: str):
     for job_record in in_progress_jobs:
         job_name = job_record.job_name
         try:
-            k8s_status = await get_job_status(job_name, namespace)
+            if job_record.build_resource:
+                build_status = await get_build_status(job_record.build_resource)
+            elif job_name.startswith("kaniko-build-"):
+                # Older records lack a resource; only the historical Kaniko prefix is safe.
+                build_status = await get_job_status(job_name, namespace)
+            else:
+                continue
 
-            if k8s_status != Status.IN_PROGRESS:
+            if build_status != Status.IN_PROGRESS:
                 logger.warning(
-                    f"Orphaned job detected: '{job_name}' is IN_PROGRESS in DB but {k8s_status} in k8s. Updating..."
+                    f"Orphaned job detected: '{job_name}' is IN_PROGRESS in DB but {build_status} in its build backend. Updating..."
                 )
                 await update_job_status(
-                    db, job_name, status=k8s_status, tag=job_record.tag, request_id=job_record.request_id
+                    db, job_name, status=build_status, tag=job_record.tag, request_id=job_record.request_id
                 )
-                logger.info(f"Updated orphaned job '{job_name}' status to {k8s_status}")
+                logger.info(f"Updated orphaned job '{job_name}' status to {build_status}")
         except Exception:
             logger.exception(f"Error checking status for job '{job_name}'")
 
@@ -191,7 +198,7 @@ async def perform_cleanup_operations(
         db, current_time=current_time, inactive_timeout=inactive_timeout, finished_timeout=finished_timeout
     )
     await cleanup_requests(db, current_time, requests_max_age, requests_stale)
-    await check_orphaned_kaniko_jobs(db, namespace)
+    await check_orphaned_builds(db, namespace)
 
 
 async def _wait_for_jitter():

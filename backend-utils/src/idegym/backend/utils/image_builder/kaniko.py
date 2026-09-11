@@ -194,6 +194,7 @@ class KanikoImageBuilder(ImageBuilder):
 
         return KanikoBuildHandle(
             name=job_name,
+            resource=f"kaniko://{namespace}/{job_name}",
             namespace=namespace,
             warnings=tuple(warnings),
             monitor_timeout=monitor_timeout,

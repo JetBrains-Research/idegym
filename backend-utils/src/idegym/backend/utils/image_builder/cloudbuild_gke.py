@@ -454,7 +454,11 @@ class CloudBuildGKEImageBuilder(ImageBuilder):
         build_id = operation.metadata.build.id
         logger.info(f"Submitted Cloud Build '{build_id}' for image '{tag}'")
         # The monitor has to track the timeout this build actually got, not the deployment default.
-        return CloudBuildGKEHandle(name=build_id, monitor_timeout=_monitor_timeout_for(timeout_seconds))
+        return CloudBuildGKEHandle(
+            name=build_id,
+            monitor_timeout=_monitor_timeout_for(timeout_seconds),
+            resource=f"cloudbuild://{self._project_id}/{self._region}/{build_id}",
+        )
 
     async def get_status(self, handle: BuildHandle) -> Status:
         if not isinstance(handle, CloudBuildGKEHandle):

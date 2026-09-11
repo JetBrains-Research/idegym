@@ -606,12 +606,17 @@ async def save_job_status(
     status: str = Status.IN_PROGRESS,
     details: Optional[str] = None,
     request_id: Optional[str] = None,
+    build_resource: Optional[str] = None,
 ) -> JobStatusRecord:
     existing_record = await get_job_status(db, job_name)
     if existing_record:
+        if build_resource is not None:
+            existing_record.build_resource = build_resource
         return await update_job_status(db, job_name, status, tag, details, request_id)
 
-    job_status = JobStatusRecord(job_name=job_name, status=status, details=details, tag=tag, request_id=request_id)
+    job_status = JobStatusRecord(
+        job_name=job_name, status=status, details=details, tag=tag, request_id=request_id, build_resource=build_resource
+    )
     db.add(job_status)
     await db.commit()
     return job_status
