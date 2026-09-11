@@ -31,6 +31,7 @@ TABLES_BY_REVISION = {
     "001": {"clients", "servers", "resource_limit_rules", "job_statuses", "async_operations"},
     "002": {"snapshot_prepare_requests", "snapshots", "snapshot_jobs"},
     "003": set(),
+    "004": set(),
 }
 
 # Columns revision 003 adds, and whose data its downgrade deliberately discards.
@@ -134,7 +135,15 @@ async def seed_revision_003(engine: AsyncEngine) -> None:
     await execute(engine, "UPDATE snapshots SET pod_snapshot_name = 'pod-snapshot-1'")
 
 
-SEEDS = {"001": seed_revision_001, "002": seed_revision_002, "003": seed_revision_003}
+async def seed_revision_004(engine: AsyncEngine) -> None:
+    await execute(
+        engine,
+        "INSERT INTO job_statuses (job_name, tag, build_resource)"
+        " VALUES ('build-id', 'image:tag', 'cloudbuild://project/region/build-id')",
+    )
+
+
+SEEDS = {"001": seed_revision_001, "002": seed_revision_002, "003": seed_revision_003, "004": seed_revision_004}
 
 
 async def test_round_trip_through_every_revision(manager: MigrationManager):
@@ -145,7 +154,7 @@ async def test_round_trip_through_every_revision(manager: MigrationManager):
     """
     engine = manager.engine
     chain = manager.revision_chain()
-    assert chain == ["001", "002", "003"], "update this test's per-revision expectations"
+    assert chain == ["001", "002", "003", "004"], "update this test's per-revision expectations"
 
     expected_tables: set[str] = set()
     for revision in chain:
@@ -234,7 +243,7 @@ async def test_downgrade_needs_explicit_approval(manager: MigrationManager):
     with pytest.raises(MigrationError, match="downgrade"):
         await manager.migrate_to("002")
 
-    assert await manager.get_current_revision() == "003"
+    assert await manager.get_current_revision() == "004"
     assert COLUMNS_ADDED_BY_003["servers"] <= await column_names(manager.engine, "servers")
 
 
@@ -244,7 +253,7 @@ async def test_unknown_target_is_rejected_before_touching_the_schema(manager: Mi
     with pytest.raises(MigrationError, match="not one of the migrations in this image"):
         await manager.migrate_to("999", allow_downgrade=True)
 
-    assert await manager.get_current_revision() == "003"
+    assert await manager.get_current_revision() == "004"
 
 
 async def test_revision_this_image_does_not_contain_is_rejected(manager: MigrationManager):
@@ -254,7 +263,7 @@ async def test_revision_this_image_does_not_contain_is_rejected(manager: Migrati
     rather than surface as a missing-revision KeyError.
     """
     await manager.migrate_to("heads")
-    await execute(manager.engine, "UPDATE alembic_version SET version_num = '004'")
+    await execute(manager.engine, "UPDATE alembic_version SET version_num = '999'")
 
     with pytest.raises(MigrationError, match="use the image that introduced it"):
         await manager.migrate_to("003", allow_downgrade=True)
@@ -301,3 +310,13 @@ async def test_a_no_op_migration_also_waits_for_the_lock(manager: MigrationManag
         await holder.dispose()
 
     assert (await manager.migrate_to("heads")).direction is MigrationDirection.NOOP
+
+
+async def test_build_resource_downgrade_preserves_jobs(manager: MigrationManager):
+    await manager.migrate_to("heads")
+    await seed_revision_004(manager.engine)
+    await manager.migrate_to("003", allow_downgrade=True)
+    assert "build_resource" not in await column_names(manager.engine, "job_statuses")
+    assert await scalar(manager.engine, "SELECT tag FROM job_statuses WHERE job_name = 'build-id'") == "image:tag"
+    await manager.migrate_to("004")
+    assert await scalar(manager.engine, "SELECT build_resource FROM job_statuses WHERE job_name = 'build-id'") is None

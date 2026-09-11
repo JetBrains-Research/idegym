@@ -16,7 +16,7 @@ from idegym.api.status import Status
 from idegym.api.type import Duration
 from idegym.orchestrator.database.models import AsyncOperation, Client, IdeGYMServer, JobStatusRecord
 from idegym.watcher.cleanup import (
-    check_orphaned_kaniko_jobs,
+    check_orphaned_builds,
     cleanup_clients,
     cleanup_requests,
     cleanup_servers,
@@ -140,9 +140,9 @@ async def test_cleanup_requests_deletes_old_and_marks_stale(db: AsyncSession, mo
     assert reloaded_stale.status == AsyncOperationStatus.FINISHED_BY_WATCHER
 
 
-async def test_check_orphaned_kaniko_jobs_reconciles_status(db: AsyncSession, mock_k8s):
+async def test_check_orphaned_builds_reconciles_status(db: AsyncSession, mock_k8s):
     job = JobStatusRecord(
-        job_name=f"kaniko-{uuid4().hex[:8]}",
+        job_name=f"kaniko-build-{uuid4().hex[:8]}",
         tag="example:latest",
         status=Status.IN_PROGRESS,
     )
@@ -151,8 +151,49 @@ async def test_check_orphaned_kaniko_jobs_reconciles_status(db: AsyncSession, mo
     job_id = job.id
 
     # Kubernetes reports the job already finished successfully.
-    await check_orphaned_kaniko_jobs(db, namespace="idegym")
+    await check_orphaned_builds(db, namespace="idegym")
 
     reloaded = await _reload(db, JobStatusRecord, job_id)
     assert reloaded.status == Status.SUCCESS
     mock_k8s["get_job_status"].assert_awaited()
+
+
+@pytest.mark.parametrize("backend_status", [Status.IN_PROGRESS, Status.SUCCESS, Status.FAILURE])
+async def test_reconcile_cloud_build_after_restart(db, mock_k8s, mocker, backend_status):
+    resource = f"cloudbuild://project/us-central1/{uuid4()}"
+    job = JobStatusRecord(
+        job_name=resource.rsplit("/", 1)[1], build_resource=resource, tag="example:latest", status=Status.IN_PROGRESS
+    )
+    db.add(job)
+    await db.commit()
+    job_id = job.id
+    status = mocker.patch("idegym.watcher.cleanup.get_build_status", return_value=backend_status)
+    await check_orphaned_builds(db, namespace="idegym")
+    assert (await _reload(db, JobStatusRecord, job_id)).status == backend_status
+    status.assert_awaited_once_with(resource)
+    mock_k8s["get_job_status"].assert_not_awaited()
+
+
+async def test_legacy_cloud_build_is_not_a_kubernetes_job(db, mock_k8s):
+    job = JobStatusRecord(job_name=str(uuid4()), tag="example:latest", status=Status.IN_PROGRESS)
+    db.add(job)
+    await db.commit()
+    job_id = job.id
+    await check_orphaned_builds(db, namespace="idegym")
+    assert (await _reload(db, JobStatusRecord, job_id)).status == Status.IN_PROGRESS
+    mock_k8s["get_job_status"].assert_not_awaited()
+
+
+async def test_status_query_error_leaves_build_in_progress(db, mocker):
+    job = JobStatusRecord(
+        job_name=str(uuid4()),
+        build_resource="cloudbuild://project/region/id",
+        tag="example:latest",
+        status=Status.IN_PROGRESS,
+    )
+    db.add(job)
+    await db.commit()
+    job_id = job.id
+    mocker.patch("idegym.watcher.cleanup.get_build_status", side_effect=ConnectionError("unavailable"))
+    await check_orphaned_builds(db, namespace="idegym")
+    assert (await _reload(db, JobStatusRecord, job_id)).status == Status.IN_PROGRESS
