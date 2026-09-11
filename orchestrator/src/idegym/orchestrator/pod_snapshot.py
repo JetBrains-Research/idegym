@@ -43,12 +43,19 @@ class PodSnapshotService:
 
     async def get_pod_for_server(self, server_name: str) -> tuple[str, str, str]:
         async with async_kube_api() as (_, _, core, _, _):
-            pods = (
-                await core.list_namespaced_pod(
-                    namespace=self._namespace,
-                    label_selector=f"app={server_name}",
-                )
-            ).items
+            try:
+                # The server's pod carries its generated name.
+                pods = [await core.read_namespaced_pod(name=server_name, namespace=self._namespace)]
+            except ApiException as ex:
+                if ex.status != HTTPStatus.NOT_FOUND:
+                    raise
+                # A server created by an older orchestrator is a Deployment whose pods carry app=<name>.
+                pods = (
+                    await core.list_namespaced_pod(
+                        namespace=self._namespace,
+                        label_selector=f"app={server_name}",
+                    )
+                ).items
 
         running_pods = [
             pod for pod in pods if pod.metadata.deletion_timestamp is None and pod.status.phase == "Running"

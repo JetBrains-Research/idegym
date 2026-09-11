@@ -5,7 +5,7 @@ from idegym.api.orchestrator.clients import AvailabilityStatus
 from idegym.api.orchestrator.operations import AsyncOperationStatus
 from idegym.api.status import Status
 from sqlalchemy import BigInteger, Boolean, Column, Float, ForeignKey, Integer, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import DeclarativeBase
 
@@ -53,10 +53,18 @@ class IdeGYMServer(Base):
     ram = Column(Float, default=0.0)  # GB
     run_as_root = Column(Boolean, default=False, nullable=False)
     server_kind = Column(String, default="idegym", nullable=False)
+    # Legacy Service port; the orchestrator addresses the sandbox pod directly on container_port.
     service_port = Column(Integer, default=80, nullable=False)
+    container_port = Column(Integer, default=8000, nullable=False)
+    # IP of the server's pod, set once the pod is ready; NULL for servers created by an older
+    # orchestrator, which are reached through their per-server Service instead.
+    pod_ip = Column(String, nullable=True)
+    # The Pod manifest as submitted; a restart deletes the pod and replays this manifest.
+    pod_manifest = Column(JSONB, nullable=True)
 
-    # GKE snapshot group id (the idegym.jetbrains.com/snapshot-id pod label): the restored-from id
-    # for servers started from a snapshot, otherwise the server's own generated_name.
+    # GKE snapshot group id (the idegym.jetbrains.com/snapshot-id pod annotation, also a label when
+    # pod snapshots are enabled): the restored-from id for servers started from a snapshot,
+    # otherwise the server's own generated_name.
     snapshot_id = Column(String, index=True, nullable=True)
 
     # Restarts tolerated before the watcher marks the server CRASHED and tears it down (0 = fail on first crash).

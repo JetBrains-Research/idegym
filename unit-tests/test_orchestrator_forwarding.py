@@ -8,6 +8,8 @@ from idegym.orchestrator.router import forwarding
 from idegym.orchestrator.router.forwarding import (
     _MAX_FORWARD_WAIT_SECONDS,
     _parse_wait_seconds,
+    build_server_base_url,
+    build_server_ws_url,
     forward_request_by_server_id,
     forward_request_to_server,
 )
@@ -66,11 +68,36 @@ def test_parse_wait_seconds_variants():
     assert _parse_wait_seconds(req(b"wait_seconds=99999")) == _MAX_FORWARD_WAIT_SECONDS  # clamped
 
 
+def _server(**overrides):
+    fields = dict(generated_name="srv", namespace="ns", service_port=80, container_port=8000, pod_ip="10.0.0.5")
+    fields.update(overrides)
+    return SimpleNamespace(**fields)
+
+
+def test_build_server_base_url_addresses_pod_ip_on_container_port():
+    assert build_server_base_url(_server()) == "http://10.0.0.5:8000"
+    assert build_server_base_url(_server(container_port=9000)) == "http://10.0.0.5:9000"
+
+
+def test_build_server_base_url_brackets_ipv6():
+    assert build_server_base_url(_server(pod_ip="fd00::1")) == "http://[fd00::1]:8000"
+
+
+def test_build_server_base_url_falls_back_to_legacy_service_dns():
+    assert build_server_base_url(_server(pod_ip=None)) == "http://srv.ns.svc:80"
+    assert build_server_base_url(_server(pod_ip=None, namespace=None)) == "http://srv:80"
+
+
+def test_build_server_ws_url():
+    assert build_server_ws_url(_server()) == "ws://10.0.0.5:8000/ws"
+    assert build_server_ws_url(_server(pod_ip=None)) == "ws://srv.ns.svc:80/ws"
+
+
 def _patch_forward_deps(mocker):
     """validate_server + create_async_operation stubbed to async no-ops."""
 
     async def fake_validate_server(**_):
-        return SimpleNamespace(generated_name="srv", namespace="ns", service_port=80)
+        return _server()
 
     async def fake_create_async_operation(**_):
         return 99

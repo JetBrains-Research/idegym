@@ -32,9 +32,7 @@ from kubernetes_asyncio.client import (
     V1Container,
     V1ContainerPort,
     V1DeleteOptions,
-    V1Deployment,
     V1DeploymentList,
-    V1DeploymentSpec,
     V1EnvVar,
     V1EnvVarSource,
     V1HTTPGetAction,
@@ -53,6 +51,7 @@ from kubernetes_asyncio.client import (
     V1PodDisruptionBudget,
     V1PodDisruptionBudgetList,
     V1PodDisruptionBudgetSpec,
+    V1PodList,
     V1PodSpec,
     V1PodTemplateSpec,
     V1PreferredSchedulingTerm,
@@ -62,10 +61,7 @@ from kubernetes_asyncio.client import (
     V1SecretKeySelector,
     V1SecretVolumeSource,
     V1SecurityContext,
-    V1Service,
     V1ServiceList,
-    V1ServicePort,
-    V1ServiceSpec,
     V1Status,
     V1Toleration,
     V1Volume,
@@ -79,9 +75,32 @@ from kubernetes_asyncio.config import (
 
 KubernetesV1Apis = tuple[AppsV1Api, BatchV1Api, CoreV1Api, PolicyV1Api, CustomObjectsApi]
 
-V1ResourceList = Union[V1ConfigMapList, V1DeploymentList, V1PodDisruptionBudgetList, V1ServiceList]
+V1ResourceList = Union[V1ConfigMapList, V1DeploymentList, V1PodDisruptionBudgetList, V1PodList, V1ServiceList]
 
 logger = get_logger(__name__)
+
+# Every sandbox pod carries this one label set, so all sandboxes share a single network
+# identity on label-based dataplanes (Cilium / GKE Dataplane V2) instead of minting one per
+# pod. The server identity lives in annotations, which such dataplanes ignore.
+SANDBOX_APP = "idegym-sandbox"
+SANDBOX_LABELS: dict[str, str] = {
+    "app": SANDBOX_APP,
+    "app.kubernetes.io/component": "sandbox",
+    "app.kubernetes.io/name": SANDBOX_APP,
+    "app.kubernetes.io/part-of": "idegym",
+    "app.kubernetes.io/version": __version__,
+}
+SANDBOX_POD_SELECTOR = "app.kubernetes.io/component=sandbox"
+SERVER_ANNOTATION = "idegym.jetbrains.com/server"
+# GKE PodSnapshot groups pods by this key; it is always an annotation and additionally a label
+# only when pod snapshots are enabled (deploy_server(snapshot_label=True)).
+SNAPSHOT_ID_KEY = "idegym.jetbrains.com/snapshot-id"
+
+# A deleted pod keeps its name until the kubelet finishes tearing the sandbox down (gVisor can
+# take minutes); a same-name create before that returns 409, so restart waits for the 404 first.
+POD_DELETION_TIMEOUT_SECONDS = 300
+_POLL_INTERVAL_SECONDS = 2
+_MAX_CONSECUTIVE_UNSCHEDULABLE = 15  # ~30 s at the 2 s poll interval
 
 
 def build_node_affinity(taint_key: str, preference_weight: int) -> V1NodeAffinity:
@@ -263,12 +282,19 @@ async def deploy_server(
     server_kind: ServerKind = ServerKind.IDEGYM,
     snapshot_id: Optional[str] = None,
     snapshot_tag: Optional[str] = None,
-):
+    snapshot_label: bool = False,
+) -> tuple[V1Pod, dict[str, Any]]:
     """
-    Create a Kubernetes Deployment, Service, and PodDisruptionBudget for a server.
+    Create one Kubernetes Pod named `server_name` for a server.
 
-    The Service and PDB are created with the Deployment as their owner reference so
-    they are garbage-collected when the Deployment is deleted.
+    The pod carries the shared SANDBOX_LABELS and names its server in the
+    SERVER_ANNOTATION / SNAPSHOT_ID_KEY annotations; `snapshot_label` additionally sets the
+    snapshot id as a label for GKE PodSnapshot grouping. No Service or PodDisruptionBudget is
+    created: the orchestrator addresses the pod by IP on `container_port`, so `service_port`
+    is accepted for wire compatibility and ignored.
+
+    Returns the created pod and the pre-admission manifest (a plain camelCase dict) that
+    `restart_server_pod` replays to recreate the pod.
     """
     logger.debug(f"Deploying '{server_name}' in namespace '{namespace}' with runtime class '{runtime_class_name}'.")
 
@@ -328,17 +354,11 @@ async def deploy_server(
     if snapshot_tag:
         # Restore a specific GKE PodSnapshot instead of the latest one in the group.
         annotations["podsnapshot.gke.io/ps-name"] = snapshot_tag
-    match_labels = {
-        "app": server_name,
-        "app.kubernetes.io/component": "sandbox",
-        "app.kubernetes.io/name": server_name,
-        "app.kubernetes.io/part-of": "idegym",
-    }
-    labels = {
-        **match_labels,
-        "app.kubernetes.io/version": __version__,
-        "idegym.jetbrains.com/snapshot-id": snapshot_id or server_name,
-    }
+    annotations[SERVER_ANNOTATION] = server_name
+    annotations[SNAPSHOT_ID_KEY] = snapshot_id or server_name
+    labels = dict(SANDBOX_LABELS)
+    if snapshot_label:
+        labels[SNAPSHOT_ID_KEY] = snapshot_id or server_name
 
     toleration = (
         V1Toleration(
@@ -393,89 +413,23 @@ async def deploy_server(
         merged_spec = deep_merge(api_client.sanitize_for_serialization(pod_spec), overrides, concat_lists=True)
         pod_spec = deserialize_k8s(api_client, merged_spec, "V1PodSpec")
 
-    deployment = V1Deployment(
-        api_version="apps/v1",
-        kind="Deployment",
-        metadata=V1ObjectMeta(
-            name=server_name,
-            labels=labels,
-        ),
-        spec=V1DeploymentSpec(
-            replicas=1,
-            selector=V1LabelSelector(
-                match_labels=match_labels,
-            ),
-            template=V1PodTemplateSpec(
-                metadata=V1ObjectMeta(
-                    annotations=annotations,
-                    labels=labels,
-                ),
-                spec=pod_spec,
-            ),
-        ),
-    )
-
-    port = V1ServicePort(
-        port=service_port,
-        target_port=port.container_port,
-        protocol=port.protocol,
-        name=port.name,
-    )
-    service = V1Service(
+    pod = V1Pod(
         api_version="v1",
-        kind="Service",
+        kind="Pod",
         metadata=V1ObjectMeta(
             name=server_name,
             labels=labels,
+            annotations=annotations,
         ),
-        spec=V1ServiceSpec(
-            type="ClusterIP",
-            ports=[port],
-            selector=match_labels,
-        ),
+        spec=pod_spec,
     )
+    # The manifest as submitted (before admission mutates it) is what a restart replays.
+    manifest = api_client.sanitize_for_serialization(pod)
 
-    pdb = V1PodDisruptionBudget(
-        api_version="policy/v1",
-        kind="PodDisruptionBudget",
-        metadata=V1ObjectMeta(
-            name=server_name,
-            labels=labels,
-        ),
-        spec=V1PodDisruptionBudgetSpec(
-            min_available=1,
-            selector=V1LabelSelector(
-                match_labels=match_labels,
-            ),
-        ),
-    )
+    async with async_kube_api() as (_, _, core, _, _):
+        created = await core.create_namespaced_pod(body=pod, namespace=namespace)
 
-    async with async_kube_api() as (apps, _, core, policy, _):
-        deployment = await apps.create_namespaced_deployment(
-            body=deployment,
-            namespace=namespace,
-        )
-
-        owner_reference = V1OwnerReference(
-            api_version=deployment.api_version,
-            kind=deployment.kind,
-            name=deployment.metadata.name,
-            uid=deployment.metadata.uid,
-        )
-
-        service.metadata.owner_references = [owner_reference]
-        pdb.metadata.owner_references = [owner_reference]
-
-        await gather(
-            core.create_namespaced_service(
-                body=service,
-                namespace=namespace,
-            ),
-            policy.create_namespaced_pod_disruption_budget(
-                body=pdb,
-                namespace=namespace,
-            ),
-        )
+    return created, manifest
 
 
 async def wait_for_pods_ready(
@@ -576,6 +530,133 @@ async def pods_are_ready(label_selector: str, namespace: str) -> tuple[bool, boo
     )
 
     return pods_ready, has_image_pull_error, has_terminating_pods, has_unschedulable_pods
+
+
+def _pod_signals(pod: V1Pod) -> tuple[bool, bool, bool]:
+    """Return (ready, has_image_pull_error, unschedulable) for one pod."""
+    status = pod.status
+    unschedulable = False
+    image_pull_error = False
+
+    if status is None:
+        return False, False, False
+
+    for condition in status.conditions or []:
+        if (
+            condition.type == "PodScheduled"
+            and condition.status == ConditionStatus.FALSE
+            and condition.reason == "Unschedulable"
+        ):
+            unschedulable = True
+            logger.warning(f"Pod {pod.metadata.name} is unschedulable: {condition.message}")
+
+    for container in status.container_statuses or []:
+        if container.state and container.state.waiting:
+            reason = container.state.waiting.reason
+            if reason in ["ImagePullBackOff", "ErrImagePull"]:
+                image_pull_error = True
+                logger.warning(
+                    f"Pod {pod.metadata.name} has image pull error: {reason} with message: {container.state.waiting.message}"
+                )
+                break
+
+    ready = (
+        pod.metadata.deletion_timestamp is None
+        and status.phase == "Running"
+        and bool(status.container_statuses)
+        and all(c.ready for c in status.container_statuses)
+    )
+    return ready, image_pull_error, unschedulable
+
+
+async def wait_for_pod_ready(
+    pod_name: str, namespace: str, wait_timeout: int = 60, max_image_pull_attempts: int = 3
+) -> V1Pod:
+    """
+    Poll one pod by name until it is Running and every container is ready; return it.
+
+    A 404 while the pod is not visible yet keeps polling. Fails fast on a terminal phase
+    (Failed / Succeeded), on image pull errors `max_image_pull_attempts` times in a row, or on
+    an Unschedulable condition for ~30 s. Raises asyncio.TimeoutError after `wait_timeout` s.
+    """
+    consecutive_image_pull_errors = 0
+    consecutive_unschedulable = 0
+
+    async with timeout(wait_timeout):
+        while True:
+            async with async_kube_api() as (_, _, core, _, _):
+                try:
+                    pod = await core.read_namespaced_pod(name=pod_name, namespace=namespace)
+                except ApiException as ex:
+                    if ex.status != 404:
+                        raise
+                    pod = None
+
+            if pod is not None:
+                phase = pod.status.phase if pod.status else None
+                if phase in ("Failed", "Succeeded"):
+                    reason = pod.status.reason or phase
+                    raise Exception(f"Failed to start pod '{pod_name}': phase {phase} ({reason}): {pod.status.message}")
+
+                ready, has_image_pull_error, unschedulable = _pod_signals(pod)
+                if ready:
+                    logger.info(f"Pod '{pod_name}' is ready at {pod.status.pod_ip}.")
+                    return pod
+
+                if unschedulable:
+                    consecutive_unschedulable += 1
+                    if consecutive_unschedulable >= _MAX_CONSECUTIVE_UNSCHEDULABLE:
+                        raise Exception(
+                            f"Failed to start pod '{pod_name}': Unschedulable condition detected "
+                            f"{consecutive_unschedulable} times in a row"
+                        )
+                else:
+                    consecutive_unschedulable = 0
+
+                if has_image_pull_error:
+                    consecutive_image_pull_errors += 1
+                    logger.warning(
+                        f"Image pull error detected ({consecutive_image_pull_errors}/{max_image_pull_attempts})"
+                    )
+                    if consecutive_image_pull_errors >= max_image_pull_attempts:
+                        raise Exception(
+                            f"Failed to start pod '{pod_name}': Image pull errors detected "
+                            f"{max_image_pull_attempts} times in a row"
+                        )
+                else:
+                    consecutive_image_pull_errors = 0
+
+            await sleep(_POLL_INTERVAL_SECONDS)
+
+
+async def _wait_for_pod_deleted(core: CoreV1Api, pod_name: str, namespace: str, timeout_seconds: int) -> None:
+    """Poll until `read_namespaced_pod` answers 404 for the pod; raises asyncio.TimeoutError otherwise."""
+    async with timeout(timeout_seconds):
+        while True:
+            try:
+                await core.read_namespaced_pod(name=pod_name, namespace=namespace)
+            except ApiException as ex:
+                if ex.status == 404:
+                    return
+                raise
+            await sleep(_POLL_INTERVAL_SECONDS)
+
+
+async def is_server_pod_alive(generated_name: str, namespace: str) -> bool:
+    """
+    Return True if the server's pod is Running and not terminating.
+
+    Looks the pod up by name; a server created by an older orchestrator has no pod of that
+    name, so the legacy `app=<generated_name>` label is checked next.
+    """
+    async with async_kube_api() as (_, _, core, _, _):
+        pods = (
+            await core.list_namespaced_pod(namespace=namespace, field_selector=f"metadata.name={generated_name}")
+        ).items
+        if not pods:
+            pods = (await core.list_namespaced_pod(namespace=namespace, label_selector=f"app={generated_name}")).items
+
+    return any(pod.metadata.deletion_timestamp is None and pod.status.phase == "Running" for pod in pods)
 
 
 async def list_pods(label_selector: str, namespace: str) -> list[V1Pod]:
@@ -711,32 +792,47 @@ async def check_and_delete(
 
 async def clean_up_server(name: str, namespace: str, max_retries: int = 3):
     """
-    Delete the Deployment for a server.
+    Delete the Pod for a server.
 
-    Raises ResourceDeletionFailedException if the Deployment cannot be deleted.
+    A server created by an older orchestrator is a Deployment of the same name (its Service
+    and PodDisruptionBudget follow through owner references); that is deleted best-effort.
+    Raises ResourceDeletionFailedException if the Pod cannot be deleted.
     """
-    async with async_kube_api() as (apps, _, _, _, _):
-        deployment_deleted = await check_and_delete(
-            query_func=apps.list_namespaced_deployment,
-            delete_func=apps.delete_namespaced_deployment,
+    async with async_kube_api() as (apps, _, core, _, _):
+        pod_deleted = await check_and_delete(
+            query_func=core.list_namespaced_pod,
+            delete_func=core.delete_namespaced_pod,
             resource_name=name,
-            resource_type="deployment",
+            resource_type="pod",
             namespace=namespace,
             max_retries=max_retries,
         )
-        if not deployment_deleted:
-            raise ResourceDeletionFailedException(f"Failed to clean up deployment: {name}")
+        try:
+            await check_and_delete(
+                query_func=apps.list_namespaced_deployment,
+                delete_func=apps.delete_namespaced_deployment,
+                resource_name=name,
+                resource_type="deployment",
+                namespace=namespace,
+                max_retries=max_retries,
+            )
+        except CancelledError:
+            raise
+        except Exception:
+            logger.warning(f"Best-effort deletion of legacy deployment '{name}' in '{namespace}' failed", exc_info=True)
+        if not pod_deleted:
+            raise ResourceDeletionFailedException(f"Failed to clean up pod: {name}")
 
 
-async def restart_pods(name: str, namespace: str, wait_timeout: int = 60, max_retries: int = 3):
+async def _restart_legacy_pods(name: str, namespace: str, wait_timeout: int = 60, max_retries: int = 3):
     """
-    Restart pods for a deployment by deleting them individually and waiting for replacements.
+    Restart the pods of a Deployment-backed server by deleting them and waiting for replacements.
 
-    The Deployment and Service are left intact; only the pods are deleted so Kubernetes
-    recreates them from the existing Deployment spec.
+    The Deployment recreates the pods from its template; only servers created by an older
+    orchestrator are backed by a Deployment.
     """
     try:
-        async with async_kube_api() as (apps, _, core, _, _):
+        async with async_kube_api() as (_, _, core, _, _):
             label_selector = f"app={name}"
             pods = (await core.list_namespaced_pod(namespace=namespace, label_selector=label_selector)).items
 
@@ -755,6 +851,44 @@ async def restart_pods(name: str, namespace: str, wait_timeout: int = 60, max_re
 
     except Exception:
         logger.exception(f"Error restarting pods for deployment '{name}'")
+        raise
+
+
+async def restart_server_pod(
+    name: str,
+    namespace: str,
+    manifest: Optional[dict[str, Any]],
+    wait_timeout: int = 60,
+    max_retries: int = 3,
+) -> Optional[V1Pod]:
+    """
+    Recreate a server's pod from its stored manifest and wait for it to be ready.
+
+    The pod is deleted, the name is awaited to become free (bounded by
+    POD_DELETION_TIMEOUT_SECONDS, separate from `wait_timeout`, which covers only the new pod's
+    start), and the manifest `deploy_server` returned is submitted again. Returns the new pod;
+    its IP differs from the old one. Without a manifest the server is Deployment-backed
+    (created by an older orchestrator): its pods are restarted in place and None is returned.
+    """
+    if manifest is None:
+        await _restart_legacy_pods(name, namespace, wait_timeout=wait_timeout, max_retries=max_retries)
+        return None
+
+    try:
+        async with async_kube_api() as (_, _, core, _, _):
+            logger.info(f"Deleting pod '{name}' in namespace '{namespace}' for restart")
+            deleted = await delete_with_retries(core.delete_namespaced_pod, "pod", name, namespace, max_retries)
+            if not deleted:
+                raise ResourceDeletionFailedException(f"Failed to delete pod for restart: {name}")
+            await _wait_for_pod_deleted(core, name, namespace, timeout_seconds=POD_DELETION_TIMEOUT_SECONDS)
+            await core.create_namespaced_pod(body=manifest, namespace=namespace)
+
+        pod = await wait_for_pod_ready(pod_name=name, namespace=namespace, wait_timeout=wait_timeout)
+        logger.info(f"Successfully restarted pod '{name}' in namespace '{namespace}'")
+        return pod
+
+    except Exception:
+        logger.exception(f"Error restarting pod '{name}'")
         raise
 
 

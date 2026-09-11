@@ -6,6 +6,7 @@ import pytest
 import resources as e2e_resources
 from idegym.api.docker import BaseImage
 from idegym.api.git import GitRepository, GitRepositorySnapshot
+from idegym.backend.utils.kubernetes_client import SANDBOX_POD_SELECTOR
 from idegym.image.docker_api import IdeGYMDockerAPI
 from idegym.utils.logging import get_logger
 from kubernetes_asyncio import config as k8s_config
@@ -192,19 +193,25 @@ def setup_and_cleanup_environment(request, k8s_config_loader):
 
 
 def cleanup_servers():
-    logger.info("Cleaning up server deployments after test...")
+    logger.info("Cleaning up sandbox pods after test...")
 
-    label_selector = "app.kubernetes.io/component=sandbox"
+    label_selector = SANDBOX_POD_SELECTOR
+    pod_names = k8s_client.list_pod_names(namespace=DEFAULT_NAMESPACE, label_selector=label_selector)
+    # Servers created by an older orchestrator are Deployments carrying the same label.
     deployment_names = k8s_client.list_deployment_names(namespace=DEFAULT_NAMESPACE, label_selector=label_selector)
 
-    if not deployment_names:
-        logger.info("✓ No server deployments to clean up")
+    if not pod_names and not deployment_names:
+        logger.info("✓ No sandbox pods to clean up")
         return
 
     for deployment_name in deployment_names:
         k8s_client.delete_deployment(namespace=DEFAULT_NAMESPACE, deployment_name=deployment_name)
+    if pod_names:
+        k8s_client.delete_pods(namespace=DEFAULT_NAMESPACE, pod_names=pod_names)
 
-    logger.info(f"✓ Server deployments deleted ({len(deployment_names)} servers), waiting for pods to terminate...")
+    logger.info(
+        f"✓ Sandbox pods deleted ({len(pod_names) + len(deployment_names)} servers), waiting for termination..."
+    )
     if not k8s_client.wait_for_pods_by_label_deleted(
         namespace=DEFAULT_NAMESPACE, label_selector=label_selector, timeout=120
     ):

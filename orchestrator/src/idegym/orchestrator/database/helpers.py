@@ -34,6 +34,7 @@ from idegym.orchestrator.database.database import (
     update_client_heartbeat,
     update_idegym_server_heartbeat,
     update_idegym_server_owner,
+    update_idegym_server_pod,
     update_snapshot_job,
 )
 from idegym.utils.logging import get_logger
@@ -134,6 +135,7 @@ async def check_resources_and_save_server_in_db(
     run_as_root: bool = False,
     snapshot_id: Optional[str] = None,
     max_restarts: int = 0,
+    container_port: int = 8000,
 ):
     server = await check_resources_and_save_server(
         db=db,
@@ -150,6 +152,7 @@ async def check_resources_and_save_server_in_db(
         run_as_root=run_as_root,
         snapshot_id=snapshot_id,
         max_restarts=max_restarts,
+        container_port=container_port,
     )
     if not server:
         raise HTTPException(
@@ -211,6 +214,17 @@ async def update_server_status(db: AsyncSession, server_id: int, availability_st
 async def update_server_owner(db: AsyncSession, server_id: int, client_id: UUID):
     await update_idegym_server_owner(db=db, server_id=server_id, client_id=client_id)
     logger.info(f"Updated IdeGYM server with ID {server_id} owner to {client_id}")
+
+
+@with_db_session
+async def update_server_pod(
+    db: AsyncSession,
+    server_id: int,
+    pod_ip: Optional[str],
+    pod_manifest: Optional[dict[str, Any]] = None,
+):
+    await update_idegym_server_pod(db=db, server_id=server_id, pod_ip=pod_ip, pod_manifest=pod_manifest)
+    logger.info(f"Updated IdeGYM server with ID {server_id} pod IP to {pod_ip}")
 
 
 @with_db_session

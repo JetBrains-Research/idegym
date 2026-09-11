@@ -1,7 +1,6 @@
 import asyncio
 from asyncio import CancelledError
 from os import environ as env
-from typing import Optional
 from uuid import UUID
 
 import websockets
@@ -106,10 +105,8 @@ async def forward_request_to_server(
         method=method,
         headers=headers,
         request_content=body,
-        generated_name=server.generated_name,
-        namespace=server.namespace,
+        base_url=build_server_base_url(server),
         server_id=server_id,
-        service_port=server.service_port,
     )
     async_operation_id = await create_async_operation(
         async_operation_type=AsyncOperationType.FORWARD_REQUEST,
@@ -146,12 +143,10 @@ def construct_forwarding_payload(
     method: str,
     headers: Headers,
     request_content: str,
-    generated_name: str,
-    namespace: Optional[str],
+    base_url: str,
     server_id: int,
-    service_port: int = 80,
 ):
-    target_url = f"http://{build_server_host(generated_name, namespace)}:{service_port}/{path}"
+    target_url = f"{base_url}/{path}"
     sanitized_headers = {key: value for key, value in headers.items() if key.lower() not in {"host", "authorization"}}
     return ForwardRequestPayload(
         method=method,
@@ -281,8 +276,7 @@ async def update_server_heartbeat_on_call(path: str, server_id: int):
 async def forward_websocket(websocket: WebSocket, client_id: UUID, server_id: int):
     logger.info(f"Received WebSocket forwarding request for server ID {server_id} for client {client_id}")
     server = await validate_server(client_id=client_id, server_id=server_id)
-    target_host = build_server_host(server.generated_name, server.namespace)
-    target_url = f"ws://{target_host}:{server.service_port}/ws"
+    target_url = build_server_ws_url(server)
     await websocket.accept()
     await update_server_status(server_id=server_id, availability_status=AvailabilityStatus.ALIVE)
 
@@ -339,11 +333,22 @@ async def forward_websocket(websocket: WebSocket, client_id: UUID, server_id: in
         await websocket.close(code=1000)
 
 
-def build_server_host(generated_name: str, namespace: Optional[str]) -> str:
+def build_server_base_url(server) -> str:
     """
-    Build a DNS name for a server Service in Kubernetes.
-    Using namespace-qualified service names avoids cross-namespace lookup failures.
+    Build the HTTP base URL of a server's sandbox.
+
+    A Pod-backed server (`pod_ip` set) is addressed directly at its pod IP on
+    `container_port`. A server created by an older orchestrator has no `pod_ip` and is
+    reached through its per-server Service (`<generated_name>.<namespace>.svc:<service_port>`;
+    the namespace qualification avoids cross-namespace lookup failures).
     """
-    if namespace:
-        return f"{generated_name}.{namespace}.svc"
-    return generated_name
+    if server.pod_ip:
+        host = f"[{server.pod_ip}]" if ":" in server.pod_ip else server.pod_ip
+        return f"http://{host}:{server.container_port}"
+    host = f"{server.generated_name}.{server.namespace}.svc" if server.namespace else server.generated_name
+    return f"http://{host}:{server.service_port}"
+
+
+def build_server_ws_url(server) -> str:
+    """Build the WebSocket URL of a server's sandbox (same host rules as `build_server_base_url`)."""
+    return "ws" + build_server_base_url(server)[len("http") :] + "/ws"

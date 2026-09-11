@@ -1,6 +1,6 @@
 # IdeGYM Orchestrator
 
-FastAPI service that manages IdeGYM server pods in Kubernetes: registers clients, starts and stops server deployments, forwards HTTP and WebSocket requests, and tracks Kaniko image builds. State is stored in PostgreSQL.
+FastAPI service that manages IdeGYM server pods in Kubernetes: registers clients, starts and stops sandbox pods, forwards HTTP and WebSocket requests, and tracks Kaniko image builds. State is stored in PostgreSQL.
 
 ## Features
 
@@ -123,7 +123,7 @@ Marks the client and all its ALIVE servers as `FINISHED` — no Kubernetes resou
 DELETE /api/clients
 ```
 
-Stops all alive servers (deletes Kubernetes deployments and services), then marks the client as `STOPPED`. Returns immediately with an `operation_id`; poll to confirm completion.
+Stops all alive servers (deletes their sandbox pods), then marks the client as `STOPPED`. Returns immediately with an `operation_id`; poll to confirm completion.
 
 **Request body:**
 
@@ -164,7 +164,9 @@ Stops all alive servers (deletes Kubernetes deployments and services), then mark
 POST /api/idegym-servers
 ```
 
-Creates a Kubernetes Deployment + Service for an IdeGYM server and waits for pods to become ready. Returns immediately with an `operation_id`; the final `StartServerResponse` (with `server_id` etc.) is available once the operation `SUCCEEDED`.
+Creates a single Kubernetes Pod named `generated_name` for an IdeGYM server, waits for it to become ready and records its pod IP. Returns immediately with an `operation_id`; the final `StartServerResponse` (with `server_id` etc.) is available once the operation `SUCCEEDED`.
+
+Every sandbox pod carries the same labels — `app=idegym-sandbox`, `app.kubernetes.io/component=sandbox`, `app.kubernetes.io/name=idegym-sandbox`, `app.kubernetes.io/part-of=idegym` — so all sandboxes share one network identity on label-based dataplanes. The server identity lives in the `idegym.jetbrains.com/server` and `idegym.jetbrains.com/snapshot-id` annotations; the snapshot-id is also a label only when pod snapshots are enabled (GKE PodSnapshot groups pods by it). No Service or PodDisruptionBudget is created: the orchestrator addresses the pod at `http://{pod_ip}:{container_port}`. A plain pod is not rescheduled by a controller — a pod that fails or is evicted is marked `CRASHED` by the watcher — and no PodDisruptionBudget blocks node drains.
 
 **Request body:**
 
@@ -176,8 +178,8 @@ Creates a Kubernetes Deployment + Service for an IdeGYM server and waits for pod
 | `server_name` | string | `"default-idegym-server"` | Logical name (used as K8s name prefix) |
 | `runtime_class_name` | string\|null | `null` | Kubernetes RuntimeClass (e.g. `"gvisor"`) |
 | `run_as_root` | bool | `false` | Run container as UID 0 |
-| `service_port` | int | `80` | Port exposed by the Kubernetes Service |
-| `container_port` | int | `8000` | Port the container listens on |
+| `service_port` | int | `80` | Deprecated and ignored; the pod is addressed on `container_port` |
+| `container_port` | int | `8000` | Port the container listens on; the orchestrator addresses the pod on it |
 | `resources` | object\|null | `null` | K8s resource requirements (`requests`/`limits` dict) |
 | `node_selector` | object\|null | `null` | Kubernetes node selector labels |
 | `server_start_wait_timeout_in_seconds` | int | `60` | How long to wait for pods to be ready |
@@ -239,7 +241,7 @@ Marks the server as `FINISHED` without touching Kubernetes resources. The pod ke
 DELETE /api/idegym-servers
 ```
 
-Deletes the Kubernetes Deployment and Service and marks the server `STOPPED`. Returns immediately with an `operation_id`.
+Deletes the sandbox Pod and marks the server `STOPPED`. Returns immediately with an `operation_id`.
 
 **Request body:**
 
@@ -264,7 +266,7 @@ Deletes the Kubernetes Deployment and Service and marks the server `STOPPED`. Re
 POST /api/idegym-servers/restart
 ```
 
-Deletes pods (keeps Deployment and Service) and waits for them to come back. Useful for resetting process state without changing the image. Returns immediately with an `operation_id`.
+Deletes the sandbox Pod, recreates it from the stored manifest and waits for it to become ready; the new pod IP is recorded. Useful for resetting process state without changing the image. Returns immediately with an `operation_id`.
 
 **Request body:**
 
@@ -451,7 +453,7 @@ ANY /api/forward/{client_id}/{server_id}/{path}
 
 Supported methods: `GET`, `POST`, `PUT`, `DELETE`, `OPTIONS`, `HEAD`, `PATCH`.
 
-Forwards the request to `http://{generated_name}.{namespace}.svc:{service_port}/{path}`, strips the `Host` and `Authorization` headers, and preserves all others. Returns immediately with an `operation_id`; the response body and headers are available via `GET /api/operations/status/{operation_id}` once `SUCCEEDED`.
+Forwards the request to `http://{pod_ip}:{container_port}/{path}`, strips the `Host` and `Authorization` headers, and preserves all others. Returns immediately with an `operation_id`; the response body and headers are available via `GET /api/operations/status/{operation_id}` once `SUCCEEDED`.
 
 Calls to paths starting with `api/tools` or `api/rewards` also update the server heartbeat.
 
@@ -461,7 +463,7 @@ Calls to paths starting with `api/tools` or `api/rewards` also update the server
 WS /api/ws-forward/{client_id}/{server_id}/ws
 ```
 
-Bidirectionally proxies a WebSocket connection to `ws://{generated_name}.{namespace}.svc:{service_port}/ws`. Each message received from the upstream server updates the server heartbeat.
+Bidirectionally proxies a WebSocket connection to `ws://{pod_ip}:{container_port}/ws`. Each message received from the upstream server updates the server heartbeat.
 
 ---
 
@@ -585,14 +587,17 @@ The orchestrator ships a lightweight HTML dashboard for monitoring:
 | `client_id` | UUID (FK) | Owning client |
 | `client_name` | string | Denormalized client name |
 | `server_name` | string | Logical name from request |
-| `generated_name` | string (unique) | Actual Kubernetes resource name |
+| `generated_name` | string (unique) | Name of the sandbox Pod |
 | `namespace` | string | Kubernetes namespace |
 | `image_tag` | string | Deployed OCI image |
 | `container_runtime` | string | RuntimeClass |
 | `cpu` / `ram` | float | Requested CPU cores / RAM in GB |
 | `run_as_root` | bool | Whether container runs as root |
 | `server_kind` | string | `idegym` or `openenv` |
-| `service_port` | int | Kubernetes Service port |
+| `service_port` | int | Deprecated (legacy Service port) |
+| `container_port` | int | Port the pod is addressed on |
+| `pod_ip` | string | IP of the sandbox pod, set once it is ready |
+| `pod_manifest` | jsonb | Pod manifest as submitted, replayed on restart |
 | `availability` | string | `ALIVE`, `FINISHED`, `STOPPED`, `FAILED_TO_START`, `CRASHED`, `KILLED`, `DELETION_FAILED`, `RESTART_FAILED` |
 | `last_heartbeat_time` | bigint | Milliseconds since epoch |
 | `created_at` | bigint | Milliseconds since epoch |

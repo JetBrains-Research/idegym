@@ -67,9 +67,14 @@ def _patch_all(mocker, *, deploy_error=None):
     if deploy_error:
         mocker.patch("idegym.orchestrator.snapshot_pipeline.deploy_server", side_effect=deploy_error)
     else:
-        mocker.patch("idegym.orchestrator.snapshot_pipeline.deploy_server", return_value=None)
+        mocker.patch(
+            "idegym.orchestrator.snapshot_pipeline.deploy_server",
+            return_value=(SimpleNamespace(), {"kind": "Pod", "metadata": {"name": "snap-server-42"}}),
+        )
 
-    mocker.patch("idegym.orchestrator.snapshot_pipeline.wait_for_pods_ready", return_value=None)
+    ready_pod = SimpleNamespace(status=SimpleNamespace(pod_ip="10.0.0.9"))
+    mocker.patch("idegym.orchestrator.snapshot_pipeline.wait_for_pod_ready", return_value=ready_pod)
+    mocker.patch("idegym.orchestrator.snapshot_pipeline.update_server_pod", return_value=None)
     mocker.patch("idegym.orchestrator.snapshot_pipeline.update_server_status", return_value=None)
     mocker.patch("idegym.orchestrator.snapshot_pipeline.clean_up_server", return_value=None)
     snapshot_svc = mocker.MagicMock()

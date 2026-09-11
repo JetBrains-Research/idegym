@@ -66,14 +66,14 @@ class StartServerRequest(BaseModel):
         default=80,
         ge=0,
         le=65535,
-        description="Port exposed by the Kubernetes Service",
+        description="Deprecated and ignored: the orchestrator addresses the sandbox pod directly on container_port",
         examples=[80, 8000],
     )
     container_port: int = Field(
         default=8000,
         ge=0,
         le=65535,
-        description="Port the server container listens on",
+        description="Port the server container listens on; the orchestrator addresses the pod on this port",
         examples=[8000],
     )
     resources: Optional[KubernetesResources] = Field(
@@ -189,8 +189,8 @@ class StartServerResponse(BaseModel):
     operation_id: Optional[int] = Field(default=None, description="Async operation ID to poll for server start status")
     server_id: Optional[int] = Field(default=None)
     server_name: Optional[str] = Field(default=None, description="Logical server name as provided in the request")
-    generated_name: Optional[str] = Field(default=None, description="Generated Kubernetes resource name")
-    service_name: Optional[str] = Field(default=None, description="Kubernetes Service name for the server")
+    generated_name: Optional[str] = Field(default=None, description="Generated Kubernetes pod name")
+    service_name: Optional[str] = Field(default=None, description="Deprecated: no Service is created for a server")
     image_tag: Optional[str] = Field(default=None)
     need_to_reset: bool = Field(default=False, description="True if the reused server requires a project reset")
 

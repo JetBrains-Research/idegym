@@ -440,6 +440,7 @@ async def save_idegym_server(
     server_kind: str = "idegym",
     service_port: int = 80,
     max_restarts: int = 0,
+    container_port: int = 8000,
 ) -> IdeGYMServer:
     # Insert first to obtain an auto-increment ID, then derive generated_name from it.
     server = IdeGYMServer(
@@ -454,6 +455,7 @@ async def save_idegym_server(
         run_as_root=run_as_root,
         server_kind=server_kind,
         service_port=service_port,
+        container_port=container_port,
         max_restarts=max_restarts,
     )
     db.add(server)
@@ -520,6 +522,28 @@ async def update_idegym_server_owner(db: AsyncSession, server_id: int, client_id
         return None
 
     server.client_id = client_id
+    await db.commit()
+    return server
+
+
+async def update_idegym_server_pod(
+    db: AsyncSession,
+    server_id: int,
+    pod_ip: Optional[str],
+    pod_manifest: Optional[dict[str, Any]] = None,
+) -> Optional[IdeGYMServer]:
+    """
+    Record the server's pod IP and, when given, the Pod manifest a restart replays.
+
+    A restart only refreshes `pod_ip`, so a `None` manifest leaves the stored one in place.
+    """
+    server = await get_idegym_server(db, server_id)
+    if not server:
+        return None
+
+    server.pod_ip = pod_ip
+    if pod_manifest is not None:
+        server.pod_manifest = pod_manifest
     await db.commit()
     return server
 
@@ -724,6 +748,7 @@ async def check_resources_and_save_server(
     service_port: int = 80,
     snapshot_id: Optional[str] = None,
     max_restarts: int = 0,
+    container_port: int = 8000,
 ) -> Optional[IdeGYMServer]:
     """
     Atomically check resource limits and create a new server record.
@@ -776,13 +801,14 @@ async def check_resources_and_save_server(
             run_as_root=run_as_root,
             server_kind=server_kind,
             service_port=service_port,
+            container_port=container_port,
             max_restarts=max_restarts,
         )
         db.add(server)
         await db.flush()  # assigns ID without committing
 
         server.generated_name = f"{server_name}-{server.id}"
-        # Mirror the pod's idegym.jetbrains.com/snapshot-id label: the restored-from id, or own name when fresh.
+        # Mirror the pod's idegym.jetbrains.com/snapshot-id annotation: the restored-from id, or own name when fresh.
         server.snapshot_id = snapshot_id or server.generated_name
 
         # Transaction commits on context exit; rolls back on exception.

@@ -21,32 +21,28 @@ async def api_client():
 
 
 def _patch_clients(mocker, api_client):
-    """Patch create_clients (used directly and by async_kube_api) and capture deployment bodies."""
-    deployment_result = mocker.MagicMock()
-    deployment_result.api_version = "apps/v1"
-    deployment_result.kind = "Deployment"
-    deployment_result.metadata.name = "srv"
-    deployment_result.metadata.uid = "uid-123"
+    """Patch create_clients (used directly and by async_kube_api) and capture pod bodies."""
+    pod_result = mocker.MagicMock()
+    pod_result.metadata.name = "srv"
+    pod_result.metadata.uid = "uid-123"
 
     apps = mocker.MagicMock()
     apps.api_client = api_client
-    apps.create_namespaced_deployment = mocker.AsyncMock(return_value=deployment_result)
 
     core = mocker.MagicMock()
-    core.create_namespaced_service = mocker.AsyncMock()
+    core.create_namespaced_pod = mocker.AsyncMock(return_value=pod_result)
     policy = mocker.MagicMock()
-    policy.create_namespaced_pod_disruption_budget = mocker.AsyncMock()
 
     clients = (apps, mocker.MagicMock(), core, policy, mocker.MagicMock())
     mocker.patch.object(kc, "create_clients", mocker.AsyncMock(return_value=clients))
-    return apps
+    return core
 
 
 async def _deploy_and_get_pod_spec(mocker, api_client, **kwargs):
-    apps = _patch_clients(mocker, api_client)
+    core = _patch_clients(mocker, api_client)
     await kc.deploy_server(image_tag="img:latest", server_name="srv", namespace="ns", **kwargs)
-    body = apps.create_namespaced_deployment.call_args.kwargs["body"]
-    return body.spec.template.spec
+    body = core.create_namespaced_pod.call_args.kwargs["body"]
+    return body.spec
 
 
 async def test_deploy_without_overrides_leaves_pod_unchanged(mocker, api_client):

@@ -50,7 +50,7 @@ def test_watcher_cleans_up_stale_server(test_id):
     now_ms = int(time.time() * 1000)
 
     # Insert a stale client + server (last_heartbeat_time=0 => always past the inactivity timeout).
-    # No backing Kubernetes deployment exists, so the watcher's clean_up_server is a no-op success
+    # No backing Kubernetes pod exists, so the watcher's clean_up_server is a no-op success
     # and the server is transitioned to KILLED.
     insert_sql = (
         "WITH c AS ("

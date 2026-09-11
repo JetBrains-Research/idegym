@@ -1,6 +1,6 @@
 """Unit tests for the watcher crash detector.
 
-``evaluate_pod_crash`` / ``_index_pods_by_app`` are pure and tested against fabricated,
+``evaluate_pod_crash`` / ``_index_pods_by_server`` are pure and tested against fabricated,
 duck-typed pod objects (``SimpleNamespace``) so no Kubernetes models are required.
 ``detect_crashed_servers`` is tested with every Kubernetes/database helper it imports mocked
 in the ``idegym.watcher.crash_detector`` namespace.
@@ -10,8 +10,9 @@ from types import SimpleNamespace
 
 import pytest
 from idegym.api.orchestrator.clients import AvailabilityStatus
+from idegym.backend.utils.kubernetes_client import SANDBOX_LABELS, SERVER_ANNOTATION
 from idegym.watcher.crash_detector import (
-    _index_pods_by_app,
+    _index_pods_by_server,
     detect_crashed_servers,
     evaluate_pod_crash,
 )
@@ -49,11 +50,17 @@ def _pod(
     container_statuses=None,
     deletion_timestamp=None,
     labels=None,
+    name=None,
 ):
     if labels is None:
-        labels = {"app": generated_name, "app.kubernetes.io/part-of": "idegym"}
+        labels = dict(SANDBOX_LABELS)
     return SimpleNamespace(
-        metadata=SimpleNamespace(deletion_timestamp=deletion_timestamp, labels=labels, name=generated_name),
+        metadata=SimpleNamespace(
+            deletion_timestamp=deletion_timestamp,
+            labels=labels,
+            annotations={SERVER_ANNOTATION: generated_name},
+            name=name or generated_name,
+        ),
         status=SimpleNamespace(
             phase=phase, reason=reason, message=message, container_statuses=container_statuses or []
         ),
@@ -150,18 +157,35 @@ def test_missing_status_is_ignored():
 
 
 # ---------------------------------------------------------------------------
-# _index_pods_by_app
+# _index_pods_by_server
 # ---------------------------------------------------------------------------
 
 
-def test_index_pods_by_app_skips_unlabeled_and_prefers_live():
-    live = _pod("srv-1")
-    terminating = _pod("srv-1", deletion_timestamp="2026-06-12T00:00:00Z")
-    unlabeled = _pod("srv-2", labels={})
+def test_index_pods_by_server_uses_pod_name_for_sandbox_pods():
+    a = _pod("srv-1")
+    b = _pod("srv-2")
 
-    # Terminating listed first, live second -> live wins.
-    indexed = _index_pods_by_app([terminating, live, unlabeled])
+    indexed = _index_pods_by_server([a, b])
+    assert indexed["srv-1"] is a
+    assert indexed["srv-2"] is b
+    # the shared app label is not a server key
+    assert SANDBOX_LABELS["app"] not in indexed
+
+
+def test_index_pods_by_server_keeps_legacy_app_label_and_prefers_live():
+    legacy_labels = {"app": "srv-1", "app.kubernetes.io/component": "sandbox"}
+    live = _pod("srv-1", name="srv-1-7b8b788567-kk9nq", labels=legacy_labels)
+    terminating = _pod(
+        "srv-1", name="srv-1-5c4d6f9a8b-x2z9q", labels=legacy_labels, deletion_timestamp="2026-06-12T00:00:00Z"
+    )
+    unlabeled = _pod("srv-2", name="srv-2-abcde-fghij", labels={})
+
+    # Terminating listed first, live second -> live wins under the legacy key.
+    indexed = _index_pods_by_server([terminating, live, unlabeled])
     assert indexed["srv-1"] is live
+    # every pod is also reachable by its own name
+    assert indexed["srv-1-7b8b788567-kk9nq"] is live
+    assert indexed["srv-2-abcde-fghij"] is unlabeled
     assert "srv-2" not in indexed
 
 

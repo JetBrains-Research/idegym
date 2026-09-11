@@ -32,7 +32,7 @@ from idegym.orchestrator.router.build_images import get_job_status_by_name as ge
 from idegym.orchestrator.router.client import finish_client as finish_client_endpoint
 from idegym.orchestrator.router.client import register_client_with_node_pool
 from idegym.orchestrator.router.client import stop_client as stop_client_endpoint
-from idegym.orchestrator.router.forwarding import build_server_host, forward_request_to_server
+from idegym.orchestrator.router.forwarding import build_server_base_url, forward_request_to_server
 from idegym.orchestrator.router.server import finish_server as finish_server_endpoint
 from idegym.orchestrator.router.server import restart_server as restart_server_endpoint
 from idegym.orchestrator.router.server import start_server_with_config
@@ -203,8 +203,7 @@ def create_mcp_server(
     async def list_server_mcp_tools(request: ListServerMcpToolsRequest) -> ListServerMcpToolsResponse:
         """List all MCP tools exposed by a running IdeGYM server."""
         server = await validate_server(client_id=request.client_id, server_id=request.server_id)
-        host = build_server_host(server.generated_name, server.namespace)
-        url = f"http://{host}:{server.service_port}/mcp"
+        url = f"{build_server_base_url(server)}/mcp"
         async with Client(url) as client:
             tools = await client.list_tools()
         return ListServerMcpToolsResponse(
@@ -222,8 +221,7 @@ def create_mcp_server(
     async def call_server_mcp_tool(request: CallServerMcpToolRequest) -> CallServerMcpToolResponse:
         """Call an MCP tool on a running IdeGYM server by name."""
         server = await validate_server(client_id=request.client_id, server_id=request.server_id)
-        host = build_server_host(server.generated_name, server.namespace)
-        url = f"http://{host}:{server.service_port}/mcp"
+        url = f"{build_server_base_url(server)}/mcp"
         async with Client(url) as client:
             result = await client.call_tool(request.tool_name, request.arguments)
         return CallServerMcpToolResponse(

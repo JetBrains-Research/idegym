@@ -36,8 +36,8 @@ def mock_k8s(mocker):
         "clean_up_server": mocker.patch(
             "idegym.watcher.cleanup.clean_up_server", new=mocker.AsyncMock(return_value=None)
         ),
-        "are_any_pods_alive": mocker.patch(
-            "idegym.watcher.cleanup.are_any_pods_alive", new=mocker.AsyncMock(return_value=False)
+        "is_server_pod_alive": mocker.patch(
+            "idegym.watcher.cleanup.is_server_pod_alive", new=mocker.AsyncMock(return_value=False)
         ),
         "get_job_status": mocker.patch(
             "idegym.watcher.cleanup.get_job_status", new=mocker.AsyncMock(return_value=Status.SUCCESS)

@@ -7,9 +7,9 @@ from idegym.api.config import WatcherConfig
 from idegym.api.status import Status
 from idegym.api.type import Duration
 from idegym.backend.utils.kubernetes_client import (
-    are_any_pods_alive,
     clean_up_server,
     get_job_status,
+    is_server_pod_alive,
 )
 from idegym.backend.utils.utils import log_exceptions
 from idegym.orchestrator.database.database import (
@@ -41,7 +41,7 @@ async def _handle_server_deletion_failure(db: AsyncSession, server_id, generated
     Determine the resulting status after a failed Kubernetes deletion attempt.
     Sets DELETION_FAILED if pods are still alive, CRASHED if they have already gone.
     """
-    any_pods_alive = await are_any_pods_alive(f"app={generated_name}", namespace)
+    any_pods_alive = await is_server_pod_alive(generated_name, namespace)
     if any_pods_alive:
         await update_idegym_server_heartbeat(db, server_id, AvailabilityStatus.DELETION_FAILED)
         logger.info(f"Updated IdeGYM server {generated_name} status to DELETION_FAILED")

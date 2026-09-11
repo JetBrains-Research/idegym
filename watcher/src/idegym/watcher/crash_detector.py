@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
 
 from idegym.api.orchestrator.clients import AvailabilityStatus
-from idegym.backend.utils.kubernetes_client import clean_up_server, list_pods
+from idegym.backend.utils.kubernetes_client import SANDBOX_APP, SANDBOX_POD_SELECTOR, clean_up_server, list_pods
 from idegym.backend.utils.utils import log_exceptions
 from idegym.orchestrator.database.database import (
     get_idegym_servers_by_status,
@@ -16,10 +16,6 @@ if TYPE_CHECKING:
     from kubernetes_asyncio.client import V1Pod
 
 logger = get_logger(__name__)
-
-# Every server pod carries this label (see deploy_server in kubernetes_client.py), so a single
-# list per namespace returns all of them at once. The per-server "app" label is the generated_name.
-IDEGYM_POD_SELECTOR = "app.kubernetes.io/part-of=idegym"
 
 
 def _max_restart_count(pod: V1Pod) -> int:
@@ -66,7 +62,7 @@ def evaluate_pod_crash(pod: V1Pod, max_restarts: int) -> Optional[str]:
       - pod-level eviction / Failed phase (e.g. out-of-storage / disk pressure), which may not
         increment container restart_count because the pod is replaced rather than restarted;
       - container restart_count exceeding the budget (OOMKilled, non-zero exit, gvisor failures
-        all surface here because the Deployment keeps restarting the container);
+        all surface here because the kubelet keeps restarting the container in place);
       - the reason text additionally exposes OOMKilled / exit codes / CrashLoopBackOff for the user.
     """
     if pod.metadata and pod.metadata.deletion_timestamp is not None:
@@ -92,17 +88,25 @@ def evaluate_pod_crash(pod: V1Pod, max_restarts: int) -> Optional[str]:
     return None
 
 
-def _index_pods_by_app(pods: list[V1Pod]) -> dict[str, V1Pod]:
-    """Index pods by their ``app`` label (the server's generated_name), preferring live pods."""
+def _index_pods_by_server(pods: list[V1Pod]) -> dict[str, V1Pod]:
+    """
+    Index pods by the server generated_name they belong to.
+
+    A sandbox pod is named after its server. A pod of a server created by an older
+    orchestrator (a Deployment) instead carries the server name in its ``app`` label, so
+    such pods are indexed under that label too, preferring the live pod when a terminating
+    one overlaps a replacement during a rollout.
+    """
     indexed: dict[str, V1Pod] = {}
     for pod in pods:
-        labels = (pod.metadata.labels or {}) if pod.metadata else {}
-        app = labels.get("app")
-        if not app:
+        if not pod.metadata or not pod.metadata.name:
+            continue
+        indexed[pod.metadata.name] = pod
+
+        app = (pod.metadata.labels or {}).get("app")
+        if not app or app == SANDBOX_APP:
             continue
         existing = indexed.get(app)
-        # During a rollout an old terminating pod can overlap a new one; keep the live one
-        # regardless of the order Kubernetes returns them in.
         if existing is not None:
             existing_terminating = bool(existing.metadata and existing.metadata.deletion_timestamp is not None)
             incoming_terminating = pod.metadata.deletion_timestamp is not None
@@ -116,7 +120,7 @@ def _index_pods_by_app(pods: list[V1Pod]) -> dict[str, V1Pod]:
 async def detect_crashed_servers(db: AsyncSession) -> None:
     """
     Mark servers whose pods crashed/OOMed/were evicted beyond their restart budget as CRASHED,
-    record the reason, and delete their Deployment to break the restart loop.
+    record the reason, and delete their pod to break the restart loop.
 
     Issues a single pod list per distinct namespace (never per server) and reads no Events.
     """
@@ -127,8 +131,8 @@ async def detect_crashed_servers(db: AsyncSession) -> None:
 
     pods_by_namespace: dict[str, dict[str, V1Pod]] = {}
     for namespace in {server.namespace for server in servers}:
-        pods = await list_pods(IDEGYM_POD_SELECTOR, namespace)
-        pods_by_namespace[namespace] = _index_pods_by_app(pods)
+        pods = await list_pods(SANDBOX_POD_SELECTOR, namespace)
+        pods_by_namespace[namespace] = _index_pods_by_server(pods)
 
     for server in servers:
         pod = pods_by_namespace.get(server.namespace, {}).get(server.generated_name)
@@ -142,7 +146,7 @@ async def detect_crashed_servers(db: AsyncSession) -> None:
 
         logger.warning(f"IdeGYM server {server.generated_name} crashed: {reason}")
 
-        # Tear the Deployment down first to stop the restart loop, mirroring cleanup_servers:
+        # Tear the pod down first to stop the restart loop, mirroring cleanup_servers:
         # only declare the server terminal (which also releases its resource quota) once we know
         # whether the deletion succeeded. The crash reason is recorded either way so the client
         # sees it on the next forward.

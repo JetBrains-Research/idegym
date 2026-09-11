@@ -8,12 +8,13 @@ from idegym.api.config import Config
 from idegym.api.orchestrator.clients import AvailabilityStatus
 from idegym.api.orchestrator.servers import StartServerRequest
 from idegym.api.status import Status
-from idegym.backend.utils.kubernetes_client import clean_up_server, deploy_server, wait_for_pods_ready
+from idegym.backend.utils.kubernetes_client import clean_up_server, deploy_server, wait_for_pod_ready
 from idegym.orchestrator.database.helpers import (
     check_resources_and_save_server_in_db,
     create_snapshot,
     update_prepare_request_failed,
     update_prepare_request_succeeded,
+    update_server_pod,
     update_server_status,
     update_snapshot_job_status,
     validate_client,
@@ -67,6 +68,7 @@ async def run_snapshot_pipeline_job(
             container_runtime=request.runtime_class_name,
             server_kind=request.server_kind,
             service_port=request.service_port,
+            container_port=request.container_port,
             run_as_root=request.run_as_root,
         )
 
@@ -83,7 +85,7 @@ async def run_snapshot_pipeline_job(
 
         # Snapshot preparation always runs under the snapshot ServiceAccount (which carries the
         # snapshot permissions); a caller-supplied service_account_name is intentionally ignored here.
-        await deploy_server(
+        _, pod_manifest = await deploy_server(
             image_tag=request.image_tag,
             server_name=server_generated_name,
             namespace=request.namespace,
@@ -102,13 +104,16 @@ async def run_snapshot_pipeline_job(
             env_from=[source.model_dump(by_alias=True, exclude_none=True) for source in request.env_from],
             pod_overrides=request.pod_overrides.model_dump(by_alias=True, exclude_none=True),
             server_kind=request.server_kind,
+            snapshot_label=True,
         )
+        await update_server_pod(server_id=server_id, pod_ip=None, pod_manifest=pod_manifest)
 
-        await wait_for_pods_ready(
-            label_selector=f"app={server_generated_name}",
+        ready_pod = await wait_for_pod_ready(
+            pod_name=server_generated_name,
             namespace=request.namespace,
             wait_timeout=request.server_start_wait_timeout_in_seconds,
         )
+        await update_server_pod(server_id=server_id, pod_ip=ready_pod.status.pod_ip)
 
         await update_server_status(server_id=server_id, availability_status=AvailabilityStatus.ALIVE)
 

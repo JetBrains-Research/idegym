@@ -1,6 +1,7 @@
 import asyncio
 from asyncio import CancelledError
 from os import environ as env
+from typing import Any, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request, status
@@ -21,8 +22,8 @@ from idegym.api.orchestrator.servers import (
 from idegym.backend.utils.kubernetes_client import (
     clean_up_server,
     deploy_server,
-    restart_pods,
-    wait_for_pods_ready,
+    restart_server_pod,
+    wait_for_pod_ready,
 )
 from idegym.orchestrator.database.helpers import (
     check_resources_and_save_server_in_db,
@@ -31,11 +32,12 @@ from idegym.orchestrator.database.helpers import (
     update_operation_status,
     update_operation_with_error,
     update_server_owner,
+    update_server_pod,
     update_server_status,
     validate_client,
     validate_server,
 )
-from idegym.orchestrator.router.forwarding import build_server_host
+from idegym.orchestrator.router.forwarding import build_server_base_url
 from idegym.orchestrator.util.decorators import handle_async_task_exceptions, handle_server_exceptions
 from idegym.orchestrator.util.errors import format_error
 from idegym.orchestrator.util.resources import extract_resources_request
@@ -169,8 +171,7 @@ async def finish_server(request: FinishServerRequest):
 @handle_server_exceptions("fetching server capabilities")
 async def get_server_capabilities(server_id: int, client_id: UUID, low_level_request: Request):
     server = await validate_server(client_id=client_id, server_id=server_id)
-    host = build_server_host(server.generated_name, server.namespace)
-    target_url = f"http://{host}:{server.service_port}/api/capabilities"
+    target_url = f"{build_server_base_url(server)}/api/capabilities"
     response = await low_level_request.app.state.http_client.get(target_url)
     if response.status_code >= 400:
         raise HTTPException(status_code=response.status_code, detail=response.text)
@@ -193,6 +194,7 @@ async def restart_server(request: RestartServerRequest):
             server_id=server.id,
             server_generated_name=server.generated_name,
             namespace=server.namespace,
+            pod_manifest=server.pod_manifest,
             server_start_wait_timeout_in_seconds=request.server_start_wait_timeout_in_seconds,
             async_operation_id=async_operation_id,
         )
@@ -241,11 +243,14 @@ async def _task_start_server(
 
         if existing_server:
             if request.reuse_strategy == ServerReuseStrategy.RESTART:
-                await restart_pods(
+                new_pod = await restart_server_pod(
                     name=existing_server.generated_name,
                     namespace=request.namespace,
+                    manifest=existing_server.pod_manifest,
                     wait_timeout=request.server_start_wait_timeout_in_seconds,
                 )
+                if new_pod is not None:
+                    await update_server_pod(server_id=existing_server.id, pod_ip=new_pod.status.pod_ip)
 
             await update_server_owner(server_id=existing_server.id, client_id=request.client_id)
 
@@ -271,6 +276,7 @@ async def _task_start_server(
                 container_runtime=request.runtime_class_name,
                 server_kind=request.server_kind,
                 service_port=request.service_port,
+                container_port=request.container_port,
                 run_as_root=request.run_as_root,
                 snapshot_id=request.snapshot.id if request.snapshot else None,
                 max_restarts=request.max_restarts,
@@ -343,7 +349,7 @@ async def _task_start_server(
                 else None
             )
 
-            await deploy_server(
+            _, pod_manifest = await deploy_server(
                 image_tag=request.image_tag,
                 server_name=server_generated_name,
                 namespace=request.namespace,
@@ -364,13 +370,18 @@ async def _task_start_server(
                 server_kind=request.server_kind,
                 snapshot_id=request.snapshot.id if request.snapshot else None,
                 snapshot_tag=request.snapshot.tag if request.snapshot else None,
+                snapshot_label=config.orchestrator.pod_snapshot.enabled,
             )
+            # Store the manifest before waiting: a restart can then replay it even if this
+            # orchestrator dies before the pod is ready.
+            await update_server_pod(server_id=server_id, pod_ip=None, pod_manifest=pod_manifest)
 
-            await wait_for_pods_ready(
-                label_selector=f"app={server_generated_name}",
+            ready_pod = await wait_for_pod_ready(
+                pod_name=server_generated_name,
                 namespace=request.namespace,
                 wait_timeout=request.server_start_wait_timeout_in_seconds,
             )
+            await update_server_pod(server_id=server_id, pod_ip=ready_pod.status.pod_ip)
 
         if not used_reset_reuse:
             await update_server_status(server_id=server_id, availability_status=AvailabilityStatus.ALIVE)
@@ -482,6 +493,7 @@ async def _task_restart_server(
     server_id: int,
     server_generated_name: str,
     namespace: str,
+    pod_manifest: Optional[dict[str, Any]],
     server_start_wait_timeout_in_seconds: int,
     async_operation_id: int,
 ):
@@ -490,11 +502,14 @@ async def _task_restart_server(
         async_operation_status=AsyncOperationStatus.IN_PROGRESS,
         orchestrator_pod=env.get("__POD_NAME"),
     )
-    await restart_pods(
+    new_pod = await restart_server_pod(
         name=server_generated_name,
         namespace=namespace,
+        manifest=pod_manifest,
         wait_timeout=server_start_wait_timeout_in_seconds,
     )
+    if new_pod is not None:
+        await update_server_pod(server_id=server_id, pod_ip=new_pod.status.pod_ip)
     await update_server_status(
         server_id=server_id,
         availability_status=AvailabilityStatus.ALIVE,

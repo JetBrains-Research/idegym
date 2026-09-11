@@ -12,6 +12,7 @@ from uuid import uuid4
 
 import pytest
 from idegym.api.orchestrator.clients import AvailabilityStatus
+from idegym.backend.utils.kubernetes_client import SANDBOX_LABELS, SERVER_ANNOTATION
 from idegym.orchestrator.database.models import Client, IdeGYMServer
 from idegym.watcher.crash_detector import detect_crashed_servers
 from sqlalchemy import select
@@ -31,7 +32,8 @@ def _pod(generated_name: str, *, restart_count=0, terminated=None, phase="Runnin
         metadata=SimpleNamespace(
             deletion_timestamp=None,
             name=generated_name,
-            labels={"app": generated_name, "app.kubernetes.io/part-of": "idegym"},
+            labels=dict(SANDBOX_LABELS),
+            annotations={SERVER_ANNOTATION: generated_name},
         ),
         status=SimpleNamespace(phase=phase, reason=reason, message=message, container_statuses=[container]),
     )

@@ -1,0 +1,3 @@
+ALTER TABLE servers DROP COLUMN IF EXISTS pod_manifest;
+ALTER TABLE servers DROP COLUMN IF EXISTS pod_ip;
+ALTER TABLE servers DROP COLUMN IF EXISTS container_port;
