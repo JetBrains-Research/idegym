@@ -160,10 +160,14 @@ class StartServerRequest(BaseModel):
         examples=[{"tolerations": [{"key": "dedicated", "operator": "Exists", "effect": "NoSchedule"}]}],
     )
     server_start_wait_timeout_in_seconds: int = Field(
-        default=60,
-        description="How long to wait in seconds for the server pod to become ready",
+        default=300,
+        description=(
+            "How long to wait in seconds for the server pod to become ready. The default covers a "
+            "cold image pull, which a multi-gigabyte environment image needs minutes for; raise it "
+            "further for larger images rather than retrying into the same wall."
+        ),
         ge=0,
-        examples=[60, 120],
+        examples=[300, 900],
     )
     reuse_strategy: ServerReuseStrategy = Field(
         default=ServerReuseStrategy.RESET,
@@ -252,7 +256,7 @@ class KeepaliveServerResponse(BaseModel):
 
 class RestartServerRequest(ServerScopedRequest):
     server_start_wait_timeout_in_seconds: int = Field(
-        default=60, description="Seconds to wait for server readiness after restart", ge=0
+        default=300, description="Seconds to wait for server readiness after restart", ge=0
     )
 
 

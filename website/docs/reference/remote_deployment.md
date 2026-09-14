@@ -394,10 +394,11 @@ the budget:
   Not extended either.
 
 Both budgets are usually longer than the caller's own `server_start_wait_timeout_in_seconds`
-(60 seconds by default), in which case that timeout fires first — so it, not the budget, is what
-bounds a start in practice. The resulting `TimeoutError` names the last scheduling state observed,
-so a pod that never got scheduled is still diagnosable from the failure alone. Raise the caller's
-timeout as well if you want a slow scale-up to actually be waited out.
+(300 seconds by default), in which case that timeout fires first — so it, not the budget, is what
+bounds a start in practice. The resulting `TimeoutError` names both the last scheduling state
+observed and what the pod itself was doing — still pulling, unable to pull, or running with a
+readiness probe that has not passed — so a start that failed is diagnosable from the failure
+alone. Raise the caller's timeout as well if you want a slow scale-up to actually be waited out.
 
 | Variable                                  | Description                                                              | Default |
 |-------------------------------------------|--------------------------------------------------------------------------|---------|
