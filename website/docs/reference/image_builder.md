@@ -1240,7 +1240,15 @@ pass data between plugins via `extras`.
 
 ### Build reconciliation
 
-The watcher uses each build's persisted backend resource to recover completion after an
-orchestrator restart. Its identity needs `cloudbuild.builds.get` for the build project.
-Older records without a resource are reconciled only for the historical `kaniko-build-`
-name prefix; other legacy builds remain the orchestrator monitor's responsibility.
+Each build records a **build context** — `<backend>://<location>`, where the scheme is a
+`BuildBackend` value and the location is that backend's own addressing (`kaniko://<namespace>/<job>`,
+`cloudbuild_gke://<project>/<region>/<build-id>`). It is persisted as `job_statuses.build_context`.
+
+The watcher reconciles an `IN_PROGRESS` build by querying the backend its context names, so a
+build completes in the database even when the orchestrator restarted before recording it. This
+addresses the build where it was submitted rather than where the deployment currently builds, so
+an operator switching backends does not strand in-flight builds. The watcher's identity needs
+`cloudbuild.builds.get` in the build project.
+
+A record with no build context names no backend, so the watcher leaves it alone; only the
+orchestrator's own monitor can still finish it.

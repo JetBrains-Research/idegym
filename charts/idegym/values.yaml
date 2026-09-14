@@ -47,7 +47,7 @@ deployment:
       effect: NoSchedule
 
 # The watcher is a dedicated single-replica service that runs the periodic cleanup loop
-# (inactive servers/clients, stale requests, orphaned Kaniko jobs). Extracting it from the
+# (inactive servers/clients, stale requests, orphaned image builds). Extracting it from the
 # orchestrator lets the orchestrator scale freely. It reuses the shared database
 # (database / postgresql) and RBAC Role.
 watcher:
