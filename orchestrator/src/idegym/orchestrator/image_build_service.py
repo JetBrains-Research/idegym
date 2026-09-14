@@ -23,7 +23,7 @@ class ImageBuildService:
 
     Owns the parts shared across backends — tag/version construction, persisting build
     status to the DB, and the polling loop — and delegates the actual build to an injected
-    `ImageBuilder`. The build resource is persisted so the watcher can reconcile
+    `ImageBuilder`. The handle's build context is persisted so the watcher can reconcile
     completion after an orchestrator restart.
     """
 
@@ -112,7 +112,7 @@ class ImageBuildService:
                     status=Status.IN_PROGRESS,
                     tag=tag,
                     details=details,
-                    build_resource=handle.resource,
+                    build_context=handle.context,
                     request_id=request_id,
                 )
 

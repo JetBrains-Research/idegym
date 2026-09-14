@@ -10,7 +10,7 @@ from shlex import quote
 from typing import Any, Optional, TypeVar
 from urllib.parse import quote as url_quote
 
-from idegym.api.image_build import ImageBuildSpec, context_uri_scheme
+from idegym.api.image_build import BuildBackend, ImageBuildSpec, context_uri_scheme
 from idegym.api.status import Status
 from idegym.backend.utils.image_builder.base import BuildHandle, ImageBuilder
 from idegym.backend.utils.image_builder.secrets import secret_version_name
@@ -457,7 +457,7 @@ class CloudBuildGKEImageBuilder(ImageBuilder):
         return CloudBuildGKEHandle(
             name=build_id,
             monitor_timeout=_monitor_timeout_for(timeout_seconds),
-            resource=f"cloudbuild://{self._project_id}/{self._region}/{build_id}",
+            context=f"{BuildBackend.CLOUDBUILD_GKE}://{self._project_id}/{self._region}/{build_id}",
         )
 
     async def get_status(self, handle: BuildHandle) -> Status:

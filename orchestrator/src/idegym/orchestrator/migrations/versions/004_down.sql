@@ -1,1 +1,1 @@
-ALTER TABLE job_statuses DROP COLUMN build_resource;
+ALTER TABLE job_statuses DROP COLUMN build_context;

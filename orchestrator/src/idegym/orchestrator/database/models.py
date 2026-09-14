@@ -89,7 +89,8 @@ class JobStatusRecord(Base):
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     job_name = Column(String, index=True, unique=True, nullable=False)
-    build_resource = Column(String, nullable=True)
+    # '<backend>://<location>' naming where the build runs, so the watcher can reconcile it.
+    build_context = Column(String, nullable=True)
 
     details = Column(Text, nullable=True)
     tag = Column(String, nullable=False)

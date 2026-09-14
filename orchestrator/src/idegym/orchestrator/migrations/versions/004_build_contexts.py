@@ -1,4 +1,4 @@
-"""Persist build resources for backend-aware reconciliation."""
+"""Persist build contexts for backend-aware reconciliation."""
 
 from pathlib import Path
 

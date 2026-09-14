@@ -13,8 +13,10 @@ class BuildHandle:
     `name` is the string the orchestrator persists as ``JobStatusRecord.job_name`` and
     returns to clients to query status later, so it must be unique and stable for the
     lifetime of the build. Backends may subclass to carry extra fields (project, region,
-    namespace, ...) needed by `ImageBuilder.get_status`. The optional `resource` identifies
-    the backend and location for reconciliation after a restart.
+    namespace, ...) needed by `ImageBuilder.get_status`. The optional `context` names the
+    backend and the location it holds the build at, so a reconciler that never saw the
+    handle can query it after a restart. It is a `<backend>://<location>` string whose
+    scheme is a `BuildBackend` value; the location layout is the backend's own.
 
     `warnings` carries caveats about *this* build that the orchestrator records on the job,
     so they outlive a build-time log line. The build-arg exposure a Kaniko build with
@@ -29,7 +31,7 @@ class BuildHandle:
     name: str
     warnings: tuple[str, ...] = ()
     monitor_timeout: Optional[float] = None
-    resource: Optional[str] = None
+    context: Optional[str] = None
 
 
 class ImageBuilder(ABC):
