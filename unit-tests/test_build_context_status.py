@@ -20,7 +20,7 @@ async def test_cloud_build_uses_saved_location(mocker, state, expected):
     client.get_build.return_value.status.name = state
     factory = mocker.patch("google.cloud.devtools.cloudbuild_v1.CloudBuildAsyncClient")
     factory.return_value.__aenter__.return_value = client
-    assert await get_build_status("cloudbuild://original-project/original-region/id") == expected
+    assert await get_build_status("cloudbuild_gke://original-project/original-region/id") == expected
     client.get_build.assert_awaited_once_with(name="projects/original-project/locations/original-region/builds/id")
 
 

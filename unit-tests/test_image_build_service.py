@@ -215,7 +215,7 @@ async def test_monitor_falls_back_to_the_service_timeout(mocker, builder):
 
     service = ImageBuildService(builder=builder, job_timeout=100.0)
     await service.monitor_image_building_job(
-        BuildHandle(name="job-xyz", resource="cloudbuild://project/region/job-xyz"), tag="t", request_id="r"
+        BuildHandle(name="job-xyz", context="cloudbuild_gke://project/region/job-xyz"), tag="t", request_id="r"
     )
 
     timeout_ctx.assert_called_once_with(100.0)
@@ -402,12 +402,12 @@ async def test_monitor_loop_polls_until_terminal(mocker, builder):
 
     service = ImageBuildService(builder=builder)
     await service.monitor_image_building_job(
-        BuildHandle(name="job-xyz", resource="cloudbuild://project/region/job-xyz"), tag="t", request_id="r"
+        BuildHandle(name="job-xyz", context="cloudbuild_gke://project/region/job-xyz"), tag="t", request_id="r"
     )
 
     assert builder.get_status.await_count == 2
     saved.assert_awaited_once()
-    assert saved.await_args.kwargs["build_resource"] == "cloudbuild://project/region/job-xyz"
+    assert saved.await_args.kwargs["build_context"] == "cloudbuild_gke://project/region/job-xyz"
     assert saved.await_args.kwargs["details"] is None
     # final update records SUCCESS
     assert updated.await_args.kwargs["status"] == Status.SUCCESS

@@ -138,8 +138,8 @@ async def seed_revision_003(engine: AsyncEngine) -> None:
 async def seed_revision_004(engine: AsyncEngine) -> None:
     await execute(
         engine,
-        "INSERT INTO job_statuses (job_name, tag, build_resource)"
-        " VALUES ('build-id', 'image:tag', 'cloudbuild://project/region/build-id')",
+        "INSERT INTO job_statuses (job_name, tag, build_context)"
+        " VALUES ('build-id', 'image:tag', 'cloudbuild_gke://project/region/build-id')",
     )
 
 
@@ -312,11 +312,11 @@ async def test_a_no_op_migration_also_waits_for_the_lock(manager: MigrationManag
     assert (await manager.migrate_to("heads")).direction is MigrationDirection.NOOP
 
 
-async def test_build_resource_downgrade_preserves_jobs(manager: MigrationManager):
+async def test_build_context_downgrade_preserves_jobs(manager: MigrationManager):
     await manager.migrate_to("heads")
     await seed_revision_004(manager.engine)
     await manager.migrate_to("003", allow_downgrade=True)
-    assert "build_resource" not in await column_names(manager.engine, "job_statuses")
+    assert "build_context" not in await column_names(manager.engine, "job_statuses")
     assert await scalar(manager.engine, "SELECT tag FROM job_statuses WHERE job_name = 'build-id'") == "image:tag"
     await manager.migrate_to("004")
-    assert await scalar(manager.engine, "SELECT build_resource FROM job_statuses WHERE job_name = 'build-id'") is None
+    assert await scalar(manager.engine, "SELECT build_context FROM job_statuses WHERE job_name = 'build-id'") is None
