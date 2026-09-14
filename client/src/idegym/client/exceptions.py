@@ -14,6 +14,7 @@ from http import HTTPStatus
 from typing import Optional
 
 from idegym.api.exceptions import IdeGYMException
+from idegym.api.orchestrator.servers import ErrorResponse
 
 
 class IdeGYMHTTPError(IdeGYMException, RuntimeError):
@@ -114,3 +115,19 @@ def http_error(
 ) -> IdeGYMHTTPError:
     """Build the most specific exception for ``status_code``, ready to raise."""
     return error_class_for_status(status_code)(message, status_code=status_code, body=body, method=method, url=url)
+
+
+def raise_for_error_response[T](response: T | ErrorResponse, operation: str) -> T:
+    """Turn an ``ErrorResponse`` from an async operation into the matching exception.
+
+    Some operations report failure as a *return value* rather than by raising, which makes it
+    possible to record a live pod as stopped simply by not checking. Passing the result through
+    here makes failure loud, consistently with the rest of the API.
+    """
+    if isinstance(response, ErrorResponse):
+        raise http_error(
+            f"{operation} failed: {response.model_dump()}",
+            status_code=response.status_code,
+            body=response.body,
+        )
+    return response
