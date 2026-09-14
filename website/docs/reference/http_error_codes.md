@@ -158,6 +158,53 @@ Mark a server as finished (not stopped — pod remains running, available for re
 | Server not active | `410 Gone` | `detail: "IdeGYM server with ID {id} is not available (status: ...)"` |
 | Internal error | `500 Internal Server Error` | JSON `detail` |
 
+### Servers — `GET /api/idegym-servers`
+
+List the servers a client owns. Synchronous.
+
+| Scenario | HTTP Status | Details |
+|----------|-------------|---------|
+| Success | `200 OK` | `ListServersResponse`; an empty list when the client owns nothing |
+| Client not found | `404 Not Found` | `detail: "Client with ID {id} not found"` |
+| Internal error | `500 Internal Server Error` | JSON `detail` |
+
+Query parameters: `client_id` (required) and `include_terminal` (default `false`).
+
+### Servers — `POST /api/idegym-servers/keepalive`
+
+Hold a server against the watcher's inactivity reaper for `minutes` from now. Synchronous.
+
+| Scenario | HTTP Status | Details |
+|----------|-------------|---------|
+| Success | `200 OK` | `KeepaliveServerResponse` with the window actually in effect |
+| `minutes` out of range (0 < minutes ≤ 1440) | `422 Unprocessable Entity` | Pydantic validation error |
+| Client not found | `404 Not Found` | `detail: "Client with ID {id} not found"` |
+| Server not found or owned by another client | `404 Not Found` | |
+| Server already in a terminal state | `410 Gone` | `detail: "... is KILLED and cannot be held alive"` |
+| Internal error | `500 Internal Server Error` | JSON `detail` |
+
+A server that has already reached a terminal state cannot be held: the hold is refused with
+`410 Gone`. That is the race the endpoint exists to lose gracefully — a keepalive loop can be
+overtaken by the reaper — so treat a 410 here as "the sandbox is gone, start a new one" rather
+than as an error to retry. The window only ever extends, so a shorter request against a longer
+existing hold returns the longer one.
+
+### Servers — `GET /api/idegym-servers/{server_id}/status`
+
+Report a server's availability, pod phase and idle time. Synchronous, and read-only: it does
+**not** update the server's activity timestamp, so polling it will not keep a server alive.
+
+| Scenario | HTTP Status | Details |
+|----------|-------------|---------|
+| Success | `200 OK` | `ServerStatusResponse` — including for a finished, stopped or crashed server |
+| Client not found | `404 Not Found` | `detail: "Client with ID {id} not found"` |
+| Server not found | `404 Not Found` | `detail: "IdeGYM server with ID {id} not found"` |
+| Server owned by another client | `404 Not Found` | `detail: "... is not associated with client ID {id}"` |
+| Internal error | `500 Internal Server Error` | JSON `detail` |
+
+Unlike the other server endpoints this one does not return `410 Gone` for an inactive server —
+reporting that state is the reason it exists.
+
 ### Servers — `POST /api/idegym-servers/restart`
 
 Restart an IdeGYM server's pods. Always async.

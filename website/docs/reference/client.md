@@ -115,7 +115,7 @@ async with client.with_server(
 | `resources` | Kubernetes resource requests/limits |
 | `node_selector` | Node affinity labels |
 | `server_start_wait_timeout_in_seconds` | How long to wait for the server pod to become ready |
-| `reuse_strategy` | What to do if a server with this name already exists: `NONE` (recreate the server from scratch), `RESTART` (restart the server), `RESET` (reset project state) |
+| `reuse_strategy` | Whether to take over an existing server: `NONE` (always create from scratch), `RESTART` (reuse and restart the pod), `RESET` (reuse and reset project state) — see [Server reuse](#server-reuse) |
 | `close_action` | `FINISH` — release the server but leave it running for the next client; `STOP` — stop and delete the server |
 
 ### `start_server(...)` / `stop_server(...)` / `finish_server(...)`
@@ -131,6 +131,54 @@ await client.finish_server(server)  # release without stopping
 # or
 await client.stop_server(server)    # stop and delete
 ```
+
+#### Server reuse
+
+Reuse is attempted only for `RESTART` and `RESET`. A candidate is taken over only if **all** of
+these match:
+
+| Field | Comes from |
+|-------|-----------|
+| client name | the `name` this client registered with |
+| `image_tag` | the start request |
+| `runtime_class_name` | the start request |
+| `run_as_root` | the start request |
+| `server_kind` | the start request |
+| `server_name` | the start request, when set |
+| availability is `FINISHED` | how the previous holder released it |
+
+`server_name` is one of seven filters, not the key — two requests with the same name but
+different images will not share a server.
+
+The last row is the one that catches people. A server becomes `FINISHED` only through
+`finish_server` (or `close_action=FINISH`, which `with_server` uses by default). A client that
+always calls `stop_server` leaves its servers `STOPPED`, and **reuse can then never hit** — the
+requests look identical and a new server is created every time.
+
+Because that is invisible from the outside, the start response says what happened:
+
+```python
+server = await client.start_server(..., reuse_strategy=ServerReuseStrategy.RESET)
+if not server.reused:
+    ...  # a fresh server; the project is already in its initial state
+```
+
+### `list_servers(include_terminal=False)` — what am I holding?
+
+```python
+for server in await client.list_servers():
+    print(server.server_id, server.availability, server.image_tag)
+```
+
+Scoped to this client's registration, newest first. Terminal servers (`STOPPED`, `KILLED`,
+`CRASHED`, …) are excluded unless `include_terminal=True`, so the default answers "what is
+still mine and running" — which is what makes cleaning up after a crashed run possible without
+cluster access.
+
+Each row carries `server_id`, `server_name`, `generated_name`, `namespace`, `availability`,
+`usable`, `image_tag`, `created_at`, `last_activity_at`, `keepalive_until` and `details`. There
+are no pod fields: listing them would mean one Kubernetes call per server. Use
+[`status()`](#status--is-this-server-usable) for the pod view of one server.
 
 ### `build_and_push_images(path, timeout, poll_interval)` — image builds
 
@@ -282,6 +330,55 @@ file with a stale tail. Downloading a path that does not exist fails with a 404.
 
 Prefer these over base64 through the bash tool: they are not bounded by the size of a single
 shell script, and the payload never reaches the command log.
+
+### `keepalive(minutes=15.0)` — hold a server that is idle on purpose
+
+The watcher reaps servers on time since the last completed request. That is only a proxy for
+"somebody is using this", and a poor one: a sandbox is equally quiet while an agent thinks, a
+build runs, or a human reads a stack trace. Call `keepalive` while you still hold the server.
+
+```python
+hold = await server.keepalive(minutes=30)
+print(hold.keepalive_until)  # epoch milliseconds
+```
+
+Calling again extends the window and never shortens it, so two holders of the same server
+cannot cut each other short — which also means `keepalive(minutes=1)` after
+`keepalive(minutes=60)` leaves the longer hold in place, and the response reports the window
+actually in effect rather than the one you asked for. The maximum window is 24 hours.
+
+A hold on a server that has already reached a terminal state is refused with `410 Gone`, which
+the client raises as `IdeGYMNotFoundError`: keepalive keeps a live server alive, it does not
+revive a dead one. Catch it as "the sandbox is gone, start a new one". `status()` reports the
+hold as `keepalive_until`.
+
+### `status()` — is this server usable?
+
+```python
+status = await server.status()
+
+if not status.usable:
+    print(status.availability, status.details)  # e.g. "CRASHED", "OOMKilled"
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `server_id` | `int` | Numeric server ID |
+| `server_name` / `generated_name` | `str` | Logical name from the start request, and the Kubernetes resource name |
+| `namespace` | `str` | Namespace the server runs in |
+| `availability` | `str` | Orchestrator status: `ALIVE`, `REUSED`, `FINISHED`, `STOPPED`, `CRASHED`, … |
+| `usable` | `bool` | True when the server accepts requests (`ALIVE` or `REUSED`) |
+| `image_tag` | `str \| None` | Image the server runs |
+| `created_at` / `last_activity_at` | `int` | Epoch milliseconds |
+| `idle_seconds` | `float` | Seconds since the last recorded activity |
+| `keepalive_until` | `int \| None` | Epoch milliseconds until which an explicit keepalive holds the server |
+| `pod_phase` | `str \| None` | Kubernetes phase, or `None` when no pod matches |
+| `pod_ready` | `bool` | True when the pod is `Running` with all containers ready |
+| `details` | `str \| None` | Failure reason recorded on a terminal status |
+
+Use this rather than an unrelated call such as `list_capabilities` as a liveness probe. It
+answers for a finished, stopped or crashed server instead of raising, and reading it does not
+count as activity — so a polling loop will not keep a server from being reaped.
 
 ### `restart_server(...)`
 
