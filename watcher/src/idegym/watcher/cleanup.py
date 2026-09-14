@@ -1,7 +1,6 @@
 import asyncio
 import random
 import time
-from os import environ as env
 
 from idegym.api.config import WatcherConfig
 from idegym.api.status import Status
@@ -10,7 +9,6 @@ from idegym.backend.utils.image_builder.status import get_build_status
 from idegym.backend.utils.kubernetes_client import (
     are_any_pods_alive,
     clean_up_server,
-    get_job_status,
 )
 from idegym.backend.utils.utils import log_exceptions
 from idegym.orchestrator.database.database import (
@@ -144,12 +142,13 @@ async def cleanup_requests(db: AsyncSession, current_time: int, max_age: Duratio
 
 
 @log_exceptions("Error checking orphaned builds", logger, swallow=True)
-async def check_orphaned_builds(db: AsyncSession, namespace: str):
+async def check_orphaned_builds(db: AsyncSession):
     """
-    Reconcile builds using their persisted backend resource.
+    Reconcile builds through the backend named by their persisted build context.
 
     This handles the case where monitor_image_building_job failed or the orchestrator restarted
-    before it could record the final status.
+    before it could record the final status. A record with no build context predates the column
+    and stays IN_PROGRESS here; only the orchestrator's own monitor can still finish it.
     """
     query = select(JobStatusRecord).filter(JobStatusRecord.status == Status.IN_PROGRESS)
     result = await db.execute(query)
@@ -158,15 +157,11 @@ async def check_orphaned_builds(db: AsyncSession, namespace: str):
     logger.debug(f"Found {len(in_progress_jobs)} jobs marked as IN_PROGRESS in database")
 
     for job_record in in_progress_jobs:
+        if not job_record.build_context:
+            continue
         job_name = job_record.job_name
         try:
-            if job_record.build_resource:
-                build_status = await get_build_status(job_record.build_resource)
-            elif job_name.startswith("kaniko-build-"):
-                # Older records lack a resource; only the historical Kaniko prefix is safe.
-                build_status = await get_job_status(job_name, namespace)
-            else:
-                continue
+            build_status = await get_build_status(job_record.build_context)
 
             if build_status != Status.IN_PROGRESS:
                 logger.warning(
@@ -187,7 +182,6 @@ async def perform_cleanup_operations(
     finished_timeout: Duration,
     requests_max_age: Duration,
     requests_stale: Duration,
-    namespace: str,
     crash_detection_enabled: bool = True,
 ):
     # TODO: Parallelize these operations, but be aware of database sessions
@@ -198,7 +192,7 @@ async def perform_cleanup_operations(
         db, current_time=current_time, inactive_timeout=inactive_timeout, finished_timeout=finished_timeout
     )
     await cleanup_requests(db, current_time, requests_max_age, requests_stale)
-    await check_orphaned_builds(db, namespace)
+    await check_orphaned_builds(db)
 
 
 async def _wait_for_jitter():
@@ -235,7 +229,6 @@ async def cleanup_inactive_pods(watcher_config: WatcherConfig):
 
             try:
                 logger.info("Starting cleanup operations with advisory lock acquired")
-                namespace = env.get("__NAMESPACE", "idegym")
                 await perform_cleanup_operations(
                     db,
                     current_time,
@@ -243,7 +236,6 @@ async def cleanup_inactive_pods(watcher_config: WatcherConfig):
                     watcher_config.finished_timeout,
                     watcher_config.request_max_age,
                     watcher_config.request_stale,
-                    namespace,
                     crash_detection_enabled=watcher_config.crash_detection_enabled,
                 )
                 logger.info("Completed cleanup operations")
