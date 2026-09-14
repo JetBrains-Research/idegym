@@ -28,6 +28,9 @@ Execute a bash script inside the container.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `command` | string | — | Bash script to execute |
+| `cwd` | string or null | `null` | Working directory; a relative path resolves against the project directory |
+| `env` | object | `{}` | Environment variables added to the command's environment |
+| `user` | string or null | `null` | Run the command as this user via `runuser` |
 | `timeout` | float | 600.0 | Maximum execution time in seconds |
 | `graceful_termination_timeout` | float | 2.0 | Seconds to wait for graceful process exit before SIGKILL |
 | `max_output_bytes` | integer or null | 1048576 | Maximum retained bytes per stream; `null` retains complete output |
@@ -46,6 +49,48 @@ beginning and end and includes a marker with the number of omitted bytes; the ma
 is outside the configured limit. Set `max_output_bytes` to `null` only when complete output
 is required and its size is trusted. IdeGYM still drains all produced output until the command
 finishes or reaches its execution timeout so subprocess pipes cannot deadlock.
+
+#### How the script is run
+
+The script is written to a temp file inside the container and executed as `bash <file>`. There
+is no practical size limit: passing it as a `bash -c` argument used to cap it at the kernel's
+`MAX_ARG_STRLEN` of 128 KiB, and an oversized script failed with a bare `E2BIG`.
+
+A file rather than bash's stdin is deliberate. A script read from stdin is consumed
+incrementally, so any command inside it that reads stdin — `cat`, `read`, an interactive
+installer — would swallow the rest of the script. Running from a file leaves the command's own
+stdin alone.
+
+The temp file is removed once the command finishes, including when it times out.
+
+Before the script, IdeGYM sources a bundled init file that sets up the shell environment. It is
+joined to your script with `;`, not `&&`, so it cannot change what your script means: every
+statement runs exactly as written, and your own `&&` and `||` behave normally. The prefix stays
+on the same line, so a bash error still reports the line number you wrote. An empty script is a
+no-op that exits 0.
+
+#### Per-command context
+
+Without `cwd`, `env` and `user` the only way to set context is to write it into the script —
+`cd -- … || exit 1`, one `export` per variable, a `runuser` wrapper — which every client would
+have to generate correctly, and which spends the script's own size budget.
+
+```python
+result = await server.execute_bash(
+    "python -m pytest -q",
+    cwd="tests",  # relative to the project directory
+    env={"PYTHONHASHSEED": "0"},  # merged over the cleaned environment
+    user="devuser",  # requires the server to run as root
+)
+```
+
+The environment the command starts from is the server's own, with IdeGYM-internal entries
+stripped; `env` is merged over it, so a name that already exists is overridden. Values passed
+this way never enter the command text, which means they are not written to the command log —
+prefer it to an `export` line for anything sensitive.
+
+`user` runs the script through `runuser --preserve-environment`, so it needs the server
+container to be running as root. Without it the command runs as the server's own user.
 
 #### Output fidelity
 
