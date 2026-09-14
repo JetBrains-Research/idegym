@@ -37,6 +37,7 @@ from idegym.api.pod_spec import (
 )
 from idegym.api.resources import KubernetesResources
 from idegym.api.type import KubernetesNodeSelector, KubernetesObjectName, OCIImageName
+from idegym.client.exceptions import http_error
 from idegym.client.operations.clients import ClientOperations
 from idegym.client.operations.forwarding import ForwardingOperations
 from idegym.client.operations.jobs import JobOperations
@@ -90,7 +91,8 @@ class IdeGYMClient:
             heartbeat_interval_in_seconds: Interval between heartbeat requests.
             request_timeout_in_seconds: Default timeout for every HTTP request.
             otel_config: OpenTelemetry configuration for tracing. Falls back to ``IDEGYM_OTEL_*``
-                environment variables when not provided.
+                environment variables when not provided. Tracing stays off unless an endpoint is
+                configured, either here or through ``IDEGYM_OTEL_TRACING_ENDPOINT``.
         """
         if orchestrator_url == "idegym.test":
             orchestrator_url = f"http://{orchestrator_url}"
@@ -119,10 +121,12 @@ class IdeGYMClient:
             ),
         )
 
+        # Tracing is opt-in: with no endpoint the exporter is never built, so a caller who
+        # does not know about OTEL cannot end up shipping telemetry off their infrastructure.
         otel_config = otel_config or OTELConfig(
             service_name=env.get("IDEGYM_OTEL_SERVICE_NAME", generate_service_name()),
             tracing=TracingConfig(
-                endpoint=env.get("IDEGYM_OTEL_TRACING_ENDPOINT", "https://tempo.labs.jb.gg/v1/traces"),
+                endpoint=env.get("IDEGYM_OTEL_TRACING_ENDPOINT", "").strip() or None,
                 timeout=int(env.get("IDEGYM_OTEL_TRACING_TIMEOUT", "10")),
                 auth=BasicAuth(
                     username=env.get("IDEGYM_OTEL_TRACING_AUTH_USERNAME"),
@@ -362,7 +366,8 @@ class IdeGYMClient:
         """
         Start an IdeGYM server and return an :class:`IdeGYMServer` handle.
 
-        Raises ``RuntimeError`` if the orchestrator returns an error response.
+        Raises an :class:`~idegym.client.exceptions.IdeGYMHTTPError` subclass if the orchestrator
+        returns an error response.
         Prefer :meth:`with_server` for automatic cleanup.
         """
         logger.info(f"Starting IdeGYM server: name={server_name}, image={image_tag}")
@@ -392,8 +397,11 @@ class IdeGYMClient:
         )
 
         if isinstance(server_response, ErrorResponse):
-            # Branching on a response union, not validating an argument's type — RuntimeError is correct.
-            raise RuntimeError(f"Failed to start server: {server_response.model_dump()}")  # noqa: TRY004
+            raise http_error(
+                f"Failed to start server: {server_response.model_dump()}",
+                status_code=server_response.status_code,
+                body=server_response.body,
+            )
         elif isinstance(server_response, StartServerResponse) and server_response.server_id:
             return IdeGYMServer(
                 server_id=server_response.server_id,
