@@ -113,6 +113,30 @@ class TestBashExecutor:
         assert exit_code == 0
 
     @pytest.mark.asyncio
+    async def test_output_is_returned_byte_for_byte(self):
+        executor = BashExecutor()
+        stdout, _stderr, exit_code = await executor.execute_bash_command("printf '  padded  \\n\\n'")
+
+        assert stdout == "  padded  \n\n"
+        assert exit_code == 0
+
+    @pytest.mark.asyncio
+    async def test_strip_output_trims_surrounding_whitespace(self):
+        executor = BashExecutor()
+        stdout, _stderr, exit_code = await executor.execute_bash_command("printf '  padded  \\n\\n'", strip_output=True)
+
+        assert stdout == "padded"
+        assert exit_code == 0
+
+    @pytest.mark.asyncio
+    async def test_non_utf8_output_is_replaced_and_exit_code_survives(self):
+        executor = BashExecutor()
+        stdout, _stderr, exit_code = await executor.execute_bash_command("printf '\\xff\\xfe'; exit 3")
+
+        assert stdout == "��"
+        assert exit_code == 3
+
+    @pytest.mark.asyncio
     async def test_command_with_timeout(self):
         """Test that a command with a timeout raises the appropriate exception."""
         executor = BashExecutor()
@@ -146,7 +170,7 @@ class TestBashExecutor:
             max_output_bytes=None,
         )
 
-        assert stdout == "  indented�"
+        assert stdout == "  indented�\n"
         assert exit_code == 0
 
     @pytest.mark.asyncio
@@ -161,9 +185,40 @@ class TestBashExecutor:
             )
 
         timeout_log = next(entry for entry in logs if entry["event"] == "Command execution timed out")
-        assert timeout_log["stdout"] == "partial output"
+        assert timeout_log["log_level"] == "warning"
         assert timeout_log["stdout_bytes"] == len("partial output")
-        assert timeout_log["stderr"] == ""
+        assert "stdout" not in timeout_log
+
+        partial_log = next(entry for entry in logs if entry["event"] == "Partial output of the timed-out command")
+        assert partial_log["log_level"] == "debug"
+        assert partial_log["stdout"] == "partial output"
+        assert partial_log["stderr"] == ""
+
+    @pytest.mark.asyncio
+    async def test_info_logs_carry_no_command_text_or_output(self):
+        executor = BashExecutor()
+
+        with capture_logs() as logs:
+            await executor.execute_bash_command("export TOKEN=s3cr3t; printf 'result'")
+
+        info_logs = [entry for entry in logs if entry["log_level"] == "info"]
+        assert "s3cr3t" not in repr(info_logs)
+        assert "result" not in repr(info_logs)
+
+        completed = next(entry for entry in info_logs if entry["event"] == "Command completed")
+        assert completed["exit_code"] == 0
+        assert completed["stdout_bytes"] == len("result")
+
+    @pytest.mark.asyncio
+    async def test_debug_log_of_the_command_masks_exported_values(self):
+        executor = BashExecutor()
+
+        with capture_logs() as logs:
+            await executor.execute_bash_command("export TOKEN=s3cr3t; printf 'result'")
+
+        command_log = next(entry for entry in logs if entry["event"] == "Bash command")
+        assert command_log["log_level"] == "debug"
+        assert command_log["command"] == "export TOKEN=<redacted>; printf 'result'"
 
     @pytest.mark.asyncio
     async def test_timeout_does_not_wait_for_detached_descendant_holding_pipes(self, tmp_path):

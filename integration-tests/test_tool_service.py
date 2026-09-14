@@ -39,7 +39,16 @@ class TestToolService(IsolatedAsyncioTestCase):
             timeout=600.0,
             graceful_termination_timeout=3.0,
             max_output_bytes=None,
+            strip_output=False,
         )
+
+    async def test_execute_bash_tool_forwards_strip_request(self):
+        self.service.bash_executor.execute_bash_command.return_value = Future()
+        self.service.bash_executor.execute_bash_command.return_value.set_result(("out", "", 0))
+
+        await self.service.execute_tool("bash", {"command": "echo 'Hello'", "strip_output": True})
+
+        self.assertTrue(self.service.bash_executor.execute_bash_command.call_args.kwargs["strip_output"])
 
     async def test_execute_bash_tool_missing_command(self):
         parameters = {}
@@ -65,6 +74,7 @@ class TestToolService(IsolatedAsyncioTestCase):
                 "timeout": 600.0,
                 "graceful_termination_timeout": 2.0,
                 "max_output_bytes": None,
+                "strip_output": False,
             },
         )
 
