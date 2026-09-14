@@ -233,6 +233,39 @@ result = await server.patch_file(
 )
 ```
 
+### Binary file transfer
+
+`create_file` and `patch_file` carry text. To move bytes — an archive, a wheel, a compiled
+artifact, a database fixture — use the transfer methods, which chunk the content as base64 over
+the ordinary forwarding path. That path stores and replays a request as JSON text, so base64 is
+what makes the round trip lossless; raw bytes would not survive it.
+
+```python
+# Upload a local file into the container, then read it back byte-for-byte.
+size = await server.upload_file("./fixtures/repo.tar.gz", "/root/work/repo.tar.gz")
+await server.download_file("/root/work/out/results.db", "./results.db")
+
+# In-memory variants for smaller payloads.
+await server.upload_bytes("/root/work/blob.bin", b"\x00\xff")
+blob = await server.download_bytes("/root/work/blob.bin")
+```
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `upload_file(local_path, file_path, chunk_bytes=..., ...)` | `int` | Stream a local file into the container; returns the resulting size |
+| `upload_bytes(file_path, data, chunk_bytes=..., ...)` | `int` | Write bytes already in memory; returns the resulting size |
+| `download_file(file_path, local_path, chunk_bytes=..., ...)` | `int` | Stream a container file to disk; returns the byte count |
+| `download_bytes(file_path, chunk_bytes=..., ...)` | `bytes` | Read a container file into memory |
+
+`chunk_bytes` is the number of raw bytes per request and defaults to 1 MiB; base64 inflates that
+to roughly 1.4 MiB on the wire. The file-based variants read and write one chunk at a time, so a
+transfer is bounded by disk rather than by client memory. Uploads are sequential and each chunk
+truncates the file at its own end, so an interrupted upload leaves a short file rather than a
+file with a stale tail. Downloading a path that does not exist fails with a 404.
+
+Prefer these over base64 through the bash tool: they are not bounded by the size of a single
+shell script, and the payload never reaches the command log.
+
 ### `restart_server(...)`
 
 Restart the server pod (preserves the same image and configuration):

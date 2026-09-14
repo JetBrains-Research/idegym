@@ -24,3 +24,46 @@ class PatchFileRequest(FileRequest):
 
 class FileResult(BaseModel):
     status: Status
+
+
+DEFAULT_FILE_CHUNK_BYTES = 1024 * 1024
+"""Raw bytes carried by one transfer chunk. Base64 inflates it to roughly 4/3 of this on the wire."""
+
+
+class UploadFileChunkRequest(FileRequest):
+    """One chunk of a binary upload.
+
+    Chunks travel as base64 inside the ordinary JSON forwarding path, which is what makes them
+    binary-safe: the orchestrator stores and replays a forwarded request as JSON text, so raw
+    bytes would not survive the round trip.
+    """
+
+    content_base64: str = Field(description="Base64-encoded bytes to write at 'offset'")
+    offset: int = Field(default=0, ge=0, description="Byte offset in the file at which to write this chunk")
+    truncate: bool = Field(
+        default=True,
+        description=(
+            "Cut the file off at the end of this chunk once it is written, so a re-upload cannot "
+            "leave the tail of a longer previous file behind. Set false for out-of-order writes."
+        ),
+    )
+
+
+class UploadFileChunkResponse(BaseModel):
+    file_path: str
+    bytes_written: int
+    size: int = Field(description="Size of the file after the write")
+
+
+class DownloadFileChunkRequest(FileRequest):
+    offset: int = Field(default=0, ge=0, description="Byte offset in the file to read from")
+    length: int = Field(default=DEFAULT_FILE_CHUNK_BYTES, ge=1, description="Maximum number of raw bytes to read")
+
+
+class DownloadFileChunkResponse(BaseModel):
+    file_path: str
+    offset: int
+    content_base64: str = Field(description="Base64-encoded bytes read at 'offset'")
+    bytes_read: int
+    size: int = Field(description="Total size of the file")
+    eof: bool = Field(description="True when this chunk reaches the end of the file")
