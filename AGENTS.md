@@ -275,6 +275,8 @@ Plugins are discovered through entry points, not imports. See
   read via `plugin_asset()`, never a path relative to `__file__`.
 - The keys returned by `get_context_files()` must match the `COPY` paths in the plugin's
   Dockerfile template; a unit test enforces this.
+- IDE runtimes belong to the IDE: preserve the base image's `JAVA_HOME` and command precedence
+  on `PATH`. The launchers find their bundled JBR without making it the task's Java toolchain.
 
 ### Anything that changes a built image
 

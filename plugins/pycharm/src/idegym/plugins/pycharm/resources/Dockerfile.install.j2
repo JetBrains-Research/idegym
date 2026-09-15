@@ -32,8 +32,8 @@ RUN set -eux; \
     tar -xzf /tmp/pycharm.tar.gz -C ${IDE_DIR} --strip-components=1; \
     rm /tmp/pycharm.tar.gz /tmp/pycharm.sha256
 
-ENV JAVA_HOME="${IDE_DIR}/jbr"
-ENV PATH="${JAVA_HOME}/bin:${IDE_DIR}/bin:${PATH}"
+# The launcher finds its bundled JBR. Preserve the task's JDK and command precedence.
+ENV PATH="${PATH}:${IDE_DIR}/bin"
 ENV DISPLAY=":99"
 # IDE-specific config for the shared start-ide entrypoint (installed as /usr/local/bin/start-ide).
 # PyCharm has no headless mode, so IDE_SUPPORTS_HEADLESS=false and the entrypoint always starts Xvfb.

@@ -23,9 +23,8 @@ class ImageBuildService:
 
     Owns the parts shared across backends — tag/version construction, persisting build
     status to the DB, and the polling loop — and delegates the actual build to an injected
-    `ImageBuilder`. The backend-specific `BuildHandle` is kept in memory for
-    the monitoring task; only ``handle.name`` is persisted (as ``JobStatusRecord.job_name``)
-    and returned to clients.
+    `ImageBuilder`. The handle's build context is persisted so the watcher can reconcile
+    completion after an orchestrator restart.
     """
 
     def __init__(
@@ -113,6 +112,7 @@ class ImageBuildService:
                     status=Status.IN_PROGRESS,
                     tag=tag,
                     details=details,
+                    build_context=handle.context,
                     request_id=request_id,
                 )
 

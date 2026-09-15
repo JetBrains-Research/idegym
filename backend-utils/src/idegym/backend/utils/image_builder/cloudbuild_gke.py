@@ -10,7 +10,7 @@ from shlex import quote
 from typing import Any, Optional, TypeVar
 from urllib.parse import quote as url_quote
 
-from idegym.api.image_build import ImageBuildSpec, context_uri_scheme
+from idegym.api.image_build import BuildBackend, ImageBuildSpec, context_uri_scheme
 from idegym.api.status import Status
 from idegym.backend.utils.image_builder.base import BuildHandle, ImageBuilder
 from idegym.backend.utils.image_builder.secrets import secret_version_name
@@ -454,7 +454,11 @@ class CloudBuildGKEImageBuilder(ImageBuilder):
         build_id = operation.metadata.build.id
         logger.info(f"Submitted Cloud Build '{build_id}' for image '{tag}'")
         # The monitor has to track the timeout this build actually got, not the deployment default.
-        return CloudBuildGKEHandle(name=build_id, monitor_timeout=_monitor_timeout_for(timeout_seconds))
+        return CloudBuildGKEHandle(
+            name=build_id,
+            monitor_timeout=_monitor_timeout_for(timeout_seconds),
+            context=f"{BuildBackend.CLOUDBUILD_GKE}://{self._project_id}/{self._region}/{build_id}",
+        )
 
     async def get_status(self, handle: BuildHandle) -> Status:
         if not isinstance(handle, CloudBuildGKEHandle):

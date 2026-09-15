@@ -572,6 +572,12 @@ Ships with the IdeGYM workspace. Source: `plugins/defaults/src/idegym/plugins/de
 | `tools` | `ToolsPlugin` | Mounts the built-in tools router (`/api/tools/*`) |
 | `rewards` | `RewardsPlugin` | Mounts the built-in rewards router (`/api/rewards/*`) |
 
+The IDEA and PyCharm launchers use their bundled JetBrains Runtime without setting the
+image's `JAVA_HOME` or adding the bundled runtime to `PATH`. A base image's Java toolchain
+and command precedence are preserved; the IDE's `bin` directory is appended to `PATH`.
+If a task needs Java, its base image must provide it. To invoke the IDE's runtime explicitly,
+use `/opt/idea/jbr/bin/java` or `/opt/pycharm/jbr/bin/java`.
+
 ### PyCharm — `idegym-plugins[pycharm]` (optional extra)
 
 Ships in `plugins/pycharm/`. Install the `pycharm` extra to use the PyCharm integration.

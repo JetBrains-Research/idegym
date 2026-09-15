@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from os import environ as env
 from typing import Optional
 
-from idegym.api.image_build import ImageBuildSpec, context_uri_scheme
+from idegym.api.image_build import BuildBackend, ImageBuildSpec, context_uri_scheme
 from idegym.api.status import Status
 from idegym.backend.utils.image_builder.base import BuildHandle, ImageBuilder
 from idegym.backend.utils.image_builder.secrets import build_arg_exposure_warning, resolve_secret_values
@@ -194,6 +194,7 @@ class KanikoImageBuilder(ImageBuilder):
 
         return KanikoBuildHandle(
             name=job_name,
+            context=f"{BuildBackend.KANIKO}://{namespace}/{job_name}",
             namespace=namespace,
             warnings=tuple(warnings),
             monitor_timeout=monitor_timeout,
