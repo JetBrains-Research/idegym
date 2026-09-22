@@ -161,22 +161,36 @@ async def _task_spin_up_client_nodes(
 async def _task_stop_client(
     servers_info: list[AliveServerInfo], client_id: UUID, namespace: str, async_operation_id: int
 ):
+    """
+    Stop every server of the client, release its nodes, and record the outcome.
+
+    For each server the pod is deleted before the STOPPED write, so a stop reaches the cluster
+    even when the database is unavailable and a pod deletion failure is recorded as
+    DELETION_FAILED on a row that is still non-terminal. The leading IN_PROGRESS write is
+    best-effort.
+    """
     logger.info(f"Stopping client with ID {client_id} in namespace {namespace} in background")
 
-    await update_operation_status(
-        async_operation_id=async_operation_id,
-        async_operation_status=AsyncOperationStatus.IN_PROGRESS,
-        orchestrator_pod=env.get("__POD_NAME"),
-    )
+    try:
+        await update_operation_status(
+            async_operation_id=async_operation_id,
+            async_operation_status=AsyncOperationStatus.IN_PROGRESS,
+            orchestrator_pod=env.get("__POD_NAME"),
+        )
+    except Exception:
+        logger.warning(
+            f"Could not mark operation {async_operation_id} IN_PROGRESS; stopping servers of {client_id} anyway",
+            exc_info=True,
+        )
 
     has_deletion_errors = False
     for server_info in servers_info:
         try:
-            await update_server_status(server_id=server_info.id, availability_status=AvailabilityStatus.STOPPED)
             await clean_up_server(
                 name=server_info.generated_name,
                 namespace=namespace,
             )
+            await update_server_status(server_id=server_info.id, availability_status=AvailabilityStatus.STOPPED)
             logger.info(f"Successfully stopped IdeGYM server {server_info.generated_name}")
 
         except Exception:

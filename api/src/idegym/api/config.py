@@ -69,12 +69,57 @@ class DatabaseConfig(BaseModel):
         return f"postgresql+asyncpg://{self.user}:{self.password}@{self.host}:{self.port}/{self.db}"
 
 
+_SQLALCHEMY_POOL_FIELDS = ("pool_size", "max_overflow", "pool_recycle", "pool_timeout", "pool_pre_ping")
+
+
 class SQLAlchemyConfig(BaseModel):
+    """
+    Engine settings for the shared PostgreSQL database.
+
+    The pool fields are passed to ``create_async_engine``; the timeouts and ``application_name`` are
+    sent to PostgreSQL as per-connection ``server_settings`` through asyncpg. A timeout of 0 disables it.
+    """
+
     pool_size: int = Field(ge=0, default=20)
     max_overflow: int = Field(ge=0, default=5)
     pool_recycle: int = Field(ge=-1, default=1800, description="Connection recycling interval in seconds")
     pool_timeout: int = Field(gt=0, default=1200, description="Connection acquisition timeout in seconds")
     pool_pre_ping: bool = Field(default=True)
+    lock_timeout_ms: int = Field(
+        ge=0,
+        default=10000,
+        description="PostgreSQL lock_timeout: a statement waiting longer than this for a row or table lock fails",
+    )
+    statement_timeout_ms: int = Field(
+        ge=0,
+        default=30000,
+        description="PostgreSQL statement_timeout: a single statement running longer than this is cancelled",
+    )
+    idle_in_transaction_timeout_ms: int = Field(
+        ge=0,
+        default=60000,
+        description="PostgreSQL idle_in_transaction_session_timeout: a session idle inside an open transaction "
+        "longer than this is terminated, releasing its locks",
+    )
+    application_name: str = Field(
+        default="idegym-orchestrator",
+        description="PostgreSQL application_name, shown in pg_stat_activity for every pooled connection",
+    )
+
+    def pool_kwargs(self) -> dict:
+        """Return the fields that ``create_async_engine`` accepts as keyword arguments."""
+        return self.model_dump(include=set(_SQLALCHEMY_POOL_FIELDS))
+
+    def connect_args(self) -> dict:
+        """Return the asyncpg ``connect_args`` carrying the per-connection PostgreSQL settings."""
+        return {
+            "server_settings": {
+                "lock_timeout": f"{self.lock_timeout_ms}ms",
+                "statement_timeout": f"{self.statement_timeout_ms}ms",
+                "idle_in_transaction_session_timeout": f"{self.idle_in_transaction_timeout_ms}ms",
+                "application_name": self.application_name,
+            }
+        }
 
 
 class AsyncioConfig(BaseModel):
@@ -226,6 +271,18 @@ class WatcherConfig(BaseModel):
     request_stale: Duration = Field(
         description="Age after which IN_PROGRESS requests are marked as finished",
         default=Duration(hours=24),
+    )
+    orphan_reap_enabled: bool = Field(
+        description="Delete sandbox pods whose server row is missing or terminal and finalize DELETION_FAILED rows",
+        default=True,
+    )
+    orphan_grace: Duration = Field(
+        description="Minimum pod age before a pod without a live server row is treated as an orphan",
+        default=Duration(minutes=2),
+    )
+    usage_reconcile_enabled: bool = Field(
+        description="Recount resource_limit_rules usage from live servers every tick and correct drift",
+        default=True,
     )
 
 

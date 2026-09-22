@@ -38,6 +38,10 @@ sqlalchemy:
   pool_recycle: ${oc.env:IDEGYM_SQLALCHEMY_POOL_RECYCLE, "1800"}
   pool_timeout: ${oc.env:IDEGYM_SQLALCHEMY_POOL_TIMEOUT, "1200"}
   pool_pre_ping: ${oc.env:IDEGYM_SQLALCHEMY_POOL_PRE_PING, "True"}
+  lock_timeout_ms: ${oc.env:IDEGYM_SQLALCHEMY_LOCK_TIMEOUT_MS, "10000"}
+  statement_timeout_ms: ${oc.env:IDEGYM_SQLALCHEMY_STATEMENT_TIMEOUT_MS, "30000"}
+  idle_in_transaction_timeout_ms: ${oc.env:IDEGYM_SQLALCHEMY_IDLE_IN_TRANSACTION_TIMEOUT_MS, "60000"}
+  application_name: ${oc.env:IDEGYM_SQLALCHEMY_APPLICATION_NAME, "idegym-orchestrator"}
 
 client_request_timeout: ${oc.env:IDEGYM_CLIENT_REQUEST_TIMEOUT, 3600.0}
 
@@ -57,6 +61,9 @@ watcher:
   finished_timeout: ${oc.env:IDEGYM_WATCHER_FINISHED_TIMEOUT, "PT5M"}
   request_max_age: ${oc.env:IDEGYM_WATCHER_REQUEST_MAX_AGE, "P14D"}
   request_stale: ${oc.env:IDEGYM_WATCHER_REQUEST_STALE, "PT24H"}
+  orphan_reap_enabled: ${oc.env:IDEGYM_WATCHER_ORPHAN_REAP_ENABLED, "True"}
+  orphan_grace: ${oc.env:IDEGYM_WATCHER_ORPHAN_GRACE, "PT2M"}
+  usage_reconcile_enabled: ${oc.env:IDEGYM_WATCHER_USAGE_RECONCILE_ENABLED, "True"}
 
 pod_snapshot:
   enabled: ${oc.env:IDEGYM_POD_SNAPSHOT_ENABLED, "False"}

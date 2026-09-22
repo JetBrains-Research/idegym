@@ -15,6 +15,8 @@ from idegym.watcher.crash_detector import (
     _index_pods_by_server,
     detect_crashed_servers,
     evaluate_pod_crash,
+    group_pods_by_server,
+    pod_server_name,
 )
 
 pytestmark = pytest.mark.unit
@@ -187,6 +189,32 @@ def test_index_pods_by_server_keeps_legacy_app_label_and_prefers_live():
     assert indexed["srv-1-7b8b788567-kk9nq"] is live
     assert indexed["srv-2-abcde-fghij"] is unlabeled
     assert "srv-2" not in indexed
+
+
+# ---------------------------------------------------------------------------
+# pod_server_name / group_pods_by_server
+# ---------------------------------------------------------------------------
+
+
+def test_pod_server_name_is_pod_name_for_sandbox_pods_and_app_label_for_legacy_pods():
+    assert pod_server_name(_pod("srv-1")) == "srv-1"
+    assert pod_server_name(_pod("srv-2", name="srv-2-abcde-fghij", labels={})) == "srv-2-abcde-fghij"
+    assert pod_server_name(_pod("srv-3", name="srv-3-7b8b788567-kk9nq", labels={"app": "srv-3"})) == "srv-3"
+    assert pod_server_name(SimpleNamespace(metadata=SimpleNamespace(name=None, labels={}))) is None
+
+
+def test_group_pods_by_server_keys_only_by_server_and_prefers_live():
+    legacy_labels = {"app": "srv-1", "app.kubernetes.io/component": "sandbox"}
+    live = _pod("srv-1", name="srv-1-7b8b788567-kk9nq", labels=legacy_labels)
+    terminating = _pod(
+        "srv-1", name="srv-1-5c4d6f9a8b-x2z9q", labels=legacy_labels, deletion_timestamp="2026-06-12T00:00:00Z"
+    )
+    plain = _pod("srv-2")
+
+    grouped = group_pods_by_server([live, terminating, plain])
+    assert set(grouped) == {"srv-1", "srv-2"}
+    assert grouped["srv-1"] is live
+    assert grouped["srv-2"] is plain
 
 
 # ---------------------------------------------------------------------------

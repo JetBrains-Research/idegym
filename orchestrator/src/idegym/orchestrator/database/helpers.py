@@ -8,7 +8,6 @@ from idegym.api.orchestrator.operations import AsyncOperationStatus, AsyncOperat
 from idegym.api.orchestrator.servers import AliveServerInfo, ErrorResponse, StartServerRequest
 from idegym.orchestrator.database.database import (
     check_resources_and_save_server,
-    create_client,
     find_matching_finished_server,
     find_snapshot_by_request_hash,
     get_async_operation,
@@ -37,6 +36,7 @@ from idegym.orchestrator.database.database import (
     update_idegym_server_pod,
     update_snapshot_job,
 )
+from idegym.orchestrator.database.models import Client
 from idegym.utils.logging import get_logger
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -65,10 +65,22 @@ async def validate_client(db: AsyncSession, client_id: UUID):
 
 @with_db_session
 async def safely_register_new_client_in_db(db: AsyncSession, name: str, nodes_count: int, namespace: str):
-    # Table-level exclusive lock prevents two concurrent registrations for the same client name.
-    await db.execute(text("LOCK TABLE clients IN EXCLUSIVE MODE"))
+    """
+    Create the client row and decide whether its nodes must be spun up, in one transaction.
 
-    client = await create_client(db, name, nodes_count, namespace)
+    ``LOCK TABLE clients IN EXCLUSIVE MODE`` protects the insert-then-read in ``need_to_spin_up_nodes``:
+    without it two clients registering the same name with nodes could both see no other holder and
+    both spin nodes up. The lock serialises every registration cluster-wide and pins a pooled
+    connection while waiting, so it is taken only when ``nodes_count > 0``; with ``nodes_count == 0``
+    ``need_to_spin_up_nodes`` returns False without reading other rows, and duplicate client names
+    are legal, so nothing needs protecting.
+    """
+    if nodes_count > 0:
+        await db.execute(text("LOCK TABLE clients IN EXCLUSIVE MODE"))
+
+    client = Client(name=name, nodes_count=nodes_count, namespace=namespace)
+    db.add(client)
+    await db.flush()
     spin_up_nodes = await need_to_spin_up_nodes(db=db, client_id=client.id)
     await db.commit()
     return client, spin_up_nodes

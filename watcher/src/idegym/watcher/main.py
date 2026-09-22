@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import Response
-from idegym.api.config import Config
+from idegym.api.config import Config, SQLAlchemyConfig
 from idegym.api.health import HealthCheckResponse
 from idegym.backend.utils.kubernetes_client import load_kubernetes_config
 from idegym.backend.utils.logging import configure_logging
@@ -25,9 +25,14 @@ async def lifespan(app: FastAPI):
     await load_kubernetes_config()
 
     # The orchestrator owns the schema; the watcher only connects to an already-migrated database.
+    # Both components read the same IDEGYM_SQLALCHEMY_* env; the watcher identifies itself in
+    # pg_stat_activity unless IDEGYM_SQLALCHEMY_APPLICATION_NAME names it explicitly.
+    sqlalchemy_config = config.orchestrator.sqlalchemy
+    if sqlalchemy_config.application_name == SQLAlchemyConfig.model_fields["application_name"].default:
+        sqlalchemy_config = sqlalchemy_config.model_copy(update={"application_name": "idegym-watcher"})
     connect_db_engine(
         db_url=config.orchestrator.database.url,
-        config=config.orchestrator.sqlalchemy,
+        config=sqlalchemy_config,
     )
 
     cleanup_task = create_task(

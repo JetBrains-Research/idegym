@@ -4,7 +4,7 @@ from uuid import uuid4
 from idegym.api.orchestrator.clients import AvailabilityStatus
 from idegym.api.orchestrator.operations import AsyncOperationStatus
 from idegym.api.status import Status
-from sqlalchemy import BigInteger, Boolean, Column, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import BigInteger, Boolean, Column, Float, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import DeclarativeBase
@@ -34,6 +34,15 @@ class Client(Base):
 
 class IdeGYMServer(Base):
     __tablename__ = "servers"
+    __table_args__ = (
+        # Partial index over the statuses that hold resource quota (migration 005); the watcher's
+        # per-tick scans and the usage recount read only these rows.
+        Index(
+            "ix_servers_live",
+            "availability",
+            postgresql_where=text("availability IN ('ALIVE', 'FINISHED', 'REUSED')"),
+        ),
+    )
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     client_id = Column(UUID(as_uuid=True), ForeignKey("clients.id"), nullable=False)

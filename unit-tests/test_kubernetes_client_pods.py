@@ -8,7 +8,7 @@ patched out so the polling loops finish instantly.
 from types import SimpleNamespace
 
 import pytest
-from idegym.api.exceptions import ResourceDeletionFailedException
+from idegym.api.exceptions import KubernetesUnavailableException, ResourceDeletionFailedException
 from idegym.api.type import ConditionStatus
 from idegym.backend.utils import kubernetes_client as kc
 from kubernetes_asyncio.client import ApiException
@@ -203,6 +203,47 @@ async def test_clean_up_server_tolerates_legacy_deployment_failure(mocker):
     mocker.patch.object(kc, "check_and_delete", mocker.AsyncMock(side_effect=[True, RuntimeError("boom")]))
 
     await kc.clean_up_server("srv-1", "ns")
+
+
+# ---------------------------------------------------------------------------
+# exists_with_retries
+# ---------------------------------------------------------------------------
+
+
+async def test_exists_with_retries_reports_presence(mocker):
+    core, _ = _patch_core(mocker)
+    core.list_namespaced_pod = mocker.AsyncMock(
+        side_effect=[SimpleNamespace(items=[_pod()]), SimpleNamespace(items=[])]
+    )
+
+    assert await kc.exists_with_retries(core.list_namespaced_pod, "srv-1", "pod", "ns") is True
+    assert await kc.exists_with_retries(core.list_namespaced_pod, "srv-1", "pod", "ns") is False
+
+
+async def test_exists_with_retries_raises_when_every_attempt_fails(mocker):
+    core, _ = _patch_core(mocker)
+    core.list_namespaced_pod = mocker.AsyncMock(side_effect=ApiException(status=503))
+
+    with pytest.raises(KubernetesUnavailableException, match="srv-1"):
+        await kc.exists_with_retries(core.list_namespaced_pod, "srv-1", "pod", "ns", max_retries=3)
+    assert core.list_namespaced_pod.await_count == 3
+
+
+async def test_exists_with_retries_recovers_after_a_transient_error(mocker):
+    core, _ = _patch_core(mocker)
+    core.list_namespaced_pod = mocker.AsyncMock(side_effect=[ApiException(status=500), SimpleNamespace(items=[_pod()])])
+
+    assert await kc.exists_with_retries(core.list_namespaced_pod, "srv-1", "pod", "ns") is True
+
+
+async def test_clean_up_server_propagates_unavailable_api_instead_of_false_success(mocker):
+    core, _ = _patch_core(mocker)
+    core.list_namespaced_pod = mocker.AsyncMock(side_effect=ApiException(status=503))
+    core.delete_namespaced_pod = mocker.AsyncMock()
+
+    with pytest.raises(KubernetesUnavailableException):
+        await kc.clean_up_server("srv-1", "ns")
+    core.delete_namespaced_pod.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------

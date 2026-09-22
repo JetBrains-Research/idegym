@@ -1,7 +1,7 @@
 import asyncio
 import json
 from contextlib import asynccontextmanager
-from typing import Any, NamedTuple, Optional, cast
+from typing import Any, Iterable, NamedTuple, Optional, cast
 from uuid import UUID
 
 from idegym.api.config import SQLAlchemyConfig
@@ -30,15 +30,33 @@ from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 from sqlalchemy import Text, delete, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine  # noqa: N812
 from sqlalchemy.ext.asyncio import async_sessionmaker as AsyncSessionMaker
+from sqlalchemy.orm.attributes import set_committed_value
 
 logger = get_logger(__name__)
 
 SessionFactory: Optional[AsyncSessionMaker[AsyncSession]] = None
 
+# Statuses whose servers are counted in resource_limit_rules usage: quota is taken when a server is
+# created ALIVE and released on the first transition into a terminal status, so FINISHED and REUSED
+# servers still hold it.
+QUOTA_HOLDING_STATUSES: frozenset[AvailabilityStatus] = frozenset(
+    {AvailabilityStatus.ALIVE, AvailabilityStatus.FINISHED, AvailabilityStatus.REUSED}
+)
+
 
 class ClientNodes(NamedTuple):
     name: str
     nodes: int
+
+
+def create_db_engine(db_url: str, config: SQLAlchemyConfig) -> AsyncEngine:
+    """
+    Create the async engine with the pool settings and the per-connection PostgreSQL settings from ``config``.
+
+    ``lock_timeout``, ``statement_timeout``, ``idle_in_transaction_session_timeout`` and
+    ``application_name`` travel as asyncpg ``server_settings``, so every pooled connection carries them.
+    """
+    return create_async_engine(url=db_url, connect_args=config.connect_args(), **config.pool_kwargs())
 
 
 def connect_db_engine(db_url: str, config: SQLAlchemyConfig) -> AsyncEngine:
@@ -50,11 +68,8 @@ def connect_db_engine(db_url: str, config: SQLAlchemyConfig) -> AsyncEngine:
     this to connect to a database the orchestrator has already migrated.
     """
     global SessionFactory
-    db_engine: AsyncEngine = create_async_engine(
-        url=db_url,
-        **config.model_dump(),
-    )
-    logger.info("Connected to database", url=db_url)
+    db_engine = create_db_engine(db_url, config)
+    logger.info("Connected to database", url=db_url, application_name=config.application_name)
 
     AsyncPGInstrumentor().instrument()
     Psycopg2Instrumentor().instrument()
@@ -304,6 +319,20 @@ async def get_idegym_servers_by_status(db: AsyncSession, statuses: set[Availabil
     return result.scalars().all()
 
 
+_GENERATED_NAMES_CHUNK = 500
+
+
+async def get_servers_by_generated_names(db: AsyncSession, generated_names: Iterable[str]) -> list[IdeGYMServer]:
+    """Return the servers whose ``generated_name`` is in ``generated_names``, querying in chunks of 500."""
+    names = list(dict.fromkeys(generated_names))
+    servers: list[IdeGYMServer] = []
+    for start in range(0, len(names), _GENERATED_NAMES_CHUNK):
+        chunk = names[start : start + _GENERATED_NAMES_CHUNK]
+        result = await db.execute(select(IdeGYMServer).filter(IdeGYMServer.generated_name.in_(chunk)))
+        servers.extend(result.scalars().all())
+    return servers
+
+
 async def has_pending_start_server_operations(
     db: AsyncSession,
     client_name: str,
@@ -485,16 +514,29 @@ async def update_idegym_server_heartbeat(
     if details is not None:
         server.details = details
 
-    # Release the server's resource quota when it transitions to a terminal non-FINISHED state.
-    if availability in {
-        AvailabilityStatus.STOPPED,
-        AvailabilityStatus.KILLED,
-        AvailabilityStatus.FAILED_TO_START,
-        AvailabilityStatus.CRASHED,
-        AvailabilityStatus.RESTART_FAILED,
-    }:
+    # Quota is released exactly once, here, on the first transition into any terminal status; the
+    # guard above makes a second terminal write a no-op and `finalize_failed_deletion` leaves quota alone.
+    if AvailabilityStatus(availability).is_terminal:
         await subtract_resources_from_rule(db, server.client_name, server.cpu, server.ram)
 
+    await db.commit()
+    return server
+
+
+async def finalize_failed_deletion(db: AsyncSession, server_id: int) -> Optional[IdeGYMServer]:
+    """
+    Move a DELETION_FAILED server to KILLED once its pod is confirmed gone.
+
+    This is the only transition out of DELETION_FAILED: :func:`update_idegym_server_heartbeat` refuses
+    to change a terminal row. Quota is not touched; it was released when the row entered DELETION_FAILED.
+    Returns the server, or None when the row is missing or not DELETION_FAILED.
+    """
+    server = await get_idegym_server(db, server_id)
+    if not server or server.availability != AvailabilityStatus.DELETION_FAILED:
+        return None
+
+    server.last_heartbeat_time = current_time_millis()
+    server.availability = AvailabilityStatus.KILLED
     await db.commit()
     return server
 
@@ -715,19 +757,21 @@ async def find_matching_resource_limit_rule(
     """
     Return the highest-priority ResourceLimitRule whose regex matches client_name.
 
-    Uses PostgreSQL's ~ operator for regex matching and orders by priority descending
-    so that more specific rules win over the catch-all ".*" default.
-    Pass for_update=True to lock the selected row for a subsequent update.
+    Uses PostgreSQL's ~ operator for regex matching and orders by priority descending, then by id,
+    so that more specific rules win over the catch-all ".*" default and ties resolve the same way
+    as in the watcher's usage recount.
+    Pass for_update=True to lock the selected row for a subsequent update; the locked row is
+    re-read into the session so the counters reflect the state after the lock was granted.
     """
     query = (
         select(ResourceLimitRule)
         .where(func.cast(client_name, Text).op("~")(ResourceLimitRule.client_name_regex))
-        .order_by(ResourceLimitRule.priority.desc())
+        .order_by(ResourceLimitRule.priority.desc(), ResourceLimitRule.id)
         .limit(1)
     )
 
     if for_update:
-        query = query.with_for_update()
+        query = query.with_for_update().execution_options(populate_existing=True)
 
     result = await db.execute(query)
     return result.scalar_one_or_none()
@@ -751,43 +795,48 @@ async def check_resources_and_save_server(
     container_port: int = 8000,
 ) -> Optional[IdeGYMServer]:
     """
-    Atomically check resource limits and create a new server record.
+    Atomically reserve quota on the matching ResourceLimitRule and create the server record.
 
-    Locks the matching ResourceLimitRule row with FOR UPDATE to serialize concurrent
-    start-server requests against the same rule, preventing over-provisioning.
+    The reservation is one conditional ``UPDATE … WHERE used + request <= limit RETURNING``: the row
+    lock lasts for that statement and the following insert, with no Python round trip while it is
+    held, and PostgreSQL re-checks the limits against the latest row version after a lock wait, so
+    concurrent callers never over-admit. No row updated means a limit is reached; the rule is
+    re-read only to log which one.
     Returns None if any resource limit (CPU, RAM, or pod count) would be exceeded.
     """
     async with db.begin():
-        matching_rule = await find_matching_resource_limit_rule(db, client_name, for_update=True)
+        matching_rule = await find_matching_resource_limit_rule(db, client_name)
 
         if not matching_rule:
             logger.error(f"No matching resource limit rule found for client {client_name}")
             return None
 
-        if matching_rule.used_cpu + cpu_request > matching_rule.cpu_limit:
-            logger.warning(
-                f"Client {client_name} has reached CPU limit: "
-                f"{matching_rule.used_cpu + cpu_request}/{matching_rule.cpu_limit}"
+        reservation = (
+            update(ResourceLimitRule)
+            .where(
+                ResourceLimitRule.id == matching_rule.id,
+                ResourceLimitRule.used_cpu + cpu_request <= ResourceLimitRule.cpu_limit,
+                ResourceLimitRule.used_ram + ram_request <= ResourceLimitRule.ram_limit,
+                ResourceLimitRule.current_pods + 1 <= ResourceLimitRule.pods_limit,
             )
+            .values(
+                used_cpu=ResourceLimitRule.used_cpu + cpu_request,
+                used_ram=ResourceLimitRule.used_ram + ram_request,
+                current_pods=ResourceLimitRule.current_pods + 1,
+            )
+            .returning(ResourceLimitRule.used_cpu, ResourceLimitRule.used_ram, ResourceLimitRule.current_pods)
+            .execution_options(synchronize_session=False)
+        )
+        reserved = (await db.execute(reservation)).one_or_none()
+
+        if reserved is None:
+            await _log_exhausted_limit(db, matching_rule.id, client_name, cpu_request, ram_request)
             return None
 
-        if matching_rule.used_ram + ram_request > matching_rule.ram_limit:
-            logger.warning(
-                f"Client {client_name} has reached RAM limit: "
-                f"{matching_rule.used_ram + ram_request}/{matching_rule.ram_limit}"
-            )
-            return None
-
-        if matching_rule.current_pods + 1 > matching_rule.pods_limit:
-            logger.warning(
-                f"Client {client_name} has reached pod limit: "
-                f"{matching_rule.current_pods + 1}/{matching_rule.pods_limit}"
-            )
-            return None
-
-        matching_rule.used_cpu += cpu_request
-        matching_rule.used_ram += ram_request
-        matching_rule.current_pods += 1
+        # The UPDATE bypassed the ORM; align the in-session rule with the row it returned.
+        set_committed_value(matching_rule, "used_cpu", reserved.used_cpu)
+        set_committed_value(matching_rule, "used_ram", reserved.used_ram)
+        set_committed_value(matching_rule, "current_pods", reserved.current_pods)
 
         server = IdeGYMServer(
             client_id=client_id,
@@ -819,6 +868,32 @@ async def check_resources_and_save_server(
         f"{matching_rule.current_pods}/{matching_rule.pods_limit} pods"
     )
     return server
+
+
+async def _log_exhausted_limit(
+    db: AsyncSession, rule_id: int, client_name: str, cpu_request: float, ram_request: float
+) -> None:
+    """Re-read the rule after a refused reservation and log every limit the request would exceed."""
+    rule = (
+        await db.execute(
+            select(ResourceLimitRule).filter(ResourceLimitRule.id == rule_id).execution_options(populate_existing=True)
+        )
+    ).scalar_one_or_none()
+    if rule is None:
+        logger.warning(f"Client {client_name} was refused by rule {rule_id}, which no longer exists")
+        return
+
+    exceeded = []
+    if rule.used_cpu + cpu_request > rule.cpu_limit:
+        exceeded.append(f"CPU {rule.used_cpu + cpu_request}/{rule.cpu_limit}")
+    if rule.used_ram + ram_request > rule.ram_limit:
+        exceeded.append(f"RAM {rule.used_ram + ram_request}/{rule.ram_limit}")
+    if rule.current_pods + 1 > rule.pods_limit:
+        exceeded.append(f"pods {rule.current_pods + 1}/{rule.pods_limit}")
+    logger.warning(
+        f"Client {client_name} has reached the limit of rule {rule.client_name_regex}: "
+        f"{', '.join(exceeded) or 'refused by a concurrent reservation'}"
+    )
 
 
 async def acquire_advisory_lock(db: AsyncSession, lock_id: int) -> bool:

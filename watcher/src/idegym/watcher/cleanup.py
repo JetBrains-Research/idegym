@@ -28,6 +28,7 @@ from idegym.orchestrator.database.models import AvailabilityStatus, JobStatusRec
 from idegym.orchestrator.nodes_holder import change_number_of_spun_nodes
 from idegym.utils.logging import get_logger
 from idegym.watcher.crash_detector import detect_crashed_servers
+from idegym.watcher.reconcile import reconcile_pods_with_db, reconcile_resource_usage
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -182,14 +183,27 @@ async def perform_cleanup_operations(
     requests_stale: Duration,
     namespace: str,
     crash_detection_enabled: bool = True,
+    orphan_reap_enabled: bool = True,
+    orphan_grace: Duration = Duration(minutes=2),
+    usage_reconcile_enabled: bool = True,
 ):
-    # TODO: Parallelize these operations, but be aware of database sessions
+    """
+    Run one cleanup tick. The steps share ``db`` and run in sequence; each swallows and logs its own errors.
+
+    The pod reconciliation runs after the timeout-based cleanup so that a pod the cleanup failed to
+    delete is retried in the same tick, and the usage recount follows both so it sees every server
+    status change the tick made.
+    """
     if crash_detection_enabled:
         await detect_crashed_servers(db)
     await cleanup_clients(db, current_time=current_time, inactive_timeout=inactive_timeout)
     await cleanup_servers(
         db, current_time=current_time, inactive_timeout=inactive_timeout, finished_timeout=finished_timeout
     )
+    if orphan_reap_enabled:
+        await reconcile_pods_with_db(db, namespace=namespace, grace=orphan_grace)
+    if usage_reconcile_enabled:
+        await reconcile_resource_usage(db)
     await cleanup_requests(db, current_time, requests_max_age, requests_stale)
     await check_orphaned_kaniko_jobs(db, namespace)
 
@@ -216,7 +230,9 @@ async def cleanup_inactive_pods(watcher_config: WatcherConfig):
             f"finished server cleanup timeout: {watcher_config.finished_timeout}, "
             f"interval: {watcher_config.cleanup_interval}, "
             f"request max age: {watcher_config.request_max_age}, "
-            f"request stale: {watcher_config.request_stale}"
+            f"request stale: {watcher_config.request_stale}, "
+            f"orphan reap: {watcher_config.orphan_reap_enabled} (grace {watcher_config.orphan_grace}), "
+            f"usage reconcile: {watcher_config.usage_reconcile_enabled}"
         )
         await asyncio.sleep(watcher_config.cleanup_interval.total_seconds())
         logger.debug("Checking for inactive and finished IdeGYM servers and clients...")
@@ -242,6 +258,9 @@ async def cleanup_inactive_pods(watcher_config: WatcherConfig):
                     watcher_config.request_stale,
                     namespace,
                     crash_detection_enabled=watcher_config.crash_detection_enabled,
+                    orphan_reap_enabled=watcher_config.orphan_reap_enabled,
+                    orphan_grace=watcher_config.orphan_grace,
+                    usage_reconcile_enabled=watcher_config.usage_reconcile_enabled,
                 )
                 logger.info("Completed cleanup operations")
             except Exception:

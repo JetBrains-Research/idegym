@@ -7,7 +7,7 @@ from typing import Any, AsyncGenerator, Awaitable, Callable, Iterable, Optional,
 
 from idegym.api import __version__
 from idegym.api.download import DownloadRequest
-from idegym.api.exceptions import ResourceDeletionFailedException
+from idegym.api.exceptions import KubernetesUnavailableException, ResourceDeletionFailedException
 from idegym.api.orchestrator.servers import ServerKind
 from idegym.api.paths import API_BASE_PATH, ActuatorPath, OpenenvPath
 from idegym.api.status import Status
@@ -781,9 +781,11 @@ async def exists_with_retries(
     """
     Check whether a named Kubernetes resource exists, with exponential-backoff retries.
 
-    Returns True if found, False if not found or all attempts are exhausted.
+    Returns True if found and False if not found. Raises KubernetesUnavailableException when every
+    attempt fails, so a caller cannot mistake an unreachable API server for an absent resource.
     Re-raises CancelledError immediately.
     """
+    last_error: Optional[Exception] = None
     for attempt in range(max_retries):
         try:
             results = await query_func(
@@ -794,6 +796,7 @@ async def exists_with_retries(
         except CancelledError:
             raise
         except Exception as ex:
+            last_error = ex
             if attempt < max_retries - 1:
                 backoff = 2**attempt
                 logger.warning(
@@ -804,7 +807,9 @@ async def exists_with_retries(
                 await sleep(backoff)
             else:
                 logger.exception(f"Failed to query {resource_type} '{resource_name}' after {max_retries} attempts!")
-    return False
+    raise KubernetesUnavailableException(
+        f"Could not query {resource_type} '{resource_name}' in namespace '{namespace}' after {max_retries} attempts"
+    ) from last_error
 
 
 async def check_and_delete(
@@ -815,7 +820,10 @@ async def check_and_delete(
     namespace: str,
     max_retries: int = 3,
 ) -> bool:
-    """Delete a resource if it exists. Returns True if absent or successfully deleted."""
+    """
+    Delete a resource if it exists. Returns True if absent or successfully deleted, False if the
+    delete failed. Propagates KubernetesUnavailableException when the existence check itself fails.
+    """
     exists = await exists_with_retries(
         query_func=query_func,
         resource_name=resource_name,
@@ -843,7 +851,9 @@ async def clean_up_server(name: str, namespace: str, max_retries: int = 3):
 
     A server created by an older orchestrator is a Deployment of the same name (its Service
     and PodDisruptionBudget follow through owner references); that is deleted best-effort.
-    Raises ResourceDeletionFailedException if the Pod cannot be deleted.
+    Raises ResourceDeletionFailedException if the Pod cannot be deleted and
+    KubernetesUnavailableException if the API server cannot even be asked whether it exists,
+    so the caller records the failure instead of a false success.
     """
     async with async_kube_api() as (apps, _, core, _, _):
         pod_deleted = await check_and_delete(

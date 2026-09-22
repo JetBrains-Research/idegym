@@ -88,31 +88,57 @@ def evaluate_pod_crash(pod: V1Pod, max_restarts: int) -> Optional[str]:
     return None
 
 
+def pod_server_name(pod: V1Pod) -> Optional[str]:
+    """
+    Return the generated_name of the server a sandbox pod belongs to, or None for a pod without a name.
+
+    A sandbox pod is named after its server. A pod of a server created by an older orchestrator
+    (a Deployment) instead carries the server name in its ``app`` label.
+    """
+    if not pod.metadata or not pod.metadata.name:
+        return None
+    app = (pod.metadata.labels or {}).get("app")
+    if app and app != SANDBOX_APP:
+        return app
+    return pod.metadata.name
+
+
+def _replaces(existing: V1Pod, incoming: V1Pod) -> bool:
+    """Whether ``incoming`` should be indexed instead of ``existing`` under the same server key.
+
+    A terminating pod never displaces a live one, so a rollout that overlaps a terminating pod with
+    its replacement resolves to the replacement.
+    """
+    existing_terminating = bool(existing.metadata and existing.metadata.deletion_timestamp is not None)
+    incoming_terminating = incoming.metadata.deletion_timestamp is not None
+    return not (incoming_terminating and not existing_terminating)
+
+
+def group_pods_by_server(pods: list[V1Pod]) -> dict[str, V1Pod]:
+    """Map each server generated_name to its pod, using :func:`pod_server_name` and :func:`_replaces`."""
+    grouped: dict[str, V1Pod] = {}
+    for pod in pods:
+        server_name = pod_server_name(pod)
+        if server_name is None:
+            continue
+        existing = grouped.get(server_name)
+        if existing is not None and not _replaces(existing, pod):
+            continue
+        grouped[server_name] = pod
+    return grouped
+
+
 def _index_pods_by_server(pods: list[V1Pod]) -> dict[str, V1Pod]:
     """
-    Index pods by the server generated_name they belong to.
+    Index pods by the server generated_name they belong to, and additionally by their own pod name.
 
-    A sandbox pod is named after its server. A pod of a server created by an older
-    orchestrator (a Deployment) instead carries the server name in its ``app`` label, so
-    such pods are indexed under that label too, preferring the live pod when a terminating
-    one overlaps a replacement during a rollout.
+    Server keys come from :func:`group_pods_by_server`; the extra pod-name keys keep every pod
+    reachable when a Deployment-backed server's pods are named differently from the server.
     """
-    indexed: dict[str, V1Pod] = {}
+    indexed = group_pods_by_server(pods)
     for pod in pods:
-        if not pod.metadata or not pod.metadata.name:
-            continue
-        indexed[pod.metadata.name] = pod
-
-        app = (pod.metadata.labels or {}).get("app")
-        if not app or app == SANDBOX_APP:
-            continue
-        existing = indexed.get(app)
-        if existing is not None:
-            existing_terminating = bool(existing.metadata and existing.metadata.deletion_timestamp is not None)
-            incoming_terminating = pod.metadata.deletion_timestamp is not None
-            if incoming_terminating and not existing_terminating:
-                continue
-        indexed[app] = pod
+        if pod.metadata and pod.metadata.name:
+            indexed.setdefault(pod.metadata.name, pod)
     return indexed
 
 

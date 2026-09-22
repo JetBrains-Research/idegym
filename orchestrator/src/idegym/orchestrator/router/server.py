@@ -462,18 +462,35 @@ async def _task_stop_server(
     namespace: str,
     async_operation_id: int,
 ):
-    await update_operation_status(
-        async_operation_id=async_operation_id,
-        async_operation_status=AsyncOperationStatus.IN_PROGRESS,
-        orchestrator_pod=env.get("__POD_NAME"),
+    """
+    Delete the server's pod, then record STOPPED and mark the operation SUCCEEDED.
+
+    Kubernetes is called before any required database write so that a stop reaches the cluster
+    even when the database is unavailable; the leading IN_PROGRESS write is best-effort. A pod
+    deletion failure propagates to the decorator, which finds the row still non-terminal and
+    records DELETION_FAILED truthfully. If the trailing writes fail, the decorator records
+    DELETION_FAILED when the database answers and the watcher finalizes the row once it sees no
+    pod; when the database is down the row stays ALIVE and the inactivity timeout finishes it
+    (the pod is already gone, so that delete sees 404 and marks the row KILLED).
+    """
+    try:
+        await update_operation_status(
+            async_operation_id=async_operation_id,
+            async_operation_status=AsyncOperationStatus.IN_PROGRESS,
+            orchestrator_pod=env.get("__POD_NAME"),
+        )
+    except Exception:
+        logger.warning(
+            f"Could not mark operation {async_operation_id} IN_PROGRESS; deleting {server_generated_name} anyway",
+            exc_info=True,
+        )
+    await clean_up_server(
+        name=server_generated_name,
+        namespace=namespace,
     )
     await update_server_status(
         server_id=server_id,
         availability_status=AvailabilityStatus.STOPPED,
-    )
-    await clean_up_server(
-        name=server_generated_name,
-        namespace=namespace,
     )
     await update_operation_status(
         async_operation_id=async_operation_id,
