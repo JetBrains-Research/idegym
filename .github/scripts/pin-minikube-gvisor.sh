@@ -28,8 +28,11 @@ for binary in runsc containerd-shim-runsc-v1; do
   curl -fsSL -o "${workdir}/${binary}" "${url}/${binary}"
   curl -fsSL -o "${workdir}/${binary}.sha512" "${url}/${binary}.sha512"
   (cd "$workdir" && shasum -a 512 -c "${binary}.sha512")
-  minikube cp "${workdir}/${binary}" "/tmp/${binary}"
-  minikube ssh -- sudo install -m 0755 "/tmp/${binary}" "/usr/bin/${binary}"
+  # Not `/tmp/${binary}`: the addon creates `/tmp/runsc` on the node as its log directory.
+  staged="/tmp/idegym-gvisor-${binary}"
+  minikube cp "${workdir}/${binary}" "$staged"
+  minikube ssh -- sudo install -m 0755 "$staged" "/usr/bin/${binary}"
+  minikube ssh -- sudo rm -f "$staged"
 done
 
 minikube ssh -- /usr/bin/runsc --version
