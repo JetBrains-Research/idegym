@@ -125,6 +125,8 @@ async with client.with_server(
     run_as_root=False,
     resources=None,  # KubernetesResources
     node_selector=None,
+    labels={"team": "research", "job": "swe-bench-run-42"},
+    annotations={"idegym.example.com/task-url": "https://tracker.example.com/TASK-1"},
     server_start_wait_timeout_in_seconds=60,
     reuse_strategy=ServerReuseStrategy.RESET,
     close_action=ServerCloseAction.FINISH,  # FINISH or STOP
@@ -140,9 +142,36 @@ async with client.with_server(
 | `run_as_root` | Run the container as root (default: `False`) |
 | `resources` | Kubernetes resource requests/limits |
 | `node_selector` | Node affinity labels |
+| `labels` | Extra labels for the server's Deployment, Pod, Service and PodDisruptionBudget |
+| `annotations` | Extra annotations for the server pod |
 | `server_start_wait_timeout_in_seconds` | How long to wait for the server pod to become ready |
 | `reuse_strategy` | Whether to take over an existing server: `NONE` (always create from scratch), `RESTART` (reuse and restart the pod), `RESET` (reuse and reset project state) — see [Server reuse](#server-reuse) |
 | `close_action` | `FINISH` — release the server but leave it running for the next client; `STOP` — stop and delete the server |
+
+#### Tagging a sandbox
+
+`labels` and `annotations` are how a sandbox gets attributed to the job, team or task that
+created it, which makes the usual operator workflows apply:
+
+```sh
+kubectl get pods -n idegym -l job=swe-bench-run-42
+```
+
+They land on the Deployment, Pod, Service and PodDisruptionBudget. Use a label for anything you
+want to select or group by, and an annotation for metadata that is too long or too unstructured
+to be one — a Kubernetes label value is capped at 63 characters.
+
+Keys IdeGYM manages are **rejected**, not silently overwritten: `app`, anything under
+`app.kubernetes.io/`, and anything under `idegym.jetbrains.com/`. Those are what the Service
+selector, the PodDisruptionBudget and the watcher's pod queries match on, so taking one over
+would detach the sandbox from the machinery that manages it. Annotations carry no selector
+weight and are not restricted.
+
+Two things they deliberately do not affect. They are not part of the snapshot hash — they
+describe who asked for a sandbox, not what is in it, and a per-job label would otherwise make
+every snapshot a miss. And they are not part of reuse matching: a server reused through
+`RESTART` or `RESET` keeps the labels it was started with, so do not rely on them to tell one
+episode from the next on a reused server.
 
 ### `start_server(...)` / `stop_server(...)` / `finish_server(...)`
 

@@ -38,7 +38,13 @@ from idegym.api.pod_spec import (
 )
 from idegym.api.resources import KubernetesResources
 from idegym.api.status import Status
-from idegym.api.type import KubernetesNodeSelector, KubernetesObjectName, OCIImageName
+from idegym.api.type import (
+    KubernetesAnnotations,
+    KubernetesLabels,
+    KubernetesNodeSelector,
+    KubernetesObjectName,
+    OCIImageName,
+)
 from idegym.client.exceptions import raise_for_error_response
 from idegym.client.operations.project import ProjectOperations
 from idegym.client.operations.utils import HTTPUtils, PollingConfig
@@ -76,6 +82,8 @@ class ServerOperations:
         server_kind: ServerKind = ServerKind.IDEGYM,
         snapshot: Optional[SnapshotRef] = None,
         max_restarts: int = 0,
+        labels: Optional[KubernetesLabels] = None,
+        annotations: Optional[KubernetesAnnotations] = None,
     ) -> StartServerResponse | ErrorResponse:
         client_id = self._utils.validate_client_id(client_id)
         namespace = self._utils.validate_namespace(namespace)
@@ -111,6 +119,8 @@ class ServerOperations:
                 server_kind=server_kind,
                 snapshot=snapshot,
                 max_restarts=max_restarts,
+                labels=labels or {},
+                annotations=annotations or {},
             )
             response_raw = await self._utils.make_request(
                 "POST", "/api/idegym-servers", request, request_timeout=remaining_time
