@@ -9,6 +9,7 @@ from idegym.api.orchestrator.servers import AliveServerInfo, ErrorResponse, Star
 from idegym.orchestrator.database.database import (
     check_resources_and_save_server,
     create_client,
+    extend_idegym_server_keepalive,
     find_matching_finished_server,
     find_snapshot_by_request_hash,
     get_async_operation,
@@ -85,6 +86,18 @@ async def update_client_status(db: AsyncSession, client_id: UUID, availability_s
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Client with ID {client_id} not found")
     logger.debug(f"Updated client with ID {client_id} status to {availability_status}")
     return client
+
+
+@with_db_session
+async def extend_server_keepalive(db: AsyncSession, client_id: UUID, server_id: int, until: int):
+    """Hold a client's own server against the inactivity reaper until ``until`` epoch millis."""
+    await _load_owned_server(db=db, client_id=client_id, server_id=server_id)
+    server = await extend_idegym_server_keepalive(db=db, server_id=server_id, until=until)
+    if not server:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"IdeGYM server with ID {server_id} not found"
+        )
+    return server
 
 
 @with_db_session

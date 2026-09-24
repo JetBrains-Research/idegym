@@ -177,6 +177,27 @@ class FinishServerRequest(ServerScopedRequest):
     pass
 
 
+class KeepaliveServerRequest(ServerScopedRequest):
+    """Hold a server against the inactivity reaper for a bounded window."""
+
+    minutes: float = Field(
+        default=15.0,
+        gt=0,
+        le=24 * 60,
+        description=(
+            "How long from now to hold the server, in minutes. Calling again extends the window; "
+            "it is never shortened, so two holders cannot cut each other short."
+        ),
+        examples=[15, 60],
+    )
+
+
+class KeepaliveServerResponse(BaseModel):
+    server_id: int
+    keepalive_until: int = Field(description="Epoch milliseconds until which the server is held", ge=0)
+    minutes: float = Field(description="Minutes from now that 'keepalive_until' corresponds to", ge=0)
+
+
 class RestartServerRequest(ServerScopedRequest):
     server_start_wait_timeout_in_seconds: int = Field(
         default=60, description="Seconds to wait for server readiness after restart", ge=0
@@ -237,6 +258,13 @@ class ServerStatusResponse(BaseModel):
         ge=0,
     )
     idle_seconds: float = Field(description="Seconds since 'last_activity_at'", ge=0)
+    keepalive_until: Optional[int] = Field(
+        default=None,
+        description=(
+            "Epoch milliseconds until which an explicit keepalive holds this server against the "
+            "inactivity reaper, or null when none is in effect"
+        ),
+    )
     pod_phase: Optional[str] = Field(
         default=None, description="Kubernetes phase of the server pod, or null when no pod matches"
     )

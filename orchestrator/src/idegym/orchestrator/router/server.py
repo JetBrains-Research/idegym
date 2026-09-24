@@ -10,6 +10,8 @@ from idegym.api.orchestrator.clients import AvailabilityStatus
 from idegym.api.orchestrator.operations import AsyncOperationStatus, AsyncOperationType
 from idegym.api.orchestrator.servers import (
     FinishServerRequest,
+    KeepaliveServerRequest,
+    KeepaliveServerResponse,
     RestartServerRequest,
     ServerActionResponse,
     ServerKind,
@@ -29,6 +31,7 @@ from idegym.backend.utils.kubernetes_client import (
 from idegym.orchestrator.database.helpers import (
     check_resources_and_save_server_in_db,
     create_async_operation,
+    extend_server_keepalive,
     find_matching_finished_server_in_db,
     get_owned_server,
     update_operation_status,
@@ -181,6 +184,30 @@ async def get_server_capabilities(server_id: int, client_id: UUID, low_level_req
     return CapabilitiesResponse.model_validate_json(response.text)
 
 
+@router.post("/api/idegym-servers/keepalive")
+@handle_server_exceptions("keeping an IdeGYM server alive")
+async def keepalive_server(request: KeepaliveServerRequest) -> KeepaliveServerResponse:
+    """Hold a server against the watcher's inactivity reaper for the requested window.
+
+    The reaper works off the last time a request finished, which is a poor proxy for "somebody
+    is using this": a sandbox can be legitimately idle while an agent thinks or a build runs.
+    Only the holder knows, so this is how it says so.
+    """
+    until = current_time_millis() + int(request.minutes * 60_000)
+    server = await extend_server_keepalive(client_id=request.client_id, server_id=request.server_id, until=until)
+    logger.info(
+        "Extended server keepalive",
+        server_id=server.id,
+        keepalive_until=server.keepalive_until,
+        minutes=request.minutes,
+    )
+    return KeepaliveServerResponse(
+        server_id=server.id,
+        keepalive_until=server.keepalive_until,
+        minutes=max(server.keepalive_until - current_time_millis(), 0) / 60_000,
+    )
+
+
 @router.get("/api/idegym-servers/{server_id}/status")
 @handle_server_exceptions("fetching server status")
 async def get_server_status(server_id: int, client_id: UUID) -> ServerStatusResponse:
@@ -205,6 +232,7 @@ async def get_server_status(server_id: int, client_id: UUID) -> ServerStatusResp
         created_at=server.created_at,
         last_activity_at=server.last_heartbeat_time,
         idle_seconds=max(now - server.last_heartbeat_time, 0) / 1000,
+        keepalive_until=server.keepalive_until,
         pod_phase=pod_phase,
         pod_ready=pod_ready,
         details=server.details,
