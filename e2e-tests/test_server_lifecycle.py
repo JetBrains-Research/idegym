@@ -97,3 +97,79 @@ async def test_server_lifecycle_with_reuse(test_image, test_id):
 
             result = await new_server.setup_reward(setup_check_script="python --version")
             assert result.status == "success"
+
+
+@pytest.mark.asyncio
+async def test_server_status_reports_a_live_server_and_survives_stopping_it(test_image, test_id):
+    """Status has to answer for a stopped server too — that is the point of a liveness probe."""
+    async with create_http_client(name=f"status-{test_id}", nodes_count=0) as client:
+        server = await client.start_server(
+            image_tag=test_image,
+            server_name=f"status-{test_id}",
+            runtime_class_name="gvisor",
+            run_as_root=True,
+            server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
+        )
+
+        alive = await server.status()
+        assert alive.usable is True
+        assert alive.availability == "ALIVE"
+        assert alive.pod_phase == "Running"
+        assert alive.pod_ready is True
+        assert alive.server_id == server.server_id
+
+        await client.stop_server(server)
+
+        stopped = await server.status()
+        assert stopped.usable is False
+        assert stopped.availability == "STOPPED"
+
+
+@pytest.mark.asyncio
+async def test_reading_status_does_not_count_as_activity(test_image, test_id):
+    async with (
+        create_http_client(name=f"status-idle-{test_id}", nodes_count=0) as client,
+        client.with_server(
+            image_tag=test_image,
+            server_name=f"status-idle-{test_id}",
+            runtime_class_name="gvisor",
+            run_as_root=True,
+            server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
+        ) as server,
+    ):
+        first = await server.status()
+        second = await server.status()
+
+        assert second.last_activity_at == first.last_activity_at
+        assert second.idle_seconds >= first.idle_seconds
+
+
+@pytest.mark.asyncio
+async def test_client_can_list_the_servers_it_owns(test_image, test_id):
+    """Recovering from a crash means asking the orchestrator what is still ours, without kubectl."""
+    async with (
+        create_http_client(name=f"list-a-{test_id}", nodes_count=0) as client_a,
+        create_http_client(name=f"list-b-{test_id}", nodes_count=0) as client_b,
+    ):
+        assert await client_a.list_servers() == []
+
+        server = await client_a.start_server(
+            image_tag=test_image,
+            server_name=f"list-{test_id}",
+            runtime_class_name="gvisor",
+            run_as_root=True,
+            server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
+        )
+
+        owned = await client_a.list_servers()
+        assert [s.server_id for s in owned] == [server.server_id]
+        assert owned[0].usable is True
+
+        # Another registration must not see it.
+        assert await client_b.list_servers() == []
+
+        await client_a.stop_server(server)
+
+        assert await client_a.list_servers() == []
+        stopped = await client_a.list_servers(include_terminal=True)
+        assert [(s.server_id, s.availability) for s in stopped] == [(server.server_id, "STOPPED")]
