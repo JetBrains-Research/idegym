@@ -46,6 +46,9 @@ class ToolService:
                     graceful_termination_timeout=graceful_termination_timeout,
                     max_output_bytes=max_output_bytes,
                     strip_output=strip_output,
+                    cwd=parameters.get("cwd"),
+                    env=parameters.get("env"),
+                    user=parameters.get("user"),
                 )
                 return stdout, stderr, exit_code
             case ToolName.FILE:

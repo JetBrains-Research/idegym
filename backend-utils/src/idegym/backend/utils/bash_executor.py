@@ -1,8 +1,11 @@
 import asyncio
+import contextlib
 import os
+import pwd
 import re
 import shlex
 import signal
+import tempfile
 from asyncio.subprocess import Process
 from collections import deque
 from importlib.resources import files
@@ -32,6 +35,14 @@ class BashExecutorError(Exception):
 
 class BashCommandExecutionTimeoutError(BashExecutorError):
     pass
+
+
+class BashExecutorUnknownUserError(BashExecutorError):
+    """The requested ``user`` does not exist in the container."""
+
+
+class BashExecutorWorkingDirectoryError(BashExecutorError):
+    """The requested ``cwd`` does not exist or is not a directory."""
 
 
 class _OutputCollector:
@@ -186,6 +197,82 @@ def _command_excerpt(command: str) -> str:
     return _log_excerpt(_redact_exports(command))
 
 
+def _prepend_bash_integration(command: str) -> str:
+    """Prefix the caller's script with the bundled bash-integration init.
+
+    The two are joined with ``;`` rather than ``&&``. With ``&&`` only the script's *first*
+    statement was conditional on the init succeeding and the rest ran regardless, so
+    ``a; b; c`` did not mean what the caller wrote — clients defended by wrapping every script
+    in a brace group. Keeping the prefix on the same line also keeps the caller's line numbers
+    intact, so a bash error still points at the right line of their script.
+    """
+    init = shlex.quote(str(__BASH_INIT_FILEPATH__))
+    # `;` rather than `&&` so the caller's script keeps its own semantics, but the init is still
+    # guarded: without this a missing or unreadable init left the script running in an
+    # unconfigured shell and failing later as "command not found", with the caller's exit code.
+    guard = f'source {init} || {{ echo "IdeGYM: failed to source the bash integration at {init}" >&2 ; exit 1 ; }}'
+    return f"{guard} ; {command}"
+
+
+def _user_environment(user: str) -> dict[str, str]:
+    """Identity variables for ``user``, which ``runuser --preserve-environment`` does not set.
+
+    ``-p`` keeps the whole environment on purpose — that is how the caller's ``env`` and the
+    cleaned server environment survive — but it therefore also keeps *root's* ``HOME``. The
+    bundled init sources ``~/.bashrc``, so without these the script would load root's shell
+    configuration and miss anything installed in the target user's home (SDKMAN, pyenv, nvm),
+    while writes to ``~`` would land in a directory the user cannot write.
+    """
+    try:
+        entry = pwd.getpwnam(user)
+    except KeyError:
+        raise BashExecutorUnknownUserError(f"No such user in this container: {user}") from None
+    return {"HOME": entry.pw_dir, "USER": user, "LOGNAME": user, "SHELL": entry.pw_shell or "/bin/bash"}
+
+
+def _process_argv(script_path: str, user: Optional[str]) -> list[str]:
+    """Build the argv that runs the script file, optionally dropping to another user.
+
+    ``runuser`` is used rather than ``su`` because it does not authenticate and keeps the
+    caller's environment, which is what the ``env`` argument has already been merged into.
+    """
+    invocation = ["bash", script_path]
+    if user is None:
+        return invocation
+    return ["runuser", "--preserve-environment", "-u", user, "--", *invocation]
+
+
+def _write_script(script: str, readable_by_other_user: bool) -> str:
+    """Write the script to a temp file and return its path.
+
+    Passing the script as a ``bash -c`` argument capped it at Linux's ``MAX_ARG_STRLEN``
+    (128 KiB), and an oversized script failed with a bare ``E2BIG`` rather than anything a
+    caller could act on. A file has no such ceiling, and unlike feeding bash on stdin it leaves
+    the command's own stdin alone — a script read from stdin is consumed incrementally, so any
+    command inside it that reads stdin would swallow the rest of the script.
+    """
+    descriptor, path = tempfile.mkstemp(prefix="idegym-bash-", suffix=".sh")
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(script)
+        if readable_by_other_user:
+            # mkstemp creates 0600, which the target user of `runuser` could not read.
+            # TODO: 0644 also exposes the script to any co-tenant process for the duration of the
+            # run, which matters because callers do put credentials in scripts (see
+            # `_redact_exports`). Prefer `os.chown(path, uid, -1)` with 0600, or a directory only
+            # the target user can traverse.
+            os.chmod(path, 0o644)
+    except BaseException:
+        _remove_script(path)
+        raise
+    return path
+
+
+def _remove_script(path: str) -> None:
+    with contextlib.suppress(OSError):
+        os.unlink(path)
+
+
 def _signal_process_group(process: Process, requested_signal: signal.Signals) -> bool:
     """Signal a process group, tolerating races after its leader has exited."""
     try:
@@ -245,6 +332,25 @@ class BashExecutor:
     def __init__(self, working_directory: Optional[Path] = None):
         self.working_directory = working_directory
 
+    def resolve_working_directory(self, cwd: Optional[str]) -> Optional[Path]:
+        """Resolve a per-command ``cwd`` against the executor's directory.
+
+        An absolute path is used as given; a relative one is taken from the executor's working
+        directory, which is the server's project root.
+        """
+        if cwd is None:
+            return self.working_directory
+        requested = Path(cwd)
+        if not requested.is_absolute() and self.working_directory is not None:
+            requested = self.working_directory / requested
+        # `cwd` is caller-supplied, so check it here: otherwise the child's chdir fails and
+        # asyncio raises a bare FileNotFoundError that the router turns into a 500.
+        if not requested.is_dir():
+            raise BashExecutorWorkingDirectoryError(
+                f"Working directory does not exist or is not a directory: {requested}"
+            )
+        return requested
+
     async def execute_bash_command(
         self,
         command: str,
@@ -252,6 +358,9 @@ class BashExecutor:
         graceful_termination_timeout: float = 2.0,
         max_output_bytes: Optional[int] = None,
         strip_output: bool = False,
+        cwd: Optional[str] = None,
+        env: Optional[dict[str, str]] = None,
+        user: Optional[str] = None,
     ) -> tuple[str, str, int]:
         """
         Execute a bash command asynchronously.
@@ -261,26 +370,46 @@ class BashExecutor:
         variables stripped. The process is started in its own process group so the
         entire group can be killed on timeout.
 
+        ``cwd``, ``env`` and ``user`` give a caller per-command context without having to
+        synthesize it into the script — an environment variable set through ``env`` never
+        enters the command text, so it is not logged with it. ``user`` requires the executor
+        to run as root, since it shells out through ``runuser``.
+
         Output is returned verbatim unless ``strip_output`` asks for surrounding
-        whitespace to be trimmed.
+        whitespace to be trimmed. The script itself is written to a temp file and run as
+        ``bash <file>``, so its size is not capped by the kernel's argument limit.
 
         Returns a tuple of (stdout, stderr, exit_code).
         Raises BashCommandExecutionTimeoutError if the timeout is exceeded.
         """
         stdout_collector = _OutputCollector(max_output_bytes)
         stderr_collector = _OutputCollector(max_output_bytes)
-        logger.info("Executing bash command", command_chars=len(command))
+        working_directory = self.resolve_working_directory(cwd)
+        # The user's identity goes on before the caller's env, so an explicit HOME still wins.
+        environment = cleanenv() | (_user_environment(user) if user is not None else {}) | (env or {})
+        logger.info(
+            "Executing bash command",
+            command_chars=len(command),
+            cwd=str(working_directory) if working_directory else None,
+            env_names=sorted(env) if env else [],
+            user=user,
+        )
         logger.debug("Bash command", command=_command_excerpt(command))
 
-        bash_command = f"source {__BASH_INIT_FILEPATH__} && {command}"
-        process = await asyncio.create_subprocess_shell(
-            cmd=f"bash -c {shlex.quote(bash_command)}",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=self.working_directory,
-            preexec_fn=os.setsid,
-            env=cleanenv(),
-        )
+        bash_command = _prepend_bash_integration(command)
+        script_path = await asyncio.to_thread(_write_script, bash_command, user is not None)
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *_process_argv(script_path, user),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=working_directory,
+                preexec_fn=os.setsid,
+                env=environment,
+            )
+        except BaseException:
+            _remove_script(script_path)
+            raise
 
         communication_task = asyncio.create_task(
             _communicate_bounded(process, stdout_collector, stderr_collector),
@@ -305,6 +434,7 @@ class BashExecutor:
             await _finish_output_drain(process, communication_task)
             _close_output_pipes(process)
             await _reap_process(process)
+            _remove_script(script_path)
 
         if timed_out:
             logger.warning(

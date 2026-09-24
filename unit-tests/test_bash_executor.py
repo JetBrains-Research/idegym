@@ -1,4 +1,6 @@
 import asyncio
+import os
+from pathlib import Path
 
 import pytest
 from idegym.api.tools.bash import BashCommandRequest
@@ -173,3 +175,132 @@ def test_bash_request_supports_explicit_unlimited_output() -> None:
 
 def test_bash_request_keeps_output_verbatim_by_default() -> None:
     assert BashCommandRequest(command="echo hello").strip_output is False
+
+
+# --------------------------------------------------------------------------------------
+# Per-command context: cwd, env, user
+# --------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("with_base", "requested", "expected"),
+    [
+        # An unset cwd passes the executor's own directory through untouched, unvalidated.
+        (False, None, None),
+        (True, None, "base"),
+        # A relative path is project-relative; an absolute one is taken as given.
+        (True, "src", "base/src"),
+        (True, "@absolute", "absolute"),
+        (False, "@absolute", "absolute"),
+    ],
+)
+def test_resolve_working_directory_treats_relative_paths_as_project_relative(
+    tmp_path, with_base, requested, expected
+) -> None:
+    base = tmp_path / "base"
+    (base / "src").mkdir(parents=True)
+    absolute = tmp_path / "absolute"
+    absolute.mkdir()
+    if requested == "@absolute":
+        requested = str(absolute)
+
+    executor = bash_executor.BashExecutor(working_directory=base if with_base else None)
+    resolved = executor.resolve_working_directory(requested)
+
+    assert resolved == (None if expected is None else tmp_path / expected)
+
+
+def test_resolve_working_directory_rejects_a_path_that_is_not_a_directory(tmp_path) -> None:
+    """A caller-supplied cwd must fail as a bad request, not as the child's bare chdir error."""
+    executor = bash_executor.BashExecutor(working_directory=tmp_path)
+    (tmp_path / "a-file").write_text("")
+
+    with pytest.raises(bash_executor.BashExecutorWorkingDirectoryError, match="does not exist"):
+        executor.resolve_working_directory("absent")
+    with pytest.raises(bash_executor.BashExecutorWorkingDirectoryError, match="not a directory"):
+        executor.resolve_working_directory("a-file")
+
+
+def test_user_environment_carries_the_target_users_identity() -> None:
+    """`runuser -p` keeps root's HOME, so the init would source the wrong user's rc file."""
+    import pwd as pwd_module
+
+    current = pwd_module.getpwuid(os.getuid())
+    environment = bash_executor._user_environment(current.pw_name)
+
+    assert environment["HOME"] == current.pw_dir
+    assert environment["USER"] == current.pw_name
+    assert environment["LOGNAME"] == current.pw_name
+
+
+def test_user_environment_rejects_an_unknown_user() -> None:
+    with pytest.raises(bash_executor.BashExecutorUnknownUserError, match="No such user"):
+        bash_executor._user_environment("definitely-not-a-user-here")
+
+
+def test_init_prefix_aborts_when_the_integration_cannot_be_sourced() -> None:
+    """Init failure used to be undetectable: the script ran on regardless with its own status."""
+    prefixed = bash_executor._prepend_bash_integration("echo hi")
+
+    assert "|| {" in prefixed
+    assert "exit 1" in prefixed
+    assert prefixed.endswith(" ; echo hi")
+
+
+def test_argv_runs_the_script_file_directly_when_no_user_is_requested() -> None:
+    assert bash_executor._process_argv("/tmp/script.sh", None) == ["bash", "/tmp/script.sh"]
+
+
+def test_argv_drops_to_a_user_without_re_authenticating() -> None:
+    argv = bash_executor._process_argv("/tmp/script.sh", "devuser")
+
+    assert argv == ["runuser", "--preserve-environment", "-u", "devuser", "--", "bash", "/tmp/script.sh"]
+
+
+def test_argv_passes_a_hostile_user_name_as_one_argument() -> None:
+    """No shell parses this argv, so a name with metacharacters is inert rather than quoted."""
+    argv = bash_executor._process_argv("/tmp/script.sh", "dev; rm -rf /")
+
+    assert "dev; rm -rf /" in argv
+
+
+def test_script_file_is_private_unless_another_user_must_read_it() -> None:
+    private = bash_executor._write_script("echo hi", readable_by_other_user=False)
+    shared = bash_executor._write_script("echo hi", readable_by_other_user=True)
+
+    try:
+        assert Path(private).read_text() == "echo hi"
+        assert Path(private).stat().st_mode & 0o777 == 0o600
+        assert Path(shared).stat().st_mode & 0o777 == 0o644
+    finally:
+        bash_executor._remove_script(private)
+        bash_executor._remove_script(shared)
+
+
+def test_removing_the_script_twice_is_not_an_error() -> None:
+    path = bash_executor._write_script("echo hi", readable_by_other_user=False)
+
+    bash_executor._remove_script(path)
+    bash_executor._remove_script(path)
+
+    assert not Path(path).exists()
+
+
+def test_bash_request_defaults_to_no_per_command_context() -> None:
+    request = BashCommandRequest(command="echo hello")
+
+    assert (request.cwd, request.env, request.user) == (None, {}, None)
+
+
+def test_init_prefix_uses_a_separator_so_it_cannot_gate_the_script() -> None:
+    prefixed = bash_executor._prepend_bash_integration("a; b; c")
+
+    assert "&&" not in prefixed
+    assert prefixed.endswith(" ; a; b; c")
+    assert "\n" not in prefixed
+
+
+def test_init_prefix_quotes_the_init_path() -> None:
+    prefixed = bash_executor._prepend_bash_integration("true")
+
+    assert str(bash_executor.__BASH_INIT_FILEPATH__) in prefixed.replace("'", "")
