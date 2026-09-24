@@ -52,6 +52,10 @@ minikube start \
   --docker-opt containerd=/var/run/containerd/containerd.sock \
   --kubernetes-version=v1.35.0
 
+# repo root — TEMPORARY WORKAROUND, remove once kubernetes/minikube#23709 is closed:
+# the gvisor addon installs a broken runsc shim; replace it with a pinned gVisor release.
+.github/scripts/pin-minikube-gvisor.sh
+
 # repo root — create namespace
 kubectl create namespace idegym
 
@@ -112,6 +116,13 @@ minikube image ls | grep echo-env   # verify
 The examples set `runtime_class_name="gvisor"`. Either start Minikube with `--addons=gvisor`
 (included in the command above) or remove the `runtime_class_name` argument from the example to
 run without sandboxing.
+
+### `FailedCreatePodSandBox ... failed to start shim`
+
+The `gvisor` addon installed a broken `runsc` shim
+([kubernetes/minikube#23709](https://github.com/kubernetes/minikube/issues/23709)). Run
+`.github/scripts/pin-minikube-gvisor.sh` after every `minikube start`. This is a temporary
+workaround: remove it once the upstream issue is closed.
 
 ### Orchestrator unreachable
 

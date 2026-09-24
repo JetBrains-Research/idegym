@@ -49,6 +49,17 @@ minikube start \
   --kubernetes-version=v1.35.0
 ```
 
+> [!WARNING]
+> **Temporary workaround — remove once
+> [kubernetes/minikube#23709](https://github.com/kubernetes/minikube/issues/23709) is closed.**
+> The `gvisor` addon currently installs a broken `runsc` shim, so every gVisor pod fails with
+> `FailedCreatePodSandBox ... failed to start shim`. After each `minikube start`, replace the
+> binaries with a pinned gVisor release:
+>
+> ```bash
+> .github/scripts/pin-minikube-gvisor.sh
+> ```
+
 The `registry` addon creates a cluster-internal Docker registry at
 `registry.kube-system.svc.cluster.local`. Kaniko uses this registry to push built images.
 
