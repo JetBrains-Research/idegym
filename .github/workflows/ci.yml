@@ -108,6 +108,12 @@ jobs:
           kubernetes-version: v1.35.0
           start-args: --docker-opt containerd=/var/run/containerd/containerd.sock
 
+      # TEMPORARY WORKAROUND — remove this step (and the script) once
+      # https://github.com/kubernetes/minikube/issues/23709 is closed: the gvisor addon installs a
+      # broken runsc shim, so every gVisor pod fails to start.
+      - name: Pin gVisor binaries (workaround for kubernetes/minikube#23709)
+        run: .github/scripts/pin-minikube-gvisor.sh
+
       - name: Install Helm
         uses: azure/setup-helm@v5
 

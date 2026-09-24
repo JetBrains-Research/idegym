@@ -148,8 +148,10 @@ async def test_mcp_start_server_and_run_bash_command(test_image, test_id):
             command_status = await wait_for_mcp_operation(mcp, command_operation_id, timeout=120.0)
             bash_response = parse_forwarded_body(command_status)
 
+            # The trailing newline is `print`'s and the bash tool returns output verbatim, so it
+            # survives the whole MCP -> orchestrator -> server round trip.
             assert bash_response == {
-                "stdout": "Hello World!",
+                "stdout": "Hello World!\n",
                 "stderr": "",
                 "exit_code": 0,
             }

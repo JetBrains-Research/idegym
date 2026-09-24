@@ -106,6 +106,23 @@ minikube start \
 The `registry` addon creates a cluster-internal Docker registry at
 `registry.kube-system.svc.cluster.local`. Kaniko pods push built images here.
 
+### Pin the gVisor binaries (temporary workaround)
+
+> [!WARNING]
+> **Remove this section once
+> [kubernetes/minikube#23709](https://github.com/kubernetes/minikube/issues/23709) is closed.**
+> The `gvisor` addon currently installs a broken `runsc` shim, so every gVisor pod fails with
+> `FailedCreatePodSandBox ... failed to start shim`. This affects every minikube version.
+
+For either approach, after each `minikube start`, replace the binaries with a pinned gVisor
+release by running
+[`pin-minikube-gvisor.sh`](https://github.com/JetBrains-Research/idegym/blob/main/.github/scripts/pin-minikube-gvisor.sh)
+from the repository root:
+
+```shell
+.github/scripts/pin-minikube-gvisor.sh
+```
+
 ### Create the namespace
 
 Both approaches install into the `idegym` namespace:
