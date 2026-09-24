@@ -22,6 +22,7 @@ def _record(**overrides) -> SimpleNamespace:
         "image_tag": "registry.test/env:latest",
         "created_at": 1_000_000,
         "last_heartbeat_time": 1_060_000,
+        "keepalive_until": None,
         "details": None,
     }
     record.update(overrides)
@@ -55,6 +56,15 @@ async def test_status_reports_the_record_the_pod_and_the_idle_time(stub_orchestr
     assert status.pod_ready is True
     assert status.last_activity_at == 1_060_000
     assert status.idle_seconds == 60.0
+    assert status.keepalive_until is None
+
+
+async def test_status_reports_an_active_keepalive_hold(stub_orchestrator) -> None:
+    stub_orchestrator(_record(keepalive_until=1_900_000))
+
+    status = await server_router.get_server_status(server_id=7, client_id=uuid4())
+
+    assert status.keepalive_until == 1_900_000
 
 
 @pytest.mark.parametrize(
