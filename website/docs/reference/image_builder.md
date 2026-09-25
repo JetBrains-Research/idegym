@@ -150,6 +150,13 @@ USER root
 `CMD` — which is what makes this **equivalent** to publishing the base and referencing it by tag. A
 test asserts the generated segment is byte-identical between the two forms.
 
+**An image with no plugins and no `run_commands` gets no generated stage.** There is nothing for it to
+add, and its `USER root` / `USER <current_user>` pair would otherwise replace your `USER` with `root`.
+The build is your Dockerfile as written — the alias above aside — so the image IdeGYM pushes is the
+one `docker build` would produce from the file. A `base_stage` other than the last stage adds a lone
+`FROM <that stage>`, and a registry `base` renders as a single `FROM`. This is what lets a caller send
+every build through the orchestrator, including those that are only a task's own Dockerfile.
+
 :::warning Your ENTRYPOINT, CMD and HEALTHCHECK do not survive
 Inheritance happens at the `FROM`, but plugin fragments render *after* it, so a plugin that declares
 its own wins. The `idegym-server` plugin declares **all three** — it has to, since it owns how the

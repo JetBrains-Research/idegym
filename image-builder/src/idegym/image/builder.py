@@ -559,7 +559,14 @@ class Image(BaseModel):
 
         Everything from `_render_base_stage_header` onwards is identical whichever base form was
         used, which is what makes switching to an inline base produce an equivalent image.
+
+        An image with no plugins and no ``run_commands`` has nothing to put in the idegym stage, so
+        it gets none: the stage's ``USER root``/``USER <current_user>`` pair would otherwise replace
+        the base's own ``USER`` with ``root``, and its ``SHELL`` and ``ENV`` would outlive the
+        build. The base is then the image, built as its author wrote it.
         """
+        if not self.plugins and not _run_block(self.commands):
+            return self._render_passthrough(normalized_base)
         if build_stages is None:
             build_stages = []
         sections = [
@@ -575,6 +582,21 @@ class Image(BaseModel):
         ]
 
         return "\n\n".join(section for section in sections if section.strip()).strip() + "\n"
+
+    def _render_passthrough(self, normalized_base: Optional[NormalizedBase]) -> str:
+        """The base alone, for an image that adds nothing to it.
+
+        A registry ``base`` is one ``FROM``. A ``base_dockerfile`` is emitted as normalized, its
+        directives still directly above its first line, and only a ``base_stage`` that is not the
+        last stage costs a ``FROM <alias>`` of its own, since ``docker build`` would otherwise
+        produce whichever stage comes last.
+        """
+        if normalized_base is None:
+            return f"FROM {self.base}\n"
+        dockerfile = "\n".join((*normalized_base.directives, normalized_base.body))
+        if not normalized_base.final:
+            dockerfile += f"\n\nFROM {normalized_base.alias}"
+        return dockerfile.strip() + "\n"
 
     def to_dict(self) -> dict[str, Any]:
         return self.model_dump(mode="json")
