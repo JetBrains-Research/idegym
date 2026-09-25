@@ -1,0 +1,35 @@
+name: Test infra dispatch
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch:
+    name: infra
+    runs-on: ubuntu-latest
+    environment: infra-cd
+    steps:
+      - name: Create infrastructure token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.INFRA_CD_APP_CLIENT_ID }}
+          private-key: ${{ secrets.INFRA_CD_APP_PRIVATE_KEY }}
+          owner: JetBrains-Research
+          repositories: ${{ secrets.INFRA_CD_REPOSITORY }}
+
+      - name: Dispatch test event
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          TARGET_REPOSITORY: ${{ secrets.INFRA_CD_REPOSITORY }}
+        run: |
+          gh api --method POST \
+            "repos/${TARGET_REPOSITORY}/dispatches" \
+            -f event_type=idegym-cd-test \
+            -f "client_payload[source_repository]=$GITHUB_REPOSITORY" \
+            -f "client_payload[source_ref]=$GITHUB_REF" \
+            -f "client_payload[source_sha]=$GITHUB_SHA"
