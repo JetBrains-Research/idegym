@@ -322,6 +322,13 @@ Two rules about *how* to add it:
 Inputs that do **not** belong in the hash: the destination registry/tag, and build resources
 (timeout, machine type, disk size). None of them change image content.
 
+**An image with no plugins and no `run_commands` is its base, unchanged.** `Image._render_dockerfile`
+emits no idegym stage for it — no `SHELL`, `ENV` or `USER` — so a caller can send a plain Dockerfile
+and get the image `docker build` would produce. Callers rely on that equivalence (Varvara builds
+plain task images this way and tags them like a direct build), so anything added to the generated
+stage must stay out of the plugin-less path. Nothing in this repo fails if it does not; only the
+caller's images quietly change.
+
 ### Build secrets
 
 - Declare them via `PluginBase.get_build_secrets()`; they are passed as `--build-arg`,
