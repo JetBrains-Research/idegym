@@ -42,12 +42,15 @@ class NormalizedBase:
     """A ``base_dockerfile`` split into the pieces the renderer assembles.
 
     ``directives`` are hoisted to the top of the merged file, ``body`` is the user's stages with the
-    alias applied, and ``alias`` is the ``FROM`` target the idegym stage uses.
+    alias applied, and ``alias`` is the ``FROM`` target the idegym stage uses. ``final`` says whether
+    that stage is the body's last one: only then is ``body`` on its own already the base image, which
+    is what an image with nothing to add on top needs to know.
     """
 
     directives: tuple[str, ...]
     body: str
     alias: str
+    final: bool = True
 
 
 def normalize_base_dockerfile(content: str, base_stage: Optional[str] = None) -> NormalizedBase:
@@ -87,12 +90,13 @@ def normalize_base_dockerfile(content: str, base_stage: Optional[str] = None) ->
             )
         target = matches[-1]
 
+    final = target is declared[-1]
     if target.alias:
-        return NormalizedBase(directives=directives, body=body.strip(), alias=target.alias)
+        return NormalizedBase(directives=directives, body=body.strip(), alias=target.alias, final=final)
 
     lines = body.splitlines()
     lines[target.line.end] = f"{lines[target.line.end].rstrip()} AS {BASE_STAGE_ALIAS}"
-    return NormalizedBase(directives=directives, body="\n".join(lines).strip(), alias=BASE_STAGE_ALIAS)
+    return NormalizedBase(directives=directives, body="\n".join(lines).strip(), alias=BASE_STAGE_ALIAS, final=final)
 
 
 def local_context_sources(content: str) -> list[CopySource]:

@@ -393,7 +393,7 @@ def test_from_dockerfile_path_inlines_the_content_at_authoring_time(tmp_path):
 
 
 def test_inline_base_renders_user_stages_verbatim_then_the_idegym_stage():
-    dockerfile = Image.from_dockerfile(_BASE_DOCKERFILE).to_spec().dockerfile_content
+    dockerfile = Image.from_dockerfile(_BASE_DOCKERFILE).with_plugin(BaseSystem()).to_spec().dockerfile_content
     builder_pos = dockerfile.index("FROM debian:bookworm-slim AS builder")
     aliased_pos = dockerfile.index("FROM debian:bookworm-slim AS idegym_base")
     copy_pos = dockerfile.index("COPY --from=builder /usr/bin/foo /usr/bin/foo")
@@ -462,13 +462,62 @@ def test_warnings_do_not_participate_in_the_tag():
 
 def test_inline_base_sets_the_build_context_base_to_the_alias():
     # BuildContext.base must stay a valid FROM target for plugins that interpolate it.
-    assert "FROM idegym_base" in Image.from_dockerfile("FROM scratch\n").to_spec().dockerfile_content
+    image = Image.from_dockerfile("FROM scratch\n").with_plugin(BaseSystem())
+    assert "FROM idegym_base" in image.to_spec().dockerfile_content
 
 
 def test_inline_base_honours_base_stage():
     dockerfile = Image.from_dockerfile(_BASE_DOCKERFILE, base_stage="builder").to_spec().dockerfile_content
     assert "FROM builder" in dockerfile
     assert "idegym_base" not in dockerfile
+
+
+_USER_DOCKERFILE = dedent(
+    """\
+    # syntax=docker/dockerfile:1
+    FROM debian:bookworm-slim
+    RUN useradd -m app
+    USER app
+    WORKDIR /home/app
+    """
+)
+
+
+def test_an_image_without_plugins_is_its_base_dockerfile():
+    """Nothing to add means no idegym stage, whose USER root would replace the base's own USER."""
+    dockerfile = Image.from_dockerfile(_USER_DOCKERFILE).to_spec().dockerfile_content
+    assert dockerfile == _USER_DOCKERFILE.replace(
+        "FROM debian:bookworm-slim", "FROM debian:bookworm-slim AS idegym_base"
+    )
+
+
+def test_an_image_without_plugins_keeps_a_multi_stage_base_intact():
+    dockerfile = Image.from_dockerfile(_BASE_DOCKERFILE).to_spec().dockerfile_content
+    assert dockerfile.rstrip().endswith("COPY --from=builder /usr/bin/foo /usr/bin/foo")
+    assert "USER" not in dockerfile
+    assert "SHELL" not in dockerfile
+
+
+def test_an_image_without_plugins_selects_a_non_final_base_stage():
+    # Otherwise docker build would produce the last stage, not the one asked for.
+    dockerfile = Image.from_dockerfile(_BASE_DOCKERFILE, base_stage="builder").to_spec().dockerfile_content
+    assert dockerfile.rstrip().splitlines()[-1] == "FROM builder"
+
+
+def test_an_image_without_plugins_from_a_registry_base_is_one_from():
+    assert Image.from_base("debian:bookworm-slim").to_spec().dockerfile_content == "FROM debian:bookworm-slim\n"
+
+
+def test_run_commands_alone_still_get_the_idegym_stage():
+    dockerfile = Image.from_dockerfile(_USER_DOCKERFILE).run_commands("true").to_spec().dockerfile_content
+    assert "FROM idegym_base" in dockerfile
+    assert dockerfile.rstrip().endswith("true")
+
+
+def test_an_image_without_plugins_is_tagged_apart_from_one_with_them():
+    plain = Image.from_dockerfile(_USER_DOCKERFILE).to_spec()
+    with_plugin = Image.from_dockerfile(_USER_DOCKERFILE).with_plugin(BaseSystem()).to_spec()
+    assert plain.image_version() != with_plugin.image_version()
 
 
 def test_inline_base_rejects_a_reserved_user_stage_name():
