@@ -8,7 +8,15 @@ from idegym.api.plugin import BuildContext, PluginBase, get_all_server_plugins, 
 from idegym.image.builder import Image
 from idegym.image.docker_service import DockerService
 from idegym.image.serialization import deserialize_plugin, serialize_plugin
-from idegym.plugins.defaults.image import BaseSystem, IdeGYMServer, MCPUpstream, Permissions, Project, User
+from idegym.plugins.defaults.image import (
+    BaseSystem,
+    IdeGYMServer,
+    MCPUpstream,
+    Permissions,
+    Project,
+    RawLines,
+    User,
+)
 from idegym.plugins.idea.image import Idea
 from idegym.plugins.plugin_utils import PluginSource, render_external_plugins
 from idegym.plugins.pycharm.image import PyCharm
@@ -520,6 +528,135 @@ def test_an_image_without_plugins_is_tagged_apart_from_one_with_them():
     assert plain.image_version() != with_plugin.image_version()
 
 
+def _final_user(dockerfile: str) -> str:
+    return [line for line in dockerfile.splitlines() if line.startswith("USER ")][-1]
+
+
+def test_a_base_user_survives_the_plugins():
+    """The generated stage used to end as root whatever the base declared."""
+    dockerfile = Image.from_dockerfile(_USER_DOCKERFILE).with_plugin(BaseSystem()).to_spec().dockerfile_content
+    assert _final_user(dockerfile) == "USER app"
+    # Plugins still install as root.
+    assert dockerfile.index("USER root") < dockerfile.index("apt-get install")
+
+
+def test_a_plugin_after_one_that_switched_back_still_starts_as_root():
+    """Idea returns to ctx.current_user, which is now the base's user, so the next plugin's chmod
+    would otherwise run as that user."""
+    image = (
+        Image.from_dockerfile(_USER_DOCKERFILE)
+        .with_plugin(Idea())
+        .with_plugin(Permissions(paths={"/tmp/ide-config": {"mode": "777"}}))
+    )
+    lines = image.to_spec().dockerfile_content.splitlines()
+    chmod = next(index for index, line in enumerate(lines) if "chmod -R 777 /tmp/ide-config" in line)
+    users_before = [line for line in lines[:chmod] if line.startswith("USER ")]
+    assert users_before[-1] == "USER root"
+    assert "USER app" in users_before
+    assert _final_user("\n".join(lines)) == "USER app"
+
+
+def test_as_root_leaves_a_fragment_alone_when_the_image_runs_as_root():
+    assert BuildContext(base="x").as_root("RUN true") == "RUN true"
+
+
+def test_as_root_switches_to_root_and_back_for_any_other_user():
+    assert BuildContext(base="x", current_user="1000").as_root("RUN true") == "USER root\nRUN true\nUSER 1000"
+
+
+def test_a_plugin_that_needs_root_switches_to_it_itself_after_the_user_plugin():
+    """The user plugin makes appuser current, so what follows can no longer assume root."""
+    image = (
+        Image.from_base("debian:bookworm-slim")
+        .with_plugin(User(username="appuser"))
+        .with_plugin(Permissions(paths={"/srv": {"mode": "755"}}))
+    )
+    lines = image.to_spec().dockerfile_content.splitlines()
+    chmod = next(index for index, line in enumerate(lines) if "chmod -R 755 /srv" in line)
+    assert [line for line in lines[:chmod] if line.startswith("USER ")][-1] == "USER root"
+    assert next(line for line in lines[chmod:] if line.startswith("USER ")) == "USER appuser"
+
+
+@mark.parametrize("user", ["", "USER root\n", "USER 0:0\n"])
+def test_a_root_or_undeclared_base_user_renders_as_before(user):
+    # Every existing definition whose base does not keep a user of its own keeps its tag.
+    reference = Image.from_dockerfile("FROM debian:bookworm-slim\n").with_plugin(Idea()).with_plugin(BaseSystem())
+    image = Image.from_dockerfile(f"FROM debian:bookworm-slim\n{user}").with_plugin(Idea()).with_plugin(BaseSystem())
+    rendered, expected = image.to_spec().dockerfile_content, reference.to_spec().dockerfile_content
+    marker = 'SHELL ["/bin/bash", "-c"]'
+    assert rendered[rendered.index(marker) :] == expected[expected.index(marker) :]
+
+
+def test_a_base_user_is_inherited_from_the_stage_it_is_built_from():
+    dockerfile = "FROM debian:bookworm-slim AS runtime\nUSER 1000\nFROM runtime\nRUN true\n"
+    assert _final_user(Image.from_dockerfile(dockerfile).with_plugin(BaseSystem()).to_spec().dockerfile_content) == (
+        "USER 1000"
+    )
+
+
+def test_a_base_user_is_read_from_the_selected_base_stage():
+    dockerfile = "FROM debian:bookworm-slim AS runtime\nUSER 1000\nFROM debian:bookworm-slim\nUSER 2000\n"
+    image = Image.from_dockerfile(dockerfile, base_stage="runtime").with_plugin(BaseSystem())
+    assert _final_user(image.to_spec().dockerfile_content) == "USER 1000"
+
+
+def test_a_variable_base_user_falls_back_to_root_and_says_so():
+    image = Image.from_dockerfile("FROM debian:bookworm-slim\nARG UID=1000\nUSER $UID\n").with_plugin(BaseSystem())
+    spec = image.to_spec()
+    assert _final_user(spec.dockerfile_content) == "USER root"
+    assert any("USER $UID" in warning for warning in spec.warnings)
+
+
+def test_the_user_plugin_still_wins_over_the_base_user():
+    image = Image.from_dockerfile(_USER_DOCKERFILE).with_plugin(User(username="appuser"))
+    assert _final_user(image.to_spec().dockerfile_content) == "USER appuser"
+
+
+# ---------------------------------------------------------------------------
+# raw-lines plugin
+# ---------------------------------------------------------------------------
+
+
+def test_raw_lines_are_rendered_verbatim_as_root():
+    image = Image.from_dockerfile(_USER_DOCKERFILE).with_plugin(RawLines(lines=("ENV X=Y", "RUN apt-get update")))
+    dockerfile = image.to_spec().dockerfile_content
+    assert "ENV X=Y\nRUN apt-get update" in dockerfile
+    assert dockerfile.index("USER root") < dockerfile.index("ENV X=Y")
+    assert _final_user(dockerfile) == "USER app"
+
+
+def test_raw_lines_after_an_ide_plugin_still_run_as_root():
+    image = Image.from_dockerfile(_USER_DOCKERFILE).with_plugin(Idea()).with_plugin(RawLines(lines=("RUN setup",)))
+    lines = image.to_spec().dockerfile_content.splitlines()
+    run = lines.index("RUN setup")
+    assert [line for line in lines[:run] if line.startswith("USER ")][-1] == "USER root"
+
+
+def test_a_user_in_raw_lines_is_the_one_the_image_ends_as():
+    image = Image.from_dockerfile(_USER_DOCKERFILE).with_plugin(RawLines(lines=("USER 4242",)))
+    assert _final_user(image.to_spec().dockerfile_content) == "USER 4242"
+
+
+def test_raw_lines_refuse_a_from():
+    with raises(ValueError, match="cannot contain FROM"):
+        RawLines(lines=("ENV X=Y", "FROM scratch"))
+
+
+def test_raw_lines_refuse_a_parser_directive():
+    with raises(ValueError, match="Parser directives"):
+        RawLines(lines=("# syntax=docker/dockerfile:1", "ENV X=Y"))
+
+
+def test_raw_lines_load_from_an_image_definition():
+    (image,) = Image.load_all(
+        "images:\n- name: demo\n  base_dockerfile: |\n    FROM debian:bookworm-slim\n    USER 1000\n"
+        "  plugins:\n  - type: raw-lines\n    lines: [ENV X=Y]\n"
+    )
+    dockerfile = image.to_spec().dockerfile_content
+    assert "ENV X=Y" in dockerfile
+    assert _final_user(dockerfile) == "USER 1000"
+
+
 def test_inline_base_rejects_a_reserved_user_stage_name():
     with raises(ValueError, match="reserved"):
         Image.from_dockerfile("FROM scratch AS idegym_mine\nFROM scratch\n")
@@ -993,6 +1130,7 @@ def test_builtin_plugins_auto_registered_on_builder_import():
         param(Project.from_local("./src", target="/app"), id="project-local"),
         param(PyCharm(), id="pycharm-defaults"),
         param(PyCharm(version="2024.1"), id="pycharm-custom"),
+        param(RawLines(lines=("ENV X=Y",)), id="raw-lines"),
     ],
 )
 def test_plugin_serialize_deserialize_round_trip(plugin: PluginBase):

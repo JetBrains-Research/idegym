@@ -10,6 +10,7 @@ from idegym.api.git import GitRepository, GitRepositoryResource, GitRepositorySn
 from idegym.api.plugin import MCP_UPSTREAMS_DIR, BuildContext, PluginBase, image_plugin
 from idegym.api.type import AuthType
 from idegym.plugins.plugin_utils import check_linux_id
+from idegym.utils.dockerfile import declared_instructions, logical_lines, parser_directives
 from pydantic import Field, field_validator
 
 # Valid Debian package name: starts with alphanumeric, rest are lowercase alphanumeric, +, -, .
@@ -84,6 +85,9 @@ class BaseSystem(PluginBase):
         return v
 
     def render(self, ctx: BuildContext) -> str:
+        return ctx.as_root(self._fragment(ctx))
+
+    def _fragment(self, ctx: BuildContext) -> str:
         packages = self.MINIMAL_PACKAGES if self.minimal else self.packages
         if not packages:
             return ""
@@ -176,6 +180,9 @@ class User(PluginBase):
         )
 
     def render(self, ctx: BuildContext) -> str:
+        return ctx.as_root(self._fragment(ctx))
+
+    def _fragment(self, ctx: BuildContext) -> str:
         group = self.effective_group
         home = self.effective_home
         additional_groups = ",".join(self.additional_groups)
@@ -249,6 +256,9 @@ class Permissions(PluginBase):
         return v
 
     def render(self, ctx: BuildContext) -> str:
+        return ctx.as_root(self._fragment(ctx))
+
+    def _fragment(self, ctx: BuildContext) -> str:
         commands: list[str] = []
         for path, config in self.paths.items():
             owner = config.get("owner")
@@ -267,6 +277,53 @@ class Permissions(PluginBase):
                 commands.append(f"chmod -R {mode} {quote(path)}")
 
         return _render_run_block(commands, comment="Adjust file ownership and permissions")
+
+
+@image_plugin("raw-lines")
+class RawLines(PluginBase):
+    """Insert Dockerfile instructions into the image, verbatim, where the plugin sits in the list.
+
+    For what no other plugin expresses — an ``ENV``, an ``ARG``, a one-off ``RUN`` — without
+    writing a plugin for it. The lines run as root, like every plugin's fragment: the generated
+    stage opens with ``USER root``, and one is re-emitted before any fragment that would otherwise
+    start as someone else. A ``USER`` in the lines becomes ``BuildContext.current_user``, so it is
+    the user later plugins switch back to and the one the image ends as.
+
+    Attributes:
+        lines: Dockerfile lines, emitted in order. Continuations and heredocs are fine; ``FROM``
+            is refused, since it would start a new stage and cut everything after it off from the
+            image, and so are parser directives, which Docker only reads at the top of the file.
+    """
+
+    lines: tuple[str, ...]
+
+    @field_validator("lines")
+    @classmethod
+    def _validate_lines(cls, v: tuple[str, ...]) -> tuple[str, ...]:
+        text = "\n".join(v)
+        if parser_directives(text):
+            raise ValueError(
+                "Parser directives (# syntax=, # escape=) only take effect at the top of a Dockerfile; "
+                "put them in the base Dockerfile instead."
+            )
+        for line in logical_lines(text):
+            if line.text.partition(" ")[0].upper() == "FROM":
+                raise ValueError(
+                    f"'raw-lines' cannot contain FROM (line {line.number}): it would start a new "
+                    "stage, leaving every later plugin out of the image."
+                )
+        return v
+
+    def apply(self, ctx: BuildContext) -> BuildContext:
+        line = declared_instructions("\n".join(self.lines), ["USER"]).get("USER")
+        user = line.text.partition(" ")[2].strip() if line is not None else ""
+        return ctx.updated(current_user=user) if user else ctx
+
+    def render(self, ctx: BuildContext) -> str:
+        return ctx.as_root(self._fragment(ctx))
+
+    def _fragment(self, ctx: BuildContext) -> str:
+        return "\n".join(self.lines).strip()
 
 
 # Regex for MCP upstream service names: lowercase letters + digits + hyphens, starts with a letter.
@@ -307,6 +364,9 @@ class MCPUpstream(PluginBase):
         return v
 
     def render(self, ctx: BuildContext) -> str:
+        return ctx.as_root(self._fragment(ctx))
+
+    def _fragment(self, ctx: BuildContext) -> str:
         config = json.dumps({"url": self.url})
         return _render_run_block(
             [
@@ -477,6 +537,9 @@ class Project(PluginBase):
         ).with_extra("idegym.has_project", True)
 
     def render(self, ctx: BuildContext) -> str:
+        return ctx.as_root(self._fragment(ctx))
+
+    def _fragment(self, ctx: BuildContext) -> str:
         if self.source == "local":
             src_path = self.path or "."
             # JSON-array form handles paths with spaces; flags must precede the array.
@@ -684,6 +747,9 @@ class IdeGYMServer(PluginBase):
             )
 
     def render(self, ctx: BuildContext) -> str:
+        return ctx.as_root(self._fragment(ctx))
+
+    def _fragment(self, ctx: BuildContext) -> str:
         user = ctx.current_user
         group = str(ctx.get_extra("idegym.user.group", user))
         if self.source == "git":

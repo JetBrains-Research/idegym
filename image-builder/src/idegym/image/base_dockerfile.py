@@ -14,6 +14,7 @@ from typing import Optional
 
 from idegym.utils.dockerfile import (
     CopySource,
+    Stage,
     copy_add_sources,
     declared_instructions,
     escape_character,
@@ -44,13 +45,15 @@ class NormalizedBase:
     ``directives`` are hoisted to the top of the merged file, ``body`` is the user's stages with the
     alias applied, and ``alias`` is the ``FROM`` target the idegym stage uses. ``final`` says whether
     that stage is the body's last one: only then is ``body`` on its own already the base image, which
-    is what an image with nothing to add on top needs to know.
+    is what an image with nothing to add on top needs to know. ``user`` is the ``USER`` that stage
+    ends with, or ``None`` when the Dockerfile does not say — see `stage_user`.
     """
 
     directives: tuple[str, ...]
     body: str
     alias: str
     final: bool = True
+    user: Optional[str] = None
 
 
 def normalize_base_dockerfile(content: str, base_stage: Optional[str] = None) -> NormalizedBase:
@@ -91,12 +94,37 @@ def normalize_base_dockerfile(content: str, base_stage: Optional[str] = None) ->
         target = matches[-1]
 
     final = target is declared[-1]
+    user = stage_user(body, declared, target, escape=escape)
     if target.alias:
-        return NormalizedBase(directives=directives, body=body.strip(), alias=target.alias, final=final)
+        return NormalizedBase(directives=directives, body=body.strip(), alias=target.alias, final=final, user=user)
 
     lines = body.splitlines()
     lines[target.line.end] = f"{lines[target.line.end].rstrip()} AS {BASE_STAGE_ALIAS}"
-    return NormalizedBase(directives=directives, body="\n".join(lines).strip(), alias=BASE_STAGE_ALIAS, final=final)
+    return NormalizedBase(
+        directives=directives, body="\n".join(lines).strip(), alias=BASE_STAGE_ALIAS, final=final, user=user
+    )
+
+
+def stage_user(body: str, declared: list[Stage], target: Stage, *, escape: str) -> Optional[str]:
+    """Return the ``USER`` that ``target`` ends with, as Docker would resolve it.
+
+    The last ``USER`` inside the stage wins; a stage without one inherits it from an earlier stage it
+    is built ``FROM``. ``None`` means the Dockerfile does not say — a registry image's own ``USER`` is
+    not readable from its text — which leaves the choice to whoever renders on top.
+    """
+    index = next(position for position, stage in enumerate(declared) if stage is target)
+    end = declared[index + 1].line.start if index + 1 < len(declared) else None
+    user = None
+    for line in logical_lines(body, escape=escape):
+        if line.start <= target.line.start or (end is not None and line.start >= end):
+            continue
+        instruction, _, argument = line.text.partition(" ")
+        if instruction.upper() == "USER" and argument.strip():
+            user = argument.strip()
+    if user is not None:
+        return user
+    parents = [stage for stage in declared[:index] if stage.alias and stage.alias.lower() == target.image.lower()]
+    return stage_user(body, declared, parents[-1], escape=escape) if parents else None
 
 
 def local_context_sources(content: str) -> list[CopySource]:

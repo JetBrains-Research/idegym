@@ -7,6 +7,11 @@ from idegym.api.download import DownloadRequest
 from pydantic import BaseModel, ConfigDict
 
 
+def is_root_user(user: str) -> bool:
+    """Whether a ``USER`` value names the superuser, by name or id, with or without a group."""
+    return user.partition(":")[0] in ("root", "0")
+
+
 @dataclass(frozen=True, slots=True)
 class BuildContext:
     """Immutable state passed through the plugin pipeline.
@@ -46,6 +51,18 @@ class BuildContext:
     def with_extras(self, values: dict[str, Any]) -> "BuildContext":
         """Return a new context with additional key-value pairs merged into ``extras``."""
         return self.updated(extras={**self.extras, **values})
+
+    def as_root(self, fragment: str) -> str:
+        """Wrap a fragment that needs root so it runs as root and leaves ``current_user`` active.
+
+        A plugin cannot know which ``USER`` the fragment before it left active — an IDE plugin
+        switches back to ``current_user`` after installing — so one that needs root says so here
+        rather than assuming it. When ``current_user`` is root there is nothing to switch from or
+        back to, and the fragment is returned unchanged.
+        """
+        if not fragment.strip() or is_root_user(self.current_user):
+            return fragment
+        return f"USER root\n{fragment}\nUSER {self.current_user}"
 
     def get_extra(self, key: str, default: Any = None) -> Any:
         """Return an extra value, or ``default`` if the key is absent."""

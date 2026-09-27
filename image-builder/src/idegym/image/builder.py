@@ -31,6 +31,7 @@ from idegym.api.plugin import (
     BuildContext,
     PluginBase,
     get_plugin_type_name,
+    is_root_user,
 )
 from idegym.api.type import OCIImageName
 from idegym.image.base_dockerfile import (
@@ -458,6 +459,12 @@ class Image(BaseModel):
         ``ctx.base`` becomes the alias of the stage acting as the base, so ``FROM <alias>`` inherits
         its full image config (``ENV``, ``WORKDIR``, ``USER``, ``ENTRYPOINT``, ``CMD``) — as
         publishing that base and referencing it by tag would have done.
+
+        A base that ends as a non-root ``USER`` keeps it: ``ctx.current_user`` starts as that user
+        instead of ``root``, so the final ``USER`` and every plugin that switches back after
+        installing return to it. Each plugin that needs root switches to it itself, through
+        ``BuildContext.as_root``, since what the fragment before it left active is not its to
+        assume. A base whose user is root or undeclared renders exactly as it always has.
         """
         self._require_context_for_local_copies()
         normalized = (
@@ -467,7 +474,13 @@ class Image(BaseModel):
         )
         base_reference = normalized.alias if normalized is not None else self.base
 
-        ctx = BuildContext(base=base_reference)
+        warnings: list[str] = []
+        base_user = self._base_user(normalized, warnings)
+        ctx = (
+            BuildContext(base=base_reference)
+            if base_user is None
+            else BuildContext(base=base_reference, current_user=base_user)
+        )
         build_stages: list[str] = []
         fragments: list[str] = []
         context_files: dict[str, bytes] = {}
@@ -494,7 +507,6 @@ class Image(BaseModel):
         # Against the plugin fragments rather than the finished Dockerfile: those are the
         # instructions rendered after the primary FROM, which is what kills a base's
         # ENTRYPOINT/CMD/HEALTHCHECK.
-        warnings: list[str] = []
         if self.base_dockerfile is not None:
             overridden = overridden_instruction_warning(self.base_dockerfile, "\n".join(fragments))
             if overridden:
@@ -522,6 +534,27 @@ class Image(BaseModel):
             disk_size_gb=self.disk_size_gb,
             warnings=warnings,
         )
+
+    @staticmethod
+    def _base_user(normalized: Optional[NormalizedBase], warnings: list[str]) -> Optional[str]:
+        """The non-root user a ``base_dockerfile`` ends as, for the generated stage to return to.
+
+        ``None`` leaves ``ctx.current_user`` at its ``root`` default: a registry ``base``, a base
+        that declares no ``USER`` or declares root, and one whose ``USER`` is a variable, which the
+        generated stage could not resolve — its ``ARG``s are out of scope there — and is reported.
+        """
+        user = normalized.user if normalized is not None else None
+        if user is None or is_root_user(user):
+            return None
+        if "$" in user:
+            warning = (
+                f"'base_dockerfile' ends as USER {user}, which the generated idegym stage cannot resolve, "
+                "so the image ends as root. Name the user literally to keep it."
+            )
+            _logger.warning(warning)
+            warnings.append(warning)
+            return None
+        return user
 
     def _render_base_stage_header(self, base_reference: str) -> str:
         return "\n\n".join(
