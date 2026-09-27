@@ -627,7 +627,7 @@ class Image(BaseModel):
         if normalized_base is None:
             return f"FROM {self.base}\n"
         dockerfile = "\n".join((*normalized_base.directives, normalized_base.body))
-        if not normalized_base.final:
+        if not normalized_base.last_stage:
             dockerfile += f"\n\nFROM {normalized_base.alias}"
         return dockerfile.strip() + "\n"
 

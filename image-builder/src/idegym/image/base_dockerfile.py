@@ -43,16 +43,16 @@ class NormalizedBase:
     """A ``base_dockerfile`` split into the pieces the renderer assembles.
 
     ``directives`` are hoisted to the top of the merged file, ``body`` is the user's stages with the
-    alias applied, and ``alias`` is the ``FROM`` target the idegym stage uses. ``final`` says whether
-    that stage is the body's last one: only then is ``body`` on its own already the base image, which
-    is what an image with nothing to add on top needs to know. ``user`` is the ``USER`` that stage
-    ends with, or ``None`` when the Dockerfile does not say — see `stage_user`.
+    alias applied, and ``alias`` is the ``FROM`` target the idegym stage uses. ``last_stage`` says
+    whether that stage is the body's last one: only then is ``body`` on its own already the base
+    image, which is what an image with nothing to add on top needs to know. ``user`` is the ``USER``
+    that stage ends with, or ``None`` when the Dockerfile does not say — see `stage_user`.
     """
 
     directives: tuple[str, ...]
     body: str
     alias: str
-    final: bool = True
+    last_stage: bool = True
     user: Optional[str] = None
 
 
@@ -93,15 +93,17 @@ def normalize_base_dockerfile(content: str, base_stage: Optional[str] = None) ->
             )
         target = matches[-1]
 
-    final = target is declared[-1]
+    last_stage = target is declared[-1]
     user = stage_user(body, declared, target, escape=escape)
     if target.alias:
-        return NormalizedBase(directives=directives, body=body.strip(), alias=target.alias, final=final, user=user)
+        return NormalizedBase(
+            directives=directives, body=body.strip(), alias=target.alias, last_stage=last_stage, user=user
+        )
 
     lines = body.splitlines()
     lines[target.line.end] = f"{lines[target.line.end].rstrip()} AS {BASE_STAGE_ALIAS}"
     return NormalizedBase(
-        directives=directives, body="\n".join(lines).strip(), alias=BASE_STAGE_ALIAS, final=final, user=user
+        directives=directives, body="\n".join(lines).strip(), alias=BASE_STAGE_ALIAS, last_stage=last_stage, user=user
     )
 
 
