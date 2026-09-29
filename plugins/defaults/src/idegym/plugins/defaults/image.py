@@ -7,7 +7,7 @@ from typing import ClassVar, Optional
 
 from idegym.api.download import Authorization, DownloadRequest
 from idegym.api.git import GitRepository, GitRepositoryResource, GitRepositorySnapshot
-from idegym.api.plugin import MCP_UPSTREAMS_DIR, BuildContext, PluginBase, image_plugin
+from idegym.api.plugin import MCP_UPSTREAMS_DIR, BuildContext, PluginBase, image_plugin, split_user
 from idegym.api.type import AuthType
 from idegym.plugins.plugin_utils import check_linux_id
 from idegym.utils.dockerfile import declared_instructions, logical_lines, parser_directives
@@ -116,7 +116,8 @@ class User(PluginBase):
     Uses idempotent shell commands: if the user/group already exists it is updated in-place,
     so images can be layered on top of each other without conflicts.
 
-    Updates ``BuildContext.current_user`` and ``BuildContext.home`` after ``apply()``.
+    Updates ``BuildContext.current_user``, ``BuildContext.current_group`` and ``BuildContext.home``
+    after ``apply()``.
 
     Attributes:
         username: Linux username (must match ``^[a-z_][a-z0-9_-]{0,31}$``).
@@ -170,10 +171,10 @@ class User(PluginBase):
     def apply(self, ctx: BuildContext) -> BuildContext:
         return ctx.updated(
             current_user=self.username,
+            current_group=self.group,
             home=self.effective_home,
         ).with_extras(
             {
-                "idegym.user.group": self.effective_group,
                 "idegym.user.uid": self.uid,
                 "idegym.user.gid": self.gid,
             }
@@ -286,8 +287,9 @@ class RawLines(PluginBase):
     For what no other plugin expresses — an ``ENV``, an ``ARG``, a one-off ``RUN`` — without
     writing a plugin for it. The lines run as root, like every plugin's fragment: the generated
     stage opens with ``USER root``, and one is re-emitted before any fragment that would otherwise
-    start as someone else. A ``USER`` in the lines becomes ``BuildContext.current_user``, so it is
-    the user later plugins switch back to and the one the image ends as.
+    start as someone else. A ``USER`` in the lines becomes ``BuildContext.current_user`` (and its
+    group, if given, ``BuildContext.current_group``), so it is the user later plugins switch back to
+    and the one the image ends as.
 
     Attributes:
         lines: Dockerfile lines, emitted in order. Continuations and heredocs are fine; ``FROM``
@@ -317,7 +319,10 @@ class RawLines(PluginBase):
     def apply(self, ctx: BuildContext) -> BuildContext:
         line = declared_instructions("\n".join(self.lines), ["USER"]).get("USER")
         user = line.text.partition(" ")[2].strip() if line is not None else ""
-        return ctx.updated(current_user=user) if user else ctx
+        if not user:
+            return ctx
+        name, group = split_user(user)
+        return ctx.updated(current_user=name, current_group=group)
 
     def render(self, ctx: BuildContext) -> str:
         return ctx.as_root(self._fragment(ctx))
@@ -553,37 +558,29 @@ class Project(PluginBase):
         if self.source == "archive":
             if self.url is None:
                 raise ValueError("archive source requires a URL")
-            owner = self.owner or ctx.current_user
-            group = self.group or owner
             commands = [
                 f"mkdir -p {quote(ctx.project_root)}",
                 f"curl -fsSL {quote(self.url)} -o /tmp/project-archive",
                 f"extract /tmp/project-archive {quote(ctx.project_root)}",
                 "rm -f /tmp/project-archive",
             ]
-            if owner:
-                commands.append(f"chown -R {owner}:{group} {quote(ctx.project_root)}")
+            commands.append(f"chown -R {self._owner(ctx)} {quote(ctx.project_root)}")
             return _render_run_block(commands, comment="Download and extract project archive")
 
         if self.source == "git-clone":
             if self.url is None:
                 raise ValueError("git-clone source requires a URL")
-            owner = self.owner or ctx.current_user
-            group = self.group or owner
             commands = [
                 f"git clone {quote(self.url)} {quote(ctx.project_root)}",
             ]
             if self.ref and self.ref != "HEAD":
                 commands.append(f"git -C {quote(ctx.project_root)} checkout {quote(self.ref)}")
-            if owner:
-                commands.append(f"chown -R {owner}:{group} {quote(ctx.project_root)}")
+            commands.append(f"chown -R {self._owner(ctx)} {quote(ctx.project_root)}")
             return _render_run_block(commands, comment=f"Clone {self.url}")
 
         if ctx.request is None:
             raise ValueError("Project plugin must be applied before rendering")
 
-        owner = self.owner or ctx.current_user
-        group = self.group or owner
         commands = [
             f"mkdir -p {quote(ctx.project_root)}",
             (
@@ -592,10 +589,15 @@ class Project(PluginBase):
             ),
             "extract $IDEGYM_PROJECT_ARCHIVE_PATH $IDEGYM_PROJECT_ROOT",
         ]
-        if owner is not None:
-            commands.append(f"chown -R {owner}:{group} {quote(ctx.project_root)}")
+        commands.append(f"chown -R {self._owner(ctx)} {quote(ctx.project_root)}")
 
         return _render_run_block(commands, comment="Fetch and unpack the project")
+
+    def _owner(self, ctx: BuildContext) -> str:
+        """The ``user:group`` the project is chowned to: ``owner``/``group``, else the current user's."""
+        if self.owner is None:
+            return f"{ctx.current_user}:{self.group or ctx.current_group or ctx.current_user}"
+        return f"{self.owner}:{self.group or self.owner}"
 
 
 # Every path the renderer copies out of an IdeGYM checkout. A ref that predates any of them —
@@ -750,31 +752,28 @@ class IdeGYMServer(PluginBase):
         return ctx.as_root(self._fragment(ctx))
 
     def _fragment(self, ctx: BuildContext) -> str:
-        user = ctx.current_user
-        group = str(ctx.get_extra("idegym.user.group", user))
         if self.source == "git":
             if self.url is None:
                 raise ValueError("IdeGYMServer.from_git(...) requires a URL")
-            return self._render_from_git(ctx, user, group)
-        return self._render_from_local(ctx, user, group)
+            return self._render_from_git(ctx)
+        return self._render_from_local(ctx)
 
     def _render_plugins_config(self, ctx: BuildContext) -> str:
         base_plugins = ["tools", "rewards"]
         extra_plugins = list(ctx.get_extra("idegym.enabled_server_plugins", []))
         all_plugins = base_plugins + [p for p in extra_plugins if p not in base_plugins]
         config = json.dumps({"server": all_plugins})
-        user = ctx.current_user
-        group = str(ctx.get_extra("idegym.user.group", user))
         return _render_run_block(
             [
                 "mkdir -p /etc/idegym",
                 f"printf '%s\\n' {quote(config)} > /etc/idegym/plugins.json",
-                f"chown {user}:{group} /etc/idegym /etc/idegym/plugins.json",
+                f"chown {ctx.owner} /etc/idegym /etc/idegym/plugins.json",
             ],
             comment="Write enabled server plugins config",
         )
 
-    def _render_from_git(self, ctx: BuildContext, user: str, group: str) -> str:
+    def _render_from_git(self, ctx: BuildContext) -> str:
+        owner = ctx.owner
         ref = self.ref or "HEAD"
         clone_lines = [f"git clone {quote(self.url)} /tmp/idegym-src"]
         if ref != "HEAD":
@@ -788,7 +787,7 @@ class IdeGYMServer(PluginBase):
                 cp /tmp/idegym-src/entrypoint.py $IDEGYM_PATH/; \\
                 cp /tmp/idegym-src/entrypoint.sh /tmp/idegym-src/idegym.sh /usr/local/bin/; \\
                 chmod 755 /usr/local/bin/* $IDEGYM_PATH/entrypoint.py; \\
-                chown {user}:{group} /usr/local/bin/* $IDEGYM_PATH/entrypoint.py; \\
+                chown {owner} /usr/local/bin/* $IDEGYM_PATH/entrypoint.py; \\
                 for script in /usr/local/bin/*.{{py,sh}}; do \\
                     [ -f "$script" ] || continue; \\
                     mv "$script" "$(echo "${{script%.*}}" | tr "_" "-")"; \\
@@ -802,7 +801,7 @@ class IdeGYMServer(PluginBase):
                 cp -r /tmp/idegym-src/rewards $IDEGYM_PATH/rewards; \\
                 cp -r /tmp/idegym-src/tools $IDEGYM_PATH/tools; \\
                 cp -r /tmp/idegym-src/server $IDEGYM_PATH/server; \\
-                chown -R {user}:{group} $IDEGYM_PATH $IDEGYM_PROJECT_ROOT; \\
+                chown -R {owner} $IDEGYM_PATH $IDEGYM_PROJECT_ROOT; \\
                 rm -rf /tmp/idegym-src
             """
         ).rstrip()
@@ -813,22 +812,23 @@ class IdeGYMServer(PluginBase):
                 _render_workspace_path_check("/tmp/idegym-src", f"{self.url}@{ref}"),
                 setup,
                 self._render_plugins_config(ctx),
-                f"USER {user}\nWORKDIR $IDEGYM_PATH",
+                f"USER {ctx.user_spec}\nWORKDIR $IDEGYM_PATH",
                 _idegym_server_uv_sync(),
                 _idegym_server_tail(),
             ]
         )
 
-    def _render_from_local(self, ctx: BuildContext, user: str, group: str) -> str:
+    def _render_from_local(self, ctx: BuildContext) -> str:
+        owner = ctx.owner
         local_setup = dedent(
             f"""\
             RUN set -eux; \\
                 mkdir -p $IDEGYM_PATH $IDEGYM_PROJECT_ROOT; \\
-                chown -R {user}:{group} $IDEGYM_PATH $IDEGYM_PROJECT_ROOT
+                chown -R {owner} $IDEGYM_PATH $IDEGYM_PROJECT_ROOT
 
-            COPY --chown={user}:{group} --chmod=755 scripts /usr/local/bin/
-            COPY --chown={user}:{group} --chmod=755 entrypoint.py $IDEGYM_PATH/
-            COPY --chown={user}:{group} --chmod=755 entrypoint.sh idegym.sh /usr/local/bin/
+            COPY --chown={owner} --chmod=755 scripts /usr/local/bin/
+            COPY --chown={owner} --chmod=755 entrypoint.py $IDEGYM_PATH/
+            COPY --chown={owner} --chmod=755 entrypoint.sh idegym.sh /usr/local/bin/
 
             RUN set -eux; \\
                 for script in /usr/local/bin/*.{{py,sh}}; do \\
@@ -839,14 +839,14 @@ class IdeGYMServer(PluginBase):
         ).rstrip()
         workspace_copies = dedent(
             f"""\
-            COPY --chown={user}:{group} .python-version pyproject.toml supervisord.conf uv.lock ./
-            COPY --chown={user}:{group} api api/
-            COPY --chown={user}:{group} backend-utils backend-utils/
-            COPY --chown={user}:{group} common-utils common-utils/
-            COPY --chown={user}:{group} plugins plugins/
-            COPY --chown={user}:{group} rewards rewards/
-            COPY --chown={user}:{group} tools tools/
-            COPY --chown={user}:{group} server server/
+            COPY --chown={owner} .python-version pyproject.toml supervisord.conf uv.lock ./
+            COPY --chown={owner} api api/
+            COPY --chown={owner} backend-utils backend-utils/
+            COPY --chown={owner} common-utils common-utils/
+            COPY --chown={owner} plugins plugins/
+            COPY --chown={owner} rewards rewards/
+            COPY --chown={owner} tools tools/
+            COPY --chown={owner} server server/
             """
         ).rstrip()
         return "\n\n".join(
@@ -854,7 +854,7 @@ class IdeGYMServer(PluginBase):
                 _idegym_server_env(ctx.home),
                 local_setup,
                 self._render_plugins_config(ctx),
-                f"USER {user}\nWORKDIR $IDEGYM_PATH",
+                f"USER {ctx.user_spec}\nWORKDIR $IDEGYM_PATH",
                 workspace_copies,
                 _idegym_server_uv_sync(),
                 _idegym_server_tail(),

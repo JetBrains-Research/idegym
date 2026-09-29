@@ -12,6 +12,12 @@ def is_root_user(user: str) -> bool:
     return user.partition(":")[0] in ("root", "0")
 
 
+def split_user(user: str) -> tuple[str, Optional[str]]:
+    """Split a ``USER`` value into its user and group; the group is ``None`` when not given."""
+    name, _, group = user.partition(":")
+    return name, group or None
+
+
 @dataclass(frozen=True, slots=True)
 class BuildContext:
     """Immutable state passed through the plugin pipeline.
@@ -22,7 +28,9 @@ class BuildContext:
 
     Attributes:
         base: Base image reference (e.g. ``debian:bookworm-slim``).
-        current_user: The active USER at the end of the build. Defaults to ``root``.
+        current_user: The active USER at the end of the build, without a group. Defaults to ``root``.
+        current_group: The group ``current_user`` runs as, or ``None`` for its own-named group.
+            Whatever sets ``current_user`` sets this too, so the two never disagree.
         home: Home directory for ``current_user``. Defaults to ``/root``.
         project_root: Directory where the project is placed inside the image. Defaults to ``/root/work``.
         request: Download request set by the ``project`` plugin when fetching a remote archive.
@@ -33,6 +41,7 @@ class BuildContext:
 
     base: str
     current_user: str = "root"
+    current_group: Optional[str] = None
     home: str = "/root"
     project_root: str = "/root/work"
     request: Optional[DownloadRequest] = None
@@ -52,6 +61,16 @@ class BuildContext:
         """Return a new context with additional key-value pairs merged into ``extras``."""
         return self.updated(extras={**self.extras, **values})
 
+    @property
+    def user_spec(self) -> str:
+        """The ``USER`` instruction argument: ``user``, or ``user:group`` when a group was given."""
+        return f"{self.current_user}:{self.current_group}" if self.current_group else self.current_user
+
+    @property
+    def owner(self) -> str:
+        """The ``user:group`` a plugin chowns to, the group defaulting to the user's name."""
+        return f"{self.current_user}:{self.current_group or self.current_user}"
+
     def as_root(self, fragment: str) -> str:
         """Wrap a fragment that needs root so it runs as root and leaves ``current_user`` active.
 
@@ -62,7 +81,7 @@ class BuildContext:
         """
         if not fragment.strip() or is_root_user(self.current_user):
             return fragment
-        return f"USER root\n{fragment}\nUSER {self.current_user}"
+        return f"USER root\n{fragment}\nUSER {self.user_spec}"
 
     def get_extra(self, key: str, default: Any = None) -> Any:
         """Return an extra value, or ``default`` if the key is absent."""

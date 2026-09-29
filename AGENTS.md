@@ -332,6 +332,12 @@ time it follows an IDE plugin on a base that keeps its user. `as_root` is a no-o
 `current_user` is root, so definitions without a non-root user render, and are tagged, as before;
 those using the `user` plugin gain the switches after it.
 
+**The active user and its group are two fields, set together.** `ctx.current_user` never holds a
+`:group`; the group is `ctx.current_group` (`None` for the user's own-named group), and whatever sets
+the user — the base's `USER`, the `user` plugin, a `USER` in `raw-lines` — sets both, so a group
+cannot outlive its user. Plugins chown to `ctx.owner` and emit `USER {ctx.user_spec}`; building
+`user:group` from `current_user` by hand renders `app:grp:app:grp` once a base declares a group.
+
 **An image with no plugins and no `run_commands` is its base, unchanged.** `Image._render_dockerfile`
 emits no idegym stage for it — no `SHELL`, `ENV` or `USER` — so a caller can send a plain Dockerfile
 and get the image `docker build` would produce. Callers rely on that equivalence (Varvara builds

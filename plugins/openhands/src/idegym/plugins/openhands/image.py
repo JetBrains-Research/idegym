@@ -112,7 +112,8 @@ class OpenHands(PluginBase):
     # -- Dockerfile fragment ------------------------------------------------
 
     def render(self, ctx: BuildContext) -> str:
-        user = self.user or ctx.current_user
+        user = self.user or ctx.user_spec
+        owner = f"{self.user}:{self.user}" if self.user else ctx.owner
         tmux_enabled = TerminalBackend.TMUX in self.allowed_terminal_backends
         venv_python = f"{self.venv_dir}/bin/python"
 
@@ -165,7 +166,7 @@ class OpenHands(PluginBase):
             "",
             "RUN set -eux; \\",
             f"    mkdir -p {dirs}; \\",
-            f"    chown -R {user}:{user} {chown_targets}",
+            f"    chown -R {owner} {chown_targets}",
             "",
             # Install to the bare command name (not .sh) so the supervisor command is valid even in
             # images that do not run IdeGYMServer's /usr/local/bin/*.{py,sh} -> bare rename pass.

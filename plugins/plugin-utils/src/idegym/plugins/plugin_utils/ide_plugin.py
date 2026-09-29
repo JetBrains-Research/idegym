@@ -222,7 +222,7 @@ class JetBrainsIdePlugin(PluginBase):
         )
 
     def render(self, ctx: BuildContext) -> str:
-        user = self.user or ctx.current_user
+        user = self.user or ctx.user_spec
         has_project = ctx.get_extra("idegym.has_project", False)
         install_plugin = has_project and self.open_project
 

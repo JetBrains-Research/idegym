@@ -612,6 +612,51 @@ def test_the_user_plugin_still_wins_over_the_base_user():
     assert _final_user(image.to_spec().dockerfile_content) == "USER appuser"
 
 
+def _chowns(dockerfile: str) -> list[str]:
+    return [line.strip() for line in dockerfile.splitlines() if "chown" in line]
+
+
+def test_a_base_user_with_a_group_is_split_into_user_and_group():
+    """``USER app:grp`` used to land whole in current_user, so plugins chowned to app:grp:app:grp."""
+    image = (
+        Image.from_dockerfile("FROM debian:bookworm-slim\nUSER app:grp\n")
+        .with_plugin(Project.from_git_clone(url="https://example.com/repo.git"))
+        .with_plugin(_git_idegym_server())
+    )
+    dockerfile = image.to_spec().dockerfile_content
+    assert "app:grp:" not in dockerfile
+    assert "chown app:grp /etc/idegym /etc/idegym/plugins.json" in _chowns(dockerfile)
+    assert "chown -R app:grp /root/work" in _chowns(dockerfile)
+    assert _final_user(dockerfile) == "USER app:grp"
+
+
+def test_a_user_in_raw_lines_replaces_the_group_of_the_user_plugin():
+    """The group used to live in an extra only the user plugin wrote, so it outlived a later USER."""
+    image = (
+        Image.from_base("debian:bookworm-slim")
+        .with_plugin(User(username="appuser", group="staff"))
+        .with_plugin(RawLines(lines=("USER 4242",)))
+        .with_plugin(_git_idegym_server())
+    )
+    dockerfile = image.to_spec().dockerfile_content
+    assert "chown 4242:4242 /etc/idegym /etc/idegym/plugins.json" in _chowns(dockerfile)
+    assert _final_user(dockerfile) == "USER 4242"
+
+
+def test_a_group_in_raw_lines_is_the_one_the_image_ends_as():
+    image = Image.from_base("debian:bookworm-slim").with_plugin(RawLines(lines=("USER 4242:4343",)))
+    assert _final_user(image.to_spec().dockerfile_content) == "USER 4242:4343"
+
+
+def test_the_project_is_chowned_to_the_user_plugin_group():
+    image = (
+        Image.from_base("debian:bookworm-slim")
+        .with_plugin(User(username="appuser", group="staff"))
+        .with_plugin(Project.from_git_clone(url="https://example.com/repo.git"))
+    )
+    assert "chown -R appuser:staff /home/appuser/work" in _chowns(image.to_spec().dockerfile_content)
+
+
 # ---------------------------------------------------------------------------
 # raw-lines plugin
 # ---------------------------------------------------------------------------
@@ -2530,8 +2575,8 @@ def test_idegym_server_render_plugins_config_chowns_to_current_user():
 
 
 def test_idegym_server_render_plugins_config_chowns_with_separate_group():
-    """When a custom group is set via extras, chown uses user:group."""
-    ctx = BuildContext(base="debian:bookworm-slim", current_user="appuser").with_extra("idegym.user.group", "staff")
+    """When the current user has a group of its own, chown uses user:group."""
+    ctx = BuildContext(base="debian:bookworm-slim", current_user="appuser", current_group="staff")
     fragment = _git_idegym_server()._render_plugins_config(ctx)
     assert "chown appuser:staff /etc/idegym /etc/idegym/plugins.json" in fragment
 

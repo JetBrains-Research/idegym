@@ -539,7 +539,7 @@ Package names must be valid Debian package names (`^[a-z0-9][a-z0-9+.-]+$`).
 
 ### `user`
 
-Creates a Linux user and group in the container. After this plugin runs, `ctx.current_user` and `ctx.home`
+Creates a Linux user and group in the container. After this plugin runs, `ctx.current_user`, `ctx.current_group` and `ctx.home`
 are updated to the new user, so subsequent plugins and commands run in the correct context.
 
 **Python:**
@@ -636,8 +636,8 @@ RawLines(lines=("ENV X=Y", "RUN some-setup.sh"))
 **Notes:**
 - The lines run as root: like every built-in plugin that needs root, this one switches to it
   itself, so its position after a plugin that switched back to the image's user does not matter.
-- A `USER` in the lines becomes `ctx.current_user`: later plugins switch back to it, and the image
-  ends as it.
+- A `USER` in the lines becomes `ctx.current_user` (a `user:group` one also sets
+  `ctx.current_group`): later plugins switch back to it, and the image ends as it.
 - `FROM` is refused — it would start a new stage and leave every later plugin out of the image — and
   so are parser directives (`# syntax=`, `# escape=`), which only count at the top of a Dockerfile.
 
@@ -1313,7 +1313,8 @@ plugins:
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `base` | `str` | — | Base image reference |
-| `current_user` | `str` | `"root"` | Current user (updated by `User` plugin) |
+| `current_user` | `str` | `"root"` | Current user, without a group (updated by `User` plugin) |
+| `current_group` | `Optional[str]` | `None` | Group of `current_user`; `None` means its own-named group |
 | `home` | `str` | `"/root"` | Current user's home directory |
 | `project_root` | `str` | `"/root/work"` | Project root path inside the container |
 | `request` | `Optional[DownloadRequest]` | `None` | Download request (set by `Project` plugin) |
@@ -1334,6 +1335,11 @@ unchanged when `current_user` is root:
 def render(self, ctx: BuildContext) -> str:
     return ctx.as_root(f"RUN echo {self.message!r} > {self.path}")
 ```
+
+**User and group.** `current_user` never includes a group; `current_group` holds it, or is `None`
+when the user runs as its own-named group. Chown to `ctx.owner` (`user:group`, the group defaulting
+to the user's name) and switch with `USER {ctx.user_spec}` (`user`, or `user:group` when a group was
+given) rather than assembling either from `current_user`.
 
 **Important:**
 - Plugins are discovered automatically via the `idegym.plugins.image` entry point group. Declare

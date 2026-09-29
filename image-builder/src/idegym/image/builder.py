@@ -32,6 +32,7 @@ from idegym.api.plugin import (
     PluginBase,
     get_plugin_type_name,
     is_root_user,
+    split_user,
 )
 from idegym.api.type import OCIImageName
 from idegym.image.base_dockerfile import (
@@ -87,9 +88,9 @@ def _mcp_upstream_fragment(plugin: PluginBase, ctx: BuildContext) -> str:
         )
     )
     comment = f"# Register MCP upstream: {plugin_name}"
-    if ctx.current_user == "root":
+    if is_root_user(ctx.current_user):
         return f"{comment}\n{run}"
-    return f"{comment}\nUSER root\n{run}\nUSER {ctx.current_user}"
+    return f"{comment}\nUSER root\n{run}\nUSER {ctx.user_spec}"
 
 
 class Image(BaseModel):
@@ -476,11 +477,10 @@ class Image(BaseModel):
 
         warnings: list[str] = []
         base_user = self._base_user(normalized, warnings)
-        ctx = (
-            BuildContext(base=base_reference)
-            if base_user is None
-            else BuildContext(base=base_reference, current_user=base_user)
-        )
+        ctx = BuildContext(base=base_reference)
+        if base_user is not None:
+            user, group = split_user(base_user)
+            ctx = ctx.updated(current_user=user, current_group=group)
         build_stages: list[str] = []
         fragments: list[str] = []
         context_files: dict[str, bytes] = {}
@@ -610,7 +610,7 @@ class Image(BaseModel):
             self._render_project_archive_env() if ctx.request is not None else "",
             f'ENV IDEGYM_PROJECT_ROOT="{ctx.project_root}"',
             *fragments,
-            f"USER {ctx.current_user}",
+            f"USER {ctx.user_spec}",
             _run_block(self.commands),
         ]
 
