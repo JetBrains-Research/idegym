@@ -58,7 +58,8 @@ When you call `image.to_spec()` (or `image.build()`), the builder:
    stage can target it, and parser directives are hoisted
 2. Creates a `BuildContext` whose `base` is that alias (or the `base` reference), with defaults
    (`current_user="root"`, `home="/root"`, `project_root="/root/work"`) — except that a
-   `base_dockerfile` ending as a non-root `USER` starts `current_user` as that user
+   `base_dockerfile` ending as a non-root `USER` starts `current_user` as that user, and a named one
+   starts `home` and `project_root` at `/home/<user>` and `/home/<user>/work`
 3. Iterates through plugins in order; each plugin:
    - `apply(ctx)` — updates the context (e.g., sets `current_user` after creating a user)
    - `render(ctx)` — returns a Dockerfile fragment string
@@ -183,6 +184,12 @@ RUN chmod -R 777 /tmp/ide-config
 USER 1000            # ← …and back
 USER 1000            # ← the image ends as the base's user
 ```
+
+**The project goes in the base user's home.** `/root` is closed to anyone but root, so a named base
+user starts `ctx.home` at `/home/<user>` — what `useradd -m` creates — and the project at
+`/home/<user>/work`. A numeric user (`USER 1000`) names no directory, so the project stays at
+`/root/work`. Set the `project` plugin's `target` to put it anywhere else. Whatever the base, the
+spec records a warning when the image ends as a non-root user with its project still under `/root`.
 
 The `user` plugin still takes precedence, since it sets `current_user` itself. A base whose `USER` is
 a variable (`USER $UID`) cannot be resolved in the generated stage, where the base's `ARG`s are out of
@@ -540,7 +547,8 @@ Package names must be valid Debian package names (`^[a-z0-9][a-z0-9+.-]+$`).
 ### `user`
 
 Creates a Linux user and group in the container. After this plugin runs, `ctx.current_user`, `ctx.current_group` and `ctx.home`
-are updated to the new user, so subsequent plugins and commands run in the correct context.
+are updated to the new user, and `ctx.project_root` to `<home>/work` unless a `project` plugin before
+it has already placed the project, so subsequent plugins and commands run in the correct context.
 
 **Python:**
 ```python
@@ -1316,7 +1324,7 @@ plugins:
 | `current_user` | `str` | `"root"` | Current user, without a group (updated by `User` plugin) |
 | `current_group` | `Optional[str]` | `None` | Group of `current_user`; `None` means its own-named group |
 | `home` | `str` | `"/root"` | Current user's home directory |
-| `project_root` | `str` | `"/root/work"` | Project root path inside the container |
+| `project_root` | `str` | `"/root/work"` | Project root path inside the container; read it rather than deriving it from `home` |
 | `request` | `Optional[DownloadRequest]` | `None` | Download request (set by `Project` plugin) |
 | `labels` | `dict[str, str]` | `{}` | Docker image labels |
 | `context_path` | `str` | `"."` | Docker build context path |

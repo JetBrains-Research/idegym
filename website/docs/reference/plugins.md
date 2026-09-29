@@ -96,7 +96,7 @@ class MyPlugin(PluginBase):
 | `current_user` | `str` | `"root"` | Active user, without a group; updated by the `user` plugin |
 | `current_group` | `Optional[str]` | `None` | Group of `current_user`; `None` means its own-named group |
 | `home` | `str` | `"/root"` | Active user's home directory |
-| `project_root` | `str` | `"/root/work"` | Project root inside the container |
+| `project_root` | `str` | `"/root/work"` | Project root inside the container; read it rather than deriving it from `home` |
 | `request` | `Optional[DownloadRequest]` | `None` | Download request set by the `project` plugin |
 | `labels` | `dict[str, str]` | `{}` | OCI image labels accumulated by plugins |
 | `context_path` | `str` | `"."` | Docker build context directory |

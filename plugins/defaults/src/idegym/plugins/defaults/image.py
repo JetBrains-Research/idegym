@@ -117,7 +117,8 @@ class User(PluginBase):
     so images can be layered on top of each other without conflicts.
 
     Updates ``BuildContext.current_user``, ``BuildContext.current_group`` and ``BuildContext.home``
-    after ``apply()``.
+    after ``apply()``, and moves ``BuildContext.project_root`` to ``<home>/work`` unless a project
+    plugin before it has already placed the project.
 
     Attributes:
         username: Linux username (must match ``^[a-z_][a-z0-9_-]{0,31}$``).
@@ -169,10 +170,12 @@ class User(PluginBase):
         return self.home or f"/home/{self.username}"
 
     def apply(self, ctx: BuildContext) -> BuildContext:
+        project_root = ctx.project_root if ctx.get_extra("idegym.has_project") else f"{self.effective_home}/work"
         return ctx.updated(
             current_user=self.username,
             current_group=self.group,
             home=self.effective_home,
+            project_root=project_root,
         ).with_extras(
             {
                 "idegym.user.uid": self.uid,
@@ -646,13 +649,13 @@ def _render_workspace_path_check(source_root: str, described_as: str) -> str:
     ).rstrip()
 
 
-def _idegym_server_env(home: str) -> str:
+def _idegym_server_env(project_root: str) -> str:
     return dedent(
         f"""\
         COPY --from=ghcr.io/astral-sh/uv:0.10.11 /uv /uvx /bin/
 
         ENV IDEGYM_PATH=/opt/idegym \\
-            IDEGYM_PROJECT_ROOT={home}/work \\
+            IDEGYM_PROJECT_ROOT={project_root} \\
             PYTHONDONTWRITEBYTECODE=0 \\
             PYTHONUNBUFFERED=1 \\
             PYTHONHASHSEED=random
@@ -807,7 +810,7 @@ class IdeGYMServer(PluginBase):
         ).rstrip()
         return "\n\n".join(
             [
-                _idegym_server_env(ctx.home),
+                _idegym_server_env(ctx.project_root),
                 clone_run,
                 _render_workspace_path_check("/tmp/idegym-src", f"{self.url}@{ref}"),
                 setup,
@@ -851,7 +854,7 @@ class IdeGYMServer(PluginBase):
         ).rstrip()
         return "\n\n".join(
             [
-                _idegym_server_env(ctx.home),
+                _idegym_server_env(ctx.project_root),
                 local_setup,
                 self._render_plugins_config(ctx),
                 f"USER {ctx.user_spec}\nWORKDIR $IDEGYM_PATH",

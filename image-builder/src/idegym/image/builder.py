@@ -93,6 +93,11 @@ def _mcp_upstream_fragment(plugin: PluginBase, ctx: BuildContext) -> str:
     return f"{comment}\nUSER root\n{run}\nUSER {ctx.user_spec}"
 
 
+def _warn(warnings: list[str], warning: str) -> None:
+    _logger.warning(warning)
+    warnings.append(warning)
+
+
 class Image(BaseModel):
     """Fluent, immutable builder for container images.
 
@@ -465,7 +470,9 @@ class Image(BaseModel):
         instead of ``root``, so the final ``USER`` and every plugin that switches back after
         installing return to it. Each plugin that needs root switches to it itself, through
         ``BuildContext.as_root``, since what the fragment before it left active is not its to
-        assume. A base whose user is root or undeclared renders exactly as it always has.
+        assume. A named user also moves ``ctx.home`` to ``/home/<user>`` and ``ctx.project_root``
+        to its ``work`` directory, since ``/root`` is closed to anyone but root. A base whose user is
+        root or undeclared renders exactly as it always has.
         """
         self._require_context_for_local_copies()
         normalized = (
@@ -476,11 +483,7 @@ class Image(BaseModel):
         base_reference = normalized.alias if normalized is not None else self.base
 
         warnings: list[str] = []
-        base_user = self._base_user(normalized, warnings)
-        ctx = BuildContext(base=base_reference)
-        if base_user is not None:
-            user, group = split_user(base_user)
-            ctx = ctx.updated(current_user=user, current_group=group)
+        ctx = self._base_context(base_reference, normalized, warnings)
         build_stages: list[str] = []
         fragments: list[str] = []
         context_files: dict[str, bytes] = {}
@@ -507,11 +510,22 @@ class Image(BaseModel):
         # Against the plugin fragments rather than the finished Dockerfile: those are the
         # instructions rendered after the primary FROM, which is what kills a base's
         # ENTRYPOINT/CMD/HEALTHCHECK.
+        # After the plugins rather than at the base: a project target or a user plugin moves the
+        # project out of /root, and only what the image ends with is worth reporting.
+        if (
+            ctx.get_extra("idegym.has_project")
+            and not is_root_user(ctx.current_user)
+            and ctx.project_root.startswith("/root/")
+        ):
+            _warn(
+                warnings,
+                f"The image runs as USER {ctx.user_spec}, but the project is at {ctx.project_root}, which a "
+                "non-root user usually cannot enter. Set the project plugin's target.",
+            )
         if self.base_dockerfile is not None:
             overridden = overridden_instruction_warning(self.base_dockerfile, "\n".join(fragments))
             if overridden:
-                _logger.warning(overridden)
-                warnings.append(overridden)
+                _warn(warnings, overridden)
 
         return ImageBuildSpec(
             name=self.name,
@@ -536,25 +550,31 @@ class Image(BaseModel):
         )
 
     @staticmethod
-    def _base_user(normalized: Optional[NormalizedBase], warnings: list[str]) -> Optional[str]:
-        """The non-root user a ``base_dockerfile`` ends as, for the generated stage to return to.
+    def _base_context(base_reference: str, normalized: Optional[NormalizedBase], warnings: list[str]) -> BuildContext:
+        """The context the plugins start from, running as the non-root user a ``base_dockerfile`` ends as.
 
-        ``None`` leaves ``ctx.current_user`` at its ``root`` default: a registry ``base``, a base
-        that declares no ``USER`` or declares root, and one whose ``USER`` is a variable, which the
-        generated stage could not resolve — its ``ARG``s are out of scope there — and is reported.
+        The ``root`` defaults stay for a registry ``base``, a base that declares no ``USER`` or
+        declares root, and one whose ``USER`` is a variable, which the generated stage could not
+        resolve — its ``ARG``s are out of scope there — and is reported. A named user gets
+        ``/home/<user>``, what ``useradd -m`` creates, as its home and project parent; a numeric one
+        names no directory, so it keeps ``/root/work``.
         """
-        user = normalized.user if normalized is not None else None
-        if user is None or is_root_user(user):
-            return None
-        if "$" in user:
-            warning = (
-                f"'base_dockerfile' ends as USER {user}, which the generated idegym stage cannot resolve, "
-                "so the image ends as root. Name the user literally to keep it."
+        ctx = BuildContext(base=base_reference)
+        user_spec = normalized.user if normalized is not None else None
+        if user_spec is None or is_root_user(user_spec):
+            return ctx
+        if "$" in user_spec:
+            _warn(
+                warnings,
+                f"'base_dockerfile' ends as USER {user_spec}, which the generated idegym stage cannot resolve, "
+                "so the image ends as root. Name the user literally to keep it.",
             )
-            _logger.warning(warning)
-            warnings.append(warning)
-            return None
-        return user
+            return ctx
+        user, group = split_user(user_spec)
+        ctx = ctx.updated(current_user=user, current_group=group)
+        if user.isdigit():
+            return ctx
+        return ctx.updated(home=f"/home/{user}", project_root=f"/home/{user}/work")
 
     def _render_base_stage_header(self, base_reference: str) -> str:
         return "\n\n".join(

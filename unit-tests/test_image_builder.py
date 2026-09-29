@@ -1,3 +1,4 @@
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -626,7 +627,7 @@ def test_a_base_user_with_a_group_is_split_into_user_and_group():
     dockerfile = image.to_spec().dockerfile_content
     assert "app:grp:" not in dockerfile
     assert "chown app:grp /etc/idegym /etc/idegym/plugins.json" in _chowns(dockerfile)
-    assert "chown -R app:grp /root/work" in _chowns(dockerfile)
+    assert "chown -R app:grp /home/app/work" in _chowns(dockerfile)
     assert _final_user(dockerfile) == "USER app:grp"
 
 
@@ -641,6 +642,94 @@ def test_a_user_in_raw_lines_replaces_the_group_of_the_user_plugin():
     dockerfile = image.to_spec().dockerfile_content
     assert "chown 4242:4242 /etc/idegym /etc/idegym/plugins.json" in _chowns(dockerfile)
     assert _final_user(dockerfile) == "USER 4242"
+
+
+def _env_project_roots(dockerfile: str) -> list[str]:
+    return re.findall(r'IDEGYM_PROJECT_ROOT="?([^"\s]+)"?', dockerfile)
+
+
+def test_a_named_base_user_gets_the_project_in_its_home():
+    """/root is closed to anyone but root, so a base user could not enter /root/work."""
+    image = (
+        Image.from_dockerfile(_USER_DOCKERFILE)
+        .with_plugin(Project.from_git_clone(url="https://example.com/repo.git"))
+        .with_plugin(_git_idegym_server())
+    )
+    dockerfile = image.to_spec().dockerfile_content
+    assert "git clone https://example.com/repo.git /home/app/work" in dockerfile
+    assert set(_env_project_roots(dockerfile)) == {"/home/app/work"}
+
+
+_NUMERIC_USER_DOCKERFILE = "FROM debian:bookworm-slim\nUSER 1000\n"
+
+
+def test_a_numeric_base_user_keeps_root_work_and_says_so():
+    image = Image.from_dockerfile(_NUMERIC_USER_DOCKERFILE).with_plugin(
+        Project.from_git_clone(url="https://example.com/repo.git")
+    )
+    spec = image.to_spec()
+    assert set(_env_project_roots(spec.dockerfile_content)) == {"/root/work"}
+    assert any("USER 1000" in warning and "/root/work" in warning for warning in spec.warnings)
+
+
+@mark.parametrize(
+    "plugins",
+    [
+        param([BaseSystem()], id="no-project"),
+        param([Project.from_git_clone(url="https://example.com/repo.git", target="/app")], id="project-target"),
+        param([User(username="appuser"), Project.from_git_clone(url="https://example.com/repo.git")], id="user"),
+    ],
+)
+def test_a_numeric_base_user_is_not_reported_once_the_project_is_reachable(plugins):
+    image = Image.from_dockerfile(_NUMERIC_USER_DOCKERFILE)
+    for plugin in plugins:
+        image = image.with_plugin(plugin)
+    assert image.to_spec().warnings == []
+
+
+def test_a_project_placed_before_the_user_plugin_is_reported():
+    image = (
+        Image.from_base("debian:bookworm-slim")
+        .with_plugin(Project.from_git_clone(url="https://example.com/repo.git"))
+        .with_plugin(User(username="appuser"))
+    )
+    assert any("USER appuser" in warning and "/root/work" in warning for warning in image.to_spec().warnings)
+
+
+def test_the_server_serves_the_project_target():
+    """The server used to derive its project root from home, so it looked past a Project target."""
+    image = (
+        Image.from_base("debian:bookworm-slim")
+        .with_plugin(Project.from_git_clone(url="https://example.com/repo.git", target="/app"))
+        .with_plugin(_git_idegym_server())
+    )
+    assert set(_env_project_roots(image.to_spec().dockerfile_content)) == {"/app"}
+
+
+def test_the_user_plugin_moves_the_project_root_to_its_home():
+    image = (
+        Image.from_base("debian:bookworm-slim").with_plugin(User(username="appuser")).with_plugin(_git_idegym_server())
+    )
+    assert set(_env_project_roots(image.to_spec().dockerfile_content)) == {"/home/appuser/work"}
+
+
+def test_the_user_plugin_leaves_a_project_placed_before_it():
+    image = (
+        Image.from_base("debian:bookworm-slim")
+        .with_plugin(Project.from_git_clone(url="https://example.com/repo.git"))
+        .with_plugin(User(username="appuser"))
+        .with_plugin(_git_idegym_server())
+    )
+    dockerfile = image.to_spec().dockerfile_content
+    assert "git clone https://example.com/repo.git /root/work" in dockerfile
+    assert set(_env_project_roots(dockerfile)) == {"/root/work"}
+
+
+def test_a_root_base_keeps_root_work():
+    image = Image.from_dockerfile("FROM debian:bookworm-slim\nUSER root\n").with_plugin(_git_idegym_server())
+    spec = image.to_spec()
+    assert set(_env_project_roots(spec.dockerfile_content)) == {"/root/work"}
+    assert spec.warnings == []
 
 
 def test_a_group_in_raw_lines_is_the_one_the_image_ends_as():

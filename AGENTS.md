@@ -332,6 +332,12 @@ time it follows an IDE plugin on a base that keeps its user. `as_root` is a no-o
 `current_user` is root, so definitions without a non-root user render, and are tagged, as before;
 those using the `user` plugin gain the switches after it.
 
+**`ctx.project_root` is the one place the project lives; `ctx.home` only supplies its default.**
+Whatever sets `home` — the `user` plugin, and a named non-root base user (`/home/<user>`, since
+`/root` is closed to it) — sets `project_root` to `<home>/work` with it, and a `project` plugin's
+`target` overrides that. Plugins read `project_root`; one that recomputes `<home>/work` points past a
+`target` (the server plugin once did).
+
 **The active user and its group are two fields, set together.** `ctx.current_user` never holds a
 `:group`; the group is `ctx.current_group` (`None` for the user's own-named group), and whatever sets
 the user — the base's `USER`, the `user` plugin, a `USER` in `raw-lines` — sets both, so a group
