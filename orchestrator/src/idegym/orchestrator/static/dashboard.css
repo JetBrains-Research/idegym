@@ -428,3 +428,8 @@ details.editor > summary { list-style: none; cursor: pointer; }
 details.editor > summary::-webkit-details-marker { display: none; }
 details.editor[open] { padding-bottom: 8px; }
 details.editor .form-grid { margin-top: 10px; min-width: 560px; }
+
+/* ---- Pod shell ---------------------------------------------------------------------------- */
+
+.terminal-card { background: #111110; border-color: #2c2c2a; overflow: hidden; }
+.terminal { height: calc(100vh - 260px); min-height: 360px; padding: 10px 12px; }

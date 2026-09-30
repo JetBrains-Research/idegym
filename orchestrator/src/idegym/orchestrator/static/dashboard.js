@@ -233,6 +233,13 @@
   function initRefresh() {
     const toggle = document.querySelector("[data-auto-refresh]");
     if (!toggle) return;
+    // A reload would end a live session (the pod shell), so such pages opt out.
+    if (document.querySelector("[data-no-auto-refresh]")) {
+      toggle.checked = false;
+      toggle.disabled = true;
+      toggle.parentElement.title = "Auto-refresh is off on this page";
+      return;
+    }
     let timer = null;
     const schedule = () => {
       clearTimeout(timer);

@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Shell · {{ pod.name }}{% endblock %}
+{% block head %}
+  <link rel="stylesheet" href="{{ static_url }}/vendor/xterm/xterm.css?v={{ version }}" />
+  <script src="{{ static_url }}/vendor/xterm/xterm.js?v={{ version }}" defer></script>
+  <script src="{{ static_url }}/vendor/xterm/addon-fit.js?v={{ version }}" defer></script>
+  <script src="{{ static_url }}/shell.js?v={{ version }}" defer></script>
+{% endblock %}
+{% block content %}
+<div class="breadcrumbs">
+  <a href="/dashboard/pods?namespace={{ pod.namespace | urlencode }}">Pods</a> /
+  <a href="/dashboard/pods/{{ pod.namespace }}/{{ pod.name }}">{{ pod.name }}</a> / shell
+</div>
+<div class="page-header">
+  <div>
+    <h1><span class="mono" style="font-size: 20px">{{ pod.name }}</span> <span class="badge badge-info" data-shell-status>Connecting…</span></h1>
+    <p>A shell in <strong>{{ container }}</strong>, relayed through the orchestrator. For debugging only: it closes after {{ idle_minutes }} minutes without input, and every session is logged.</p>
+  </div>
+  <div class="page-actions">
+    {% if containers | length > 1 %}
+      <form class="filters" method="get">
+        <label class="field"><span>Container</span>
+          <select class="input" name="container" onchange="this.form.submit()">
+            {% for name in containers %}<option value="{{ name }}"{% if name == container %} selected{% endif %}>{{ name }}</option>{% endfor %}
+          </select>
+        </label>
+      </form>
+    {% endif %}
+    <button type="button" class="button" data-shell-reconnect>Reconnect</button>
+    <a class="button" href="/dashboard/pods/{{ pod.namespace }}/{{ pod.name }}">Logs and events</a>
+  </div>
+</div>
+
+<section class="card terminal-card">
+  <div class="terminal" data-no-auto-refresh data-shell="/dashboard/pods/{{ pod.namespace }}/{{ pod.name }}/exec?container={{ container | urlencode }}"></div>
+</section>
+<noscript><div class="callout callout-warning" style="margin-top: 16px"><div>The shell needs JavaScript.</div></div></noscript>
+{% endblock %}

@@ -75,6 +75,7 @@ def render(request: Request, name: str, active: str, status_code: int = 200, **c
             "active": active,
             "grafana": grafana_links(request),
             "actions_enabled": config.orchestrator.dashboard.actions_enabled,
+            "shell_enabled": config.orchestrator.dashboard.shell_enabled,
             **context,
         },
     )
