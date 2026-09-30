@@ -431,6 +431,46 @@ class MCPConfig(ConfigModel):
     )
 
 
+class GrafanaConfig(ConfigModel):
+    """Where the dashboard links to for logs and traces.
+
+    IdeGYM does not know where a deployment keeps its logs, so nothing here has a real default:
+    the dashboard renders a Grafana link only once ``url`` is set, and a Loki or Tempo link only
+    once that datasource's UID is set too. The label names are settings because they are chosen
+    by whatever ships the logs (promtail, Alloy, an OpenTelemetry collector), not by IdeGYM.
+    """
+
+    env_segment = "GRAFANA"
+
+    url: Optional[str] = Field(description="Grafana base URL, as the browser reaches it", default=None)
+    org_id: Optional[int] = Field(description="Grafana organization the datasources belong to", default=None)
+    loki_datasource_uid: Optional[str] = Field(description="UID of the Loki datasource holding pod logs", default=None)
+    loki_labels: Mapping = Field(
+        description="Extra stream selectors added to every Loki query, e.g. {cluster: my-cluster}",
+        default_factory=dict,
+    )
+    loki_namespace_label: str = Field(description="Loki label holding the Kubernetes namespace", default="namespace")
+    loki_pod_label: str = Field(description="Loki label holding the pod name", default="pod")
+    tempo_datasource_uid: Optional[str] = Field(description="UID of the Tempo datasource holding traces", default=None)
+
+    @field_validator("url", "loki_datasource_uid", "tempo_datasource_uid", mode="before")
+    def blank_is_unset(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            value = value.strip().rstrip("/")
+            return value or None
+        return value
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.url)
+
+
+class DashboardConfig(ConfigModel):
+    env_segment = "DASHBOARD"
+
+    grafana: GrafanaConfig = Field(default_factory=GrafanaConfig)
+
+
 class WatcherConfig(ConfigModel):
     env_segment = "WATCHER"
 
@@ -481,6 +521,7 @@ class OrchestratorConfig(ConfigModel):
     )
     connection_limits: ConnectionLimitsConfig = Field(default_factory=ConnectionLimitsConfig)
     pod_snapshot: PodSnapshotConfig = Field(default_factory=PodSnapshotConfig)
+    dashboard: DashboardConfig = Field(default_factory=DashboardConfig)
     enable_fifo_server_reuse: bool = env(
         legacy=["IDEGYM_ENABLE_FIFO_SERVER_REUSE"],
         description="Enable FIFO queue for server reuse to ensure fair provisioning",

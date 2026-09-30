@@ -1,57 +1,58 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Alive Clients — IdeGYM Orchestrator</title>
-  <style>
-    body{font-family:Arial,Helvetica,sans-serif;margin:20px;color:#222;background:#fafafa}
-    h1{font-size:22px;margin-bottom:8px}
-    .layout{max-width:1200px;margin:0 auto}
-    .muted{color:#777;font-size:13px}
-    table{border-collapse:collapse;width:100%;background:#fff}
-    th,td{border:1px solid #ddd;padding:8px;font-size:14px}
-    th{background:#f0f0f0;text-align:left}
-    tr:nth-child(even){background:#f9f9f9}
-    a{color:#0a62c9;text-decoration:none}
-    a:hover{text-decoration:underline}
-  </style>
-</head>
-<body>
-<div class="layout">
-  <h1>Alive Clients</h1>
-  <p class="muted">List of currently alive clients with their last heartbeat and nodes info. <a href="/">Back to Home</a></p>
-
-  {% if not alive_clients %}
-    <p>No alive clients found.</p>
-  {% else %}
-    <table>
-      <thead>
-      <tr>
-        <th>ID</th>
-        <th>Name</th>
-        <th>Namespace</th>
-        <th>Nodes Count</th>
-        <th>Availability</th>
-        <th>Created At</th>
-        <th>Last Heartbeat</th>
-      </tr>
-      </thead>
-      <tbody>
-      {% for c in alive_clients %}
-        <tr>
-          <td>{{ c.id }}</td>
-          <td>{{ c.name }}</td>
-          <td>{{ c.namespace }}</td>
-          <td>{{ c.nodes_count }}</td>
-          <td>{{ c.availability }}</td>
-          <td>{{ c.created_at | format_ts }}</td>
-          <td>{{ c.last_heartbeat_time | format_ts }}</td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
-  {% endif %}
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Clients{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Clients</h1>
+    <p>Registered clients that are still sending heartbeats.</p>
+  </div>
 </div>
-</body>
-</html>
+
+<section class="card">
+  <div class="card-header">
+    <div class="filters">
+      <label class="field"><span>Filter</span>
+        <input class="input" type="search" data-filter="clients-table" placeholder="Name or ID…" size="32" />
+      </label>
+    </div>
+    <span class="muted"><span data-filter-count="clients-table">{{ alive_clients | length }}</span> of {{ alive_clients | length }} clients</span>
+  </div>
+  {% if not alive_clients %}
+    {{ ui.empty("No alive clients", "A client appears here once it registers with the orchestrator.") }}
+  {% else %}
+    <div class="table-wrap">
+      <table class="table" id="clients-table" data-sortable>
+        <thead>
+        <tr>
+          <th data-sort="text">Name</th>
+          <th data-sort="text">ID</th>
+          <th data-sort="text">Namespace</th>
+          <th data-sort="text">Status</th>
+          <th data-sort="number" class="num">Nodes</th>
+          <th data-sort="number">Registered</th>
+          <th data-sort="number">Last heartbeat</th>
+          {% if grafana and grafana.loki_enabled %}<th>Grafana</th>{% endif %}
+        </tr>
+        </thead>
+        <tbody>
+        {% for c in alive_clients %}
+          <tr>
+            <td><strong>{{ c.name }}</strong></td>
+            <td>{{ ui.ident(c.id) }}</td>
+            <td>{{ c.namespace or "" }}</td>
+            <td>{{ ui.status(c.availability) }}</td>
+            <td class="num">{{ c.nodes_count or 0 }}</td>
+            <td class="nowrap" data-value="{{ c.created_at or 0 }}">{{ ui.when(c.created_at) }}</td>
+            <td class="nowrap" data-value="{{ c.last_heartbeat_time or 0 }}">{{ ui.when(c.last_heartbeat_time) }}</td>
+            {% if grafana and grafana.loki_enabled %}
+              <td><span class="links">{{ ui.link(grafana.client_logs(c), "Mentions") }}</span></td>
+            {% endif %}
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}
