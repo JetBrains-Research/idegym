@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}{{ server.generated_name }}{% endblock %}
+{% block content %}
+<div class="breadcrumbs"><a href="/dashboard/servers">Servers</a> / {{ server.id }}</div>
+<div class="page-header">
+  <div>
+    <h1><span class="mono" style="font-size: 20px">{{ server.generated_name }}</span> {{ ui.status(server.availability) }}</h1>
+    <p>
+      Server {{ server.id }}{% if server.server_name and server.server_name != server.generated_name %} (<span class="mono">{{ server.server_name }}</span>){% endif %}
+      for client <strong>{{ server.client_name or "unknown" }}</strong> in <code>{{ server.namespace }}</code>
+    </p>
+  </div>
+  <div class="page-actions">
+    {% if grafana and grafana.enabled %}
+      {% set logs = grafana.server_logs(server) %}
+      {% set mentions = grafana.server_mentions(server) %}
+      {% set traces = grafana.server_traces(server) %}
+      {% if logs %}<a class="button" href="{{ logs }}" target="_blank" rel="noopener">Logs ↗</a>{% endif %}
+      {% if mentions %}<a class="button" href="{{ mentions }}" target="_blank" rel="noopener">Mentions ↗</a>{% endif %}
+      {% if traces %}<a class="button" href="{{ traces }}" target="_blank" rel="noopener">Traces ↗</a>{% endif %}
+    {% endif %}
+  </div>
+</div>
+
+{% if server.details %}
+  <div class="callout {{ 'callout-critical' if not live else 'callout-info' }}" style="margin-bottom: 16px">
+    <div><strong>{{ "Why it ended" if not live else "Details" }}</strong><pre>{{ server.details }}</pre></div>
+  </div>
+{% endif %}
+{% if startup %}
+  <div class="callout callout-warning" style="margin-bottom: 16px">
+    <div><strong>Not ready yet</strong><div class="secondary">{{ startup[:1] | upper }}{{ startup[1:] }}.</div></div>
+  </div>
+{% endif %}
+{% if kube_error %}
+  <div class="callout callout-warning" style="margin-bottom: 16px">
+    <div><strong>Could not read the server's Kubernetes objects</strong><pre>{{ kube_error }}</pre></div>
+  </div>
+{% endif %}
+
+<div class="grid grid-2">
+  <section class="card">
+    <div class="card-header"><h2>Details</h2></div>
+    <div class="card-body">
+      <dl class="facts">
+        <dt>Image</dt><dd class="mono">{{ server.image_tag or "—" }}</dd>
+        <dt>Kind</dt><dd>{{ server.server_kind }}{% if server.container_runtime %} · runtime <code>{{ server.container_runtime }}</code>{% endif %}{% if server.run_as_root %} · runs as root{% endif %}</dd>
+        <dt>Client</dt><dd>{{ server.client_name or "—" }} <span class="muted">·</span> {{ ui.ident(server.client_id) }}</dd>
+        <dt>Service port</dt><dd>{{ server.service_port }}</dd>
+        <dt>Started</dt><dd>{{ ui.when(server.created_at) }} <span class="muted">{{ server.created_at | format_ts }} UTC</span></dd>
+        <dt>Last heartbeat</dt><dd>{{ ui.when(server.last_heartbeat_time) }}</dd>
+        <dt>Keepalive until</dt><dd>{% if server.keepalive_until %}{{ ui.when(server.keepalive_until) }}{% else %}<span class="muted">not set</span>{% endif %}</dd>
+        <dt>Restarts allowed</dt><dd>{{ server.max_restarts }}</dd>
+        <dt>Snapshot group</dt><dd>{{ ui.ident(server.snapshot_id) }}</dd>
+        <dt>Pod selector</dt><dd>{{ ui.ident(selector) }}</dd>
+      </dl>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-header">
+      <div>
+        <h2>Resources</h2>
+        <p>{{ "%.2f" | format(server.cpu or 0) }} CPU and {{ "%.2f" | format(server.ram or 0) }} GB RAM requested</p>
+      </div>
+      {% if rule %}<a href="/dashboard/rules">Rule <code>{{ rule.client_name_regex }}</code> →</a>{% endif %}
+    </div>
+    <div class="card-body" style="display: grid; gap: 14px">
+      {% if rule %}
+        <p class="muted" style="margin: 0">Usage of the limit rule this client falls under, all of its servers together.</p>
+        {{ ui.meter("Pods", rule.current_pods, rule.pods_limit, precision=0) }}
+        {{ ui.meter("CPU", rule.used_cpu, rule.cpu_limit, " cores") }}
+        {{ ui.meter("RAM", rule.used_ram, rule.ram_limit, " GB") }}
+      {% else %}
+        <span class="muted">No resource limit rule matches this client.</span>
+      {% endif %}
+    </div>
+  </section>
+</div>
+
+<section class="card">
+  <div class="card-header">
+    <div><h2>Pods</h2><p>Pods of the server's Deployment, including ones on their way out.</p></div>
+  </div>
+  {% if not pods %}
+    {{ ui.empty("No pods", "The Deployment has no pods, or it has already been deleted." if not live else "No pod has been created yet.") }}
+  {% else %}
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Pod</th><th>Phase</th><th>Ready</th><th class="num">Restarts</th><th>Node</th><th>Started</th><th></th></tr></thead>
+        <tbody>
+        {% for p in pods %}
+          <tr>
+            <td><a class="mono" href="/dashboard/pods/{{ p.namespace }}/{{ p.name }}">{{ p.name }}</a>{% if p.deletion_timestamp %} {{ ui.status("Terminating") }}{% endif %}</td>
+            <td>{{ ui.status(p.phase) }}{% for c in p.containers if c.oomkilled %} {{ ui.status("OOMKilled") }}{% endfor %}</td>
+            <td>{{ ui.status("True" if p.ready else "Waiting", "Ready" if p.ready else "Not ready") }}</td>
+            <td class="num">{{ p.containers | sum(attribute="restart_count") }}</td>
+            <td class="mono secondary">{{ p.node_name or "—" }}</td>
+            <td class="nowrap">{{ ui.when(p.start_time) }}</td>
+            <td class="nowrap"><span class="links"><a href="/dashboard/pods/{{ p.namespace }}/{{ p.name }}">Logs</a></span></td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</section>
+
+<section class="card">
+  <div class="card-header">
+    <div><h2>Events</h2><p>Kubernetes events for the Deployment, its ReplicaSets, and its pods, newest first.</p></div>
+  </div>
+  {% if events %}{% include "_events.html" %}{% else %}{{ ui.empty("No recent events", "Kubernetes keeps events for about an hour.") }}{% endif %}
+</section>
+
+<section class="card">
+  <div class="card-header">
+    <div><h2>Operations</h2><p>The latest requests the orchestrator ran against this server.</p></div>
+  </div>
+  {% if not operations %}
+    {{ ui.empty("No operations recorded") }}
+  {% else %}
+    {% include "_operations.html" %}
+  {% endif %}
+</section>
+{% endblock %}

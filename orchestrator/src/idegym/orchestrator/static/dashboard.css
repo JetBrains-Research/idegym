@@ -374,3 +374,24 @@ a.tile:hover { text-decoration: none; border-color: var(--baseline); }
   .page { padding: 16px 12px; }
   .grid-2 { grid-template-columns: 1fr; }
 }
+
+/* ---- Log viewer --------------------------------------------------------------------------- */
+
+.log-meta { padding: 10px 16px 0; font-size: 12.5px; }
+.log {
+  margin: 10px 16px 16px;
+  padding: 12px 14px;
+  max-height: 70vh;
+  overflow: auto;
+  background: #111110;
+  color: #e7e6e1;
+  border-radius: var(--radius-small);
+  font: 12px/1.55 var(--mono);
+  tab-size: 4;
+}
+.log-wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+.log:not(.log-wrap) { white-space: pre; }
+.log-line { display: block; }
+.log-line:hover { background: rgba(255, 255, 255, 0.05); }
+.log-line[hidden] { display: none; }
+.log mark { background: #6b4f00; color: #fff; border-radius: 2px; }
