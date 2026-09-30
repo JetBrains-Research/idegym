@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Health{% endblock %}
+{% block content %}
+{% set drifting = drifts | rejectattr("consistent") | list %}
+<div class="page-header">
+  <div>
+    <h1>Health</h1>
+    <p>Where the orchestrator's records and the cluster disagree. Nothing reconciles these on its own.</p>
+  </div>
+</div>
+
+<div class="grid grid-tiles">
+  <div class="card tile">
+    <span class="tile-label">Rules with drifting counters</span>
+    <span class="tile-value">{{ drifting | length }}</span>
+    <span class="tile-note">{{ ui.status("ALIVE", "All consistent") if not drifting else ui.status("Warning", "Counters disagree with the servers") }}</span>
+  </div>
+  <div class="card tile">
+    <span class="tile-label">Orphans</span>
+    <span class="tile-value">{{ orphans | length }}</span>
+    <span class="tile-note">{{ deployment_count }} sandbox Deployment{{ "s" if deployment_count != 1 }} in {{ namespaces | length }} namespace{{ "s" if namespaces | length != 1 }}</span>
+  </div>
+</div>
+
+{% for namespace, message in errors.items() %}
+  <div class="callout callout-warning" style="margin-top: 16px">
+    <div><strong>Could not list Deployments in <code>{{ namespace }}</code></strong><pre>{{ message }}</pre></div>
+  </div>
+{% endfor %}
+
+<section class="card">
+  <div class="card-header">
+    <div>
+      <h2>Quota counters</h2>
+      <p>Each rule's stored usage against the usage recomputed from servers that still hold quota. A positive difference is quota leaked by a release that never ran.</p>
+    </div>
+  </div>
+  {% if not drifts %}
+    {{ ui.empty("No resource limit rules") }}
+  {% else %}
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+        <tr>
+          <th>Rule</th>
+          <th>State</th>
+          <th class="num">Pods stored / actual</th>
+          <th class="num">CPU stored / actual</th>
+          <th class="num">RAM stored / actual (GB)</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for d in drifts %}
+          <tr>
+            <td><code>{{ d.rule.client_name_regex }}</code> <span class="muted">priority {{ d.rule.priority }}</span></td>
+            <td>{{ ui.status("ALIVE", "Consistent") if d.consistent else ui.status("Warning", "Drifting") }}</td>
+            <td class="num">{{ d.rule.current_pods }} / {{ d.actual.pods }}{% if d.pods %} <strong>({{ "%+d" | format(d.pods) }})</strong>{% endif %}</td>
+            <td class="num">{{ "%.2f" | format(d.rule.used_cpu) }} / {{ "%.2f" | format(d.actual.cpu) }}{% if not d.consistent and d.cpu | abs > 0.000001 %} <strong>({{ "%+.2f" | format(d.cpu) }})</strong>{% endif %}</td>
+            <td class="num">{{ "%.2f" | format(d.rule.used_ram) }} / {{ "%.2f" | format(d.actual.ram) }}{% if not d.consistent and d.ram | abs > 0.000001 %} <strong>({{ "%+.2f" | format(d.ram) }})</strong>{% endif %}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</section>
+
+<section class="card">
+  <div class="card-header">
+    <div>
+      <h2>Orphans</h2>
+      <p>Sandbox Deployments without a server row that expects them, and live server rows without a Deployment. Anything younger than two minutes is skipped, since both sides briefly disagree while a server starts or stops.</p>
+    </div>
+  </div>
+  {% if not orphans %}
+    {{ ui.empty("No orphans", "Every sandbox Deployment has a live server row, and every live server has a Deployment.") }}
+  {% else %}
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Name</th><th>Namespace</th><th>Problem</th><th>Server</th></tr></thead>
+        <tbody>
+        {% for o in orphans %}
+          <tr>
+            <td>{{ ui.ident(o.name) }}</td>
+            <td>{{ o.namespace }}</td>
+            <td>{{ o.problem }}</td>
+            <td>{% if o.server %}<a href="/dashboard/servers/{{ o.server.id }}">{{ o.server.id }}</a> {{ ui.status(o.server.availability) }}{% else %}<span class="muted">—</span>{% endif %}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

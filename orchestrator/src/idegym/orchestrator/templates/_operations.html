@@ -1,7 +1,7 @@
 {# The async operations table shared by the server and operations pages. Expects `operations`. #}
 {% import "_macros.html" as ui %}
 <div class="table-wrap">
-  <table class="table" data-sortable>
+  <table class="table" data-sortable{% if table_id %} id="{{ table_id }}"{% endif %}>
     <thead>
     <tr>
       <th data-sort="number">ID</th>
