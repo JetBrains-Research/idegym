@@ -30,7 +30,7 @@ Relevant code:
 
 Startup also checks the revision the release declares (`database.schemaRevision` in the chart,
 `IDEGYM_DATABASE_SCHEMA_REVISION` in the pod) against the head in the image, and refuses to
-start when they disagree. A migration must therefore bump that chart value in the same change;
+start when it is missing or they disagree. A migration must therefore bump that chart value in the same change;
 a unit test enforces it.
 
 

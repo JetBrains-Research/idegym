@@ -169,8 +169,9 @@ class DatabaseConfig(ConfigModel):
     )
     schema_revision: Optional[str] = Field(
         description=(
-            "Alembic revision this release expects, as declared by the chart. Checked against the "
-            "image's migration head on startup, and read back from the release when rolling back"
+            "Alembic revision this release expects, as declared by the chart. Required by the "
+            "orchestrator, which checks it against the image's migration head on startup; read back "
+            "from the release when rolling back"
         ),
         default=None,
     )

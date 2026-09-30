@@ -242,12 +242,15 @@ class MigrationManager:
     def verify_declared_revision(self, declared: Optional[str]) -> None:
         """Fail fast when the release declares a schema revision this image cannot produce.
 
-        ``database.schemaRevision`` is what a rollback downgrades to, so a value that does
-        not match the image's head would send a later rollback to the wrong revision.
-        Refusing to start turns that into a failed rollout instead.
+        ``database.schemaRevision`` is what a rollback downgrades to, so a missing value or
+        one that does not match the image's head would leave a later rollback without the
+        right target. Refusing to start turns that into a failed rollout instead.
         """
         if not declared:
-            return
+            raise MigrationError(
+                "Release does not declare a database schema revision; set database.schemaRevision "
+                "in the chart (IDEGYM_DATABASE_SCHEMA_REVISION in the pod) to the image's migration head"
+            )
 
         head = self.head_revision()
         if declared != head:

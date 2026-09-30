@@ -78,11 +78,16 @@ def test_database_on_an_unknown_revision_is_rejected(manager: MigrationManager):
 
 
 def test_declared_revision_must_match_the_image_head(manager: MigrationManager):
-    manager.verify_declared_revision(None)
     manager.verify_declared_revision(manager.head_revision())
 
     with pytest.raises(MigrationError, match="align database.schemaRevision"):
         manager.verify_declared_revision("002")
+
+
+@pytest.mark.parametrize("declared", [None, ""])
+def test_declared_revision_is_required(manager: MigrationManager, declared):
+    with pytest.raises(MigrationError, match="does not declare a database schema revision"):
+        manager.verify_declared_revision(declared)
 
 
 def test_migrate_requires_an_exact_target():
