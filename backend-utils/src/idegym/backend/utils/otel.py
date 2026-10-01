@@ -10,12 +10,29 @@ from opentelemetry import metrics, trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.exporter.prometheus import PrometheusMetricReader
 from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.view import View
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.semconv.attributes.service_attributes import SERVICE_NAME, SERVICE_VERSION
 
 logger = get_logger(__name__)
+
+# Prometheus fails a whole scrape once any series exceeds the job's `label_limit`, counting the target
+# labels it adds itself, so exported metrics keep a tight label budget. HTTP metrics keep only what a
+# query filters on (old and stable semantic-convention names), not host, scheme, flavor, or port.
+http_metric_attribute_keys = frozenset(
+    {
+        "http.method",
+        "http.status_code",
+        "http.target",
+        "http.route",
+        "http.request.method",
+        "http.response.status_code",
+        "net.peer.name",
+        "server.address",
+    }
+)
 
 system_metrics_config: dict[str, Optional[list[str]]] = {
     # process
@@ -63,22 +80,24 @@ if psutil.LINUX:
 
 def configure_telemetry(config: OTELConfig):
     service_name = config.service_name or gethostname()
-    resource = Resource.create(
-        attributes={
-            SERVICE_NAME: service_name,
-            SERVICE_VERSION: service_version,
-            **config.attributes,
-        },
-    )
-    configure_metrics_provider(resource)
-    configure_tracing_provider(resource, config)
+    attributes = {
+        SERVICE_NAME: service_name,
+        SERVICE_VERSION: service_version,
+    }
+    # Each metrics resource attribute is a `target_info` label, so metrics get only the service identity:
+    # `k8s.*` duplicates the Prometheus target labels. `Resource(...)`, not `Resource.create(...)`, keeps
+    # the SDK defaults (`telemetry.sdk.*`, a random `service.instance.id`) out. Traces keep everything.
+    configure_metrics_provider(Resource(attributes))
+    configure_tracing_provider(Resource.create({**attributes, **config.attributes}), config)
 
 
 def configure_metrics_provider(resource: Resource):
-    reader = PrometheusMetricReader()
+    # No `otel_scope_*` labels: the instrumentation library is never a query dimension.
+    reader = PrometheusMetricReader(scope_info_enabled=False)
     provider = MeterProvider(
         metric_readers=[reader],
         resource=resource,
+        views=[View(instrument_name="http.*", attribute_keys=http_metric_attribute_keys)],
     )
 
     metrics.set_meter_provider(provider)
