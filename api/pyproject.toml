@@ -12,7 +12,7 @@ requires-python = ">=3.12"
 dependencies = [
     "idegym-common-utils",
     "kubernetes>=36.0.3",
-    "pydantic>=2.10.6",
+    "pydantic>=2.13.5",
     "pyyaml>=6.0.2",
     "structlog>=25.4.0",
 ]
