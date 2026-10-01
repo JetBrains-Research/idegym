@@ -12,7 +12,7 @@ dependencies = [
     "idegym-api",
     "idegym-backend-utils",
     "idegym-common-utils",
-    "junitparser>=3.2.0",
+    "junitparser>=5.0.3",
 ]
 
 [project.optional-dependencies]
