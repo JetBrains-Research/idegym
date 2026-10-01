@@ -808,19 +808,19 @@ wheels = [
 
 [[package]]
 name = "fastmcp"
-version = "4.0.0"
+version = "4.0.10"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "fastmcp-slim", extra = ["client", "server"] },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/fe/02/4f53258f4fb2b88675246a022d1ed9f653d9129c0ddcc40f88479abde455/fastmcp-4.0.0.tar.gz", hash = "sha256:613d925f687609973575039afc6bd8874e60ab373e4f5b8c60f7860897063598", size = 42300863, upload-time = "2026-08-31T18:20:33.564Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c6/4e/8acec5837a5611b19b7d1ad0515f6ebac14ad526ac801f4d81de73a4e246/fastmcp-4.0.10.tar.gz", hash = "sha256:64539631a7dc5873a1c7a44089b2f7b3395dea3ca857e9f81bfe9665a59038d5", size = 42415441, upload-time = "2026-09-25T17:19:59.734Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/24/6a/03160d06bcf2957caf02555d296b343136895e07a1160a6f4b85d0f672af/fastmcp-4.0.0-py3-none-any.whl", hash = "sha256:b041d669971f2325ab41797961bb4e729d1195d0da38d213bfbbcc6ddd65ca75", size = 8077, upload-time = "2026-08-31T18:20:31.342Z" },
+    { url = "https://files.pythonhosted.org/packages/5d/04/897d9e48e653793a3e6ef5b8cb190bb194e0a8756d8051f6d7c214acba97/fastmcp-4.0.10-py3-none-any.whl", hash = "sha256:1f8462e3d97394a637e1b0f1eaea0002da661c8d98000ad43f0aa3fa1ff523e8", size = 8100, upload-time = "2026-09-25T17:19:56.6Z" },
 ]
 
 [[package]]
 name = "fastmcp-slim"
-version = "4.0.0"
+version = "4.0.10"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "mcp-types" },
@@ -831,9 +831,9 @@ dependencies = [
     { name = "rich" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/29/b1/8abb7c56159cf817718c1fc6b4547fd0f35cb91f05659ffc1d4f5cee1198/fastmcp_slim-4.0.0.tar.gz", hash = "sha256:b6f78c26e369b4c29b485d7d7b662838d9631e765dc496b4560274762f144e6a", size = 683960, upload-time = "2026-08-31T18:20:09.778Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c7/7b/ab66bdf56ac1741952b2b288166f0525ed63096958871b439ce2b6f58d4b/fastmcp_slim-4.0.10.tar.gz", hash = "sha256:d22b423f93ad945bf65d446a1689ff84be7b91dfd9b6f23c5013f4b2fe9776a7", size = 701806, upload-time = "2026-09-25T17:19:35.311Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2c/4b/7bc65d74cc93684ec8b10d49a51fa14c5e4aa3a08120c7001a85bd2a159a/fastmcp_slim-4.0.0-py3-none-any.whl", hash = "sha256:75259ad8033af011f926f4b99cda9ce080b7853f9831d38f2056a392908e11c2", size = 857981, upload-time = "2026-08-31T18:20:07.951Z" },
+    { url = "https://files.pythonhosted.org/packages/0e/86/9f99555e7b41d123c9c9f5fa9697e713129e43240de66b475f2324930c4c/fastmcp_slim-4.0.10-py3-none-any.whl", hash = "sha256:c2abd40302b8f06b0291413cf537d57bc0f171b5fd98af5cfef3b2b6b506122f", size = 876165, upload-time = "2026-09-25T17:19:34.001Z" },
 ]
 
 [package.optional-dependencies]
@@ -1031,7 +1031,7 @@ wheels = [
 
 [[package]]
 name = "google-cloud-build"
-version = "3.38.0"
+version = "3.39.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "google-api-core", extra = ["grpc"] },
@@ -1041,9 +1041,9 @@ dependencies = [
     { name = "proto-plus" },
     { name = "protobuf" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/4e/34/86c367888e986169a7921eee8b53a353c266d0381250ec4a285165d68afc/google_cloud_build-3.38.0.tar.gz", hash = "sha256:bea501bf0fe700511e25a177a842f39dadd98128554476a7c56bc40c0cc8b913", size = 241294, upload-time = "2026-06-25T23:39:30.1Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6d/e0/ca8eec9f50a651032a5b5beaa72d204e534fc4e558f5eb0be09ac58ec6cd/google_cloud_build-3.39.0.tar.gz", hash = "sha256:4afe959637aad6ce39b49f4ef5b8c80932a9a3aeae9c32258938406369be1d45", size = 242733, upload-time = "2026-08-25T19:18:38.927Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/97/b4/9f9d2652a639388c300af98fe9caf2105c8314e3a8aa4e0fd55c9cd893df/google_cloud_build-3.38.0-py3-none-any.whl", hash = "sha256:c7c272d8ddbd8f39d5cf2a73d9e31f44088c9c297aabe8ada98ff944da2e0203", size = 187293, upload-time = "2026-06-25T23:38:56.044Z" },
+    { url = "https://files.pythonhosted.org/packages/2d/ad/fa0f90a2830f4a0e49897b998afd55694439e0760dbafcbbfca692628852/google_cloud_build-3.39.0-py3-none-any.whl", hash = "sha256:e96877072823396d2b59455036ba6cad93675dda26df73877d3414ea44b3e471", size = 187542, upload-time = "2026-08-24T21:55:22.802Z" },
 ]
 
 [[package]]
@@ -1078,7 +1078,7 @@ wheels = [
 
 [[package]]
 name = "google-cloud-storage"
-version = "3.13.0"
+version = "3.15.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "google-api-core" },
@@ -1088,9 +1088,9 @@ dependencies = [
     { name = "google-resumable-media" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e3/25/355ed97c1723c787dfaa888808d55db18371f82c38ff862357b1e902cd19/google_cloud_storage-3.13.0.tar.gz", hash = "sha256:d11d8706ea1520fba0f21043bcb7897caf7015d76ce1ad9a4f60237e4d7a9f6c", size = 17340960, upload-time = "2026-07-13T19:10:07.524Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/5c/b9/de4f0a218485bdbac839ad337166997171471a29c7d28c03b41b37830379/google_cloud_storage-3.15.0.tar.gz", hash = "sha256:110041ee1cb566114015aa7c2492f1ff18c92af528588386663f4b41b6279989", size = 17350807, upload-time = "2026-09-24T23:20:16.709Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/81/e8/b3678a0931ee7d4b3fdaf0813e6206d66e0922b2c26d912f308728b5b95a/google_cloud_storage-3.13.0-py3-none-any.whl", hash = "sha256:648af3ef8a6acc674e1359d3c920c67eb89a7a5ab66b336bd3ac43fed6b5ab84", size = 341428, upload-time = "2026-07-13T19:09:52.39Z" },
+    { url = "https://files.pythonhosted.org/packages/d7/e7/77c6358819e53f2cf5175e50b61edcf0af4f7fd1158e9703649659630b5c/google_cloud_storage-3.15.0-py3-none-any.whl", hash = "sha256:248905def997a300ad456c0696cf7fad04b8c38412c1103ebb2a60cc6341579f", size = 343392, upload-time = "2026-09-24T23:19:52.066Z" },
 ]
 
 [[package]]
@@ -1314,15 +1314,15 @@ wheels = [
 
 [[package]]
 name = "httpcore2"
-version = "2.12.0"
+version = "2.13.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "h11" },
     { name = "truststore" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/be/ad/f4f0e57345f1870f3e8cb624e058d7eca6e5a27d33bcc3311d9b618734cd/httpcore2-2.12.0.tar.gz", hash = "sha256:9293522bba0aa7c4c8e9e3f040c16575bd8868e155a77fa30c7a9085a5eae648", size = 67548, upload-time = "2026-08-18T13:22:08.211Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/cb/f3/1db7aa2bc2524062192bb0e0323969492d1883152a232fe36eea65f4e35c/httpcore2-2.13.1.tar.gz", hash = "sha256:e0aa977abe17e69a3b820a24542a6fa88702676d83880b8d194dcd18408e5103", size = 68071, upload-time = "2026-09-23T07:47:22.372Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d2/74/d370e55600d9bcfa0d9794b0166126d49291a3d2b20c268fc98c453a4948/httpcore2-2.12.0-py3-none-any.whl", hash = "sha256:7e04258ce01013d7d615e5b910a3b27fac937d7a95038227e79652b4ba3b4ceb", size = 83074, upload-time = "2026-08-18T13:22:05.854Z" },
+    { url = "https://files.pythonhosted.org/packages/09/ba/a4568248771ce81957bfb7cc600264a40fbcda092391ee1c415c50be4bea/httpcore2-2.13.1-py3-none-any.whl", hash = "sha256:e1e05d4f25f7d7d496bfb96748f6f4b67657b03da069b3a68c36069f3db73d0a", size = 83423, upload-time = "2026-09-23T07:47:19.365Z" },
 ]
 
 [[package]]
@@ -1378,7 +1378,7 @@ wheels = [
 
 [[package]]
 name = "httpx2"
-version = "2.12.0"
+version = "2.13.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio", marker = "sys_platform != 'emscripten'" },
@@ -1388,9 +1388,9 @@ dependencies = [
     { name = "truststore", marker = "sys_platform != 'emscripten'" },
     { name = "typing-extensions", marker = "python_full_version < '3.13'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7f/f8/579a8b51e42e38ee32647df9f08aa25643ae788e275cc625b199829c4671/httpx2-2.12.0.tar.gz", hash = "sha256:7631fe9887a8a2275f4a2540e053aa670fcc50742864a9ae7c66e609fdcf12cf", size = 100040, upload-time = "2026-08-18T13:22:09.086Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d5/44/474bef2a0e9d90f1715d32cb98b0738695ca17ba324095fb2497ed7fbd59/httpx2-2.13.1.tar.gz", hash = "sha256:e48744a19e3af5ee48313d0ce5fe941d5422fae5705ea922a4aabf94d7800dfa", size = 100405, upload-time = "2026-09-23T07:47:23.052Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c8/95/411ba65569158e862368917aaf56597f3e5fa3b91b0502919638465a08f3/httpx2-2.12.0-py3-none-any.whl", hash = "sha256:cc8b6eecb8661c146b8f89a60e97456ee086e91a784ed31ac450c3a9e613dd36", size = 95427, upload-time = "2026-08-18T13:22:06.834Z" },
+    { url = "https://files.pythonhosted.org/packages/d8/9c/6fe8931fd9f381042a9e4c7d5a7b4cbf7016b252bec0c99a49fce42c3326/httpx2-2.13.1-py3-none-any.whl", hash = "sha256:6dff50fabc270ee5fd25d845d0b078ed20564579744d6d962850975996d2f9a4", size = 95597, upload-time = "2026-09-23T07:47:20.995Z" },
 ]
 
 [[package]]
@@ -1434,7 +1434,7 @@ dev = [
 [package.metadata.requires-dev]
 dev = [
     { name = "from-root", specifier = ">=1.3.0" },
-    { name = "httpx2", specifier = ">=2.12.0" },
+    { name = "httpx2", specifier = ">=2.13.1" },
     { name = "jinja2", specifier = ">=3.1.6" },
     { name = "kubernetes-asyncio", specifier = ">=36.1.0" },
     { name = "pre-commit", specifier = ">=4.6.1" },
@@ -1442,7 +1442,7 @@ dev = [
     { name = "pytest-asyncio", specifier = ">=1.4.0" },
     { name = "pytest-mock", specifier = ">=3.15.1" },
     { name = "pytest-randomly", specifier = ">=4.1.0" },
-    { name = "python-dotenv", specifier = ">=1.2.2" },
+    { name = "python-dotenv", specifier = ">=1.2.3" },
     { name = "python-on-whales", specifier = ">=0.81.0" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "requests", specifier = ">=2.34.2" },
@@ -1450,7 +1450,7 @@ dev = [
     { name = "supervisor", specifier = ">=4.3.0" },
     { name = "testcontainers", extras = ["postgres"], specifier = ">=4.14.2" },
     { name = "tomlkit", specifier = ">=0.15.1" },
-    { name = "tqdm", specifier = ">=4.69.1" },
+    { name = "tqdm", specifier = ">=4.70.1" },
 ]
 
 [[package]]
@@ -1505,7 +1505,7 @@ requires-dist = [
     { name = "aiorwlock", specifier = ">=1.5.0" },
     { name = "diff-match-patch", specifier = "==20241021" },
     { name = "google-cloud-artifact-registry", specifier = ">=1.11.0" },
-    { name = "google-cloud-build", specifier = ">=3.38.0" },
+    { name = "google-cloud-build", specifier = ">=3.39.0" },
     { name = "google-cloud-secret-manager", specifier = ">=2.24.0" },
     { name = "google-cloud-storage", specifier = ">=3.13.0" },
     { name = "idegym-api", editable = "api" },
@@ -1630,7 +1630,7 @@ requires-dist = [
     { name = "alembic", specifier = ">=1.18.5" },
     { name = "asyncpg", specifier = ">=0.30.0" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.139.2" },
-    { name = "fastmcp", specifier = ">=4.0.0" },
+    { name = "fastmcp", specifier = ">=4.0.10" },
     { name = "greenlet", specifier = ">=3.5.4" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "idegym-api", editable = "api" },
@@ -1733,7 +1733,7 @@ requires-dist = [
     { name = "anyio", specifier = ">=4.14.2" },
     { name = "dependency-injector", specifier = ">=4.49.1" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.139.2" },
-    { name = "fastmcp", specifier = ">=4.0.0" },
+    { name = "fastmcp", specifier = ">=4.0.10" },
     { name = "idegym-api", editable = "api" },
     { name = "idegym-backend-utils", editable = "backend-utils" },
     { name = "idegym-common-utils", editable = "common-utils" },
@@ -3120,11 +3120,11 @@ wheels = [
 
 [[package]]
 name = "python-dotenv"
-version = "1.2.2"
+version = "1.2.3"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/82/ed/0301aeeac3e5353ef3d94b6ec08bbcabd04a72018415dcb29e588514bba8/python_dotenv-1.2.2.tar.gz", hash = "sha256:2c371a91fbd7ba082c2c1dc1f8bf89ca22564a087c2c287cd9b662adde799cf3", size = 50135, upload-time = "2026-03-01T16:00:26.196Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6a/53/ed9d74092561d4b01a2ef1349d52cdbc135e526c245f366b089cfca6de49/python_dotenv-1.2.3.tar.gz", hash = "sha256:a20a594dabeaa385725aa239d5244871c143ecb356add8a20fcf23773a6c3a35", size = 58945, upload-time = "2026-08-16T16:54:54.067Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0b/d7/1959b9648791274998a9c3526f6d0ec8fd2233e4d4acce81bbae76b44b2a/python_dotenv-1.2.2-py3-none-any.whl", hash = "sha256:1d8214789a24de455a8b8bd8ae6fe3c6b69a5e3d64aa8a8e5d68e694bbcb285a", size = 22101, upload-time = "2026-03-01T16:00:25.09Z" },
+    { url = "https://files.pythonhosted.org/packages/0d/17/c5c6b53ddc18f297992099b3d9ec16c855c0ccc83263a21fe4d1c625ec6c/python_dotenv-1.2.3-py3-none-any.whl", hash = "sha256:904552145e8bfed22162c09dab1c2b9b54fefa7b23ba780f4f26ca0316b0f0d9", size = 22780, upload-time = "2026-08-16T16:54:52.473Z" },
 ]
 
 [[package]]
@@ -3632,14 +3632,14 @@ wheels = [
 
 [[package]]
 name = "tqdm"
-version = "4.69.1"
+version = "4.70.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "colorama", marker = "sys_platform == 'win32'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/dd/84/da0e5038228fa34dfd77c5026b173ed035d2a3ba31f1077590c013de2bff/tqdm-4.69.1.tar.gz", hash = "sha256:2be21080a0ce17e902c2f1baeb6a74bf551b67bbdfa4bc0109fad471d0b4cb0d", size = 793046, upload-time = "2026-07-24T14:22:02.08Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0d/ea/b2a5bd54b28a324dae8211928b2d730b6547500342c7e6c6dea08bd0a485/tqdm-4.70.1.tar.gz", hash = "sha256:cefd0eca11b2a37a3aee776544d4f4ae913f02688135b5556b8788dfa474afc4", size = 171846, upload-time = "2026-09-11T07:25:16.601Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/01/50/5817619a0fca56aff06383dbfde7ae017b3ca383915b3f1e4713164273cf/tqdm-4.69.1-py3-none-any.whl", hash = "sha256:0a654b96f7a2660cceb615b56f307ec2bef96c515409014a429a561981ab52b4", size = 675452, upload-time = "2026-07-24T14:22:00.048Z" },
+    { url = "https://files.pythonhosted.org/packages/a7/03/921a3d3c75785aca9ebfbfcabfbc3a1be12e2ab5265deb026d55a5a3f83e/tqdm-4.70.1-py3-none-any.whl", hash = "sha256:c293e525e6fef9c20e8728fd4612df02a0aa31bb5fe91ecd93e123b1b7bffa73", size = 80199, upload-time = "2026-09-11T07:25:14.599Z" },
 ]
 
 [[package]]

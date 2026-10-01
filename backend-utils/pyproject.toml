@@ -13,7 +13,7 @@ dependencies = [
     "aiorwlock>=1.5.0",
     "diff-match-patch==20241021",
     "google-cloud-artifact-registry>=1.11.0",
-    "google-cloud-build>=3.38.0",
+    "google-cloud-build>=3.39.0",
     "google-cloud-secret-manager>=2.24.0",
     "google-cloud-storage>=3.13.0",
     "idegym-api",
