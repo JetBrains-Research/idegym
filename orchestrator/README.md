@@ -558,10 +558,19 @@ templates under `templates/`, and the stylesheet and script under `static/` are 
 | Path | Description |
 |------|-------------|
 | `GET /` | Overview: counts of alive servers and clients, resource usage per rule |
-| `GET /dashboard/servers` | Running servers with status and image |
+| `GET /dashboard/servers` | Servers, alive by default or filtered by status (`?status=all`, `?status=CRASHED`) |
+| `GET /dashboard/servers/{id}` | One server: details, its pods, Kubernetes events, recent operations, quota usage |
 | `GET /dashboard/clients` | Alive clients with heartbeat times |
-| `GET /dashboard/pods` | Live Kubernetes pods (paginated, filterable by label selector) |
+| `GET /dashboard/pods` | Live Kubernetes pods per namespace (paginated, filterable by label selector) |
+| `GET /dashboard/pods/{namespace}/{pod}` | One pod: containers, a bounded log tail (current or previous container), events |
+| `GET /dashboard/pods/{namespace}/{pod}/logs` | Download a container's log, capped at 64 MiB |
+| `GET /dashboard/events` | Kubernetes events in a namespace, warnings first |
 | `GET /dashboard/rules` | Resource limit rules with usage meters |
+
+The log viewer re-reads a bounded tail on refresh instead of following the stream, so an open
+browser tab never holds a connection on an orchestrator worker. Reading logs needs `get` on
+`pods/log`, and the server page reads ReplicaSet events, which needs `list` on `replicasets`; the
+chart's Role grants both.
 
 When `IDEGYM_GRAFANA_URL` and a datasource UID are set, each server, pod, and client links to its
 logs and traces in Grafana Explore; see

@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}{{ pod.name }}{% endblock %}
+{% block content %}
+<div class="breadcrumbs">
+  <a href="/dashboard/pods?namespace={{ pod.namespace | urlencode }}">Pods</a> / {{ pod.namespace }}
+  {% if server %} · server <a href="/dashboard/servers/{{ server.id }}">{{ server.id }}</a>{% endif %}
+</div>
+<div class="page-header">
+  <div>
+    <h1><span class="mono" style="font-size: 20px">{{ pod.name }}</span> {{ ui.status(pod.phase) }}{% if pod.deletion_timestamp %} {{ ui.status("Terminating") }}{% endif %}</h1>
+    <p>
+      Started {{ ui.when(pod.start_time) }}{% if pod.node_name %} on <span class="mono">{{ pod.node_name }}</span>{% endif %}
+      {% if server %} · belongs to <a href="/dashboard/servers/{{ server.id }}">{{ server.generated_name }}</a>{% endif %}
+    </p>
+  </div>
+  <div class="page-actions">
+    {% if grafana and grafana.loki_enabled %}
+      <a class="button" href="{{ grafana.pod_logs(pod.namespace, pod.name) }}" target="_blank" rel="noopener">Logs in Grafana ↗</a>
+    {% endif %}
+  </div>
+</div>
+
+{% if pod.containers %}
+<section class="card">
+  <div class="card-header"><h2>Containers</h2></div>
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>Name</th><th>Ready</th><th class="num">Restarts</th><th>State</th><th>Last state</th></tr></thead>
+      <tbody>
+      {% for c in pod.containers %}
+        <tr>
+          <td><strong>{{ c.name }}</strong><div class="mono muted">{{ c.image }}</div></td>
+          <td>{{ ui.status("True" if c.ready else "Waiting", "Ready" if c.ready else "Not ready") }}</td>
+          <td class="num">{{ c.restart_count }}</td>
+          <td>
+            {{ ui.status(c.state.type) }}{% if c.state.reason %} {{ c.state.reason }}{% endif %}
+            {% if c.state.message %}<div class="muted">{{ c.state.message | truncate(200) }}</div>{% endif %}
+            {% if c.state.started %}<div class="muted">started {{ ui.when(c.state.started) }}</div>{% endif %}
+          </td>
+          <td>
+            {% if c.last_state.type %}
+              {{ ui.status(c.last_state.reason or c.last_state.type) }}
+              {% if c.last_state.exit_code not in (None, "") %}<span class="muted">exit code {{ c.last_state.exit_code }}</span>{% endif %}
+              {% if c.last_state.finished %}<div class="muted">finished {{ ui.when(c.last_state.finished) }}</div>{% endif %}
+            {% else %}<span class="muted">—</span>{% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+<section class="card">
+  <div class="card-header">
+    <form class="filters" method="get">
+      <label class="field"><span>Container</span>
+        <select class="input" name="container" onchange="this.form.submit()">
+          {% for name in containers %}<option value="{{ name }}"{% if name == container %} selected{% endif %}>{{ name }}</option>{% endfor %}
+          {% if init_containers %}
+            <optgroup label="Init containers">
+              {% for name in init_containers %}<option value="{{ name }}"{% if name == container %} selected{% endif %}>{{ name }}</option>{% endfor %}
+            </optgroup>
+          {% endif %}
+        </select>
+      </label>
+      <label class="field"><span>Lines</span>
+        <select class="input" name="tail" onchange="this.form.submit()">
+          {% for n in tail_choices %}<option value="{{ n }}"{% if n == tail %} selected{% endif %}>last {{ n }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="toggle"><input type="checkbox" name="previous" value="true" onchange="this.form.submit()"{% if previous %} checked{% endif %} /> Previous container</label>
+      <label class="toggle"><input type="checkbox" name="timestamps" value="true" onchange="this.form.submit()"{% if timestamps %} checked{% endif %} /> Timestamps</label>
+      <noscript><button type="submit" class="button">Apply</button></noscript>
+    </form>
+    <div class="filters">
+      <label class="field"><span>Search</span>
+        <input class="input" type="search" data-log-search="log" placeholder="Show matching lines" size="24" />
+      </label>
+      <label class="toggle"><input type="checkbox" data-log-wrap="log" checked /> Wrap</label>
+      <a class="button" href="/dashboard/pods/{{ pod.namespace }}/{{ pod.name }}/logs?container={{ (container or '') | urlencode }}{% if previous %}&previous=true{% endif %}{% if timestamps %}&timestamps=true{% endif %}">Download full log</a>
+      <a class="button" href="">Refresh</a>
+    </div>
+  </div>
+  {% if log_error %}
+    <div class="card-body"><div class="callout callout-warning"><div><strong>The log could not be read</strong><pre>{{ log_error }}</pre></div></div></div>
+  {% elif not log_lines %}
+    {{ ui.empty("The log is empty", "Nothing has been written to this container's output yet." if not previous else "The previous container left no output.") }}
+  {% else %}
+    <div class="log-meta muted">Showing the last {{ log_lines | length }} line{{ "s" if log_lines | length != 1 }} of <strong>{{ container }}</strong>{% if previous %} (previous container){% endif %}. <span data-log-count="log"></span></div>
+    <pre class="log log-wrap" id="log" data-log-scroll>{% for line in log_lines %}<span class="log-line">{{ line }}
+</span>{% endfor %}</pre>
+  {% endif %}
+</section>
+
+<section class="card">
+  <div class="card-header"><div><h2>Events</h2><p>Kubernetes events for this pod, newest first.</p></div></div>
+  {% if events_error %}
+    <div class="card-body"><div class="callout callout-warning"><div><strong>Events could not be read</strong><pre>{{ events_error }}</pre></div></div></div>
+  {% elif events %}{% include "_events.html" %}
+  {% else %}{{ ui.empty("No recent events", "Kubernetes keeps events for about an hour.") }}{% endif %}
+</section>
+{% endblock %}

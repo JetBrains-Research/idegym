@@ -1,0 +1,39 @@
+{# The async operations table shared by the server and operations pages. Expects `operations`. #}
+{% import "_macros.html" as ui %}
+<div class="table-wrap">
+  <table class="table" data-sortable>
+    <thead>
+    <tr>
+      <th data-sort="number">ID</th>
+      <th data-sort="text">Type</th>
+      <th data-sort="text">Status</th>
+      <th data-sort="number">Scheduled</th>
+      <th data-sort="number" class="num">Took</th>
+      {% if show_targets %}<th>Server</th>{% endif %}
+      <th>Handled by</th>
+      <th>Result</th>
+    </tr>
+    </thead>
+    <tbody>
+    {% for op in operations %}
+      <tr>
+        <td data-value="{{ op.id }}">{{ op.id }}</td>
+        <td class="mono">{{ op.request_type }}</td>
+        <td>{{ ui.status(op.status) }}</td>
+        <td class="nowrap" data-value="{{ op.scheduled_at or 0 }}">{{ ui.when(op.scheduled_at) }}</td>
+        {% set took = (op.finished_at - (op.started_at or op.scheduled_at)) if op.finished_at and (op.started_at or op.scheduled_at) else None %}
+        <td class="num" data-value="{{ took if took is not none else -1 }}">{% if took is not none %}{{ "%.1f" | format(took / 1000) }} s{% else %}<span class="muted">—</span>{% endif %}</td>
+        {% if show_targets %}
+          <td>{% if op.server_id %}<a href="/dashboard/servers/{{ op.server_id }}">{{ op.server_id }}</a>{% else %}<span class="muted">—</span>{% endif %}</td>
+        {% endif %}
+        <td class="mono secondary">{{ op.orchestrator_pod or "—" }}</td>
+        <td style="max-width: 460px">
+          {% if op.result %}
+            <details><summary class="secondary">{{ op.result | truncate(80) }}</summary><pre class="mono" style="white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0 0">{{ op.result }}</pre></details>
+          {% else %}<span class="muted">—</span>{% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>

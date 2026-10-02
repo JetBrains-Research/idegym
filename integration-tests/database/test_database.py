@@ -30,9 +30,12 @@ from idegym.orchestrator.database.database import (
     get_idegym_server,
     get_idegym_server_by_generated_name,
     get_idegym_servers_by_client_id,
+    get_idegym_servers_by_generated_names,
     get_idegym_servers_by_status,
     get_job_status,
     get_job_status_by_id,
+    get_recent_async_operations,
+    get_recent_idegym_servers,
     get_resource_limit_rule,
     get_running_idegym_servers,
     mark_stale_async_operations_as_finished,
@@ -838,3 +841,55 @@ async def test_save_job_status_with_request_id(db: AsyncSession):
     fetched = await get_job_status(db, "req-job")
     assert fetched is not None
     assert fetched.request_id == "req-abc"
+
+
+# ===========================================================================
+# Dashboard queries
+# ===========================================================================
+
+
+async def test_get_recent_idegym_servers_is_newest_first_and_capped(db: AsyncSession):
+    client = await _make_client(db)
+    servers = [await _make_server(db, client, f"recent-{i}") for i in range(3)]
+
+    recent = await get_recent_idegym_servers(db, limit=2)
+
+    assert [s.id for s in recent] == [servers[2].id, servers[1].id]
+
+
+async def test_get_recent_idegym_servers_filters_by_status(db: AsyncSession):
+    client = await _make_client(db)
+    await _make_server(db, client, "still-alive")
+    crashed = await _make_server(db, client, "crashed", availability=AvailabilityStatus.CRASHED)
+
+    recent = await get_recent_idegym_servers(db, statuses={AvailabilityStatus.CRASHED})
+
+    assert [s.id for s in recent] == [crashed.id]
+
+
+async def test_get_idegym_servers_by_generated_names(db: AsyncSession):
+    client = await _make_client(db)
+    wanted = await _make_server(db, client, "wanted")
+    await _make_server(db, client, "unwanted")
+
+    found = await get_idegym_servers_by_generated_names(db, {wanted.generated_name, "no-such-server"})
+
+    assert [s.id for s in found] == [wanted.id]
+    assert await get_idegym_servers_by_generated_names(db, set()) == []
+
+
+async def test_get_recent_async_operations_filters_by_server_and_status(db: AsyncSession):
+    client = await _make_client(db)
+    server = await _make_server(db, client)
+    other = await _make_server(db, client, "other-server")
+    first = await save_async_operation(db, AsyncOperationType.START_SERVER, client_id=client.id, server_id=server.id)
+    second = await save_async_operation(db, AsyncOperationType.STOP_SERVER, client_id=client.id, server_id=server.id)
+    await save_async_operation(db, AsyncOperationType.START_SERVER, client_id=client.id, server_id=other.id)
+    second.status = AsyncOperationStatus.FAILED
+    await db.commit()
+
+    assert [op.id for op in await get_recent_async_operations(db, server_id=server.id)] == [second.id, first.id]
+    failed = await get_recent_async_operations(db, statuses={AsyncOperationStatus.FAILED})
+    assert [op.id for op in failed] == [second.id]
+    starts = await get_recent_async_operations(db, server_id=server.id, request_types={AsyncOperationType.START_SERVER})
+    assert [op.id for op in starts] == [first.id]

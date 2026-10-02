@@ -12,6 +12,11 @@
 <section class="card">
   <div class="card-header">
     <form class="filters" action="/dashboard/pods" method="get">
+      <label class="field"><span>Namespace</span>
+        <select class="input" name="namespace" onchange="this.form.submit()">
+          {% for ns in namespaces %}<option value="{{ ns }}"{% if ns == namespace %} selected{% endif %}>{{ ns }}</option>{% endfor %}
+        </select>
+      </label>
       <label class="field"><span>Label selector</span>
         <input class="input" type="text" name="label_selector" value="{{ label_selector }}" placeholder="app.kubernetes.io/component=sandbox" size="36" />
       </label>
@@ -19,11 +24,11 @@
         <input class="input" type="number" min="1" name="limit" value="{{ limit or 50 }}" style="width: 90px" />
       </label>
       <button type="submit" class="button button-primary">Apply</button>
-      {% if label_selector %}<a class="button" href="/dashboard/pods">Clear</a>{% endif %}
+      {% if label_selector %}<a class="button" href="/dashboard/pods?namespace={{ namespace | urlencode }}">Clear</a>{% endif %}
     </form>
     <div class="filters">
       {% if next_continue %}
-        <a class="button" href="/dashboard/pods?label_selector={{ label_selector | urlencode }}&limit={{ limit }}&_continue={{ next_continue | urlencode }}">Next page →</a>
+        <a class="button" href="/dashboard/pods?namespace={{ namespace | urlencode }}&label_selector={{ label_selector | urlencode }}&limit={{ limit }}&_continue={{ next_continue | urlencode }}">Next page →</a>
       {% elif pods %}
         <span class="muted">End of results</span>
       {% endif %}
@@ -41,15 +46,18 @@
           <th>Phase</th>
           <th>Node</th>
           <th>Containers</th>
-          {% if grafana and grafana.loki_enabled %}<th>Grafana</th>{% endif %}
+          <th>Logs</th>
         </tr>
         </thead>
         <tbody>
         {% for p in pods %}
           <tr>
             <td>
-              {{ ui.ident(p.name) }}
+              <a class="mono" href="/dashboard/pods/{{ p.namespace }}/{{ p.name }}">{{ p.name }}</a>
+              <button type="button" class="copy" data-copy="{{ p.name }}" title="Copy" aria-label="Copy {{ p.name }}">⧉</button>
               <div class="muted">started {{ ui.when(p.start_time) }}</div>
+              {% set owner = servers.get(p.labels.get("app")) %}
+              {% if owner %}<div class="muted">server <a href="/dashboard/servers/{{ owner.id }}">{{ owner.id }}</a> · {{ owner.client_name }}</div>{% endif %}
               {% if p.deletion_timestamp %}<div>{{ ui.status("Terminating", "Terminating") }} {{ ui.when(p.deletion_timestamp) }}</div>{% endif %}
             </td>
             <td>{{ ui.status(p.phase) }}</td>
@@ -92,9 +100,12 @@
                 <span class="muted">No container statuses yet</span>
               {% endif %}
             </td>
-            {% if grafana and grafana.loki_enabled %}
-              <td><span class="links">{{ ui.link(grafana.pod_logs(p.namespace, p.name), "Logs") }}</span></td>
-            {% endif %}
+            <td>
+              <span class="links">
+                <a href="/dashboard/pods/{{ p.namespace }}/{{ p.name }}">View</a>
+                {% if grafana and grafana.loki_enabled %}{{ ui.link(grafana.pod_logs(p.namespace, p.name), "Grafana") }}{% endif %}
+              </span>
+            </td>
           </tr>
         {% endfor %}
         </tbody>

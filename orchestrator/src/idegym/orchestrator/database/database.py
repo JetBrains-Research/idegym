@@ -1,5 +1,6 @@
 import asyncio
 import json
+from collections.abc import Collection
 from contextlib import asynccontextmanager
 from typing import Any, NamedTuple, Optional, cast
 from uuid import UUID
@@ -310,6 +311,24 @@ async def get_idegym_servers_by_status(db: AsyncSession, statuses: set[Availabil
     return result.scalars().all()
 
 
+async def get_recent_idegym_servers(
+    db: AsyncSession, statuses: Optional[Collection[AvailabilityStatus]] = None, limit: int = 200
+) -> list[IdeGYMServer]:
+    """The newest servers first, optionally only those in ``statuses``; for the dashboard's history view."""
+    query = select(IdeGYMServer).order_by(IdeGYMServer.id.desc()).limit(limit)
+    if statuses:
+        query = query.filter(IdeGYMServer.availability.in_(list(statuses)))
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
+async def get_idegym_servers_by_generated_names(db: AsyncSession, names: Collection[str]) -> list[IdeGYMServer]:
+    if not names:
+        return []
+    result = await db.execute(select(IdeGYMServer).filter(IdeGYMServer.generated_name.in_(list(names))))
+    return list(result.scalars().all())
+
+
 async def has_pending_start_server_operations(
     db: AsyncSession,
     client_name: str,
@@ -553,6 +572,28 @@ async def update_idegym_server_owner(db: AsyncSession, server_id: int, client_id
 async def get_async_operation(db: AsyncSession, async_operation_id: int) -> Optional[AsyncOperation]:
     result = await db.execute(select(AsyncOperation).filter(AsyncOperation.id == async_operation_id))
     return result.scalar_one_or_none()
+
+
+async def get_recent_async_operations(
+    db: AsyncSession,
+    server_id: Optional[int] = None,
+    client_id: Optional[UUID] = None,
+    statuses: Optional[Collection[AsyncOperationStatus]] = None,
+    request_types: Optional[Collection[AsyncOperationType]] = None,
+    limit: int = 50,
+) -> list[AsyncOperation]:
+    """The newest operations first, narrowed by whichever filters are given."""
+    query = select(AsyncOperation).order_by(AsyncOperation.id.desc()).limit(limit)
+    if server_id is not None:
+        query = query.filter(AsyncOperation.server_id == server_id)
+    if client_id is not None:
+        query = query.filter(AsyncOperation.client_id == client_id)
+    if statuses:
+        query = query.filter(AsyncOperation.status.in_(list(statuses)))
+    if request_types:
+        query = query.filter(AsyncOperation.request_type.in_(list(request_types)))
+    result = await db.execute(query)
+    return list(result.scalars().all())
 
 
 async def save_async_operation(

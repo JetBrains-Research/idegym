@@ -1,0 +1,32 @@
+{# The events table shared by the server, pod, and events pages. Expects `events`. #}
+{% import "_macros.html" as ui %}
+<div class="table-wrap">
+  <table class="table" data-sortable{% if table_id %} id="{{ table_id }}"{% endif %}>
+    <thead>
+    <tr>
+      <th data-sort="number">Last seen</th>
+      <th data-sort="text">Type</th>
+      <th data-sort="text">Reason</th>
+      <th data-sort="text">Object</th>
+      <th>Message</th>
+      <th data-sort="number" class="num">Count</th>
+    </tr>
+    </thead>
+    <tbody>
+    {% for e in events %}
+      <tr>
+        <td class="nowrap" data-value="{{ e.last.timestamp() if e.last else 0 }}">{{ ui.when(e.last) }}</td>
+        <td>{{ ui.status(e.type) }}</td>
+        <td><strong>{{ e.reason }}</strong>{% if e.source %}<div class="muted">{{ e.source }}</div>{% endif %}</td>
+        <td class="nowrap">
+          {% if e.kind == "Pod" %}<a href="/dashboard/pods/{{ e.namespace }}/{{ e.name }}" class="mono">{{ e.name }}</a>
+          {% else %}<span class="mono">{{ e.name }}</span>{% endif %}
+          <div class="muted">{{ e.kind }}</div>
+        </td>
+        <td style="max-width: 560px; overflow-wrap: anywhere">{{ e.message }}</td>
+        <td class="num" data-value="{{ e.count }}">{{ e.count }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
