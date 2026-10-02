@@ -601,6 +601,16 @@ charged to whichever rule matches then. Every reservation and release holds an a
 the rule set in shared mode, and an edit takes it exclusively, so a start or stop racing an edit is
 either counted by the rebuild or waits for it and then matches against the rules as they now stand.
 
+With `IDEGYM_DASHBOARD_SHELL_ENABLED` set (`dashboard.shell.enabled` in the chart, which also grants
+the orchestrator `pods/exec`) a running server pod offers **Open shell**: a terminal in the browser,
+relayed through the orchestrator the way `kubectl exec -it` works, for debugging. The page is
+`GET /dashboard/pods/{namespace}/{pod}/shell` and the relay is the WebSocket
+`/dashboard/pods/{namespace}/{pod}/exec` (`router/dashboard_shell.py`, `pod_shell.py`). It opens
+only in pods labelled as IdeGYM servers, never in the orchestrator's or PostgreSQL's, closes after
+30 minutes without input, and logs every session with the user the proxy reports. The terminal is
+[xterm.js](https://github.com/xtermjs/xterm.js), vendored under `static/vendor/xterm/`; its README
+there lists the versions and how to upgrade them.
+
 When `IDEGYM_GRAFANA_URL` and a datasource UID are set, each server, pod, and client links to its
 logs and traces in Grafana Explore; see
 [Linking the dashboard to Grafana](https://jetbrains-research.github.io/idegym/reference/remote_deployment#linking-the-dashboard-to-grafana).

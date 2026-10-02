@@ -39,3 +39,19 @@ rules:
   {{- with .Values.rbac.extraRules }}
   {{- toYaml . | nindent 2 }}
   {{- end }}
+{{- if .Values.dashboard.shell.enabled }}
+---
+# The dashboard's pod shell, in a Role of its own so that only the orchestrator (not the watcher,
+# which shares the Role above) may exec. Exec runs over a WebSocket, which the API server authorizes
+# as get on older clusters and as create on newer ones, so both verbs are needed.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "idegym.fullname" . }}-shell
+  labels:
+    {{- include "idegym.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["get", "create"]
+{{- end }}

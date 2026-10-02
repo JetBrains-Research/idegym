@@ -662,6 +662,25 @@ proxy that rewrites `Host`, make sure it passes the public host as `X-Forwarded-
 logged with the user the proxy reports in `X-Auth-Request-Email`, `X-Forwarded-Email`,
 `X-Auth-Request-User`, or `X-Forwarded-User`.
 
+### Dashboard pod shell
+
+For debugging, the dashboard can open a terminal in a running server pod, relayed through the
+orchestrator the way `kubectl exec -it` works, so it needs neither `kubectl` nor cluster
+credentials on the user's machine. It is off by default; enabling it also grants the orchestrator,
+and only the orchestrator, `pods/exec` through a Role of its own:
+
+```yaml
+dashboard:
+  shell:
+    enabled: true
+```
+
+The same caveat applies as for actions, only more so, since this is a shell in every sandbox: enable
+it only behind an authenticating proxy. The WebSocket handshake must carry an `Origin` naming the
+dashboard's host, the shell opens only in pods labelled as IdeGYM servers, a session closes after 30
+minutes without input, and each one is logged with the user and why it ended. Your proxy and ingress
+must allow WebSocket upgrades on `/dashboard`, as they already must for `/api/ws-forward`.
+
 ### Prometheus
 
 Only deployed if you installed with `--set prometheus.enabled=true`.
@@ -765,6 +784,8 @@ response = httpx.get("https://idegym.yourdomain.com/health", headers=headers)
 - [ ] gVisor runtime class available on nodes if using sandboxed containers
 - [ ] `dashboard.actions.enabled` left `false` unless an authenticating proxy guards `/dashboard`;
       see [Dashboard actions](#dashboard-actions)
+- [ ] `dashboard.shell.enabled` left `false` unless an authenticating proxy guards `/dashboard`;
+      see [Dashboard pod shell](#dashboard-pod-shell)
 - If using pod snapshots:
     - [ ] GKE pod-snapshot feature enabled on the cluster
     - [ ] GCS bucket provisioned

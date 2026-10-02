@@ -1,3 +1,6 @@
+# Vendored third-party assets are kept byte-identical to their published packages, so no hook may
+# rewrite them (the end-of-file and whitespace fixers would).
+exclude: ^orchestrator/src/idegym/orchestrator/static/vendor/
 repos:
 - repo: https://github.com/pre-commit/pre-commit-hooks
   rev: v5.0.0

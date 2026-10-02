@@ -132,6 +132,11 @@ dashboard:
   # enable this only when an authenticating proxy (e.g. oauth2-proxy) guards /dashboard.
   actions:
     enabled: false
+  # A browser terminal into IdeGYM server pods (kubectl exec through the orchestrator), for
+  # debugging. Enabling it also grants the orchestrator pods/exec. Same caveat as actions: only
+  # behind an authenticating proxy, since it is a shell in every sandbox.
+  shell:
+    enabled: false
   grafana:
     url: ""  # e.g. https://grafana.example.com
     orgId: ""

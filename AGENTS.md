@@ -153,6 +153,10 @@ out — `UP045`, `UP040`, `PYI041` — each with a comment in `pyproject.toml` e
 
 - **Adding an ignore requires a written reason** in the same place. An unexplained entry in
   `ignore` or `per-file-ignores` will be asked about in review.
+- **Vendored assets are exempt from every pre-commit hook.** The top-level `exclude` in
+  `.pre-commit-config.yaml` skips `orchestrator/src/idegym/orchestrator/static/vendor/`, so the
+  end-of-file and whitespace fixers cannot rewrite a minified third-party file away from the
+  published package it was copied from. Upgrade those files as their `README.md` describes.
 - **Per-file relaxations apply only to `*-tests/**`, `examples/**`, and `scripts/**`.**
   Library code keeps full enforcement — do not widen a glob to silence a finding in `src`.
 - **`ruff check --fix` (safe fixes) is fine; `--unsafe-fixes` is not, unattended.** Unsafe
@@ -247,6 +251,9 @@ falls under must rebuild the counters with `recalculate_rule_usage` in the same 
 `find_matching_resource_limit_rule(..., for_update=True)`, which first takes the rule set's advisory
 lock in shared mode: row locks alone let a match that waited on a locked rule return a rule an edit
 has just outranked, because PostgreSQL re-checks the waited-on row but does not re-run the ORDER BY.
+The pod shell (`router/dashboard_shell.py`) is guarded the same way at the WebSocket handshake,
+and re-reads the pod to check it carries the sandbox labels before any exec: the page's links are
+not a check, and a shell in the orchestrator's or PostgreSQL's pod exposes the database credentials.
 
 ### Database migrations
 

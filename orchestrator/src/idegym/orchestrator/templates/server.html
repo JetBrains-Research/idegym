@@ -110,7 +110,7 @@
             <td class="num">{{ p.containers | sum(attribute="restart_count") }}</td>
             <td class="mono secondary">{{ p.node_name or "—" }}</td>
             <td class="nowrap">{{ ui.when(p.start_time) }}</td>
-            <td class="nowrap"><span class="links"><a href="/dashboard/pods/{{ p.namespace }}/{{ p.name }}">Logs</a></span></td>
+            <td class="nowrap"><span class="links"><a href="/dashboard/pods/{{ p.namespace }}/{{ p.name }}">Logs</a>{% if shell_enabled and p.phase == "Running" and not p.deletion_timestamp %}<a href="/dashboard/pods/{{ p.namespace }}/{{ p.name }}/shell">Shell</a>{% endif %}</span></td>
           </tr>
         {% endfor %}
         </tbody>
