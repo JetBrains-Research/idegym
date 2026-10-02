@@ -14,50 +14,18 @@ from idegym.api.config import SchedulingConfig
 from idegym.api.orchestrator.servers import StartServerRequest
 from idegym.api.type import Duration
 from idegym.backend.utils import kubernetes_client as kc
-from kubernetes_asyncio.client import ApiClient, ApiException
+from kubernetes_asyncio.client import ApiException
 from structlog.testing import capture_logs
 
 
-@pytest.fixture
-async def api_client():
-    client = ApiClient()
-    try:
-        yield client
-    finally:
-        await client.close()
-
-
-def _patch_clients(mocker, api_client):
-    """Patch create_clients (used directly and by async_kube_api) and capture deployment bodies."""
-    deployment_result = mocker.MagicMock()
-    deployment_result.api_version = "apps/v1"
-    deployment_result.kind = "Deployment"
-    deployment_result.metadata.name = "srv"
-    deployment_result.metadata.uid = "uid-123"
-
-    apps = mocker.MagicMock()
-    apps.api_client = api_client
-    apps.create_namespaced_deployment = mocker.AsyncMock(return_value=deployment_result)
-
-    core = mocker.MagicMock()
-    core.create_namespaced_service = mocker.AsyncMock()
-    policy = mocker.MagicMock()
-    policy.create_namespaced_pod_disruption_budget = mocker.AsyncMock()
-
-    clients = (apps, mocker.MagicMock(), core, policy, mocker.MagicMock())
-    mocker.patch.object(kc, "create_clients", mocker.AsyncMock(return_value=clients))
-    return apps
-
-
-async def _deploy_and_get_pod_spec(mocker, api_client, **kwargs):
-    apps = _patch_clients(mocker, api_client)
+async def _deploy_and_get_pod_spec(kube_clients, **kwargs):
     await kc.deploy_server(image_tag="img:latest", server_name="srv", namespace="ns", **kwargs)
-    body = apps.create_namespaced_deployment.call_args.kwargs["body"]
+    body = kube_clients.apps.create_namespaced_deployment.call_args.kwargs["body"]
     return body.spec.template.spec
 
 
-async def test_deploy_without_overrides_leaves_pod_unchanged(mocker, api_client):
-    pod = await _deploy_and_get_pod_spec(mocker, api_client)
+async def test_deploy_without_overrides_leaves_pod_unchanged(kube_clients):
+    pod = await _deploy_and_get_pod_spec(kube_clients)
     container = pod.containers[0]
     assert container.name == "server"
     assert pod.volumes is None
@@ -65,10 +33,9 @@ async def test_deploy_without_overrides_leaves_pod_unchanged(mocker, api_client)
     assert container.env_from is None
 
 
-async def test_deploy_applies_typed_volumes_mounts_and_env_from(mocker, api_client):
+async def test_deploy_applies_typed_volumes_mounts_and_env_from(kube_clients):
     pod = await _deploy_and_get_pod_spec(
-        mocker,
-        api_client,
+        kube_clients,
         volumes=[{"name": "creds", "secret": {"secretName": "agent-creds"}}],
         volume_mounts=[{"name": "creds", "mountPath": "/etc/creds", "readOnly": True}],
         env_from=[{"secretRef": {"name": "agent-creds"}}],
@@ -82,10 +49,9 @@ async def test_deploy_applies_typed_volumes_mounts_and_env_from(mocker, api_clie
     assert container.env_from[0].secret_ref.name == "agent-creds"
 
 
-async def test_pod_overrides_merge_pod_level_fields(mocker, api_client):
+async def test_pod_overrides_merge_pod_level_fields(kube_clients):
     pod = await _deploy_and_get_pod_spec(
-        mocker,
-        api_client,
+        kube_clients,
         pod_overrides={
             "tolerations": [{"key": "dedicated", "operator": "Exists", "effect": "NoSchedule"}],
             "hostAliases": [{"ip": "10.0.0.1", "hostnames": ["agent.local"]}],
@@ -97,11 +63,10 @@ async def test_pod_overrides_merge_pod_level_fields(mocker, api_client):
     assert pod.host_aliases[0].ip == "10.0.0.1"
 
 
-async def test_pod_overrides_concatenate_lists_keeping_managed_entries(mocker, api_client):
+async def test_pod_overrides_concatenate_lists_keeping_managed_entries(kube_clients):
     # node_pool_taint_key adds a managed toleration; an override toleration is appended, not replaced.
     pod = await _deploy_and_get_pod_spec(
-        mocker,
-        api_client,
+        kube_clients,
         node_pool_taint_key="node-pool",
         pod_overrides={"tolerations": [{"key": "dedicated", "operator": "Exists", "effect": "NoSchedule"}]},
     )
@@ -109,58 +74,52 @@ async def test_pod_overrides_concatenate_lists_keeping_managed_entries(mocker, a
     assert toleration_keys == {"node-pool", "dedicated"}
 
 
-async def test_pod_overrides_can_add_sidecar_without_dropping_server(mocker, api_client):
+async def test_pod_overrides_can_add_sidecar_without_dropping_server(kube_clients):
     pod = await _deploy_and_get_pod_spec(
-        mocker,
-        api_client,
+        kube_clients,
         pod_overrides={"containers": [{"name": "sidecar", "image": "busybox:latest"}]},
     )
     assert [c.name for c in pod.containers] == ["server", "sidecar"]
 
 
-async def test_pod_overrides_rejects_service_account_name(mocker, api_client):
+async def test_pod_overrides_rejects_service_account_name(kube_clients):
     with pytest.raises(ValueError, match="serviceAccountName"):
         await _deploy_and_get_pod_spec(
-            mocker,
-            api_client,
+            kube_clients,
             service_account_name="managed-sa",
             pod_overrides={"serviceAccountName": "attacker-sa"},
         )
 
 
-async def test_pod_overrides_rejects_replacing_managed_server_container(mocker, api_client):
+async def test_pod_overrides_rejects_replacing_managed_server_container(kube_clients):
     with pytest.raises(ValueError, match="server"):
         await _deploy_and_get_pod_spec(
-            mocker,
-            api_client,
+            kube_clients,
             pod_overrides={"containers": [{"name": "server", "image": "evil:latest"}]},
         )
 
 
-async def test_pod_overrides_rejects_non_list_containers(mocker, api_client):
+async def test_pod_overrides_rejects_non_list_containers(kube_clients):
     with pytest.raises(ValueError, match="must be a list"):
         await _deploy_and_get_pod_spec(
-            mocker,
-            api_client,
+            kube_clients,
             pod_overrides={"containers": {"name": "server"}},
         )
 
 
-async def test_pod_overrides_null_containers_keeps_managed_server(mocker, api_client):
+async def test_pod_overrides_null_containers_keeps_managed_server(kube_clients):
     # {"containers": null} is dropped (not treated as a replacement), so the server survives.
     pod = await _deploy_and_get_pod_spec(
-        mocker,
-        api_client,
+        kube_clients,
         pod_overrides={"containers": None},
     )
     assert [c.name for c in pod.containers] == ["server"]
 
 
-async def test_pod_overrides_null_values_do_not_drop_managed_fields(mocker, api_client):
+async def test_pod_overrides_null_values_do_not_drop_managed_fields(kube_clients):
     # A null override must not delete a managed field (here: runtimeClassName stays "gvisor").
     pod = await _deploy_and_get_pod_spec(
-        mocker,
-        api_client,
+        kube_clients,
         runtime_class_name="gvisor",
         pod_overrides={"runtimeClassName": None},
     )
@@ -472,6 +431,50 @@ async def test_a_refused_scale_up_keeps_the_short_budget_and_names_the_reason(mo
                 unschedulable_timeout=Duration(milliseconds=20), provisioning_timeout=Duration(minutes=15)
             ),
         )
+
+
+# ---------------------------------------------------------------------------
+# pods_are_ready
+# ---------------------------------------------------------------------------
+
+
+def _polled_pod(phase="Pending", *, waiting=None, ready=False, terminating=False):
+    return SimpleNamespace(
+        metadata=SimpleNamespace(name="srv-1", deletion_timestamp=object() if terminating else None),
+        status=SimpleNamespace(
+            phase=phase,
+            conditions=None,
+            container_statuses=[
+                SimpleNamespace(
+                    ready=ready,
+                    state=SimpleNamespace(
+                        waiting=SimpleNamespace(reason=waiting, message="") if waiting else None,
+                    ),
+                )
+            ],
+        ),
+    )
+
+
+@pytest.mark.parametrize("reason", ["ImagePullBackOff", "ErrImagePull", "InvalidImageName"])
+async def test_every_failed_pull_reason_counts_as_an_image_pull_error(mocker, reason):
+    """InvalidImageName never resolves on retry, so it has to trip the fail-fast like the others."""
+    mocker.patch.object(kc, "list_pods", mocker.AsyncMock(return_value=[_polled_pod(waiting=reason)]))
+
+    assert await kc.pods_are_ready("app=srv", "ns") == (False, True, False, False)
+
+
+async def test_a_pull_in_progress_is_not_an_image_pull_error(mocker):
+    mocker.patch.object(kc, "list_pods", mocker.AsyncMock(return_value=[_polled_pod(waiting="ContainerCreating")]))
+
+    assert await kc.pods_are_ready("app=srv", "ns") == (False, False, False, False)
+
+
+async def test_a_terminating_pod_is_reported_but_does_not_decide_readiness(mocker):
+    pods = [_polled_pod("Running", terminating=True), _polled_pod("Running", ready=True)]
+    mocker.patch.object(kc, "list_pods", mocker.AsyncMock(return_value=pods))
+
+    assert await kc.pods_are_ready("app=srv", "ns") == (True, False, True, False)
 
 
 # ---------------------------------------------------------------------------

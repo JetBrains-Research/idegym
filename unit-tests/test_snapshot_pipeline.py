@@ -14,7 +14,7 @@ import pytest
 from idegym.api.config import Config, NodePoolConfig, PodSnapshotConfig
 from idegym.api.orchestrator.servers import ServerKind, StartServerRequest
 from idegym.api.status import Status
-from idegym.orchestrator.snapshot_pipeline import run_snapshot_pipeline_job
+from idegym.orchestrator.snapshot_pipeline import compute_hash_for_start_request, run_snapshot_pipeline_job
 
 pytestmark = pytest.mark.unit
 
@@ -162,6 +162,25 @@ async def test_success_persists_pod_snapshot_name(mocker):
     await run_snapshot_pipeline_job(job_id=str(uuid4()), request=_request(), config=_config())
 
     assert mocks.create_snapshot.await_args.kwargs["pod_snapshot_name"] == "ps-snapshot-name"
+
+
+async def test_the_prep_pod_carries_the_request_labels_and_annotations(mocker):
+    """Without them the prep pod is invisible to 'kubectl get pods -l ...' and to cost attribution."""
+    _patch_all(mocker)
+    deploy = mocker.patch("idegym.orchestrator.snapshot_pipeline.deploy_server", return_value=None)
+    request = _request(labels={"team": "research"}, annotations={"example.com/task": "TASK-1"})
+
+    await run_snapshot_pipeline_job(job_id=str(uuid4()), request=request, config=_config())
+
+    assert deploy.await_args.kwargs["extra_labels"] == {"team": "research"}
+    assert deploy.await_args.kwargs["extra_annotations"] == {"example.com/task": "TASK-1"}
+
+
+def test_labels_and_annotations_stay_out_of_the_snapshot_hash():
+    """A per-job label in the hash would make every snapshot a miss."""
+    tagged = _request(labels={"job": "run-42"}, annotations={"example.com/task": "TASK-1"})
+
+    assert compute_hash_for_start_request(tagged) == compute_hash_for_start_request(_request())
 
 
 # ===========================================================================

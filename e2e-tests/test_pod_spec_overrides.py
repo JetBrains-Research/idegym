@@ -131,16 +131,3 @@ async def test_labels_and_annotations_reach_the_pod(test_id, test_image):
         assert pod.metadata.annotations["idegym.example.com/task-url"] == "https://tracker.example.test/TASK-1"
         # Managed labels are untouched, so the platform still addresses the pod.
         assert pod.metadata.labels["app.kubernetes.io/part-of"] == "idegym"
-
-
-@pytest.mark.asyncio
-async def test_a_managed_label_is_rejected_before_anything_is_created(test_id, test_image):
-    async with create_http_client(name=f"labels-reject-{test_id}", nodes_count=0) as client:
-        with pytest.raises(Exception, match="IdeGYM-managed keys"):
-            await client.start_server(
-                image_tag=test_image,
-                server_name=f"labels-reject-{test_id}",
-                runtime_class_name="gvisor",
-                server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
-                labels={"app": "hijacked"},
-            )

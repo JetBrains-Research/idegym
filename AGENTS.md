@@ -294,12 +294,17 @@ Plugins are discovered through entry points, not imports. See
 
 ### Kubernetes object metadata on a server
 
-`StartServerRequest.labels` and `.annotations` are merged *underneath* the labels IdeGYM sets
-itself, so a managed key always wins, and the request model rejects any attempt to set one
-(`MANAGED_LABEL_KEYS` / `MANAGED_LABEL_PREFIXES` in `api/src/idegym/api/orchestrator/servers.py`).
-Adding a new managed label means adding it there too — otherwise a caller can take over a key
-the Service selector, the PodDisruptionBudget, or the watcher's pod queries match on, and detach
-their own sandbox from the machinery that manages it.
+`StartServerRequest.labels` and `.annotations` are merged *underneath* the metadata IdeGYM sets
+itself, so a managed key always wins, and the request model rejects any attempt to set one. The
+managed metadata is defined once, in `api/src/idegym/api/orchestrator/servers.py`:
+`managed_selector_labels` / `managed_labels` and the key constants beside them are what
+`deploy_server` and the node holder build from, and `MANAGED_LABEL_KEYS` / `MANAGED_LABEL_PREFIXES`
+and `MANAGED_ANNOTATION_KEYS` / `MANAGED_ANNOTATION_PREFIXES` are what the validators reserve.
+A new managed key must fall inside that reservation — otherwise a caller can take over a label the
+Service selector, the PodDisruptionBudget or the watcher's pod queries match on, or an annotation
+like `podsnapshot.gke.io/ps-name` that picks which snapshot the pod is restored from.
+`test_every_key_deploy_server_sets_is_reserved_from_callers` in `unit-tests/test_server_labels.py`
+fails when the two drift apart.
 
 ### Anything that changes a built image
 

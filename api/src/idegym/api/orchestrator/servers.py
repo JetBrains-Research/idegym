@@ -2,6 +2,7 @@ from enum import StrEnum
 from typing import Optional
 from uuid import UUID
 
+from idegym.api import __version__
 from idegym.api.pod_spec import (
     KubernetesEnvFromSource,
     KubernetesPodOverrides,
@@ -18,10 +19,59 @@ from idegym.api.type import (
 )
 from pydantic import BaseModel, Field, field_validator
 
+# The Kubernetes metadata IdeGYM puts on the objects it creates is defined here, once, and built
+# from these definitions by ``deploy_server`` and the node holder. The request validators reserve
+# the same keys, so a caller can never take over one of them.
+
+# The ``app.kubernetes.io/component`` of a server's Deployment, Pod, Service and PodDisruptionBudget.
+SERVER_COMPONENT = "sandbox"
+# The GKE snapshot group a server's pod belongs to: the restored-from id, or its own name when fresh.
+SNAPSHOT_ID_LABEL = "idegym.jetbrains.com/snapshot-id"
+SAFE_TO_EVICT_ANNOTATION = "cluster-autoscaler.kubernetes.io/safe-to-evict"
+# Names the GKE PodSnapshot a pod is restored from, instead of the latest one in its group.
+POD_SNAPSHOT_NAME_ANNOTATION = "podsnapshot.gke.io/ps-name"
+
 # Labels IdeGYM sets itself: the Service selector, the PodDisruptionBudget and the watcher's
 # pod queries all match on these, so a caller must not be able to take them over.
 MANAGED_LABEL_KEYS = frozenset({"app"})
 MANAGED_LABEL_PREFIXES = ("app.kubernetes.io/", "idegym.jetbrains.com/")
+# Annotations IdeGYM sets itself. They carry no selector weight, but each one steers a system that
+# acts on the pod: the cluster autoscaler must not evict a sandbox, prometheus scrapes what the
+# server kind exposes, and a GKE PodSnapshot annotation picks which snapshot the pod is restored
+# from — which, set by a caller, could restore another tenant's snapshot into their sandbox.
+MANAGED_ANNOTATION_KEYS = frozenset({SAFE_TO_EVICT_ANNOTATION})
+MANAGED_ANNOTATION_PREFIXES = ("podsnapshot.gke.io/", "prometheus.io/")
+
+
+def is_managed_label_key(key: str) -> bool:
+    return key in MANAGED_LABEL_KEYS or key.startswith(MANAGED_LABEL_PREFIXES)
+
+
+def is_managed_annotation_key(key: str) -> bool:
+    return key in MANAGED_ANNOTATION_KEYS or key.startswith(MANAGED_ANNOTATION_PREFIXES)
+
+
+def managed_selector_labels(name: str, component: str = SERVER_COMPONENT) -> dict[str, str]:
+    """The labels a workload's selectors match on, so they must never change after creation.
+
+    The Deployment selector, the Service selector and the PodDisruptionBudget are all built from
+    exactly these; a caller label that joined them would stop the selectors matching pods started
+    without it.
+    """
+    return {
+        "app": name,
+        "app.kubernetes.io/component": component,
+        "app.kubernetes.io/name": name,
+        "app.kubernetes.io/part-of": "idegym",
+    }
+
+
+def managed_labels(name: str, component: str = SERVER_COMPONENT) -> dict[str, str]:
+    """The selector labels plus the descriptive ones every IdeGYM-created object carries."""
+    return {
+        **managed_selector_labels(name, component),
+        "app.kubernetes.io/version": __version__,
+    }
 
 
 class ServerReuseStrategy(StrEnum):
@@ -112,7 +162,9 @@ class StartServerRequest(BaseModel):
             "so a sandbox can be found with 'kubectl get pods -l ...' and grouped for cost "
             "attribution. Keys IdeGYM manages ('app', 'app.kubernetes.io/*', 'idegym.jetbrains.com/*') "
             "are rejected rather than silently ignored, since overwriting them would break the "
-            "selectors that address the pod."
+            "selectors that address the pod. Applied only when a server is created: a server taken "
+            "over through RESTART or RESET keeps the labels it was created with, so use "
+            "reuse_strategy=NONE when the pod's labels must match this request."
         ),
         examples=[{"team": "research", "job": "swe-bench-run-42"}],
     )
@@ -120,7 +172,10 @@ class StartServerRequest(BaseModel):
         default_factory=dict,
         description=(
             "Extra annotations applied to the server pod. Use for metadata too long or too "
-            "unstructured to be a label, such as a task URL or a serialized request id."
+            "unstructured to be a label, such as a task URL or a serialized request id. Keys IdeGYM "
+            "manages ('cluster-autoscaler.kubernetes.io/safe-to-evict', 'podsnapshot.gke.io/*', "
+            "'prometheus.io/*') are rejected rather than silently overwritten. Like 'labels', applied "
+            "only when a server is created: a reused server keeps the annotations it was created with."
         ),
         examples=[{"idegym.example.com/task-url": "https://tracker.example.com/TASK-1"}],
     )
@@ -178,7 +233,9 @@ class StartServerRequest(BaseModel):
             "on all seven of: client name, image_tag, runtime_class_name, run_as_root, server_kind, "
             "server_name (when set), and an availability of FINISHED. A server is FINISHED only "
             "after finish_server; a client that always calls stop_server leaves its servers STOPPED, "
-            "so reuse never hits. StartServerResponse.reused reports what actually happened."
+            "so reuse never hits. StartServerResponse.reused reports what actually happened. A reused "
+            "server keeps the Kubernetes labels and annotations it was created with; only NONE "
+            "guarantees they match this request."
         ),
     )
     server_kind: ServerKind = Field(
@@ -213,10 +270,24 @@ class StartServerRequest(BaseModel):
         watcher's pod queries match on, so a caller who overwrote one would detach their own
         sandbox from the machinery that manages it.
         """
-        reserved = sorted(key for key in labels if key in MANAGED_LABEL_KEYS or key.startswith(MANAGED_LABEL_PREFIXES))
+        reserved = sorted(key for key in labels if is_managed_label_key(key))
         if reserved:
             raise ValueError(f"labels may not set IdeGYM-managed keys: {', '.join(reserved)}")
         return labels
+
+    @field_validator("annotations")
+    @classmethod
+    def _reject_managed_annotation_keys(cls, annotations: KubernetesAnnotations) -> KubernetesAnnotations:
+        """Refuse an annotation IdeGYM owns, for the same reason as a managed label.
+
+        The autoscaler, prometheus and GKE pod snapshots all act on the managed annotations. The
+        snapshot one is the sharp edge: it names which snapshot GKE restores the pod from, so
+        accepting it from a caller would let them restore a snapshot the orchestrator never chose.
+        """
+        reserved = sorted(key for key in annotations if is_managed_annotation_key(key))
+        if reserved:
+            raise ValueError(f"annotations may not set IdeGYM-managed keys: {', '.join(reserved)}")
+        return annotations
 
 
 class ServerScopedRequest(BaseModel):

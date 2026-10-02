@@ -164,8 +164,12 @@ Pods with label 'app=srv-abc' were not ready within 300s
 ```
 
 The distinctions it draws are: still pulling or creating the container, the image could not be
-pulled, the container is running but its readiness probe has not passed, and no pod matched at
-all. Only the third points at the image's health endpoint.
+pulled, an init container that is still running or has failed (named, since the main container
+then waits with `PodInitializing`, which alone looks like a pull), the container is running but
+its readiness probe has not passed, a new pod that is ready but waiting for an old one to
+terminate, and no pod matched at all. Only the readiness probe case points at the image's health
+endpoint. With several pods it describes the first one that is not ready, prefixed with how many
+are (`1/2 pods ready; ...`).
 
 Scheduling has its own budgets, separate from this timeout; see
 [Clusters with slow node provisioning](remote_deployment.md#clusters-with-slow-node-provisioning).
@@ -181,19 +185,29 @@ kubectl get pods -n idegym -l job=swe-bench-run-42
 
 They land on the Deployment, Pod, Service and PodDisruptionBudget. Use a label for anything you
 want to select or group by, and an annotation for metadata that is too long or too unstructured
-to be one — a Kubernetes label value is capped at 63 characters.
+to be one — a Kubernetes label value is capped at 63 characters. Both are checked against the
+Kubernetes syntax when the request is built: a key is an optional lowercase DNS prefix (at most
+253 characters) and a slash, then a name of at most 63 characters, and all annotation keys and
+values together may not exceed 256 KiB. A request that breaks these fails with a
+`ValidationError` instead of a server that fails to start.
 
 Keys IdeGYM manages are **rejected**, not silently overwritten: `app`, anything under
 `app.kubernetes.io/`, and anything under `idegym.jetbrains.com/`. Those are what the Service
 selector, the PodDisruptionBudget and the watcher's pod queries match on, so taking one over
-would detach the sandbox from the machinery that manages it. Annotations carry no selector
-weight and are not restricted.
+would detach the sandbox from the machinery that manages it. The annotations IdeGYM sets are
+rejected the same way: `cluster-autoscaler.kubernetes.io/safe-to-evict`, anything under
+`prometheus.io/`, and anything under `podsnapshot.gke.io/`. The last one matters most, since it
+names the GKE pod snapshot a pod is restored from. Any other annotation key is accepted,
+including ones under the managed label prefixes, because annotations carry no selector weight.
 
 Two things they deliberately do not affect. They are not part of the snapshot hash — they
 describe who asked for a sandbox, not what is in it, and a per-job label would otherwise make
 every snapshot a miss. And they are not part of reuse matching: a server reused through
-`RESTART` or `RESET` keeps the labels it was started with, so do not rely on them to tell one
-episode from the next on a reused server.
+`RESTART` or `RESET` (the default) keeps the labels and annotations it was created with, and the
+new request's values are not applied to it. So `kubectl get pods -l job=<new job>` does not find
+a reused sandbox. Pass `reuse_strategy=ServerReuseStrategy.NONE` when the pod's metadata must
+match this request, and do not rely on labels to tell one episode from the next on a reused
+server.
 
 ### `start_server(...)` / `stop_server(...)` / `finish_server(...)`
 
@@ -239,6 +253,9 @@ these match:
 
 `server_name` is one of seven filters, not the key — two requests with the same name but
 different images will not share a server.
+
+`labels` and `annotations` are not among them, and a server that is taken over keeps the
+Kubernetes metadata it was created with — see [Tagging a sandbox](#tagging-a-sandbox).
 
 The last row is the one that catches people. A server becomes `FINISHED` only through
 `finish_server` (or `close_action=FINISH`, which `with_server` uses by default). A client that

@@ -102,6 +102,10 @@ async def run_snapshot_pipeline_job(
             env_from=[source.model_dump(by_alias=True, exclude_none=True) for source in request.env_from],
             pod_overrides=request.pod_overrides.model_dump(by_alias=True, exclude_none=True),
             server_kind=request.server_kind,
+            # Metadata about who asked, not what is in the environment: it goes on the prep pod so
+            # selectors and cost attribution see it, but stays out of _HASH_FIELDS.
+            extra_labels=request.labels,
+            extra_annotations=request.annotations,
         )
 
         await wait_for_pods_ready(

@@ -3,8 +3,8 @@ from http import HTTPStatus
 from typing import Optional
 from uuid import UUID
 
-from idegym.api import __version__
 from idegym.api.config import SchedulingConfig
+from idegym.api.orchestrator.servers import SAFE_TO_EVICT_ANNOTATION, managed_labels, managed_selector_labels
 from idegym.backend.utils.kubernetes_client import (
     async_kube_api,
     build_node_affinity,
@@ -102,18 +102,10 @@ async def spin_up_or_update_nodes_for_client(
     client_hash = md5(client_name)
     name = f"{component}-{client_hash}"
     annotations = {
-        "cluster-autoscaler.kubernetes.io/safe-to-evict": "false",
+        SAFE_TO_EVICT_ANNOTATION: "false",
     }
-    match_labels = {
-        "app": name,
-        "app.kubernetes.io/component": component,
-        "app.kubernetes.io/name": name,
-        "app.kubernetes.io/part-of": "idegym",
-    }
-    labels = {
-        **match_labels,
-        "app.kubernetes.io/version": __version__,
-    }
+    match_labels = managed_selector_labels(name, component)
+    labels = managed_labels(name, component)
 
     container = V1Container(
         name="sleeper",

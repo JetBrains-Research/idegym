@@ -4,6 +4,7 @@ from pathlib import Path
 from shlex import quote
 from textwrap import dedent
 from typing import ClassVar, Optional
+from urllib.parse import urlsplit, urlunsplit
 
 from idegym.api.download import Authorization, DownloadRequest
 from idegym.api.git import GitRepository, GitRepositoryResource, GitRepositorySnapshot
@@ -626,11 +627,26 @@ _REQUIRED_WORKSPACE_PATHS = (
 )
 
 
+def _redact_userinfo(url: str) -> str:
+    """The URL with any ``user:password@`` replaced, for text that is not the clone itself.
+
+    The clone needs the credential, but a build log line or a Dockerfile comment does not, and both
+    are kept verbatim in the image history and in build output.
+    """
+    parts = urlsplit(url)
+    if "@" not in parts.netloc:
+        return url
+    return urlunsplit(parts._replace(netloc="***@" + parts.netloc.rpartition("@")[2]))
+
+
 def _render_workspace_path_check(source_root: str, described_as: str) -> str:
     """Fail the build with the missing paths listed, instead of on the first `cp` that misses.
 
     Runs immediately after the checkout so the failure arrives in seconds, and reports *every*
     missing path at once so an out-of-date ref does not have to be diagnosed one `cp` at a time.
+    ``described_as`` comes from the caller's URL and ref, so it reaches the shell only as a
+    quoted ``printf`` argument: inside a double-quoted ``echo``, a ``$`` or ``"`` in it would be
+    expanded or break the step.
     """
     checks = " ".join(quote(path) for path in _REQUIRED_WORKSPACE_PATHS)
     return dedent(
@@ -641,7 +657,7 @@ def _render_workspace_path_check(source_root: str, described_as: str) -> str:
                 [ -e {quote(source_root)}/"$path" ] || missing="$missing $path"; \\
             done; \\
             if [ -n "$missing" ]; then \\
-                echo "IdeGYM source at {described_as} is missing:$missing" >&2; \\
+                printf 'IdeGYM source at %s is missing:%s\\n' {quote(described_as)} "$missing" >&2; \\
                 echo "This ref predates the current workspace layout; pick a newer one." >&2; \\
                 exit 1; \\
             fi
@@ -781,7 +797,7 @@ class IdeGYMServer(PluginBase):
         clone_lines = [f"git clone {quote(self.url)} /tmp/idegym-src"]
         if ref != "HEAD":
             clone_lines.append(f"git -C /tmp/idegym-src checkout {quote(ref)}")
-        clone_run = _render_run_block(clone_lines, comment=f"Clone IdeGYM from {self.url}")
+        clone_run = _render_run_block(clone_lines, comment=f"Clone IdeGYM from {_redact_userinfo(self.url)}")
         setup = dedent(
             f"""\
             RUN set -eux; \\
@@ -812,7 +828,7 @@ class IdeGYMServer(PluginBase):
             [
                 _idegym_server_env(ctx.project_root),
                 clone_run,
-                _render_workspace_path_check("/tmp/idegym-src", f"{self.url}@{ref}"),
+                _render_workspace_path_check("/tmp/idegym-src", f"{_redact_userinfo(self.url)}@{ref}"),
                 setup,
                 self._render_plugins_config(ctx),
                 f"USER {ctx.user_spec}\nWORKDIR $IDEGYM_PATH",

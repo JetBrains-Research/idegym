@@ -295,3 +295,28 @@ async def test_pod_phase_and_readiness_ignores_a_pod_on_its_way_out(mocker) -> N
     )
 
     assert await kubernetes_client.pod_phase_and_readiness("app=x", "idegym") == ("Pending", False)
+
+
+async def test_pod_phase_and_readiness_prefers_a_healthy_replacement_over_an_evicted_pod(mocker) -> None:
+    """An evicted pod stays Failed with no deletion timestamp, and may well be listed first."""
+    from idegym.backend.utils import kubernetes_client
+
+    mocker.patch.object(
+        kubernetes_client,
+        "list_pods",
+        mocker.AsyncMock(return_value=[_pod("Failed", ready=False), _pod("Running")]),
+    )
+
+    assert await kubernetes_client.pod_phase_and_readiness("app=x", "idegym") == ("Running", True)
+
+
+async def test_pod_phase_and_readiness_prefers_a_running_pod_over_a_failed_one(mocker) -> None:
+    from idegym.backend.utils import kubernetes_client
+
+    mocker.patch.object(
+        kubernetes_client,
+        "list_pods",
+        mocker.AsyncMock(return_value=[_pod("Failed", ready=False), _pod("Running", ready=False)]),
+    )
+
+    assert await kubernetes_client.pod_phase_and_readiness("app=x", "idegym") == ("Running", False)

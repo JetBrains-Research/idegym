@@ -14,7 +14,15 @@ from idegym.api import __version__
 from idegym.api.config import SchedulingConfig
 from idegym.api.download import DownloadRequest
 from idegym.api.exceptions import ResourceDeletionFailedException
-from idegym.api.orchestrator.servers import ServerKind
+from idegym.api.orchestrator.servers import (
+    POD_SNAPSHOT_NAME_ANNOTATION,
+    SAFE_TO_EVICT_ANNOTATION,
+    SNAPSHOT_ID_LABEL,
+    ServerKind,
+    is_managed_annotation_key,
+    managed_labels,
+    managed_selector_labels,
+)
 from idegym.api.paths import API_BASE_PATH, ActuatorPath, OpenenvPath
 from idegym.api.status import Status
 from idegym.api.type import ConditionStatus, Duration
@@ -331,25 +339,27 @@ async def deploy_server(
     image_pull_secret = V1LocalObjectReference(name="regcred")
     # Caller metadata goes on first so a managed key always wins: the selectors that address the
     # pod are built from the managed labels, and prometheus scraping from the managed annotations.
+    # A managed annotation IdeGYM does not set this time is dropped rather than passed through: the
+    # request model rejects them, but a 'podsnapshot.gke.io/ps-name' that slipped past it would
+    # restore the pod from a snapshot nobody recorded, so this layer does not rely on that.
+    caller_annotations = {
+        key: value for key, value in (extra_annotations or {}).items() if not is_managed_annotation_key(key)
+    }
+    if dropped := sorted((extra_annotations or {}).keys() - caller_annotations.keys()):
+        logger.warning("Dropped IdeGYM-managed annotations from the caller", server=server_name, keys=dropped)
     annotations = {
-        **(extra_annotations or {}),
-        "cluster-autoscaler.kubernetes.io/safe-to-evict": "false",
+        **caller_annotations,
+        SAFE_TO_EVICT_ANNOTATION: "false",
         **prometheus_annotations,
     }
     if snapshot_tag:
         # Restore a specific GKE PodSnapshot instead of the latest one in the group.
-        annotations["podsnapshot.gke.io/ps-name"] = snapshot_tag
-    match_labels = {
-        "app": server_name,
-        "app.kubernetes.io/component": "sandbox",
-        "app.kubernetes.io/name": server_name,
-        "app.kubernetes.io/part-of": "idegym",
-    }
+        annotations[POD_SNAPSHOT_NAME_ANNOTATION] = snapshot_tag
+    match_labels = managed_selector_labels(server_name)
     labels = {
         **(extra_labels or {}),
-        **match_labels,
-        "app.kubernetes.io/version": __version__,
-        "idegym.jetbrains.com/snapshot-id": snapshot_id or server_name,
+        **managed_labels(server_name),
+        SNAPSHOT_ID_LABEL: snapshot_id or server_name,
     }
 
     toleration = (
@@ -515,6 +525,21 @@ _PULL_IN_PROGRESS_REASONS = frozenset({"ContainerCreating", "PodInitializing"})
 _PULL_FAILED_REASONS = frozenset({"ImagePullBackOff", "ErrImagePull", "InvalidImageName"})
 
 
+def _live_pods(pods: Iterable[V1Pod]) -> list[V1Pod]:
+    """The pods not on their way out: a terminating pod says nothing about the one replacing it."""
+    return [pod for pod in pods if pod.metadata.deletion_timestamp is None]
+
+
+def _pod_is_ready(pod: V1Pod) -> bool:
+    container_statuses = pod.status.container_statuses or []
+    return pod.status.phase == "Running" and bool(container_statuses) and all(c.ready for c in container_statuses)
+
+
+# How long the timeout diagnostic may spend asking Kubernetes. It runs after a wait has already
+# expired, often because the API server itself is struggling, so it must not add a second hang.
+_DIAGNOSIS_TIMEOUT_SECONDS = 10
+
+
 async def describe_pod_startup(label_selector: str, namespace: str) -> str:
     """Say what the pods are actually doing, so a readiness timeout is not an unattributable one.
 
@@ -524,27 +549,83 @@ async def describe_pod_startup(label_selector: str, namespace: str) -> str:
     container that is not ready is a readiness probe that has not passed.
     """
     try:
-        pods = [pod for pod in await list_pods(label_selector, namespace) if pod.metadata.deletion_timestamp is None]
+        async with timeout(_DIAGNOSIS_TIMEOUT_SECONDS):
+            listed = await list_pods(label_selector, namespace)
     except Exception as error:  # noqa: BLE001  # a diagnostic must never replace the real failure
-        return f"pod state unavailable: {error}"
+        return f"pod state unavailable: {str(error) or type(error).__name__}"
 
+    pods = _live_pods(listed)
     if not pods:
         return "no pods matched"
 
-    pod = pods[0]
-    waiting = {
-        container.state.waiting.reason
-        for container in (pod.status.container_statuses or [])
-        if container.state and container.state.waiting and container.state.waiting.reason
-    }
+    # With several replicas, or an old and a new pod overlapping during a rollout, the pod holding
+    # the wait up is the one worth describing, not whichever the API happened to list first.
+    not_ready = [pod for pod in pods if not _pod_is_ready(pod)]
+    if not_ready:
+        diagnosis = _describe_pod(not_ready[0])
+    elif terminating := len(listed) - len(pods):
+        # A RESTART reuse whose old pod is slow to terminate: the new one is fine, and blaming its
+        # readiness probe would send the reader after the wrong problem.
+        diagnosis = f"new pod ready, waiting for {terminating} old pod(s) to terminate"
+    else:
+        diagnosis = "all pods ready"
+    if len(pods) > 1:
+        return f"{len(pods) - len(not_ready)}/{len(pods)} pods ready; {diagnosis}"
+    return diagnosis
+
+
+def _waiting_reason(container: Any) -> Optional[str]:
+    state = container.state
+    return state.waiting.reason if state and state.waiting and state.waiting.reason else None
+
+
+def _describe_init_containers(pod: V1Pod) -> Optional[str]:
+    """The first init container still holding the pod back, or ``None`` when none is.
+
+    Until every init container has completed, the main containers wait with ``PodInitializing``,
+    which on its own reads as a pull in progress. An init container that is crash-looping or has
+    failed never gets there, and raising the timeout will not help, so it has to be named.
+    """
+    for container in pod.status.init_container_statuses or []:
+        state = container.state
+        terminated = state.terminated if state else None
+        if container.ready or (terminated and terminated.exit_code == 0):
+            continue
+        reason = _waiting_reason(container)
+        if reason in _PULL_FAILED_REASONS:
+            return f"the image of init container '{container.name}' could not be pulled ({reason})"
+        if reason in _PULL_IN_PROGRESS_REASONS:
+            return f"still pulling the image or creating init container '{container.name}' ({reason})"
+        if reason:
+            return f"init container '{container.name}' waiting ({reason})"
+        if terminated:
+            return (
+                f"init container '{container.name}' failed "
+                f"(exit code {terminated.exit_code}{f', {terminated.reason}' if terminated.reason else ''})"
+            )
+        if state and state.running:
+            return f"init container '{container.name}' still running"
+    return None
+
+
+def _describe_pod(pod: V1Pod) -> str:
+    """What a single pod that is not ready is doing, in the terms ``describe_pod_startup`` reports."""
+    if init_diagnosis := _describe_init_containers(pod):
+        return init_diagnosis
+    container_statuses = pod.status.container_statuses or []
+    waiting = {reason for container in container_statuses if (reason := _waiting_reason(container))}
     if waiting & _PULL_FAILED_REASONS:
         return f"the image could not be pulled ({', '.join(sorted(waiting))})"
     if waiting & _PULL_IN_PROGRESS_REASONS:
         return f"still pulling the image or creating the container ({', '.join(sorted(waiting))})"
     if waiting:
         return f"phase {pod.status.phase}, container waiting ({', '.join(sorted(waiting))})"
-    if pod.status.phase == "Running":
-        return "image pulled and container running, but its readiness probe has not passed"
+    unready = sorted(container.name for container in container_statuses if not container.ready)
+    if pod.status.phase == "Running" and unready:
+        return (
+            f"image pulled and container running, but its readiness probe has not passed "
+            f"(not ready: {', '.join(unready)})"
+        )
     return f"phase {pod.status.phase}"
 
 
@@ -718,8 +799,7 @@ async def pods_are_ready(label_selector: str, namespace: str) -> tuple[bool, boo
     so callers can wait for them to disappear before considering the deployment stable.
     """
 
-    async with async_kube_api() as (_, _, core, _, _):
-        pods = (await core.list_namespaced_pod(namespace=namespace, label_selector=label_selector)).items
+    pods = await list_pods(label_selector, namespace)
 
     has_image_pull_error = False
     has_terminating_pods = False
@@ -746,19 +826,15 @@ async def pods_are_ready(label_selector: str, namespace: str) -> tuple[bool, boo
                 for container in pod.status.container_statuses:
                     if container.state and container.state.waiting:
                         reason = container.state.waiting.reason
-                        if reason in ["ImagePullBackOff", "ErrImagePull"]:
+                        if reason in _PULL_FAILED_REASONS:
                             has_image_pull_error = True
                             logger.warning(
                                 f"Pod {pod.metadata.name} has image pull error: {reason} with message: {container.state.waiting.message}"
                             )
                             break
 
-    non_terminating_pods = [pod for pod in pods if pod.metadata.deletion_timestamp is None]
-
-    pods_ready = len(non_terminating_pods) > 0 and all(
-        pod.status.phase == "Running" and all(c.ready for c in pod.status.container_statuses)
-        for pod in non_terminating_pods
-    )
+    live_pods = _live_pods(pods)
+    pods_ready = len(live_pods) > 0 and all(_pod_is_ready(pod) for pod in live_pods)
 
     return pods_ready, has_image_pull_error, has_terminating_pods, has_unschedulable_pods
 
@@ -774,16 +850,19 @@ async def pod_phase_and_readiness(label_selector: str, namespace: str) -> tuple[
     """Return the phase of the server's pod and whether every container in it is ready.
 
     Terminating pods are skipped, so a restart in progress reports the incoming pod rather than
-    the one on its way out. The phase is ``None`` when no pod matches the selector at all.
+    the one on its way out. Among the rest a ready pod, then a Running one, is preferred: an evicted
+    pod stays ``Failed`` without a deletion timestamp next to its healthy replacement, and must not
+    mask it just because it is listed first. The phase is ``None`` when no pod matches at all.
     """
-    pods = [pod for pod in await list_pods(label_selector, namespace) if pod.metadata.deletion_timestamp is None]
+    pods = _live_pods(await list_pods(label_selector, namespace))
     if not pods:
         return None, False
 
-    pod = pods[0]
-    container_statuses = pod.status.container_statuses or []
-    ready = pod.status.phase == "Running" and bool(container_statuses) and all(c.ready for c in container_statuses)
-    return pod.status.phase, ready
+    pod = next(
+        (pod for pod in pods if _pod_is_ready(pod)),
+        next((pod for pod in pods if pod.status.phase == "Running"), pods[0]),
+    )
+    return pod.status.phase, _pod_is_ready(pod)
 
 
 async def are_any_pods_alive(label_selector: str, namespace: str) -> bool:
