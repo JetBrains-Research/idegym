@@ -299,6 +299,14 @@ class FileOperations:
             offset += len(chunk)
             # `eof` ends a normal transfer; an empty chunk guards against a file shrinking mid-read.
             if response.eof or not chunk:
+                if offset != response.size:
+                    # Returning here would hand the caller truncated data as if it were the whole
+                    # file. The offset stops short of the size the server reports when the file
+                    # shrinks under us, or when the server returns nothing before the end.
+                    raise RuntimeError(
+                        f"Download ended at {offset} bytes, but the file is {response.size} bytes: "
+                        f"{file_path} changed while it was being downloaded"
+                    )
                 return
 
 

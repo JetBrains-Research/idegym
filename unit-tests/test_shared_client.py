@@ -210,3 +210,96 @@ def _running_loop_id():
         return id(asyncio.get_running_loop())
     except RuntimeError:
         return None
+
+
+@pytest.fixture
+def quick_drain(mocker):
+    """Shrink the drain budgets so a test that exercises them does not take seconds."""
+    mocker.patch.object(_LoopThread, "_DRAIN_TIMEOUT_SECONDS", 0.1)
+    mocker.patch.object(_LoopThread, "_CANCEL_TIMEOUT_SECONDS", 0.5)
+
+
+def test_close_cancels_work_that_outlives_the_drain(quick_drain) -> None:
+    """A caller blocked on such work with no timeout would otherwise wait forever."""
+    loop_thread = _LoopThread(name="idegym-client-loop-test")
+
+    future = loop_thread.submit(lambda: asyncio.sleep(3600))
+    loop_thread.close()
+
+    assert future.cancelled()
+    assert loop_thread._loop.is_closed()
+
+
+def test_close_still_runs_the_shutdown_hooks_after_cancelling(quick_drain) -> None:
+    loop_thread = _LoopThread(name="idegym-client-loop-test")
+    loop = loop_thread._loop
+    original = loop.shutdown_default_executor
+    hooks = []
+
+    async def recording_shutdown(*args, **kwargs):
+        hooks.append("executor")
+        await original(*args, **kwargs)
+
+    loop.shutdown_default_executor = recording_shutdown
+    loop_thread.submit(lambda: asyncio.sleep(3600))
+    loop_thread.close()
+
+    assert hooks == ["executor"]
+
+
+def test_submit_is_refused_once_closing_has_started() -> None:
+    loop_thread = _LoopThread(name="idegym-client-loop-test")
+    loop_thread.close()
+
+    with pytest.raises(RuntimeError, match="shutting down"):
+        loop_thread.submit(lambda: asyncio.sleep(0))
+
+
+def test_submit_is_refused_while_the_drain_is_running() -> None:
+    loop_thread = _LoopThread(name="idegym-client-loop-test")
+    refused = {}
+
+    async def submit_once_closing():
+        # Still pending when close() starts, so the drain waits for it to try.
+        while not loop_thread._closing:
+            await asyncio.sleep(0.01)
+        try:
+            loop_thread.submit(lambda: asyncio.sleep(0))
+        except RuntimeError as error:
+            refused["error"] = error
+
+    loop_thread.submit(submit_once_closing)
+    loop_thread.close()
+
+    assert "shutting down" in str(refused["error"])
+
+
+def test_a_keyboard_interrupt_during_close_still_stops_the_loop(mocker) -> None:
+    loop_thread = _LoopThread(name="idegym-client-loop-test")
+    drain = mocker.MagicMock()
+    drain.result.side_effect = KeyboardInterrupt
+    mocker.patch.object(loop_thread, "_schedule", return_value=drain)
+
+    with pytest.raises(KeyboardInterrupt):
+        loop_thread.close()
+
+    assert loop_thread._loop.is_closed()
+    assert not loop_thread._thread.is_alive()
+
+
+def test_run_cancels_the_call_when_it_times_out(fake_client) -> None:
+    cancelled = threading.Event()
+
+    async def hang(_client):
+        try:
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    with _shared() as handle:
+        with pytest.raises(TimeoutError):
+            handle.run(hang, timeout=0.05)
+
+        # Checked before exit, so it is run() that cancelled it rather than the drain.
+        assert cancelled.wait(5)

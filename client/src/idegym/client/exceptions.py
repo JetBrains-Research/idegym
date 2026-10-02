@@ -21,7 +21,7 @@ class IdeGYMHTTPError(IdeGYMException, RuntimeError):
     """A call to the orchestrator, or to a server through it, failed.
 
     ``status_code`` is the HTTP status the failure carried. It is ``None`` when the request
-    never produced one — a client-side timeout, for instance.
+    never produced one — a client-side timeout or a connection failure, for instance.
     """
 
     def __init__(
@@ -57,8 +57,22 @@ class IdeGYMNotFoundError(IdeGYMHTTPError):
     """
 
 
-class IdeGYMTimeoutError(IdeGYMHTTPError):
-    """The call did not complete in time. Safe to retry if the operation is idempotent."""
+class IdeGYMTimeoutError(IdeGYMHTTPError, TimeoutError):
+    """The call did not complete in time. Safe to retry if the operation is idempotent.
+
+    Covers both a timeout status from the orchestrator and a deadline the SDK itself enforces —
+    on a request, or on polling an async operation. It is also a builtin ``TimeoutError``,
+    which is what those client-side deadlines used to raise, so an existing
+    ``except TimeoutError`` keeps catching them.
+    """
+
+
+class IdeGYMConnectionError(IdeGYMHTTPError):
+    """The request never got a response: the connection failed or broke off mid-exchange.
+
+    Typically the orchestrator is restarting or unreachable. ``status_code`` is ``None``. Safe to
+    retry if the operation is idempotent — the request may or may not have been acted on.
+    """
 
 
 class IdeGYMBusyError(IdeGYMHTTPError):
@@ -71,6 +85,17 @@ class IdeGYMCancelledError(IdeGYMHTTPError):
 
 class IdeGYMServerError(IdeGYMHTTPError):
     """The orchestrator or the sandbox failed while handling the request."""
+
+
+class IdeGYMSandboxError(IdeGYMHTTPError):
+    """The sandbox itself answered a forwarded request with an error status.
+
+    The sandbox is alive — it produced the response — so this is kept apart from the status-based
+    types: an application-level ``404 Path not found`` from a live sandbox must not read as
+    ``IdeGYMNotFoundError``, which tells the caller the sandbox is gone and a new one is needed.
+    ``status_code`` and ``body`` are the sandbox's own. Failures the orchestrator reports about the
+    forward itself — the pod cannot be reached, the call was cancelled — keep their usual types.
+    """
 
 
 # 499 is nginx's non-standard "client closed request"; the orchestrator reuses it for a
@@ -92,7 +117,7 @@ _ERROR_BY_STATUS: dict[int, type[IdeGYMHTTPError]] = {
 }
 
 
-def error_class_for_status(status_code: Optional[int]) -> type[IdeGYMHTTPError]:
+def _error_class_for_status(status_code: Optional[int]) -> type[IdeGYMHTTPError]:
     """Pick the exception type for a status code, falling back by class of status."""
     if status_code is None:
         return IdeGYMHTTPError
@@ -114,7 +139,7 @@ def http_error(
     url: Optional[str] = None,
 ) -> IdeGYMHTTPError:
     """Build the most specific exception for ``status_code``, ready to raise."""
-    return error_class_for_status(status_code)(message, status_code=status_code, body=body, method=method, url=url)
+    return _error_class_for_status(status_code)(message, status_code=status_code, body=body, method=method, url=url)
 
 
 def raise_for_error_response[T](response: T | ErrorResponse, operation: str) -> T:

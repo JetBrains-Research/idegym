@@ -2,16 +2,17 @@ import asyncio
 import math
 import random
 from asyncio import CancelledError, sleep
+from http import HTTPStatus
 from json import JSONDecodeError, loads
 from typing import Any, Optional, TypeVar
 from uuid import UUID
 
-from httpx import AsyncClient, HTTPStatusError, TimeoutException
+from httpx import AsyncClient, HTTPStatusError, TimeoutException, TransportError
 from idegym.api.orchestrator.operations import (
     AsyncOperationStatus,
     AsyncOperationStatusResponse,
 )
-from idegym.client.exceptions import IdeGYMTimeoutError, http_error
+from idegym.client.exceptions import IdeGYMConnectionError, IdeGYMHTTPError, IdeGYMTimeoutError, http_error
 from idegym.utils.logging import get_logger
 from pydantic import BaseModel, Field
 
@@ -34,12 +35,36 @@ class PollingConfig(BaseModel):
     )
 
 
+# How long past its deadline a poll may still take to answer. The final poll is sent at the
+# deadline, so without this a status request would have no time to complete; it only matters
+# when a request hangs, since a prompt answer ends the wait either way.
+_FINAL_POLL_ALLOWANCE_IN_SEC = 10.0
+
 S = TypeVar("S", bound=BaseModel)
 E = TypeVar("E", bound=BaseModel)
 
 
+# A 4xx other than these says the request itself is wrong — the server is gone, the credentials
+# are bad, the body is invalid — so sending it again unchanged can only fail the same way.
+_RETRYABLE_CLIENT_ERROR_STATUSES = frozenset({HTTPStatus.REQUEST_TIMEOUT, HTTPStatus.TOO_MANY_REQUESTS})
+
+
+def _is_permanent_failure(error: Exception) -> bool:
+    status_code = error.status_code if isinstance(error, IdeGYMHTTPError) else None
+    return (
+        status_code is not None
+        and HTTPStatus.BAD_REQUEST <= status_code < HTTPStatus.INTERNAL_SERVER_ERROR
+        and status_code not in _RETRYABLE_CLIENT_ERROR_STATUSES
+    )
+
+
 def retry_with_backoff(attempts: int, base_delay: float = 0.5):
-    """Decorator that retries an async function with exponential backoff on any exception."""
+    """Decorator that retries an async function with exponential backoff.
+
+    Any exception is retried except an ``IdeGYMHTTPError`` carrying a permanent 4xx status, which
+    is re-raised at once: retrying a ``404`` for a server that was already reaped only adds two
+    more failed calls and two more logged tracebacks before the same error surfaces.
+    """
 
     def decorator(func):
         async def wrapper(*args, **kwargs):
@@ -47,7 +72,9 @@ def retry_with_backoff(attempts: int, base_delay: float = 0.5):
             while retries < attempts:
                 try:
                     return await func(*args, **kwargs)
-                except Exception:
+                except Exception as error:
+                    if _is_permanent_failure(error):
+                        raise
                     retries += 1
                     if retries >= attempts:
                         raise
@@ -126,7 +153,16 @@ class HTTPUtils:
         except TimeoutException as ex:
             message = f"Request timed out: url={url} error='{ex}'"
             logger.error(message)
-            raise IdeGYMTimeoutError(message, method=method, url=url)
+            raise IdeGYMTimeoutError(message, method=method, url=url) from ex
+
+        # After TimeoutException, which is itself a TransportError. What is left never got a
+        # response at all — refused, reset, or cut off mid-exchange, as when the orchestrator
+        # restarts during a rollout — which is the most retryable failure there is, so it has to
+        # be catchable as an IdeGYMHTTPError like every other one.
+        except TransportError as ex:
+            message = f"Request failed without a response: url={url} error='{type(ex).__name__}: {ex}'"
+            logger.error("Request failed without a response", url=url, error=repr(ex))
+            raise IdeGYMConnectionError(message, method=method, url=url) from ex
 
         except HTTPStatusError as ex:
             # The message is deliberately unchanged: it predates the typed exceptions and
@@ -144,7 +180,7 @@ class HTTPUtils:
                 body=ex.response.text,
                 method=method,
                 url=url,
-            )
+            ) from ex
 
         except JSONDecodeError:
             logger.exception(f"Failed to parse JSON response: url={url} data={response.text!r}")
@@ -169,35 +205,60 @@ class HTTPUtils:
 
         Returns an instance of ``success_response_model`` on success, ``error_response_model`` on
         failure or cancellation, or the raw result string if no model is provided.
-        Raises ``TimeoutError`` if ``polling_config.wait_timeout_in_sec`` is exceeded.
+        Raises ``IdeGYMTimeoutError`` if ``polling_config.wait_timeout_in_sec`` is exceeded.
+
+        No backoff sleep is allowed to run past the deadline: the last one is cut short so that
+        one final poll lands on the deadline itself. Otherwise, with a long backoff, the last poll
+        before the deadline could come a minute early, and an operation that succeeded in that
+        gap would be reported as timed out — orphaning, say, a server that did start. A request
+        that hangs is bounded separately, by a short allowance past the deadline.
         """
         polling_config = polling_config or PollingConfig()
         logger.debug(f"Polling async operation status with ID {operation_id}")
 
-        async with asyncio.timeout(polling_config.wait_timeout_in_sec):
-            retry = 0
-            while True:
-                await sleep(self._calculate_wait_time_with_jitter(retry=retry, polling_config=polling_config))
+        wait_timeout = polling_config.wait_timeout_in_sec
+        hard_stop = asyncio.timeout(wait_timeout + _FINAL_POLL_ALLOWANCE_IN_SEC)
+        try:
+            async with hard_stop:
+                loop = asyncio.get_running_loop()
+                deadline = loop.time() + wait_timeout
+                retry = 0
+                while True:
+                    remaining = deadline - loop.time()
+                    delay = self._calculate_wait_time_with_jitter(retry=retry, polling_config=polling_config)
+                    last_poll = delay >= remaining
+                    await sleep(max(0.0, min(delay, remaining)))
 
-                full_status_raw = await self.make_request("GET", f"/api/operations/status/{operation_id}")
-                full_status = AsyncOperationStatusResponse.model_validate(full_status_raw)
-                short_status = AsyncOperationStatus(full_status.status)
+                    full_status_raw = await self.make_request("GET", f"/api/operations/status/{operation_id}")
+                    full_status = AsyncOperationStatusResponse.model_validate(full_status_raw)
+                    short_status = AsyncOperationStatus(full_status.status)
 
-                if short_status is AsyncOperationStatus.SUCCEEDED:
-                    return self._parse_async_operation_response(
-                        result=full_status.result, short_status=short_status, response_model=success_response_model
-                    )
+                    if short_status is AsyncOperationStatus.SUCCEEDED:
+                        return self._parse_async_operation_response(
+                            result=full_status.result, short_status=short_status, response_model=success_response_model
+                        )
 
-                if short_status in (AsyncOperationStatus.FAILED, AsyncOperationStatus.CANCELLED):
-                    logger.debug(
-                        f"Async operation {operation_id} ended with status {short_status}. "
-                        f"Full details: {full_status.result}"
-                    )
-                    return self._parse_async_operation_response(
-                        result=full_status.result, short_status=short_status, response_model=error_response_model
-                    )
+                    if short_status in (AsyncOperationStatus.FAILED, AsyncOperationStatus.CANCELLED):
+                        logger.debug(
+                            f"Async operation {operation_id} ended with status {short_status}. "
+                            f"Full details: {full_status.result}"
+                        )
+                        return self._parse_async_operation_response(
+                            result=full_status.result, short_status=short_status, response_model=error_response_model
+                        )
 
-                retry += 1
+                    if last_poll:
+                        break
+                    retry += 1
+        except TimeoutError as ex:
+            # A request timing out inside the loop is already an IdeGYMTimeoutError; only the
+            # hard stop itself needs translating.
+            if not hard_stop.expired():
+                raise
+            raise IdeGYMTimeoutError(
+                f"Async operation {operation_id} did not finish within {wait_timeout} seconds"
+            ) from ex
+        raise IdeGYMTimeoutError(f"Async operation {operation_id} did not finish within {wait_timeout} seconds")
 
     def _calculate_wait_time_with_jitter(self, retry: int, polling_config: PollingConfig) -> float:
         if retry == 0:

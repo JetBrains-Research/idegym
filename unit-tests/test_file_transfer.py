@@ -264,6 +264,44 @@ async def test_upload_raises_instead_of_spinning_when_the_source_shrinks() -> No
     assert len(sandbox.calls) == 2
 
 
+async def test_download_raises_instead_of_returning_truncated_data_on_a_short_read() -> None:
+    """An empty chunk before the reported size used to end the download as if it were complete."""
+    sandbox = _FakeSandbox({"/work/blob.bin": BINARY}, max_chunk=64)
+    operations = _operations(sandbox)
+    serve = sandbox._download
+
+    def short_read(body: DownloadFileChunkRequest) -> dict:
+        # Serves the first chunk, then returns nothing while still reporting the full size.
+        response = serve(body)
+        if body.offset > 0:
+            response.update(content_base64="", bytes_read=0, eof=False)
+        return response
+
+    sandbox._download = short_read
+
+    with pytest.raises(RuntimeError, match="changed while it was being downloaded"):
+        await operations.download_bytes(server_id=1, file_path="/work/blob.bin")
+
+    assert len(sandbox.calls) == 2
+
+
+async def test_download_raises_when_the_file_shrinks_mid_transfer() -> None:
+    sandbox = _FakeSandbox({"/work/blob.bin": BINARY}, max_chunk=64)
+    operations = _operations(sandbox)
+    serve = sandbox._download
+
+    def shrink_after_first_chunk(body: DownloadFileChunkRequest) -> dict:
+        response = serve(body)
+        # Truncated below the offset already read: the next read is empty and at eof.
+        sandbox.files[body.file_path] = BINARY[:32]
+        return response
+
+    sandbox._download = shrink_after_first_chunk
+
+    with pytest.raises(RuntimeError, match="Download ended at 64 bytes, but the file is 32 bytes"):
+        await operations.download_bytes(server_id=1, file_path="/work/blob.bin")
+
+
 @pytest.mark.parametrize("chunk_bytes", [0, -1])
 async def test_transfer_rejects_a_non_positive_chunk_size(chunk_bytes) -> None:
     operations = _operations(_FakeSandbox({"/work/blob.bin": BINARY}))

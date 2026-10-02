@@ -11,6 +11,7 @@ from idegym.api.orchestrator.clients import (
     StopClientResponse,
 )
 from idegym.api.orchestrator.servers import ErrorResponse
+from idegym.client.exceptions import raise_for_error_response
 from idegym.client.operations.utils import HTTPUtils, PollingConfig
 from idegym.utils.logging import get_logger
 
@@ -58,7 +59,12 @@ class ClientOperations:
         client_id: Optional[UUID] = None,
         namespace: Optional[str] = None,
         polling_config: PollingConfig = PollingConfig(),
-    ) -> RegisteredClientResponse | ErrorResponse:
+    ) -> RegisteredClientResponse:
+        """Deregister the client, terminating every server it owns.
+
+        Raises an ``IdeGYMHTTPError`` if that fails rather than returning the failure: a
+        deregistration nobody checked would leak every pod the client owns.
+        """
         client_id = self._utils.validate_client_id(client_id)
         namespace = self._utils.validate_namespace(namespace)
         request = StopClientRequest(client_id=client_id, namespace=namespace)
@@ -66,12 +72,13 @@ class ClientOperations:
         response: StopClientResponse = self._utils.parse_response(
             response_raw=response_raw, model_class=StopClientResponse
         )
-        return await self._utils.wait_for_async_operation_to_end(
+        result = await self._utils.wait_for_async_operation_to_end(
             operation_id=response.operation_id,
             success_response_model=RegisteredClientResponse,
             error_response_model=ErrorResponse,
             polling_config=polling_config,
         )
+        return raise_for_error_response(result, f"Stopping client {client_id}")
 
     async def finish_client(
         self, client_id: Optional[UUID] = None, namespace: Optional[str] = None

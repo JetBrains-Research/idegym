@@ -7,9 +7,23 @@ from idegym.api.exceptions import InspectionsNotReadyException
 from idegym.api.orchestrator.operations import ForwardRequestResponse
 from idegym.api.orchestrator.servers import ErrorResponse
 from idegym.api.paths import API_BASE_PATH
-from idegym.client.exceptions import http_error
+from idegym.client.exceptions import IdeGYMSandboxError, http_error
 from idegym.client.operations.utils import HTTPUtils, PollingConfig
 from pydantic import BaseModel
+
+# What the orchestrator reports about the forward itself, rather than relaying from the sandbox:
+# 410 when it cannot reach the pod, 499 when the call was cancelled. Its own unexpected failures
+# are a 500 whose body carries this prefix; the sandbox's error bodies are its JSON ``detail``.
+_ORCHESTRATOR_FORWARD_STATUSES = frozenset({HTTPStatus.GONE, 499})
+_ORCHESTRATOR_FORWARD_ERROR_PREFIX = "Failed to forward request"
+
+
+def _reported_by_orchestrator(response: ErrorResponse) -> bool:
+    if response.status_code is None or response.status_code in _ORCHESTRATOR_FORWARD_STATUSES:
+        return True
+    return response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR and (response.body or "").startswith(
+        _ORCHESTRATOR_FORWARD_ERROR_PREFIX
+    )
 
 
 class ForwardingOperations:
@@ -59,10 +73,9 @@ class ForwardingOperations:
 
             # The message is deliberately unchanged: it predates the typed exceptions and
             # callers parse it. New code should read `status_code` and `body` instead.
-            raise http_error(
-                f"Failed to forward request {method} {url}: {response.model_dump()}",
-                status_code=response.status_code,
-                body=response.body,
-                method=method,
-                url=url,
+            message = f"Failed to forward request {method} {url}: {response.model_dump()}"
+            if _reported_by_orchestrator(response):
+                raise http_error(message, status_code=response.status_code, body=response.body, method=method, url=url)
+            raise IdeGYMSandboxError(
+                message, status_code=response.status_code, body=response.body, method=method, url=url
             )

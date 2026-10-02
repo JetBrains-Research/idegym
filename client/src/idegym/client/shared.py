@@ -31,11 +31,19 @@ logger = get_logger(__name__)
 class _LoopThread:
     """An event loop running in its own daemon thread, accepting work from any other thread."""
 
+    # How long the drain lets pending work finish on its own, then how long it gives the tasks it
+    # cancels to unwind, then how long the loop's own shutdown hooks may take. The caller waits
+    # for all three plus a margin, so its wait cannot expire while the drain is still inside them.
     _DRAIN_TIMEOUT_SECONDS = 5.0
+    _CANCEL_TIMEOUT_SECONDS = 2.0
+    _SHUTDOWN_HOOKS_TIMEOUT_SECONDS = 5.0
+    _CLOSE_MARGIN_SECONDS = 1.0
 
     def __init__(self, name: str) -> None:
         self._loop = asyncio.new_event_loop()
         self._started = threading.Event()
+        self._closing = False
+        self._closing_lock = threading.Lock()
         self._thread = threading.Thread(target=self._run, name=name, daemon=True)
         self._thread.start()
         # Block until the loop is actually running, so the first submit cannot race the start.
@@ -51,8 +59,17 @@ class _LoopThread:
 
         A factory rather than a coroutine so that the awaitable is created on the owning loop:
         anything a coroutine function touches at creation time then belongs to the right loop.
-        """
 
+        Refused once :meth:`close` has started. Work scheduled after the drain has taken stock of
+        the pending tasks — or after the loop has stopped — would never run, and a caller waiting
+        on it without a timeout would wait forever.
+        """
+        with self._closing_lock:
+            if self._closing:
+                raise RuntimeError("The IdeGYM client loop is shutting down; it accepts no new work")
+            return self._schedule(factory)
+
+    def _schedule[T](self, factory: Callable[[], Awaitable[T]]) -> Future[T]:
         async def call() -> T:
             return await factory()
 
@@ -66,22 +83,41 @@ class _LoopThread:
         those pending — Python then prints "Task was destroyed but it is pending!" on every exit,
         and the executor and async generators never get their shutdown hooks.
         """
+        with self._closing_lock:
+            self._closing = True
+            drain = self._schedule(self._drain)
+        close_timeout = (
+            self._DRAIN_TIMEOUT_SECONDS
+            + self._CANCEL_TIMEOUT_SECONDS
+            + self._SHUTDOWN_HOOKS_TIMEOUT_SECONDS
+            + self._CLOSE_MARGIN_SECONDS
+        )
         try:
-            self.submit(self._drain).result(timeout=self._DRAIN_TIMEOUT_SECONDS)
-        # A failed or slow drain must never stop us from shutting the loop down.
-        except BaseException:
+            drain.result(timeout=close_timeout)
+        # A failed or slow drain must never stop us from shutting the loop down. Only Exception:
+        # a KeyboardInterrupt still stops the loop below, and then propagates.
+        except Exception:
             logger.debug("Loop drain did not finish cleanly; stopping anyway", exc_info=True)
-        self._loop.call_soon_threadsafe(self._loop.stop)
-        self._thread.join()
-        self._loop.close()
+        finally:
+            self._loop.call_soon_threadsafe(self._loop.stop)
+            self._thread.join()
+            self._loop.close()
 
     async def _drain(self) -> None:
-        """Let cancellations be delivered, then run the loop's own shutdown hooks."""
+        """Let pending work finish, cancel what does not, then run the loop's own shutdown hooks.
+
+        Cancelling matters beyond tidiness: a thread blocked on a :meth:`submit` future with no
+        timeout is only released when that future completes, and a cancelled task completes it.
+        """
         pending = [task for task in asyncio.all_tasks(self._loop) if task is not asyncio.current_task()]
         if pending:
-            await asyncio.wait(pending, timeout=self._DRAIN_TIMEOUT_SECONDS)
+            _, still_pending = await asyncio.wait(pending, timeout=self._DRAIN_TIMEOUT_SECONDS)
+            for task in still_pending:
+                task.cancel()
+            if still_pending:
+                await asyncio.wait(still_pending, timeout=self._CANCEL_TIMEOUT_SECONDS)
         await self._loop.shutdown_asyncgens()
-        await self._loop.shutdown_default_executor()
+        await self._loop.shutdown_default_executor(timeout=self._SHUTDOWN_HOOKS_TIMEOUT_SECONDS)
 
 
 class SharedIdeGYMClient:
@@ -151,5 +187,14 @@ class SharedIdeGYMClient:
 
         Safe to call from any thread, including one that is itself running an event loop — the
         awaitable never touches the caller's loop.
+
+        If ``timeout`` expires, the call is cancelled on the owned loop before ``TimeoutError`` is
+        raised. Otherwise it would carry on unobserved — a ``start_server`` that times out here
+        would still create a server that nobody holds a handle to.
         """
-        return self.submit(call).result(timeout)
+        future = self.submit(call)
+        try:
+            return future.result(timeout)
+        except TimeoutError:
+            future.cancel()
+            raise

@@ -4,7 +4,6 @@ from uuid import UUID
 
 from idegym.api.capabilities import CapabilitiesResponse
 from idegym.api.orchestrator.servers import (
-    ErrorResponse,
     KeepaliveServerResponse,
     ServerActionResponse,
     ServerKind,
@@ -189,8 +188,8 @@ class IdeGYMServer:
     async def snapshot(
         self,
         polling_config: Optional[PollingConfig] = None,
-    ) -> CreateSnapshotResponse | ErrorResponse:
-        """Snapshot the running server pod."""
+    ) -> CreateSnapshotResponse:
+        """Snapshot the running server pod, raising an ``IdeGYMHTTPError`` if the snapshot fails."""
         return await self.server.snapshot_server(
             server_id=self.server_id,
             client_id=self.client_id,

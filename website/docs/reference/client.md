@@ -83,7 +83,7 @@ IdeGYMClient(
 | `otel_config` | OpenTelemetry tracing configuration |
 | `transport` | Transport for the HTTP client IdeGYM builds — an alternative HTTP stack, a proxy, or a recording transport in tests |
 | `limits` | Connection-pool limits for the HTTP client IdeGYM builds; omit for httpx's defaults (100 connections, 20 keep-alive) |
-| `http_client` | A fully configured `httpx.AsyncClient` to use verbatim |
+| `http_client` | A fully configured `httpx.AsyncClient` to use verbatim; `orchestrator_url`, `auth`, `request_timeout_in_seconds` and `otel_config` are then ignored |
 
 **Configuring the HTTP stack:**
 
@@ -95,15 +95,33 @@ client = IdeGYMClient(
     name="my-training-run",
     namespace="idegym",
     limits=httpx.Limits(max_connections=64, max_keepalive_connections=16),
-    transport=my_transport,
+)
+```
+
+A supplied `transport` is used as-is, and httpx applies `limits` only to a transport it builds
+itself, so the two cannot be combined — passing both raises `ValueError`. Set the limits on the
+transport instead:
+
+```python
+client = IdeGYMClient(
+    orchestrator_url="https://idegym.yourdomain.com",
+    name="my-training-run",
+    namespace="idegym",
+    transport=httpx.AsyncHTTPTransport(
+        limits=httpx.Limits(max_connections=64, max_keepalive_connections=16),
+        proxy="http://proxy.internal:3128",
+    ),
 )
 ```
 
 `http_client` is the full escape hatch. It is used exactly as given — nothing about it is
-modified, so it must already carry `base_url` and any authentication — and it is **not** closed
-when the `IdeGYMClient` context exits, because it belongs to its caller. A client IdeGYM builds
-itself is closed on exit as before. Passing `http_client` together with `transport` or `limits`
-raises `ValueError` rather than ignoring them.
+modified, not even to instrument it for tracing, so it must already carry `base_url` and any
+authentication — and it is **not** closed when the `IdeGYMClient` context exits, because it
+belongs to its caller. A client IdeGYM builds itself is closed on exit as before. With
+`http_client`, no credentials are required, and `orchestrator_url`, `auth`,
+`request_timeout_in_seconds` and `otel_config` are ignored: they only configure the client IdeGYM
+builds. Passing
+`http_client` together with `transport` or `limits` raises `ValueError` rather than ignoring them.
 
 **Authentication via environment variables:**
 
@@ -154,6 +172,16 @@ async with client.with_server(
 multi-gigabyte environment image takes minutes to pull onto a node that has never seen it, and
 the previous 60-second default expired long before that. Raise it further for larger images
 rather than retrying into the same wall — a retry re-pulls onto the same cold node.
+
+The timeout is the orchestrator's: it is sent with the request, and the orchestrator waits that
+long for the pod. The client itself waits a grace period longer — the larger of 60 seconds and a
+tenth of the timeout, so 360 seconds in all by default — because the orchestrator's wait starts
+only after its own bookkeeping and the deploy, and ends with a look at the pod. That way the
+orchestrator's diagnosis, not a bare client-side timeout, is what reaches the caller. A `429`
+from a full quota is retried every `retry_delay_in_seconds` within the same client deadline. The
+client polls for the result with backoff, but never sleeps past its deadline: the last poll is
+made at the deadline itself, so a server that became ready shortly before it is still returned
+rather than left running unclaimed. `restart_server` uses the same deadline.
 
 When the wait does expire, the error says what the pod was doing, so a slow pull is not mistaken
 for a broken health endpoint:
@@ -347,12 +375,16 @@ It takes the same arguments as `IdeGYMClient` and registers on entry, exactly as
 
 | Method | Description |
 |--------|-------------|
-| `run(call, timeout=None)` | Run `call(client)` on the owned loop and return its result |
+| `run(call, timeout=None)` | Run `call(client)` on the owned loop and return its result; on timeout the call is cancelled, then `TimeoutError` is raised |
 | `submit(call)` | Schedule `call(client)` and return a `concurrent.futures.Future` |
 | `client` | The underlying `IdeGYMClient`; only touch it from inside a `call` |
 
 `call` takes the client and returns an awaitable, rather than being an awaitable itself, so the
 awaitable is created on the owning loop — nothing ever binds to the caller's.
+
+On exit, work still in flight gets a few seconds to finish, and is then cancelled — so a thread
+still waiting on a `submit` future is released with `CancelledError` rather than left blocked.
+Once exit has begun, new `run` and `submit` calls raise `RuntimeError`.
 
 ---
 
@@ -810,16 +842,38 @@ except IdeGYMHTTPError as e:
 | `IdeGYMAuthError` | 401, 403 | Credentials are missing, wrong, or insufficient |
 | `IdeGYMNotFoundError` | 404, 410 | The client, server, or operation is gone — including a pod the orchestrator can no longer reach |
 | `IdeGYMTimeoutError` | 408, 504, client-side timeout | Safe to retry if the operation is idempotent |
+| `IdeGYMConnectionError` | none — no response | The connection failed or broke off, e.g. while the orchestrator restarts; retry with backoff |
 | `IdeGYMBusyError` | 429, 503 | Rate-limited or out of capacity; retry with backoff |
 | `IdeGYMCancelledError` | 499 | Cancelled before finishing, usually by a disconnect |
-| `IdeGYMServerError` | 5xx | The orchestrator or the sandbox failed |
+| `IdeGYMServerError` | 5xx | The orchestrator failed, or a sandbox call failed on its way through it |
+| `IdeGYMSandboxError` | any error the sandbox itself returned | The sandbox is alive and answered a forwarded call (a tool, reward or file request) with an error; read `status_code` and `body` |
 
 All of them subclass `IdeGYMHTTPError`, which subclasses both `IdeGYMException` and
 `RuntimeError`, and the message text is unchanged from before the typed exceptions existed — so
 an existing `except RuntimeError` still catches everything it used to.
 
-A `IdeGYMTimeoutError` with `status_code is None` is a client-side timeout: the request never
+An `IdeGYMTimeoutError` with `status_code is None` is a client-side timeout: the request never
 reached a status. That is the case to distinguish from a 504, where the orchestrator answered.
+It covers every deadline the SDK enforces itself — a single request's `request_timeout`, the
+wait while an async operation is polled (a long `tools/bash` call, say), and the overall
+server-start wait. `IdeGYMTimeoutError` is also a builtin `TimeoutError`, which is what those
+deadlines raised before, so an existing `except TimeoutError` still catches them. The underlying
+`httpx` exception, when there is one, is chained as `__cause__`, so a `ConnectTimeout` can still be
+told apart from a `ReadTimeout` or a `PoolTimeout`.
+
+A call forwarded to the sandbox — `execute_bash`, a file transfer, `forward()` — can fail in two
+places, and the type says which. When the orchestrator cannot reach the pod it reports `410`, raised
+as `IdeGYMNotFoundError`: the sandbox really is gone. When the sandbox answers with an error of its
+own — `404 Path not found` for a missing file, say — the status it sent is relayed as
+`IdeGYMSandboxError`, whatever it is, so a missing file never reads as a missing sandbox. Before
+`IdeGYMSandboxError` existed a relayed status went through the table above; code that caught, for
+instance, `IdeGYMServerError` for a sandbox-side `500` should catch `IdeGYMSandboxError` too.
+
+A transport failure that produced no response at all — a refused or reset connection, a broken
+exchange — raises `IdeGYMConnectionError`, again with `status_code is None` and the `httpx` error
+as `__cause__`. Code that catches `httpx.TimeoutException` or `httpx.HTTPError` around an SDK call
+no longer sees these; catch `IdeGYMTimeoutError`, `IdeGYMConnectionError` or `IdeGYMHTTPError`
+instead.
 
 ---
 

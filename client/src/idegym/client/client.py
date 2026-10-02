@@ -44,7 +44,7 @@ from idegym.api.type import (
     KubernetesObjectName,
     OCIImageName,
 )
-from idegym.client.exceptions import http_error
+from idegym.client.exceptions import http_error, raise_for_error_response
 from idegym.client.operations.clients import ClientOperations
 from idegym.client.operations.forwarding import ForwardingOperations
 from idegym.client.operations.jobs import JobOperations
@@ -109,37 +109,48 @@ class IdeGYMClient:
                 environment variables when not provided. Tracing stays off unless an endpoint is
                 configured, either here or through ``IDEGYM_OTEL_TRACING_ENDPOINT``.
             transport: Transport for the HTTP client this object builds — for an alternative HTTP
-                stack, a recording transport in tests, or a proxy.
-            limits: Connection-pool limits for the HTTP client this object builds.
+                stack, a recording transport in tests, or a proxy. It is used as-is, so its pool
+                limits are whatever it was built with.
+            limits: Connection-pool limits for the HTTP client this object builds. Mutually
+                exclusive with ``transport``: httpx applies them only to the transport it builds
+                itself.
             http_client: A fully configured ``httpx.AsyncClient`` to use verbatim. Nothing about it
-                is modified, so it must already carry ``base_url`` and any authentication, and it
-                is not closed on exit — its owner closes it. Mutually exclusive with ``transport``
-                and ``limits``.
+                is modified — it is not instrumented for tracing either — so it must already carry
+                ``base_url`` and any authentication, and it is not closed on exit: its owner closes
+                it. With it, ``orchestrator_url``, ``auth``, ``request_timeout_in_seconds`` and
+                ``otel_config`` are ignored and no credentials are required. Mutually exclusive with ``transport`` and
+                ``limits``.
 
         Raises:
-            ValueError: if ``http_client`` is combined with ``transport`` or ``limits``, since the
-                supplied client is used as-is and those arguments would be silently ignored.
+            ValueError: if ``http_client`` is combined with ``transport`` or ``limits``, or
+                ``transport`` with ``limits``, since the ignored arguments would otherwise be
+                dropped silently.
         """
         if orchestrator_url == "idegym.test":
             orchestrator_url = f"http://{orchestrator_url}"
         elif not orchestrator_url.startswith(("http://", "https://")):
             orchestrator_url = f"https://{orchestrator_url}"
 
-        auth = auth or BasicAuth(
-            username=env.get("IDEGYM_AUTH_USERNAME"),
-            password=env.get("IDEGYM_AUTH_PASSWORD"),
-        )
-        if not orchestrator_url == "http://idegym.test" and not (auth.username and auth.password):
-            raise ValueError("Username and password must be provided or set in environment variables")
-
         if http_client is not None and (transport is not None or limits is not None):
             raise ValueError(
                 "transport and limits configure the client IdeGYM builds; they do not apply to http_client"
             )
+        if transport is not None and limits is not None:
+            raise ValueError(
+                "limits apply only to the transport httpx builds itself; set them on the supplied transport instead"
+            )
 
-        # A supplied client belongs to its caller: used as-is, and closed by them, not here.
+        # A supplied client belongs to its caller: used as-is, and closed by them, not here. It
+        # carries its own authentication, so there are no credentials to require.
         owns_http_client = http_client is None
         if http_client is None:
+            auth = auth or BasicAuth(
+                username=env.get("IDEGYM_AUTH_USERNAME"),
+                password=env.get("IDEGYM_AUTH_PASSWORD"),
+            )
+            if not orchestrator_url == "http://idegym.test" and not (auth.username and auth.password):
+                raise ValueError("Username and password must be provided or set in environment variables")
+
             http_client = AsyncClient(
                 base_url=orchestrator_url,
                 timeout=request_timeout_in_seconds,
@@ -175,10 +186,13 @@ class IdeGYMClient:
             ),
         )
 
-        instrument(
-            client=http_client,
-            config=otel_config,
-        )
+        # Instrumenting patches the client, and uninstrumenting on exit would strip tracing from
+        # every other user of a shared one, so a supplied client is left exactly as it came.
+        if owns_http_client:
+            instrument(
+                client=http_client,
+                config=otel_config,
+            )
 
         self._http_client: AsyncClient = http_client
         self._owns_http_client: bool = owns_http_client
@@ -240,23 +254,51 @@ class IdeGYMClient:
 
     async def __aenter__(self):
         assert not self._http_client.is_closed, "Can not communicate using a closed client!"
+        try:
+            await self._register()
+        except BaseException:
+            # `async with` does not call __aexit__ when __aenter__ raises, so this is the only
+            # chance to release the client this object built — otherwise its sockets leak with a
+            # ResourceWarning. There is no registration to stop.
+            self._stop_heartbeat()
+            await self._release_http_client()
+            raise
+        return self
+
+    async def _register(self) -> None:
         registration_response = await self._register_client(self.name, self._utils.current_namespace, self.nodes_count)
+        if isinstance(registration_response, ErrorResponse):
+            raise http_error(
+                f"Failed to register client: {registration_response.model_dump()}",
+                status_code=registration_response.status_code,
+                body=registration_response.body,
+            )
         if isinstance(registration_response, RegisteredClientResponse) and registration_response.id:
             self._utils.client_id = registration_response.id
             if self._utils.client_id and not self._heartbeat_task:
                 self._start_heartbeat_task()
         else:
             raise RuntimeError(f"Failed to register client: {registration_response.model_dump()}")
-        return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         self._stop_heartbeat()
-        await self._stop_client()
-        uninstrument(
-            client=self._http_client,
-            config=self._otel_config,
-        )
+        try:
+            await self._stop_client()
+        except Exception:
+            # A failed deregistration leaks every pod the client owns, so it is never silent. It
+            # is raised only when nothing else is: the body's exception says what went wrong first.
+            logger.exception("Failed to deregister client", client_id=self._utils.current_client_id)
+            if exc_type is None:
+                raise
+        finally:
+            await self._release_http_client()
+
+    async def _release_http_client(self) -> None:
         if self._owns_http_client:
+            uninstrument(
+                client=self._http_client,
+                config=self._otel_config,
+            )
             await self._http_client.aclose()
 
     async def health_check(self) -> HealthCheckResponse:
@@ -281,7 +323,7 @@ class IdeGYMClient:
         client_id: Optional[UUID] = None,
         namespace: Optional[str] = None,
         polling_config: PollingConfig = PollingConfig(),
-    ) -> RegisteredClientResponse | ErrorResponse:
+    ) -> RegisteredClientResponse:
         """Stop the client, terminating all its running servers in the process."""
         if not client_id:
             self._stop_heartbeat()
@@ -320,7 +362,9 @@ class IdeGYMClient:
 
         On exit, the server is either finished (``FINISH``) or stopped and its resources deleted
         (``STOP``) depending on ``close_action``. Exceptions from the body are re-raised after
-        the cleanup.
+        the cleanup. If the cleanup fails as well, its error is logged rather than raised, so it
+        cannot mask the body's exception — the one that says what actually went wrong. A cleanup
+        failure after a body that succeeded is raised as usual.
         """
         server = await self.start_server(
             image_tag=image_tag,
@@ -350,14 +394,27 @@ class IdeGYMClient:
 
         try:
             yield server
-        except Exception:
-            logger.exception("Exception while working with server")
+        except BaseException as error:
+            if isinstance(error, Exception):
+                logger.exception("Exception while working with server")
+            try:
+                await self._close_server(server, close_action=close_action, polling_config=polling_config)
+            except Exception:
+                logger.exception(
+                    "Server cleanup failed while another exception was propagating",
+                    server_id=server.server_id,
+                    close_action=close_action,
+                )
             raise
-        finally:
-            if close_action == ServerCloseAction.STOP:
-                await self.stop_server(server, polling_config=polling_config)
-            else:
-                await self.finish_server(server)
+        await self._close_server(server, close_action=close_action, polling_config=polling_config)
+
+    async def _close_server(
+        self, server: IdeGYMServer, close_action: ServerCloseAction, polling_config: Optional[PollingConfig]
+    ) -> None:
+        if close_action == ServerCloseAction.STOP:
+            await self.stop_server(server, polling_config=polling_config)
+        else:
+            await self.finish_server(server)
 
     @retry_with_backoff(attempts=3)
     async def stop_server(
@@ -446,13 +503,8 @@ class IdeGYMClient:
             annotations=annotations,
         )
 
-        if isinstance(server_response, ErrorResponse):
-            raise http_error(
-                f"Failed to start server: {server_response.model_dump()}",
-                status_code=server_response.status_code,
-                body=server_response.body,
-            )
-        elif isinstance(server_response, StartServerResponse) and server_response.server_id:
+        server_response = raise_for_error_response(server_response, f"Starting server {server_name}")
+        if isinstance(server_response, StartServerResponse) and server_response.server_id:
             return IdeGYMServer(
                 server_id=server_response.server_id,
                 http_utils=self._utils,
