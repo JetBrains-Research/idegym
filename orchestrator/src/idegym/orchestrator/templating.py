@@ -58,8 +58,17 @@ def usage(used: Optional[float], limit: Optional[float]) -> dict[str, Any]:
 # Severity per status word, whichever vocabulary it comes from: server and client availability,
 # async operations and jobs, pod phases, container states and their reasons, and event types.
 _STATUS_LEVELS = {
-    "good": {"ALIVE", "Running", "Succeeded", "SUCCEEDED", "SUCCESS", "Normal"},
-    "info": {"REUSED", "FINISHED", "SCHEDULED", "IN_PROGRESS", "Completed", "ContainerCreating", "PodInitializing"},
+    "good": {"ALIVE", "Running", "Succeeded", "SUCCEEDED", "SUCCESS", "success", "Normal"},
+    "info": {
+        "REUSED",
+        "FINISHED",
+        "SCHEDULED",
+        "IN_PROGRESS",
+        "in_progress",
+        "Completed",
+        "ContainerCreating",
+        "PodInitializing",
+    },
     "warning": {
         "Pending",
         "Waiting",
@@ -77,6 +86,7 @@ _STATUS_LEVELS = {
         "RESTART_FAILED",
         "FAILED",
         "FAILURE",
+        "failure",
         "Failed",
         "Terminated",
         "OOMKilled",

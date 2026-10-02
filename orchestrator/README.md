@@ -566,11 +566,21 @@ templates under `templates/`, and the stylesheet and script under `static/` are 
 | `GET /dashboard/pods/{namespace}/{pod}/logs` | Download a container's log, capped at 64 MiB |
 | `GET /dashboard/events` | Kubernetes events in a namespace, warnings first |
 | `GET /dashboard/rules` | Resource limit rules with usage meters |
+| `GET /dashboard/operations` | Recent async operations, filterable by status and type |
+| `GET /dashboard/builds` | Recent image build jobs |
+| `GET /dashboard/snapshots` | Recent snapshot jobs and snapshots |
+| `GET /dashboard/health` | Consistency checks: rule counters against the servers holding quota, orphaned Deployments |
 
 The log viewer re-reads a bounded tail on refresh instead of following the stream, so an open
 browser tab never holds a connection on an orchestrator worker. Reading logs needs `get` on
 `pods/log`, and the server page reads ReplicaSet events, which needs `list` on `replicasets`; the
 chart's Role grants both.
+
+Nothing reconciles a rule's usage counters or cleans up a Deployment whose server row is gone, so
+the health page compares both sides and shows where they disagree. It recomputes usage from the
+servers still holding quota (every status outside `QUOTA_RELEASING_STATUSES`), matching each client
+name to its rule in the database, so it applies PostgreSQL's regex rules exactly as quota enforcement
+does.
 
 When `IDEGYM_GRAFANA_URL` and a datasource UID are set, each server, pod, and client links to its
 logs and traces in Grafana Explore; see

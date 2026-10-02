@@ -36,6 +36,19 @@ logger = get_logger(__name__)
 
 SessionFactory: Optional[AsyncSessionMaker[AsyncSession]] = None
 
+# A server's CPU, RAM, and pod slot are counted against its limit rule from the moment it is saved
+# until it enters one of these states. FINISHED keeps its share, since a finished server stays
+# reusable, and so does DELETION_FAILED, since its Deployment may still be running.
+QUOTA_RELEASING_STATUSES = frozenset(
+    {
+        AvailabilityStatus.STOPPED,
+        AvailabilityStatus.KILLED,
+        AvailabilityStatus.FAILED_TO_START,
+        AvailabilityStatus.CRASHED,
+        AvailabilityStatus.RESTART_FAILED,
+    }
+)
+
 
 class ClientNodes(NamedTuple):
     name: str
@@ -329,6 +342,43 @@ async def get_idegym_servers_by_generated_names(db: AsyncSession, names: Collect
     return list(result.scalars().all())
 
 
+async def get_quota_holding_servers(db: AsyncSession) -> list[IdeGYMServer]:
+    """Every server whose resources are still counted against a limit rule."""
+    query = select(IdeGYMServer).filter(IdeGYMServer.availability.not_in(list(QUOTA_RELEASING_STATUSES)))
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
+class RuleUsage(NamedTuple):
+    pods: int
+    cpu: float
+    ram: float
+
+
+async def recompute_rule_usage(db: AsyncSession) -> dict[int, RuleUsage]:
+    """What each rule's usage counters would be if rebuilt from the servers table.
+
+    Servers are attributed by ``client_name``, as reserving and releasing do (a reused server keeps
+    the name it was created under), and each distinct name is matched by the database with the same
+    query quota enforcement uses, so PostgreSQL's regex dialect decides here as it does there. Rules
+    no server falls under are absent from the result, meaning zero usage.
+    """
+    servers = await get_quota_holding_servers(db)
+    rule_ids: dict[str, Optional[int]] = {}
+    for name in {server.client_name for server in servers if server.client_name}:
+        rule = await find_matching_resource_limit_rule(db, name)
+        rule_ids[name] = rule.id if rule else None
+
+    usage: dict[int, RuleUsage] = {}
+    for server in servers:
+        rule_id = rule_ids.get(server.client_name)
+        if rule_id is None:
+            continue
+        pods, cpu, ram = usage.get(rule_id, RuleUsage(0, 0.0, 0.0))
+        usage[rule_id] = RuleUsage(pods + 1, cpu + (server.cpu or 0.0), ram + (server.ram or 0.0))
+    return usage
+
+
 async def has_pending_start_server_operations(
     db: AsyncSession,
     client_name: str,
@@ -528,14 +578,7 @@ async def update_idegym_server_heartbeat(
     if details is not None:
         server.details = details
 
-    # Release the server's resource quota when it transitions to a terminal non-FINISHED state.
-    if availability in {
-        AvailabilityStatus.STOPPED,
-        AvailabilityStatus.KILLED,
-        AvailabilityStatus.FAILED_TO_START,
-        AvailabilityStatus.CRASHED,
-        AvailabilityStatus.RESTART_FAILED,
-    }:
+    if availability in QUOTA_RELEASING_STATUSES:
         await subtract_resources_from_rule(db, server.client_name, server.cpu, server.ram)
 
     await db.commit()
@@ -652,6 +695,12 @@ async def get_job_status(db: AsyncSession, job_name: str) -> Optional[JobStatusR
     query = select(JobStatusRecord).filter(JobStatusRecord.job_name == job_name)
     result = await db.execute(query)
     return result.scalar_one_or_none()
+
+
+async def get_recent_job_statuses(db: AsyncSession, limit: int = 100) -> list[JobStatusRecord]:
+    """The newest image builds first."""
+    result = await db.execute(select(JobStatusRecord).order_by(JobStatusRecord.id.desc()).limit(limit))
+    return list(result.scalars().all())
 
 
 async def get_job_status_by_id(db: AsyncSession, job_id: int) -> Optional[JobStatusRecord]:
@@ -993,6 +1042,18 @@ async def update_snapshot_job(
 
     await db.commit()
     return record
+
+
+async def get_recent_snapshot_jobs(db: AsyncSession, limit: int = 100) -> list[SnapshotJobRecord]:
+    """The newest snapshot jobs first."""
+    result = await db.execute(select(SnapshotJobRecord).order_by(SnapshotJobRecord.id.desc()).limit(limit))
+    return list(result.scalars().all())
+
+
+async def get_recent_snapshots(db: AsyncSession, limit: int = 100) -> list[SnapshotRecord]:
+    """The most recently updated snapshots first."""
+    result = await db.execute(select(SnapshotRecord).order_by(SnapshotRecord.updated_at.desc()).limit(limit))
+    return list(result.scalars().all())
 
 
 async def get_snapshot_job(db: AsyncSession, job_id: str) -> Optional[SnapshotJobRecord]:

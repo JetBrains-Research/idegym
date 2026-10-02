@@ -34,13 +34,16 @@ from idegym.orchestrator.database.database import (
     get_idegym_servers_by_status,
     get_job_status,
     get_job_status_by_id,
+    get_quota_holding_servers,
     get_recent_async_operations,
     get_recent_idegym_servers,
+    get_recent_job_statuses,
     get_resource_limit_rule,
     get_running_idegym_servers,
     mark_stale_async_operations_as_finished,
     need_to_release_nodes,
     need_to_spin_up_nodes,
+    recompute_rule_usage,
     save_async_operation,
     save_idegym_server,
     save_job_status,
@@ -893,3 +896,43 @@ async def test_get_recent_async_operations_filters_by_server_and_status(db: Asyn
     assert [op.id for op in failed] == [second.id]
     starts = await get_recent_async_operations(db, server_id=server.id, request_types={AsyncOperationType.START_SERVER})
     assert [op.id for op in starts] == [first.id]
+
+
+async def test_quota_holding_servers_exclude_every_releasing_status(db: AsyncSession):
+    client = await _make_client(db)
+    holding = {
+        status: await _make_server(db, client, f"hold-{status.lower()}", availability=status)
+        for status in (AvailabilityStatus.ALIVE, AvailabilityStatus.FINISHED, AvailabilityStatus.DELETION_FAILED)
+    }
+    for status in (AvailabilityStatus.STOPPED, AvailabilityStatus.CRASHED, AvailabilityStatus.KILLED):
+        await _make_server(db, client, f"gone-{status.lower()}", availability=status)
+
+    ids = {s.id for s in await get_quota_holding_servers(db)}
+
+    assert ids == {s.id for s in holding.values()}
+
+
+async def test_recompute_rule_usage_attributes_servers_like_quota_enforcement(db: AsyncSession):
+    catch_all = await _make_rule(db, ".*", priority=0)
+    team = await _make_rule(db, "^team-", priority=5)
+    alpha = await _make_client(db, "team-alpha")
+    other = await _make_client(db, "someone")
+    await _make_server(db, alpha, "a1", cpu=1.5, ram=2.0)
+    await _make_server(db, alpha, "a2", cpu=0.5, ram=1.0, availability=AvailabilityStatus.FINISHED)
+    await _make_server(db, alpha, "a3", cpu=8.0, ram=8.0, availability=AvailabilityStatus.CRASHED)
+    reused = await _make_server(db, alpha, "a4", cpu=1.0, ram=1.0)
+    # A reused server moves to its new client but keeps counting against the rule it was created under.
+    await update_idegym_server_owner(db, reused.id, other.id)
+    await _make_server(db, other, "o1", cpu=2.0, ram=4.0)
+
+    usage = await recompute_rule_usage(db)
+
+    assert usage[team.id] == (3, 3.0, 4.0)
+    assert usage[catch_all.id] == (1, 2.0, 4.0)
+
+
+async def test_get_recent_job_statuses_is_newest_first(db: AsyncSession):
+    first = await save_job_status(db, job_name="build-1", tag="registry.example.com/a:1")
+    second = await save_job_status(db, job_name="build-2", tag="registry.example.com/a:2")
+
+    assert [job.id for job in await get_recent_job_statuses(db)] == [second.id, first.id]

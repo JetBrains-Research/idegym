@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Snapshots{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Snapshots</h1>
+    <p>Pod snapshot jobs and the snapshots they produced, newest first.</p>
+  </div>
+</div>
+
+<section class="card">
+  <div class="card-header"><div><h2>Snapshot jobs</h2><p>The {{ limit }} most recent jobs.</p></div></div>
+  {% if not jobs %}
+    {{ ui.empty("No snapshot jobs", "Jobs appear here once a client prepares or takes a snapshot.") }}
+  {% else %}
+    <div class="table-wrap">
+      <table class="table" data-sortable>
+        <thead>
+        <tr>
+          <th data-sort="text">Job</th>
+          <th data-sort="text">Status</th>
+          <th data-sort="number">Snapshot</th>
+          <th data-sort="number">Started</th>
+          <th data-sort="number">Updated</th>
+          <th>Details</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for j in jobs %}
+          <tr>
+            <td>{{ ui.ident(j.job_id) }}{% if j.prepare_request_id %}<div class="muted">prepare request {{ j.prepare_request_id }}</div>{% endif %}</td>
+            <td>{{ ui.status(j.status) }}</td>
+            <td data-value="{{ j.snapshot_id or 0 }}">{{ j.snapshot_id or "—" }}</td>
+            <td class="nowrap" data-value="{{ j.created_at or 0 }}">{{ ui.when(j.created_at) }}</td>
+            <td class="nowrap" data-value="{{ j.updated_at or 0 }}">{{ ui.when(j.updated_at) }}</td>
+            <td style="max-width: 420px">
+              {% if j.details %}
+                <details><summary class="secondary">{{ j.details | truncate(80) }}</summary><pre class="mono" style="white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0 0">{{ j.details }}</pre></details>
+              {% else %}<span class="muted">—</span>{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</section>
+
+<section class="card">
+  <div class="card-header"><div><h2>Snapshots</h2><p>The {{ limit }} most recently updated snapshots.</p></div></div>
+  {% if not snapshots %}
+    {{ ui.empty("No snapshots") }}
+  {% else %}
+    <div class="table-wrap">
+      <table class="table" data-sortable>
+        <thead>
+        <tr>
+          <th data-sort="number">ID</th>
+          <th data-sort="text">Name</th>
+          <th data-sort="text">Image</th>
+          <th data-sort="text">Server</th>
+          <th data-sort="number">Updated</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for s in snapshots %}
+          <tr>
+            <td data-value="{{ s.id }}">{{ s.id }}</td>
+            <td>{{ ui.ident(s.snapshot_name) }}{% if s.pod_snapshot_name %}<div class="muted mono">{{ s.pod_snapshot_name }}</div>{% endif %}</td>
+            <td class="mono secondary" style="max-width: 380px; overflow-wrap: anywhere">{{ s.image_tag }}</td>
+            <td>
+              <span class="mono">{{ s.server_name }}</span>
+              <div class="muted">{{ s.namespace }} · {{ s.server_kind }}{% if s.runtime_class_name %} · {{ s.runtime_class_name }}{% endif %}{% if s.run_as_root %} · root{% endif %}</div>
+            </td>
+            <td class="nowrap" data-value="{{ s.updated_at or 0 }}">{{ ui.when(s.updated_at) }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

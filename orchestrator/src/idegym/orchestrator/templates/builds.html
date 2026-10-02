@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Image builds{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Image builds</h1>
+    <p>The {{ limit }} most recent image build jobs and where each one ended up.</p>
+  </div>
+</div>
+
+<section class="card">
+  <div class="card-header">
+    <div class="filters">
+      <label class="field"><span>Filter</span>
+        <input class="input" type="search" data-filter="builds-table" placeholder="Job, tag, request…" size="28" />
+      </label>
+    </div>
+    <span class="muted"><span data-filter-count="builds-table">{{ builds | length }}</span> of {{ builds | length }} builds</span>
+  </div>
+  {% if not builds %}
+    {{ ui.empty("No image builds yet", "Builds appear here once a client asks the orchestrator to build an image.") }}
+  {% else %}
+    <div class="table-wrap">
+      <table class="table" id="builds-table" data-sortable>
+        <thead>
+        <tr>
+          <th data-sort="text">Job</th>
+          <th data-sort="text">Status</th>
+          <th data-sort="text">Tag</th>
+          <th data-sort="number">Started</th>
+          <th data-sort="number" class="num">Took</th>
+          <th>Details</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for b in builds %}
+          <tr>
+            <td>{{ ui.ident(b.job_name) }}{% if b.request_id %}<div class="muted">request {{ b.request_id }}</div>{% endif %}</td>
+            <td>{{ ui.status(b.status) }}</td>
+            <td class="mono secondary" style="max-width: 380px; overflow-wrap: anywhere">{{ b.tag }}</td>
+            <td class="nowrap" data-value="{{ b.created_at or 0 }}">{{ ui.when(b.created_at) }}</td>
+            {% set took = (b.updated_at - b.created_at) if b.updated_at and b.created_at and b.status != "in_progress" else None %}
+            <td class="num" data-value="{{ took if took is not none else -1 }}">{% if took is not none %}{{ "%.0f" | format(took / 1000) }} s{% else %}<span class="muted">—</span>{% endif %}</td>
+            <td style="max-width: 420px">
+              {% if b.details %}
+                <details><summary class="secondary">{{ b.details | truncate(80) }}</summary><pre class="mono" style="white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0 0">{{ b.details }}</pre></details>
+              {% else %}<span class="muted">—</span>{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}
