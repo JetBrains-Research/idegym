@@ -150,6 +150,84 @@
         }
       }
     },
+    "/api/tools/file/upload": {
+      "post": {
+        "summary": "Upload File Chunk",
+        "description": "Write one base64 chunk into a file, so binary survives the JSON forwarding path.",
+        "operationId": "upload_file_chunk_api_tools_file_upload_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadFileChunkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadFileChunkResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tools/file/download": {
+      "post": {
+        "summary": "Download File Chunk",
+        "description": "Read one base64 chunk of a file, so binary survives the JSON forwarding path.",
+        "operationId": "download_file_chunk_api_tools_file_download_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DownloadFileChunkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DownloadFileChunkResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/rewards/compilation": {
       "post": {
         "summary": "Compilation Reward",
@@ -268,6 +346,50 @@
             "title": "Command",
             "description": "Command to execute as a bash script"
           },
+          "cwd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cwd",
+            "description": "Working directory for the command. Defaults to the server's project directory. A relative path is resolved against it.",
+            "examples": [
+              "/home/appuser/work",
+              "src"
+            ]
+          },
+          "env": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Env",
+            "description": "Environment variables added to the command's environment, overriding inherited ones. Prefer this over writing 'export' lines into the script: the values never enter the command text, so they are not logged with it.",
+            "examples": [
+              {
+                "CI": "1"
+              }
+            ]
+          },
+          "user": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User",
+            "description": "Run the command as this user. Needs the server to run as root or to have passwordless sudo, as the server image does; leave unset to run as the server's own user.",
+            "examples": [
+              "devuser"
+            ]
+          },
           "timeout": {
             "type": "number",
             "title": "Timeout",
@@ -293,6 +415,12 @@
             "title": "Max Output Bytes",
             "description": "Maximum retained bytes for each output stream; null retains complete output",
             "default": 1048576
+          },
+          "strip_output": {
+            "type": "boolean",
+            "title": "Strip Output",
+            "description": "Trim leading and trailing whitespace from stdout and stderr. Off by default so that output is byte-for-byte what the command wrote; undecodable bytes are still replaced.",
+            "default": false
           }
         },
         "type": "object",
@@ -341,6 +469,74 @@
           "content"
         ],
         "title": "CreateFileRequest"
+      },
+      "DownloadFileChunkRequest": {
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "title": "File Path"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Offset",
+            "description": "Byte offset in the file to read from",
+            "default": 0
+          },
+          "length": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Length",
+            "description": "Maximum number of raw bytes to read",
+            "default": 1048576
+          }
+        },
+        "type": "object",
+        "required": [
+          "file_path"
+        ],
+        "title": "DownloadFileChunkRequest"
+      },
+      "DownloadFileChunkResponse": {
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "title": "File Path"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          },
+          "content_base64": {
+            "type": "string",
+            "title": "Content Base64",
+            "description": "Base64-encoded bytes read at 'offset'"
+          },
+          "bytes_read": {
+            "type": "integer",
+            "title": "Bytes Read"
+          },
+          "size": {
+            "type": "integer",
+            "title": "Size",
+            "description": "Total size of the file"
+          },
+          "eof": {
+            "type": "boolean",
+            "title": "Eof",
+            "description": "True when this chunk reaches the end of the file"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file_path",
+          "offset",
+          "content_base64",
+          "bytes_read",
+          "size",
+          "eof"
+        ],
+        "title": "DownloadFileChunkResponse"
       },
       "EditFileRequest": {
         "properties": {
@@ -449,6 +645,63 @@
         },
         "type": "object",
         "title": "TestRequest"
+      },
+      "UploadFileChunkRequest": {
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "title": "File Path"
+          },
+          "content_base64": {
+            "type": "string",
+            "title": "Content Base64",
+            "description": "Base64-encoded bytes to write at 'offset'"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Offset",
+            "description": "Byte offset in the file at which to write this chunk",
+            "default": 0
+          },
+          "truncate": {
+            "type": "boolean",
+            "title": "Truncate",
+            "description": "Cut the file off at the end of this chunk once it is written, so a re-upload cannot leave the tail of a longer previous file behind. Set false for out-of-order writes.",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "file_path",
+          "content_base64"
+        ],
+        "title": "UploadFileChunkRequest",
+        "description": "One chunk of a binary upload.\n\nChunks travel as base64 inside the ordinary JSON forwarding path, which is what makes them\nbinary-safe: the orchestrator stores and replays a forwarded request as JSON text, so raw\nbytes would not survive the round trip."
+      },
+      "UploadFileChunkResponse": {
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "title": "File Path"
+          },
+          "bytes_written": {
+            "type": "integer",
+            "title": "Bytes Written"
+          },
+          "size": {
+            "type": "integer",
+            "title": "Size",
+            "description": "Size of the file after the write"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file_path",
+          "bytes_written",
+          "size"
+        ],
+        "title": "UploadFileChunkResponse"
       },
       "ValidationError": {
         "properties": {

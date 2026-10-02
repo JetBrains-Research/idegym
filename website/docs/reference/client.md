@@ -49,7 +49,9 @@ from idegym.client.client import IdeGYMClient
 
 The main entry point. Must be used as an async context manager — `async with IdeGYMClient(...) as client` —
 which registers the client with the orchestrator on entry and deregisters it on exit (stopping all
-associated servers).
+associated servers). A failed deregistration leaks every pod the client owns, so it is never
+silent: it raises on exit, unless the body is already raising, in which case it is logged and the
+body's exception propagates.
 
 ### Constructor
 
@@ -166,6 +168,11 @@ async with client.with_server(
 | `reuse_strategy` | Whether to take over an existing server: `NONE` (always create from scratch), `RESTART` (reuse and restart the pod), `RESET` (reuse and reset project state) — see [Server reuse](#server-reuse) |
 | `close_action` | `FINISH` — release the server but leave it running for the next client; `STOP` — stop and delete the server |
 
+The server is closed with `finish_server` or `stop_server` on the way out, whether the body
+succeeded or not. If the body raised and the cleanup fails as well, the cleanup error is logged
+rather than raised, so the body's exception — the one that says what went wrong first — is the one
+you see. A cleanup failure after a body that succeeded is raised.
+
 #### Waiting for the server to be ready
 
 `server_start_wait_timeout_in_seconds` defaults to **300**, which covers a cold image pull. A
@@ -251,8 +258,8 @@ await client.finish_server(server)  # release without stopping
 await client.stop_server(server)    # stop and delete
 ```
 
-`stop_server` and `restart_server` **raise** when the operation fails, like the rest of the
-API — they do not report failure as a return value. There is no return value to check, so a
+`stop_server`, `finish_server` and `restart_server` **raise** when the operation fails, like the
+rest of the API — they do not report failure as a return value. There is no return value to check, so a
 failed delete cannot be mistaken for a successful one and leak the pod:
 
 ```python
@@ -263,6 +270,10 @@ try:
 except IdeGYMHTTPError as e:
     ...  # the pod may still be running; the server is not stopped
 ```
+
+`stop_server` and `finish_server` retry a failed call twice more with exponential backoff before
+raising. A permanent client error — a `4xx` other than `408` and `429`, such as the `404` or `410`
+for a server that was already reaped — is raised at once instead of being retried.
 
 #### Server reuse
 

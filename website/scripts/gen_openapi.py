@@ -4,7 +4,7 @@ Builds minimal FastAPI apps that mount the real routers (without the heavy
 create_app() init: config, k8s, DB, telemetry) and dumps app.openapi().
 
 Run with the project venv:
-    .venv/bin/python website/scripts/gen_openapi.py website/static/openapi
+    PYTHONHASHSEED=0 uv run --frozen python website/scripts/gen_openapi.py website/static/openapi
 
 By default every schema must generate successfully — if one fails the script
 exits non-zero, so we never ship the site with a missing/stale OpenAPI. Pass

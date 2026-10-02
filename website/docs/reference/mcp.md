@@ -173,6 +173,10 @@ print(bash_response["exit_code"])
 set it to `null` only when complete output is required and its size is trusted. Truncated
 streams preserve their beginning and end with an omitted-byte marker.
 
+`run_bash_command` also accepts `cwd`, `env`, `user` and `strip_output`, with the same meaning
+and validation as on `POST /api/tools/bash` — see [Tools Reference — Bash](tools.md#bash). Pass
+secrets through `env` rather than in `command`, so they stay out of the command text.
+
 To keep a server available for reuse, call `finish_server`. A later `start_server` call with matching parameters and
 `reuse_strategy: "RESTART"` or `"RESET"` can reuse the same server.
 

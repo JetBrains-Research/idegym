@@ -223,9 +223,12 @@ with the wrong configuration, or one that never matches and is rebuilt every tim
 that describes *who asked* rather than *what is in* the environment — `labels`, `annotations` —
 stays out: a per-job value in the hash makes every snapshot a miss.
 
-A frozen payload string in `unit-tests/test_orchestrator_mcp.py` serialises a whole request
-model, so adding a field to `BashCommandRequest` or `StartServerRequest` fails that test until
-the string is updated. That is the point — it is the only place the wire shape is written out.
+A frozen payload string in `unit-tests/test_orchestrator_mcp.py` serialises a whole
+`BashCommandRequest`, so adding a field to it fails that test until the string is updated. That
+is the point — it is the only place the bash wire shape is written out. The MCP bash tool does
+not accept a `BashCommandRequest` directly: `RunBashCommandToolRequest` in
+`orchestrator/src/idegym/orchestrator/mcp.py` reuses its fields one by one via `_bash_field`, so a
+new bash field reaches MCP agents only once it is declared there and passed through as well.
 
 A handler that needs `Config` reads it from `low_level_request.app.state.config` and delegates
 to a `<name>_with_config` twin holding the actual logic. The MCP tools in
@@ -404,6 +407,12 @@ User-facing docs live in [`website/docs/`](website/docs/) and are published to G
   full `https://github.com/JetBrains-Research/idegym/blob/main/...` URLs.
 - Mermaid `click` directives are the exception — they emit a raw `<a href>` with no baseUrl
   applied, so they need the full `/idegym/...` prefix.
+- The OpenAPI schemas behind the [API](website/docs/api.mdx) page are committed files under
+  `website/static/openapi/`, and nothing regenerates them — not the docs build, not CI. A change
+  to a router or a request/response model leaves them stale until you run
+  `PYTHONHASHSEED=0 uv run --frozen python website/scripts/gen_openapi.py website/static/openapi`
+  and commit the result. Pin the seed: the multi-method forward route stores its methods in a set,
+  so without it the method order and its `operationId` change from run to run.
 - `website/docs/reference/` is the developer reference documentation; `architecture/`,
   `overview/`, and `deployment.md` are the presentation layer. **Feature PRs tend to update
   only `reference/` and leave the presentation pages stale** — if your change alters

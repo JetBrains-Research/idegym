@@ -109,10 +109,11 @@ idegym/
 ├── rewards/              # Reward calculation for agent evaluation
 ├── server/               # IdeGYM server (runs inside containers)
 ├── tools/                # Tool implementations (bash, file operations)
+├── watcher/              # Background reconciler (cleanup, crash detection)
 ├── unit-tests/           # Unit test suite
 ├── integration-tests/    # Docker-based integration tests
 ├── e2e-tests/            # Kubernetes end-to-end tests
-├── plugins/              # IDE plugins (IntelliJ IDEA, PyCharm, shared utilities)
+├── plugins/              # Image/server/client plugins (defaults, IntelliJ IDEA, PyCharm, OpenHands, shared utilities)
 ├── charts/               # Helm charts for Kubernetes deployment
 ├── scripts/              # Build and deployment scripts
 └── website/              # Docs & presentation site (Docusaurus); guides in website/docs/reference/

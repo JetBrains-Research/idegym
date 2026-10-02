@@ -180,9 +180,20 @@ Creates a Kubernetes Deployment + Service for an IdeGYM server and waits for pod
 | `container_port` | int | `8000` | Port the container listens on |
 | `resources` | object\|null | `null` | K8s resource requirements (`requests`/`limits` dict) |
 | `node_selector` | object\|null | `null` | Kubernetes node selector labels |
-| `server_start_wait_timeout_in_seconds` | int | `60` | How long to wait for pods to be ready |
+| `labels` | object | `{}` | Extra labels for the Deployment, Pod, Service and PodDisruptionBudget; IdeGYM-managed keys (`app`, `app.kubernetes.io/*`, `idegym.jetbrains.com/*`) are rejected |
+| `annotations` | object | `{}` | Extra pod annotations; IdeGYM-managed keys (`cluster-autoscaler.kubernetes.io/safe-to-evict`, `podsnapshot.gke.io/*`, `prometheus.io/*`) are rejected |
+| `volumes` / `volume_mounts` | list | `[]` | Pod volumes and their mounts into the server container (native Kubernetes shape) |
+| `env_from` | list | `[]` | `secretRef` / `configMapRef` sources imported as environment variables |
+| `service_account_name` | string\|null | `null` | ServiceAccount for the server pod |
+| `pod_overrides` | object | `{}` | Partial pod spec deep-merged into the generated one |
+| `server_start_wait_timeout_in_seconds` | int | `300` | How long to wait for pods to be ready |
 | `reuse_strategy` | string | `"RESET"` | Server reuse strategy — see [Server Reuse](#server-reuse) |
 | `server_kind` | string | `"idegym"` | Server type: `"idegym"` or `"openenv"` |
+| `snapshot` | object\|null | `null` | GKE only: `{id, tag}` of a pod snapshot to restore from — see [Pod Snapshots](#pod-snapshots-checkpointrestore) |
+| `max_restarts` | int | `0` | Pod restarts tolerated before the server is marked `CRASHED` |
+
+`labels` and `annotations` are applied only when a server is created: a server taken over through
+`RESTART` or `RESET` keeps the metadata it was created with.
 
 **Immediate response:**
 ```json
@@ -201,13 +212,41 @@ Creates a Kubernetes Deployment + Service for an IdeGYM server and waits for pod
   "server_id": 7,
   "server_name": "my-server",
   "generated_name": "my-client-my-server-7",
+  "service_name": "my-client-my-server-7",
   "image_tag": "registry.example.com/my-image:abc123",
+  "reused": false,
   "need_to_reset": false,
   "operation_id": 42
 }
 ```
 
-`need_to_reset: true` means the server was reused via `RESET` strategy and the caller is responsible for resetting project state.
+`reused: true` means an existing `FINISHED` server was taken over rather than a new one created. `need_to_reset: true` means the server was reused via `RESET` strategy and the caller is responsible for resetting project state.
+
+#### List servers
+
+```
+GET /api/idegym-servers?client_id=<uuid>&include_terminal=false
+```
+
+Returns `ListServersResponse` — `{client_id, servers: [ServerSummary]}`, newest first. Terminal servers are left out unless `include_terminal=true`. Each `ServerSummary` carries `server_id`, `server_name`, `generated_name`, `namespace`, `availability`, `usable`, `image_tag`, `created_at`, `last_activity_at`, `keepalive_until` and `details`; it has no pod fields, so listing makes no Kubernetes calls.
+
+#### Server status
+
+```
+GET /api/idegym-servers/{server_id}/status?client_id=<uuid>
+```
+
+Returns `ServerStatusResponse`: the `ServerSummary` fields plus `idle_seconds`, `pod_phase` and `pod_ready`. It answers for finished, stopped and crashed servers too, and reading it does not count as activity. The pod fields are best-effort — `null` for a terminal server, which is not looked up in Kubernetes, and when the Kubernetes lookup fails.
+
+#### Keep a server alive
+
+```
+POST /api/idegym-servers/keepalive
+```
+
+Holds a server against the watcher's inactivity reaper for `minutes` from now (default `15`, at most `1440`). Calling again extends the hold and never shortens it. A server in a terminal state is refused with `410 Gone`, and the hold is cleared when a finished server is handed to another client for reuse.
+
+**Request body:** `client_id`, `namespace`, `server_id`, `minutes`. **Response:** `{server_id, keepalive_until, minutes}`.
 
 #### Finish server (soft shutdown)
 
@@ -273,7 +312,7 @@ Deletes pods (keeps Deployment and Service) and waits for them to come back. Use
 | `client_id` | UUID | required | Owning client |
 | `namespace` | string | `"idegym"` | Kubernetes namespace |
 | `server_id` | int | required | Server ID |
-| `server_start_wait_timeout_in_seconds` | int | `60` | How long to wait for pods to be ready again |
+| `server_start_wait_timeout_in_seconds` | int | `300` | How long to wait for pods to be ready again |
 
 ---
 
@@ -346,11 +385,13 @@ Snapshots a server that is already running. Returns immediately with an `operati
   "server_id": 7,
   "server_name": "my-client-my-server-7",
   "snapshot_id": "my-client-my-server-7",
+  "snapshot_tag": "my-client-my-server-7-abc12",
   "operation_id": 42
 }
 ```
 
-`snapshot_id` is the value to pass back as `StartServerRequest.snapshot_id` to restore from this snapshot.
+`snapshot_id` is the value to pass back as `StartServerRequest.snapshot.id` to restore from this snapshot group, and
+`snapshot_tag` (when GKE reported one) as `snapshot.tag` to restore this exact snapshot.
 
 #### Prepare a batch of snapshots from scratch
 
@@ -434,10 +475,11 @@ calling `prepare` to skip work that has already been done.
 
 #### Restoring from a snapshot
 
-Pass `snapshot_id` on `POST /api/idegym-servers` (or the `snapshot_id` argument on `IdeGYMClient.start_server`).
-The value is whatever a previous snapshot call returned as `snapshot_name` / `snapshot_id`. The new pod is created
-with `idegym.jetbrains.com/snapshot-id=<that value>`, GKE matches it against its stored snapshots, and the pod
-boots from the checkpoint.
+Pass `snapshot: {"id": ...}` on `POST /api/idegym-servers` (or `snapshot=SnapshotRef(id=...)` on
+`IdeGYMClient.start_server`). The `id` is whatever a previous snapshot call returned as `snapshot_name` / `snapshot_id`;
+an optional `tag` picks one specific snapshot instead of the latest in the group. The new pod is created with
+`idegym.jetbrains.com/snapshot-id=<that id>`, GKE matches it against its stored snapshots, and the pod boots from the
+checkpoint.
 
 ---
 
@@ -543,7 +585,7 @@ Returns the current state of an async operation.
 }
 ```
 
-Operation types: `START_SERVER`, `STOP_SERVER`, `RESTART_SERVER`, `STOP_CLIENT`, `FORWARD_REQUEST`, `REGISTER_CLIENT_WITH_NODES`.
+Operation types: `START_SERVER`, `STOP_SERVER`, `RESTART_SERVER`, `STOP_CLIENT`, `FORWARD_REQUEST`, `REGISTER_CLIENT_WITH_NODES`, `SNAPSHOT_SERVER`.
 
 Status values: `SCHEDULED`, `IN_PROGRESS`, `SUCCEEDED`, `FAILED`, `CANCELLED`, `FINISHED_BY_WATCHER`.
 
@@ -593,8 +635,12 @@ The orchestrator ships a lightweight HTML dashboard for monitoring:
 | `run_as_root` | bool | Whether container runs as root |
 | `server_kind` | string | `idegym` or `openenv` |
 | `service_port` | int | Kubernetes Service port |
-| `availability` | string | `ALIVE`, `FINISHED`, `STOPPED`, `FAILED_TO_START`, `CRASHED`, `KILLED`, `DELETION_FAILED`, `RESTART_FAILED` |
+| `availability` | string | `ALIVE`, `REUSED`, `FINISHED`, `STOPPED`, `FAILED_TO_START`, `CRASHED`, `KILLED`, `DELETION_FAILED`, `RESTART_FAILED` |
 | `last_heartbeat_time` | bigint | Milliseconds since epoch |
+| `keepalive_until` | bigint | Milliseconds since epoch until which a keepalive holds the server; null when none |
+| `snapshot_id` | string | Snapshot group the server's pod belongs to |
+| `max_restarts` | int | Pod restarts tolerated before the server is marked `CRASHED` |
+| `details` | text | Failure reason recorded on a terminal status |
 | `created_at` | bigint | Milliseconds since epoch |
 
 ### AsyncOperation

@@ -153,14 +153,14 @@
         "summary": "Start Server",
         "operationId": "start_server_api_idegym_servers_post",
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/StartServerRequest"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "202": {
@@ -187,14 +187,14 @@
         "summary": "Stop Server",
         "operationId": "stop_server_api_idegym_servers_delete",
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/StopServerRequest"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "202": {
@@ -202,6 +202,55 @@
             "content": {
               "application/json": {
                 "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "List Servers",
+        "description": "List the servers a client owns, so a leaked pod can be found without kubectl.\n\nTerminal servers are excluded unless asked for, since the common question is \"what is still\nmine and running\".",
+        "operationId": "list_servers_api_idegym_servers_get",
+        "parameters": [
+          {
+            "name": "client_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Client Id"
+            }
+          },
+          {
+            "name": "include_terminal",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Include Terminal"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListServersResponse"
+                }
               }
             }
           },
@@ -301,6 +350,95 @@
         }
       }
     },
+    "/api/idegym-servers/keepalive": {
+      "post": {
+        "summary": "Keepalive Server",
+        "description": "Hold a server against the watcher's inactivity reaper for the requested window.\n\nThe reaper works off the last time a request finished, which is a poor proxy for \"somebody\nis using this\": a sandbox can be legitimately idle while an agent thinks or a build runs.\nOnly the holder knows, so this is how it says so.",
+        "operationId": "keepalive_server_api_idegym_servers_keepalive_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KeepaliveServerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeepaliveServerResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/idegym-servers/{server_id}/status": {
+      "get": {
+        "summary": "Get Server Status",
+        "description": "Report whether a server is usable, without touching it.\n\nIt does not update the server's activity timestamp, so polling cannot keep a server from being\nreaped. The database record is the answer and the pod view is best effort: Kubernetes is not\nasked about a terminal server, and a Kubernetes failure leaves the pod fields null rather than\nhiding the recorded status behind a 500.",
+        "operationId": "get_server_status_api_idegym_servers__server_id__status_get",
+        "parameters": [
+          {
+            "name": "server_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Server Id"
+            }
+          },
+          {
+            "name": "client_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Client Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerStatusResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/idegym-servers/restart": {
       "post": {
         "summary": "Restart Server",
@@ -340,7 +478,7 @@
     "/api/build-push-images": {
       "post": {
         "summary": "Build And Push",
-        "description": "Build Docker images from a YAML file using Kaniko in Kubernetes.",
+        "description": "Build Docker images from a YAML file using the configured build backend.",
         "operationId": "build_and_push_api_build_push_images_post",
         "requestBody": {
           "content": {
@@ -413,63 +551,9 @@
       }
     },
     "/api/forward/{client_id}/{server_id}/{path}": {
-      "delete": {
-        "summary": "Forward Request By Server Id",
-        "operationId": "forward_request_by_server_id_api_forward__client_id___server_id___path__delete",
-        "parameters": [
-          {
-            "name": "client_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Client Id"
-            }
-          },
-          {
-            "name": "server_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Server Id"
-            }
-          },
-          {
-            "name": "path",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Path"
-            }
-          }
-        ],
-        "responses": {
-          "202": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      },
       "get": {
         "summary": "Forward Request By Server Id",
-        "operationId": "forward_request_by_server_id_api_forward__client_id___server_id___path__delete",
+        "operationId": "forward_request_by_server_id_api_forward__client_id___server_id___path__get",
         "parameters": [
           {
             "name": "client_id",
@@ -521,63 +605,9 @@
           }
         }
       },
-      "post": {
+      "delete": {
         "summary": "Forward Request By Server Id",
-        "operationId": "forward_request_by_server_id_api_forward__client_id___server_id___path__delete",
-        "parameters": [
-          {
-            "name": "client_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Client Id"
-            }
-          },
-          {
-            "name": "server_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Server Id"
-            }
-          },
-          {
-            "name": "path",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Path"
-            }
-          }
-        ],
-        "responses": {
-          "202": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      },
-      "patch": {
-        "summary": "Forward Request By Server Id",
-        "operationId": "forward_request_by_server_id_api_forward__client_id___server_id___path__delete",
+        "operationId": "forward_request_by_server_id_api_forward__client_id___server_id___path__get",
         "parameters": [
           {
             "name": "client_id",
@@ -631,7 +661,7 @@
       },
       "put": {
         "summary": "Forward Request By Server Id",
-        "operationId": "forward_request_by_server_id_api_forward__client_id___server_id___path__delete",
+        "operationId": "forward_request_by_server_id_api_forward__client_id___server_id___path__get",
         "parameters": [
           {
             "name": "client_id",
@@ -685,7 +715,115 @@
       },
       "head": {
         "summary": "Forward Request By Server Id",
-        "operationId": "forward_request_by_server_id_api_forward__client_id___server_id___path__delete",
+        "operationId": "forward_request_by_server_id_api_forward__client_id___server_id___path__get",
+        "parameters": [
+          {
+            "name": "client_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Client Id"
+            }
+          },
+          {
+            "name": "server_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Server Id"
+            }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Path"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Forward Request By Server Id",
+        "operationId": "forward_request_by_server_id_api_forward__client_id___server_id___path__get",
+        "parameters": [
+          {
+            "name": "client_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Client Id"
+            }
+          },
+          {
+            "name": "server_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Server Id"
+            }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Path"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "summary": "Forward Request By Server Id",
+        "operationId": "forward_request_by_server_id_api_forward__client_id___server_id___path__get",
         "parameters": [
           {
             "name": "client_id",
@@ -739,7 +877,7 @@
       },
       "options": {
         "summary": "Forward Request By Server Id",
-        "operationId": "forward_request_by_server_id_api_forward__client_id___server_id___path__delete",
+        "operationId": "forward_request_by_server_id_api_forward__client_id___server_id___path__get",
         "parameters": [
           {
             "name": "client_id",
@@ -1320,6 +1458,73 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "KeepaliveServerRequest": {
+        "properties": {
+          "client_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Client Id",
+            "description": "UUID of the client that owns the server"
+          },
+          "namespace": {
+            "type": "string",
+            "title": "Namespace",
+            "description": "Kubernetes namespace containing the server",
+            "default": "idegym"
+          },
+          "server_id": {
+            "type": "integer",
+            "title": "Server Id",
+            "description": "Numeric IdeGYM server ID"
+          },
+          "minutes": {
+            "type": "number",
+            "maximum": 1440.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Minutes",
+            "description": "How long from now to hold the server, in minutes. Calling again extends the window; it is never shortened, so two holders cannot cut each other short.",
+            "default": 15.0,
+            "examples": [
+              15,
+              60
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "client_id",
+          "server_id"
+        ],
+        "title": "KeepaliveServerRequest",
+        "description": "Hold a server against the inactivity reaper for a bounded window."
+      },
+      "KeepaliveServerResponse": {
+        "properties": {
+          "server_id": {
+            "type": "integer",
+            "title": "Server Id"
+          },
+          "keepalive_until": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Keepalive Until",
+            "description": "Epoch milliseconds until which the server is held"
+          },
+          "minutes": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Minutes",
+            "description": "Minutes from now that 'keepalive_until' corresponds to"
+          }
+        },
+        "type": "object",
+        "required": [
+          "server_id",
+          "keepalive_until",
+          "minutes"
+        ],
+        "title": "KeepaliveServerResponse"
+      },
       "KubernetesEnvFromSource": {
         "properties": {
           "prefix": {
@@ -1426,7 +1631,7 @@
             "anyOf": [
               {
                 "patternProperties": {
-                  "^([a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?/)?[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?$": {
+                  "^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?[a-zA-Z0-9]([a-zA-Z0-9._-]{0,61}[a-zA-Z0-9])?$": {
                     "type": "string",
                     "maxLength": 63,
                     "pattern": "^([a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?)?$"
@@ -1736,6 +1941,27 @@
         "title": "KubernetesVolumeMount",
         "description": "A container volume mount (maps to ``V1VolumeMount``)."
       },
+      "ListServersResponse": {
+        "properties": {
+          "client_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Client Id"
+          },
+          "servers": {
+            "items": {
+              "$ref": "#/components/schemas/ServerSummary"
+            },
+            "type": "array",
+            "title": "Servers"
+          }
+        },
+        "type": "object",
+        "required": [
+          "client_id"
+        ],
+        "title": "ListServersResponse"
+      },
       "PersistentVolumeClaimVolumeSource": {
         "properties": {
           "claimName": {
@@ -1896,7 +2122,7 @@
             "minimum": 0.0,
             "title": "Server Start Wait Timeout In Seconds",
             "description": "Seconds to wait for server readiness after restart",
-            "default": 60
+            "default": 300
           }
         },
         "type": "object",
@@ -2027,6 +2253,235 @@
         ],
         "title": "ServerReuseStrategy"
       },
+      "ServerStatusResponse": {
+        "properties": {
+          "server_id": {
+            "type": "integer",
+            "title": "Server Id",
+            "description": "Numeric IdeGYM server ID"
+          },
+          "server_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Server Name",
+            "description": "Logical server name from the start request"
+          },
+          "generated_name": {
+            "type": "string",
+            "title": "Generated Name",
+            "description": "Kubernetes resource name for the server"
+          },
+          "namespace": {
+            "type": "string",
+            "title": "Namespace"
+          },
+          "availability": {
+            "type": "string",
+            "title": "Availability",
+            "description": "Availability status recorded by the orchestrator, e.g. ALIVE or CRASHED"
+          },
+          "usable": {
+            "type": "boolean",
+            "title": "Usable",
+            "description": "True when the server is in a state that accepts requests (ALIVE or REUSED)"
+          },
+          "image_tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Tag"
+          },
+          "created_at": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Created At",
+            "description": "Epoch milliseconds"
+          },
+          "last_activity_at": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Last Activity At",
+            "description": "Epoch milliseconds of the last activity the orchestrator recorded for this server"
+          },
+          "keepalive_until": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Keepalive Until",
+            "description": "Epoch milliseconds until which an explicit keepalive holds this server against the inactivity reaper, or null when none is in effect"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details",
+            "description": "Failure reason recorded on a terminal status"
+          },
+          "idle_seconds": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Idle Seconds",
+            "description": "Seconds since 'last_activity_at'"
+          },
+          "pod_phase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pod Phase",
+            "description": "Kubernetes phase of the server pod, or null when no pod matches, the server is terminal, or Kubernetes could not be reached"
+          },
+          "pod_ready": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pod Ready",
+            "description": "True when the pod is Running with all containers ready, or null when the pod was not checked: the server is terminal, or Kubernetes could not be reached"
+          }
+        },
+        "type": "object",
+        "required": [
+          "server_id",
+          "generated_name",
+          "namespace",
+          "availability",
+          "usable",
+          "created_at",
+          "last_activity_at",
+          "idle_seconds"
+        ],
+        "title": "ServerStatusResponse",
+        "description": "The list row plus the pod view, answering 'is this server usable right now' in one call.\n\nReading it does not count as activity, so polling it cannot keep a server alive by accident."
+      },
+      "ServerSummary": {
+        "properties": {
+          "server_id": {
+            "type": "integer",
+            "title": "Server Id",
+            "description": "Numeric IdeGYM server ID"
+          },
+          "server_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Server Name",
+            "description": "Logical server name from the start request"
+          },
+          "generated_name": {
+            "type": "string",
+            "title": "Generated Name",
+            "description": "Kubernetes resource name for the server"
+          },
+          "namespace": {
+            "type": "string",
+            "title": "Namespace"
+          },
+          "availability": {
+            "type": "string",
+            "title": "Availability",
+            "description": "Availability status recorded by the orchestrator, e.g. ALIVE or CRASHED"
+          },
+          "usable": {
+            "type": "boolean",
+            "title": "Usable",
+            "description": "True when the server is in a state that accepts requests (ALIVE or REUSED)"
+          },
+          "image_tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Tag"
+          },
+          "created_at": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Created At",
+            "description": "Epoch milliseconds"
+          },
+          "last_activity_at": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Last Activity At",
+            "description": "Epoch milliseconds of the last activity the orchestrator recorded for this server"
+          },
+          "keepalive_until": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Keepalive Until",
+            "description": "Epoch milliseconds until which an explicit keepalive holds this server against the inactivity reaper, or null when none is in effect"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details",
+            "description": "Failure reason recorded on a terminal status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "server_id",
+          "generated_name",
+          "namespace",
+          "availability",
+          "usable",
+          "created_at",
+          "last_activity_at"
+        ],
+        "title": "ServerSummary",
+        "description": "One row of the server list: what the orchestrator knows without asking Kubernetes.\n\nDeliberately has no pod fields \u2014 listing them would mean one API call per server. Use the\nstatus endpoint for the pod view of a single server."
+      },
       "SnapshotRef": {
         "properties": {
           "id": {
@@ -2085,7 +2540,7 @@
             "minLength": 1,
             "pattern": "^[a-z]([-a-z0-9]*[a-z0-9])?$",
             "title": "Server Name",
-            "description": "Logical server name used as the Kubernetes resource name prefix and for matching reusable servers",
+            "description": "Logical server name, used as the Kubernetes resource name prefix. It is one of the seven fields reuse matches on, not the key: see 'reuse_strategy' for the full set.",
             "default": "default-idegym-server",
             "examples": [
               "my-server",
@@ -2163,7 +2618,7 @@
             "anyOf": [
               {
                 "patternProperties": {
-                  "^([a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?/)?[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?$": {
+                  "^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?[a-zA-Z0-9]([a-zA-Z0-9._-]{0,61}[a-zA-Z0-9])?$": {
                     "type": "string",
                     "maxLength": 63,
                     "pattern": "^([a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?)?$"
@@ -2184,6 +2639,47 @@
             "examples": [
               {
                 "kubernetes.io/os": "linux"
+              }
+            ]
+          },
+          "labels": {
+            "patternProperties": {
+              "^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?[a-zA-Z0-9]([a-zA-Z0-9._-]{0,61}[a-zA-Z0-9])?$": {
+                "type": "string",
+                "maxLength": 63,
+                "pattern": "^([a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?)?$"
+              }
+            },
+            "propertyNames": {
+              "maxLength": 317,
+              "minLength": 1
+            },
+            "type": "object",
+            "title": "Labels",
+            "description": "Extra labels applied to the server's Deployment, Pod, Service and PodDisruptionBudget, so a sandbox can be found with 'kubectl get pods -l ...' and grouped for cost attribution. Keys IdeGYM manages ('app', 'app.kubernetes.io/*', 'idegym.jetbrains.com/*') are rejected rather than silently ignored, since overwriting them would break the selectors that address the pod. Applied only when a server is created: a server taken over through RESTART or RESET keeps the labels it was created with, so use reuse_strategy=NONE when the pod's labels must match this request.",
+            "examples": [
+              {
+                "job": "swe-bench-run-42",
+                "team": "research"
+              }
+            ]
+          },
+          "annotations": {
+            "patternProperties": {
+              "^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?[a-zA-Z0-9]([a-zA-Z0-9._-]{0,61}[a-zA-Z0-9])?$": {
+                "type": "string"
+              }
+            },
+            "propertyNames": {
+              "maxLength": 317,
+              "minLength": 1
+            },
+            "type": "object",
+            "title": "Annotations",
+            "description": "Extra annotations applied to the server pod. Use for metadata too long or too unstructured to be a label, such as a task URL or a serialized request id. Keys IdeGYM manages ('cluster-autoscaler.kubernetes.io/safe-to-evict', 'podsnapshot.gke.io/*', 'prometheus.io/*') are rejected rather than silently overwritten. Like 'labels', applied only when a server is created: a reused server keeps the annotations it was created with.",
+            "examples": [
+              {
+                "idegym.example.com/task-url": "https://tracker.example.com/TASK-1"
               }
             ]
           },
@@ -2273,16 +2769,16 @@
             "type": "integer",
             "minimum": 0.0,
             "title": "Server Start Wait Timeout In Seconds",
-            "description": "How long to wait in seconds for the server pod to become ready",
-            "default": 60,
+            "description": "How long to wait in seconds for the server pod to become ready. The default covers a cold image pull, which a multi-gigabyte environment image needs minutes for; raise it further for larger images rather than retrying into the same wall.",
+            "default": 300,
             "examples": [
-              60,
-              120
+              300,
+              900
             ]
           },
           "reuse_strategy": {
             "$ref": "#/components/schemas/ServerReuseStrategy",
-            "description": "What to do if a server with this name already exists: NONE recreates from scratch, RESTART restarts it, RESET resets project state.",
+            "description": "Whether to take over an existing server instead of creating one: NONE always creates from scratch, RESTART reuses one and restarts its pod, RESET reuses one and resets the project state. Reuse runs only for RESTART and RESET, and a candidate must match on all seven of: client name, image_tag, runtime_class_name, run_as_root, server_kind, server_name (when set), and an availability of FINISHED. A server is FINISHED only after finish_server; a client that always calls stop_server leaves its servers STOPPED, so reuse never hits. StartServerResponse.reused reports what actually happened. A reused server keeps the Kubernetes labels and annotations it was created with; only NONE guarantees they match this request.",
             "default": "RESET"
           },
           "server_kind": {

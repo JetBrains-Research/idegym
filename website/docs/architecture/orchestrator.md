@@ -60,9 +60,14 @@ flowchart TB
   (release for reuse), and restart environment pods, waiting for readiness. Reuse matches on
   seven fields, one of which is that the candidate is `FINISHED` — so a client that only ever
   stops its servers never reuses one. The start response reports `reused` either way; see
-  [Server reuse](/reference/client#server-reuse).
+  [Server reuse](/reference/client#server-reuse). A start request may tag the server with extra
+  Kubernetes labels and annotations; keys IdeGYM manages are rejected, and a reused server keeps
+  the metadata it was created with (see [Tagging a sandbox](/reference/client#tagging-a-sandbox)).
 - **Server status and keepalive** — report a server's availability, pod phase and idle time,
-  and hold an idle-but-in-use server against the watcher's inactivity reaper on request.
+  and hold an idle-but-in-use server against the watcher's inactivity reaper on request. The
+  pod fields are best-effort: if Kubernetes cannot be reached, status is still served from the
+  database with the pod fields left `null`. A hold is cleared when a finished server is handed to
+  another client for reuse.
 - **Image builds** — accept image-builder YAML, compile each `Image` to a spec, and submit
   it through a **pluggable build backend** (Kaniko by default, or GKE Cloud Build) driven by
   a shared `ImageBuildService` (see [image builder](/architecture/image-builder#build-backends)).

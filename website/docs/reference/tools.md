@@ -175,7 +175,7 @@ print(response.stdout)
 
 Create a new file with given content.
 
-**Endpoint:** `POST /api/tools/create-file` · **MCP tool:** `create_file`
+**Endpoint:** `POST /api/tools/file/create` · **MCP tool:** `create_file`
 
 **Request:**
 
@@ -204,7 +204,7 @@ result = await mcp.call_tool(
 
 Replace a range of lines in an existing file.
 
-**Endpoint:** `POST /api/tools/edit-file` · **MCP tool:** `edit_file`
+**Endpoint:** `POST /api/tools/file/edit` · **MCP tool:** `edit_file`
 
 **Request:**
 
@@ -219,7 +219,7 @@ Replace a range of lines in an existing file.
 
 Apply a unified diff patch to a file.
 
-**Endpoint:** `POST /api/tools/patch-file` · **MCP tool:** `patch_file`
+**Endpoint:** `POST /api/tools/file/patch` · **MCP tool:** `patch_file`
 
 **Request:**
 

@@ -78,6 +78,13 @@ sandboxes from several loops has to share one registration rather than open two 
 `SharedIdeGYMClient` is for. It owns a loop in a dedicated thread and marshals calls onto it.
 See the [client reference](/reference/client).
 
+Failures are **typed**. An HTTP error raises a subclass of `IdeGYMHTTPError` chosen by status
+(`IdeGYMNotFoundError`, `IdeGYMBusyError`, …), an error the sandbox itself returned on a forwarded
+call raises `IdeGYMSandboxError`, and a failure with no response at all raises
+`IdeGYMTimeoutError` (also a builtin `TimeoutError`) or `IdeGYMConnectionError`. Lifecycle calls
+such as `stop_server` raise rather than returning an error value, and a permanent `4xx` is never
+retried. See [error handling](/reference/client#error-handling).
+
 ## `IdeGYMServer`
 
 Returned by `with_server()` / `start_server()`. It exposes the environment's operations:

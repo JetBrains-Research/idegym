@@ -43,8 +43,8 @@ so the rendered docs match the code. Regenerate them with the project's Python
 environment:
 
 ```shell
-# from the repo root, with the project venv
-python website/scripts/gen_openapi.py website/static/openapi
+# from the repo root; the fixed seed keeps the output stable between runs
+PYTHONHASHSEED=0 uv run --frozen python website/scripts/gen_openapi.py website/static/openapi
 ```
 
 > This is a **static** interactive schema — you can read every endpoint, model, and
