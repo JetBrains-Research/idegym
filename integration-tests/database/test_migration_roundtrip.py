@@ -212,10 +212,9 @@ async def test_round_trip_through_every_revision(manager: MigrationManager):
 
 
 async def test_downgrading_only_the_last_revision_preserves_rows(manager: MigrationManager):
-    """head -> 004 undoes just the keepalive revision, the step a one-release rollback runs.
+    """head -> 004, the one-release rollback: rows survive and only ``keepalive_until`` goes.
 
-    The rows must survive and only ``keepalive_until`` may go; upgrading again brings the column
-    back empty, since the downgrade deliberately discards the holds it carried.
+    Upgrading again brings the column back empty, since the downgrade discards the holds.
     """
     engine = manager.engine
     await manager.migrate_to("heads")
@@ -244,8 +243,7 @@ async def test_downgrading_only_the_last_revision_preserves_rows(manager: Migrat
 async def test_downgrading_past_revision_003_preserves_rows(manager: MigrationManager):
     """head -> 002 -> 003: undoing several revisions in one plan keeps every row.
 
-    The downgrade to 002 reverts every revision above it, 003 included, and the upgrade back to
-    003 restores exactly the columns 003 added, empty.
+    The upgrade back to 003 restores exactly the columns 003 added, empty.
     """
     engine = manager.engine
     await manager.migrate_to("heads")

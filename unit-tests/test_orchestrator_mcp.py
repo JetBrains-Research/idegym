@@ -175,7 +175,6 @@ async def test_run_bash_command_mcp_tool_calls_forwarding_endpoint(mocker):
 
 
 async def test_run_bash_command_mcp_tool_passes_per_command_context(mocker):
-    """MCP agents could not set cwd/env/user, so secrets had to go into the script text."""
     endpoint = mocker.patch(
         "idegym.orchestrator.mcp.forward_request_to_server",
         return_value={"async_operation_id": 43},

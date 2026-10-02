@@ -337,11 +337,9 @@ async def deploy_server(
     )
 
     image_pull_secret = V1LocalObjectReference(name="regcred")
-    # Caller metadata goes on first so a managed key always wins: the selectors that address the
-    # pod are built from the managed labels, and prometheus scraping from the managed annotations.
-    # A managed annotation IdeGYM does not set this time is dropped rather than passed through: the
-    # request model rejects them, but a 'podsnapshot.gke.io/ps-name' that slipped past it would
-    # restore the pod from a snapshot nobody recorded, so this layer does not rely on that.
+    # Caller metadata goes on first so a managed key always wins. Managed annotations are also
+    # dropped outright, not just overridden: the request model rejects them, but a stray
+    # 'podsnapshot.gke.io/ps-name' would restore the pod from a snapshot nobody chose.
     caller_annotations = {
         key: value for key, value in (extra_annotations or {}).items() if not is_managed_annotation_key(key)
     }
@@ -535,18 +533,16 @@ def _pod_is_ready(pod: V1Pod) -> bool:
     return pod.status.phase == "Running" and bool(container_statuses) and all(c.ready for c in container_statuses)
 
 
-# How long the timeout diagnostic may spend asking Kubernetes. It runs after a wait has already
-# expired, often because the API server itself is struggling, so it must not add a second hang.
+# The diagnostic runs after a wait has already expired, often because the API server is
+# struggling, so it must not add a second hang.
 _DIAGNOSIS_TIMEOUT_SECONDS = 10
 
 
 async def describe_pod_startup(label_selector: str, namespace: str) -> str:
-    """Say what the pods are actually doing, so a readiness timeout is not an unattributable one.
+    """Say what the pods are doing, so a readiness timeout is attributable.
 
-    "Not ready in time" reads as "the image's health endpoint is broken", which sends the reader
-    at the image when the truth is often that a multi-gigabyte image is still being pulled. This
-    separates the two: a container still waiting is a pull or a sandbox being created, a running
-    container that is not ready is a readiness probe that has not passed.
+    It separates a slow image pull or sandbox creation (a container still waiting) from a readiness
+    probe that has not passed (a container running but not ready), which a bare timeout conflates.
     """
     try:
         async with timeout(_DIAGNOSIS_TIMEOUT_SECONDS):
@@ -558,14 +554,12 @@ async def describe_pod_startup(label_selector: str, namespace: str) -> str:
     if not pods:
         return "no pods matched"
 
-    # With several replicas, or an old and a new pod overlapping during a rollout, the pod holding
-    # the wait up is the one worth describing, not whichever the API happened to list first.
+    # With several pods (replicas, or a rollout overlap), describe the one holding the wait up.
     not_ready = [pod for pod in pods if not _pod_is_ready(pod)]
     if not_ready:
         diagnosis = _describe_pod(not_ready[0])
     elif terminating := len(listed) - len(pods):
-        # A RESTART reuse whose old pod is slow to terminate: the new one is fine, and blaming its
-        # readiness probe would send the reader after the wrong problem.
+        # A RESTART reuse whose old pod is slow to terminate; the new one is not the problem.
         diagnosis = f"new pod ready, waiting for {terminating} old pod(s) to terminate"
     else:
         diagnosis = "all pods ready"
@@ -580,11 +574,10 @@ def _waiting_reason(container: Any) -> Optional[str]:
 
 
 def _describe_init_containers(pod: V1Pod) -> Optional[str]:
-    """The first init container still holding the pod back, or ``None`` when none is.
+    """The first init container still holding the pod back, or ``None``.
 
-    Until every init container has completed, the main containers wait with ``PodInitializing``,
-    which on its own reads as a pull in progress. An init container that is crash-looping or has
-    failed never gets there, and raising the timeout will not help, so it has to be named.
+    Main containers wait with ``PodInitializing`` until init containers finish, which reads as a pull
+    in progress; a failing init container never finishes, so it has to be named.
     """
     for container in pod.status.init_container_statuses or []:
         state = container.state
@@ -850,9 +843,9 @@ async def pod_phase_and_readiness(label_selector: str, namespace: str) -> tuple[
     """Return the phase of the server's pod and whether every container in it is ready.
 
     Terminating pods are skipped, so a restart in progress reports the incoming pod rather than
-    the one on its way out. Among the rest a ready pod, then a Running one, is preferred: an evicted
-    pod stays ``Failed`` without a deletion timestamp next to its healthy replacement, and must not
-    mask it just because it is listed first. The phase is ``None`` when no pod matches at all.
+    the one on its way out. A ready, then a Running, pod is preferred, so an evicted ``Failed`` pod
+    (which has no deletion timestamp) does not mask its replacement. The phase is ``None`` when no
+    pod matches.
     """
     pods = _live_pods(await list_pods(label_selector, namespace))
     if not pods:

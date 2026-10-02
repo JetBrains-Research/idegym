@@ -35,17 +35,14 @@ class PollingConfig(BaseModel):
     )
 
 
-# How long past its deadline a poll may still take to answer. The final poll is sent at the
-# deadline, so without this a status request would have no time to complete; it only matters
-# when a request hangs, since a prompt answer ends the wait either way.
+# How long past the deadline the final poll, sent at the deadline, may take to answer.
 _FINAL_POLL_ALLOWANCE_IN_SEC = 10.0
 
 S = TypeVar("S", bound=BaseModel)
 E = TypeVar("E", bound=BaseModel)
 
 
-# A 4xx other than these says the request itself is wrong — the server is gone, the credentials
-# are bad, the body is invalid — so sending it again unchanged can only fail the same way.
+# Any other 4xx means the request itself is wrong, so resending it unchanged cannot succeed.
 _RETRYABLE_CLIENT_ERROR_STATUSES = frozenset({HTTPStatus.REQUEST_TIMEOUT, HTTPStatus.TOO_MANY_REQUESTS})
 
 
@@ -61,9 +58,8 @@ def _is_permanent_failure(error: Exception) -> bool:
 def retry_with_backoff(attempts: int, base_delay: float = 0.5):
     """Decorator that retries an async function with exponential backoff.
 
-    Any exception is retried except an ``IdeGYMHTTPError`` carrying a permanent 4xx status, which
-    is re-raised at once: retrying a ``404`` for a server that was already reaped only adds two
-    more failed calls and two more logged tracebacks before the same error surfaces.
+    Any exception is retried except an ``IdeGYMHTTPError`` with a permanent 4xx status, which is
+    re-raised at once — a ``404`` for a reaped server will not change on retry.
     """
 
     def decorator(func):
@@ -155,10 +151,8 @@ class HTTPUtils:
             logger.error(message)
             raise IdeGYMTimeoutError(message, method=method, url=url) from ex
 
-        # After TimeoutException, which is itself a TransportError. What is left never got a
-        # response at all — refused, reset, or cut off mid-exchange, as when the orchestrator
-        # restarts during a rollout — which is the most retryable failure there is, so it has to
-        # be catchable as an IdeGYMHTTPError like every other one.
+        # Must follow TimeoutException, a TransportError subclass. No response at all (refused,
+        # reset, cut off during an orchestrator rollout) is still an IdeGYMHTTPError.
         except TransportError as ex:
             message = f"Request failed without a response: url={url} error='{type(ex).__name__}: {ex}'"
             logger.error("Request failed without a response", url=url, error=repr(ex))
@@ -207,11 +201,9 @@ class HTTPUtils:
         failure or cancellation, or the raw result string if no model is provided.
         Raises ``IdeGYMTimeoutError`` if ``polling_config.wait_timeout_in_sec`` is exceeded.
 
-        No backoff sleep is allowed to run past the deadline: the last one is cut short so that
-        one final poll lands on the deadline itself. Otherwise, with a long backoff, the last poll
-        before the deadline could come a minute early, and an operation that succeeded in that
-        gap would be reported as timed out — orphaning, say, a server that did start. A request
-        that hangs is bounded separately, by a short allowance past the deadline.
+        The last backoff sleep is cut short so a final poll lands on the deadline; otherwise an
+        operation that succeeded after the last early poll would be reported as timed out,
+        orphaning, say, a server that did start. A hanging request gets a short allowance past it.
         """
         polling_config = polling_config or PollingConfig()
         logger.debug(f"Polling async operation status with ID {operation_id}")
@@ -251,8 +243,7 @@ class HTTPUtils:
                         break
                     retry += 1
         except TimeoutError as ex:
-            # A request timing out inside the loop is already an IdeGYMTimeoutError; only the
-            # hard stop itself needs translating.
+            # A request timeout is already an IdeGYMTimeoutError; only the hard stop is translated.
             if not hard_stop.expired():
                 raise
             raise IdeGYMTimeoutError(

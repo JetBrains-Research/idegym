@@ -55,11 +55,9 @@ class BashCommandRequest(BaseModel):
     @field_validator("env")
     @classmethod
     def _validate_env(cls, env: dict[str, str]) -> dict[str, str]:
-        """Reject what the OS cannot put in an environment, so it is a 422 rather than a 500.
+        """Reject entries ``execve`` would fail on, so they are a 422 rather than a 500.
 
-        ``A=B``, an empty name or a NUL in a value otherwise reached ``execve`` and failed there
-        with a bare ``ValueError``. Names are held to the portable shell-identifier form, since a
-        name bash cannot reference is of no use to the script.
+        Names must be shell identifiers, since the script could not reference any other name.
         """
         for name, value in env.items():
             if not _ENVIRONMENT_NAME_PATTERN.fullmatch(name):

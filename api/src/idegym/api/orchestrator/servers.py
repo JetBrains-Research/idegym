@@ -19,9 +19,8 @@ from idegym.api.type import (
 )
 from pydantic import BaseModel, Field, field_validator
 
-# The Kubernetes metadata IdeGYM puts on the objects it creates is defined here, once, and built
-# from these definitions by ``deploy_server`` and the node holder. The request validators reserve
-# the same keys, so a caller can never take over one of them.
+# The Kubernetes metadata IdeGYM puts on its objects, defined once: ``deploy_server`` and the node
+# holder build from it, and the request validators reserve the same keys.
 
 # The ``app.kubernetes.io/component`` of a server's Deployment, Pod, Service and PodDisruptionBudget.
 SERVER_COMPONENT = "sandbox"
@@ -35,10 +34,9 @@ POD_SNAPSHOT_NAME_ANNOTATION = "podsnapshot.gke.io/ps-name"
 # pod queries all match on these, so a caller must not be able to take them over.
 MANAGED_LABEL_KEYS = frozenset({"app"})
 MANAGED_LABEL_PREFIXES = ("app.kubernetes.io/", "idegym.jetbrains.com/")
-# Annotations IdeGYM sets itself. They carry no selector weight, but each one steers a system that
-# acts on the pod: the cluster autoscaler must not evict a sandbox, prometheus scrapes what the
-# server kind exposes, and a GKE PodSnapshot annotation picks which snapshot the pod is restored
-# from — which, set by a caller, could restore another tenant's snapshot into their sandbox.
+# Annotations IdeGYM sets itself. Each steers a system acting on the pod (autoscaler eviction,
+# prometheus scraping, GKE snapshot restore); a caller-set PodSnapshot annotation could restore
+# another tenant's snapshot into their sandbox.
 MANAGED_ANNOTATION_KEYS = frozenset({SAFE_TO_EVICT_ANNOTATION})
 MANAGED_ANNOTATION_PREFIXES = ("podsnapshot.gke.io/", "prometheus.io/")
 
@@ -52,11 +50,9 @@ def is_managed_annotation_key(key: str) -> bool:
 
 
 def managed_selector_labels(name: str, component: str = SERVER_COMPONENT) -> dict[str, str]:
-    """The labels a workload's selectors match on, so they must never change after creation.
+    """The labels the Deployment, Service and PodDisruptionBudget selectors match on.
 
-    The Deployment selector, the Service selector and the PodDisruptionBudget are all built from
-    exactly these; a caller label that joined them would stop the selectors matching pods started
-    without it.
+    They must never change after creation, or the selectors stop matching pods started without them.
     """
     return {
         "app": name,
@@ -264,12 +260,7 @@ class StartServerRequest(BaseModel):
     @field_validator("labels")
     @classmethod
     def _reject_managed_label_keys(cls, labels: KubernetesLabels) -> KubernetesLabels:
-        """Refuse to accept a label IdeGYM owns rather than accepting and then overwriting it.
-
-        The managed labels are what the Service selector, the PodDisruptionBudget and the
-        watcher's pod queries match on, so a caller who overwrote one would detach their own
-        sandbox from the machinery that manages it.
-        """
+        """Refuse a label IdeGYM owns rather than silently overwriting it; see ``MANAGED_LABEL_KEYS``."""
         reserved = sorted(key for key in labels if is_managed_label_key(key))
         if reserved:
             raise ValueError(f"labels may not set IdeGYM-managed keys: {', '.join(reserved)}")
@@ -278,12 +269,7 @@ class StartServerRequest(BaseModel):
     @field_validator("annotations")
     @classmethod
     def _reject_managed_annotation_keys(cls, annotations: KubernetesAnnotations) -> KubernetesAnnotations:
-        """Refuse an annotation IdeGYM owns, for the same reason as a managed label.
-
-        The autoscaler, prometheus and GKE pod snapshots all act on the managed annotations. The
-        snapshot one is the sharp edge: it names which snapshot GKE restores the pod from, so
-        accepting it from a caller would let them restore a snapshot the orchestrator never chose.
-        """
+        """Refuse an annotation IdeGYM owns; see ``MANAGED_ANNOTATION_KEYS``."""
         reserved = sorted(key for key in annotations if is_managed_annotation_key(key))
         if reserved:
             raise ValueError(f"annotations may not set IdeGYM-managed keys: {', '.join(reserved)}")
@@ -409,10 +395,9 @@ class ListServersResponse(BaseModel):
 
 
 class ServerStatusResponse(ServerSummary):
-    """Everything needed to answer 'is this server usable right now', in one call.
+    """The list row plus the pod view, answering 'is this server usable right now' in one call.
 
-    The list row plus the view that costs a Kubernetes call. Reading it does not count as
-    activity, so polling it cannot keep a server alive by accident.
+    Reading it does not count as activity, so polling it cannot keep a server alive by accident.
     """
 
     idle_seconds: float = Field(description="Seconds since 'last_activity_at'", ge=0)

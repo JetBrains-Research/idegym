@@ -163,7 +163,6 @@ class TestBashExecutor:
     @_needs_bash_5_1_error_format
     @pytest.mark.asyncio
     async def test_errors_carry_the_bash_c_prefix_not_the_temp_file_name(self):
-        """`bash <file>` prefixed errors with a per-call temp path, which broke stderr comparisons."""
         executor = BashExecutor()
 
         _stdout, stderr, exit_code = await executor.execute_bash_command("nosuchcmd")
@@ -282,7 +281,6 @@ class TestBashExecutor:
 
     @pytest.mark.asyncio
     async def test_a_callers_path_does_not_affect_finding_bash(self, tmp_path):
-        """`bash` used to be resolved in the caller's PATH, so this failed as a FileNotFoundError."""
         executor = BashExecutor()
 
         stdout, _stderr, exit_code = await executor.execute_bash_command(
@@ -326,10 +324,9 @@ class TestBashExecutor:
     @_needs_switch_target
     @pytest.mark.asyncio
     async def test_a_user_switch_keeps_the_script_private_and_the_environment_intact(self):
-        """Run as root this goes through runuser, run as `appuser` through the sudo trampoline.
+        """Covers runuser when run as root and the sudo trampoline when run as `appuser`.
 
-        The script used to be made world-readable for the target user, and sudo would rewrite
-        PATH and drop LD_*/PYTHONPATH; neither may be visible here.
+        The script must stay 0600, and PATH, LD_* and PYTHONPATH must survive sudo's rewriting.
         """
         executor = BashExecutor()
         glob = shlex.quote(tempfile.gettempdir()) + "/idegym-bash-*"
@@ -379,7 +376,6 @@ class TestBashExecutor:
     )
     @pytest.mark.asyncio
     async def test_a_user_switch_without_root_or_sudo_is_rejected(self):
-        """runuser as non-root used to fail inside the child and come back as an ordinary exit 1."""
         executor = BashExecutor()
 
         with pytest.raises(BashExecutorUserSwitchError, match="passwordless sudo"):

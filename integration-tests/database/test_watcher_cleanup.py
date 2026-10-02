@@ -202,11 +202,9 @@ async def test_extend_keepalive_does_not_touch_another_clients_server(db: AsyncS
 
 
 async def test_a_concurrent_shorter_keepalive_cannot_shorten_the_hold(db: AsyncSession, db_url: str):
-    """The lost update: a short request that read the row before a long one committed.
+    """The lost update: a short keepalive queued behind the row lock of an uncommitted long one.
 
-    One transaction writes the long hold and keeps the row locked. The short keepalive starts
-    while that lock is held, so a read-modify-write would have read the old NULL and, once
-    unblocked, overwritten the long hold with its own shorter one.
+    A read-modify-write would have read the old NULL and, once unblocked, overwritten the long hold.
     """
     now = int(time.time() * 1000)
     long_until = now + 60 * 60 * 1000

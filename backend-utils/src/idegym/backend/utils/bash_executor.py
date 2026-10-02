@@ -31,31 +31,25 @@ _PROCESS_REAP_TIMEOUT_SECONDS = 0.25
 _EXPORT_ASSIGNMENT_PATTERN = re.compile(
     r"""\bexport[ \t]+(?P<name>[A-Za-z_][A-Za-z0-9_]*)=(?:'[^']*'|"[^"]*"|[^\s;&|)]*)"""
 )
-# Resolved once, against the server's own PATH: the child is spawned with the caller's `env`,
-# so a bare name would be looked up in a PATH the caller chose — `env={"PATH": "/opt/tool/bin"}`
-# then failed with FileNotFoundError, which surfaced as a 404 rather than anything actionable.
+# Resolved against the server's own PATH: the child runs with the caller's `env`, whose PATH
+# need not contain them.
 _BASH = shutil.which("bash") or "/bin/bash"
 _RUNUSER = shutil.which("runuser") or "/usr/sbin/runuser"
 _SUDO = shutil.which("sudo") or "/usr/bin/sudo"
-# `bash <file>` would set `$0` to the temp path and prefix every error with it
-# (`/tmp/idegym-bash-k3j9x.sh: line 1: ...`, a different name per call), which broke stderr
-# comparisons and made `$(dirname "$0")` resolve to /tmp. Evaluating the file's contents inside
-# `bash -c` keeps what callers had before the script moved out of argv: `$0` is `bash` and errors
-# read `bash: line N:`. The script arrives on an inherited descriptor rather than by path (see
-# `_process_argv`), which is read and then closed so the command's own children do not inherit
-# it. The file is never empty — the init prefix is in it — so an empty read is a failure.
+# Evaluated under `bash -c` rather than run as `bash <file>`, so `$0` is `bash` and errors read
+# `bash: line N:` instead of naming the temp file. The script is read from an inherited descriptor
+# (see `_process_argv`), which is then closed so the command's children do not inherit it. The
+# file always holds the init prefix, so an empty read is a failure.
 _EVAL_SCRIPT_DESCRIPTOR = (
     'IFS= read -r -d "" -u {fd} __idegym_script || [ -n "$__idegym_script" ] || '
     '{{ echo "IdeGYM: cannot read the bash script" >&2 ; exit 1 ; }} ; '
     'exec {fd}<&- ; eval "unset __idegym_script ; $__idegym_script"'
 )
-# The descriptor number the sudo trampoline places the script on. sudo closes every inherited
-# descriptor above stderr, so the trampoline has to reopen the file on the far side.
+# sudo closes every inherited descriptor above stderr, so the trampoline reopens the script here.
 _SUDO_SCRIPT_DESCRIPTOR = 3
-# Runs as root under `sudo`, so it can open the server user's private files. sudo also rewrites
-# the environment it passes on — `secure_path` replaces PATH, and `env_delete` drops LD_*,
-# PYTHONPATH, BASH_ENV and others — so the environment the executor built travels in a file
-# and is restored verbatim for `runuser`.
+# Runs as root under `sudo`, so it can open the server user's 0600 files. sudo rewrites the
+# environment (`secure_path` replaces PATH, `env_delete` drops LD_*, PYTHONPATH, BASH_ENV, ...), so
+# the executor's environment travels in a file and is restored verbatim for `runuser`.
 _SUDO_TRAMPOLINE = f"""
 import os, sys
 script, environment, *argv = sys.argv[1:]
@@ -76,11 +70,7 @@ class BashCommandExecutionTimeoutError(BashExecutorError):
 
 
 class BashExecutorRequestError(BashExecutorError):
-    """Caller-supplied context the executor cannot honour: a bad request, not a server fault.
-
-    The server maps this whole family to 400 in one handler, so every caller of the executor —
-    the tools router, rewards, project reset — reports it the same way.
-    """
+    """Caller-supplied context the executor cannot honour; the server maps the whole family to 400."""
 
 
 class BashExecutorUnknownUserError(BashExecutorRequestError):
@@ -219,11 +209,9 @@ async def _reap_process(process: Process) -> None:
 
 
 def _decode_output(output: bytes, strip: bool = False) -> str:
-    """Decode one stream, replacing undecodable bytes so a binary write cannot fail the request.
+    """Decode one stream, replacing undecodable bytes so binary output cannot fail the request.
 
-    Output is returned byte-for-byte otherwise: a trailing newline is part of a ``git diff`` and
-    ``printf 'x'`` must stay distinguishable from ``printf '  x  '``. ``strip`` is the opt-in for
-    callers that would otherwise trim the result themselves.
+    Whitespace is kept unless ``strip`` is set: a trailing newline is part of a ``git diff``.
     """
     if not output:
         return ""
@@ -239,11 +227,9 @@ def _log_excerpt(text: str) -> str:
 
 
 def _redact_exports(command: str) -> str:
-    """Mask the values of ``export NAME=...`` assignments in a script before it is logged.
+    """Mask the values of ``export NAME=...`` assignments before a script is logged.
 
-    A script is the only channel for setting per-command environment, so callers routinely
-    ship credentials inside it. The variable name is kept because it is what makes a log line
-    useful; only the value goes.
+    Callers routinely ship credentials in scripts; the name is kept so the log line stays useful.
     """
     return _EXPORT_ASSIGNMENT_PATTERN.sub(lambda match: f"export {match.group('name')}=<redacted>", command)
 
@@ -253,33 +239,23 @@ def _command_excerpt(command: str) -> str:
 
 
 def _prepend_bash_integration(command: str) -> str:
-    """Prefix the caller's script with the bundled bash-integration init.
+    """Prefix the caller's script with the bundled bash-integration init, on the same line.
 
-    The two are joined with ``;`` rather than ``&&``. With ``&&`` only the script's *first*
-    statement was conditional on the init succeeding and the rest ran regardless, so
-    ``a; b; c`` did not mean what the caller wrote — clients defended by wrapping every script
-    in a brace group. Keeping the prefix on the same line also keeps the caller's line numbers
-    intact, so a bash error still points at the right line of their script.
+    Joined with ``;`` rather than ``&&`` (which would make only the first statement conditional)
+    so the script keeps its own semantics and line numbers. A missing init still fails fast; the
+    guard tests readability, not the status of ``source``, which is that of the last command in
+    the sourced ``~/.bashrc``.
     """
     init = shlex.quote(str(__BASH_INIT_FILEPATH__))
-    # `;` rather than `&&` so the caller's script keeps its own semantics, but the init is still
-    # guarded: without this a missing or unreadable init left the script running in an
-    # unconfigured shell and failing later as "command not found", with the caller's exit code.
-    # The guard tests readability rather than the status of `source`, which is that of the last
-    # command in the sourced chain — a `~/.bashrc` ending in `[ -f ~/.fzf.bash ] && ...` would
-    # otherwise abort every command.
     guard = f'[ -r {init} ] || {{ echo "IdeGYM: cannot read the bash integration at {init}" >&2 ; exit 1 ; }}'
     return f"{guard} ; source {init} ; {command}"
 
 
 def _user_environment(user: str) -> dict[str, str]:
-    """Identity variables for ``user``, which ``runuser --preserve-environment`` does not set.
+    """Identity variables for ``user``, which ``runuser --preserve-environment`` leaves as root's.
 
-    ``-p`` keeps the whole environment on purpose — that is how the caller's ``env`` and the
-    cleaned server environment survive — but it therefore also keeps *root's* ``HOME``. The
-    bundled init sources ``~/.bashrc``, so without these the script would load root's shell
-    configuration and miss anything installed in the target user's home (SDKMAN, pyenv, nvm),
-    while writes to ``~`` would land in a directory the user cannot write.
+    The init sources ``~/.bashrc``, so without them the script would load root's configuration and
+    miss tools installed in the user's home (SDKMAN, pyenv, nvm).
     """
     try:
         entry = pwd.getpwnam(user)
@@ -291,16 +267,10 @@ def _user_environment(user: str) -> dict[str, str]:
 def _process_argv(descriptor: int, user: Optional[str]) -> list[str]:
     """Build the argv that runs the script held open on ``descriptor``, optionally as ``user``.
 
-    ``runuser`` is used rather than ``su`` because it does not authenticate and keeps the
-    caller's environment, which is what the ``env`` argument has already been merged into.
-
-    The script reaches bash as an inherited descriptor, not a path, so the file can stay 0600
-    and owned by the server's user even when ``user`` is someone else: the descriptor was opened
-    before the privilege drop, and ``runuser`` passes it through. Reopening it by path — even as
-    ``/dev/fd/N`` — would be checked against the target user and refused, which is what made
-    the file world-readable before. The alternative, ``chown`` to the target user, needs root on
-    the server side and leaves a file in the sticky temp directory the server can no longer
-    delete.
+    ``runuser`` rather than ``su`` because it does not authenticate and keeps the environment.
+    The script goes by descriptor, opened before the privilege drop, so the file can stay 0600 and
+    owned by the server's user; reopening it by path (even ``/dev/fd/N``) is checked against the
+    target user and refused.
     """
     invocation = [_BASH, "-c", _EVAL_SCRIPT_DESCRIPTOR.format(fd=descriptor), "bash"]
     if user is None:
@@ -309,14 +279,7 @@ def _process_argv(descriptor: int, user: Optional[str]) -> list[str]:
 
 
 def _sudo_argv(script_path: str, environment_path: str, user: str) -> list[str]:
-    """Build the argv that reaches ``runuser`` through ``sudo`` when the server is not root.
-
-    The server image runs as a non-root user with passwordless sudo, where ``runuser`` alone
-    fails. sudo closes inherited descriptors and rewrites the environment, so rather than
-    handing the target command either directly, it runs a root-side trampoline that reopens
-    the script, restores the environment from ``environment_path``, and then execs the same
-    ``runuser`` argv the root path uses.
-    """
+    """Build the argv that runs as ``user`` via ``sudo`` and ``_SUDO_TRAMPOLINE`` on a non-root server."""
     return _root_python_argv(
         _SUDO_TRAMPOLINE, script_path, environment_path, *_process_argv(_SUDO_SCRIPT_DESCRIPTOR, user)
     )
@@ -344,23 +307,15 @@ async def _succeeds(argv: list[str]) -> bool:
 def _create_script_file() -> tuple[int, str]:
     """Create a private (0600) temp file for the script and return its descriptor and path.
 
-    Passing the script as a ``bash -c`` argument capped it at Linux's ``MAX_ARG_STRLEN``
-    (128 KiB), and an oversized script failed with a bare ``E2BIG`` rather than anything a
-    caller could act on. A file has no such ceiling, and unlike feeding bash on stdin it leaves
-    the command's own stdin alone — a script read from stdin is consumed incrementally, so any
-    command inside it that reads stdin would swallow the rest of the script.
-
-    This runs on the event loop rather than in a worker thread on purpose: a request cancelled
-    while ``mkstemp`` ran in a thread lost the path, and with it the only way to remove the file.
+    A file avoids the 128 KiB ``MAX_ARG_STRLEN`` cap on a ``bash -c`` argument and, unlike stdin,
+    cannot be swallowed by a command in the script that reads stdin. It runs on the event loop,
+    not in a thread, so a cancellation cannot lose the path before cleanup removes it.
     """
     return tempfile.mkstemp(prefix="idegym-bash-", suffix=".sh")
 
 
 def _write_script(descriptor: int, script: str) -> None:
-    """Write the script through ``descriptor``, which stays open and owned by the caller.
-
-    The offset is rewound because the child reads through the same open file description.
-    """
+    """Write the script through ``descriptor``, leaving it open and rewound for the child to read."""
     with os.fdopen(descriptor, "w", encoding="utf-8", closefd=False) as handle:
         handle.write(script)
     os.lseek(descriptor, 0, os.SEEK_SET)
@@ -432,12 +387,9 @@ async def _wait_for_process_group_exit(process_group_id: int, timeout: float) ->
 
 
 async def _sudo_signal_process_group(process_group_id: int, requested_signal: signal.Signals) -> bool:
-    """Signal a process group through sudo, for members that run as another user.
+    """Signal a process group as root, since under ``sudo`` its members belong to other users.
 
-    Under the sudo trampoline the group holds root's ``runuser`` and the target user's
-    processes, none of which the server's own user may signal: a plain ``killpg`` reaches only
-    ``sudo``, which relays to its direct child, and the command's own children outlived a
-    timeout.
+    A plain ``killpg`` reaches only ``sudo``, which relays to its direct child alone.
     """
     return await _succeeds(
         _root_python_argv(
@@ -484,12 +436,10 @@ class BashExecutor:
         return self._sudo_available
 
     async def resolve_user_switch(self, user: Optional[str]) -> Optional[_UserSwitch]:
-        """Decide how to run as ``user``, or return ``None`` when no switch is needed.
+        """Decide how to run as ``user``, or return ``None`` for no user or the server's own.
 
-        Asking for the server's own user is not a switch. Otherwise root drops privileges with
-        ``runuser`` directly; a non-root server goes through passwordless ``sudo``, which is
-        how the server image is set up. A server that can do neither rejects the request up
-        front — ``runuser`` would only have failed inside the child, as an ordinary exit 1.
+        Root uses ``runuser``; a non-root server (the server image) uses passwordless ``sudo``.
+        If neither works the request is rejected here, not as an ordinary exit 1 from the child.
         """
         if user is None:
             return None
@@ -537,26 +487,12 @@ class BashExecutor:
         env: Optional[dict[str, str]] = None,
         user: Optional[str] = None,
     ) -> tuple[str, str, int]:
-        """
-        Execute a bash command asynchronously.
+        """Run ``command`` under the bash-integration init and return ``(stdout, stderr, exit_code)``.
 
-        The command runs inside a bash-integration environment (sourced from a
-        bundled init script) in a clean subprocess environment with IdeGYM-specific
-        variables stripped. The process is started in its own process group so the
-        entire group can be killed on timeout.
-
-        ``cwd``, ``env`` and ``user`` give a caller per-command context without having to
-        synthesize it into the script — an environment variable set through ``env`` never
-        enters the command text, so it is not logged with it. ``user`` requires the executor
-        to run as root or to have passwordless sudo; see ``resolve_user_switch``.
-
-        Output is returned verbatim unless ``strip_output`` asks for surrounding
-        whitespace to be trimmed. The script itself is written to a temp file and evaluated
-        by ``bash -c``, so its size is not capped by the kernel's argument limit while ``$0``
-        and error prefixes stay those of ``bash -c``.
-
-        Returns a tuple of (stdout, stderr, exit_code).
-        Raises BashCommandExecutionTimeoutError if the timeout is exceeded.
+        The child gets a cleaned environment and its own process group, which is killed on
+        timeout with ``BashCommandExecutionTimeoutError``. ``cwd``, ``env`` and ``user`` set
+        per-command context outside the script text, so ``env`` values are never logged; ``user``
+        needs root or passwordless sudo. Output is verbatim unless ``strip_output`` is set.
         """
         stdout_collector = _OutputCollector(max_output_bytes)
         stderr_collector = _OutputCollector(max_output_bytes)
@@ -579,13 +515,12 @@ class BashExecutor:
         descriptor, script_path = _create_script_file()
         environment_descriptor: Optional[int] = None
         environment_path: Optional[str] = None
-        # Everything from here to the cleanup is one try/finally, so a cancellation at any await
-        # still reaches the paths. The write is shielded and awaited in the cleanup because the
-        # worker thread keeps using the descriptors after a cancelled await has returned.
+        # One try/finally, so a cancellation at any await still reaches cleanup. The write is
+        # shielded and awaited there because its thread keeps using the descriptors after a
+        # cancelled await returns.
         write: Optional[asyncio.Future[None]] = None
         try:
             if through_sudo:
-                # sudo cannot pass the environment through intact, so the trampoline reads it.
                 environment_descriptor, environment_path = _create_script_file()
             write = asyncio.ensure_future(
                 asyncio.to_thread(_write_files, descriptor, bash_command, environment_descriptor, environment)

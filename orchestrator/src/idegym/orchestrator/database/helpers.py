@@ -93,9 +93,8 @@ async def update_client_status(db: AsyncSession, client_id: UUID, availability_s
 async def extend_server_keepalive(db: AsyncSession, client_id: UUID, server_id: int, until: int):
     """Hold a client's own server against the inactivity reaper until ``until`` epoch millis.
 
-    The common case is a single conditional ``UPDATE``. Only when it matches nothing is the server
-    loaded, to tell a missing or foreign server (404) from a terminal one, which is returned
-    untouched so the endpoint can answer 410.
+    Only when the conditional ``UPDATE`` matches nothing is the server loaded, to tell a missing or
+    foreign one (404) from a terminal one, returned untouched so the endpoint can answer 410.
     """
     server = await extend_idegym_server_keepalive(db=db, server_id=server_id, client_id=client_id, until=until)
     if server:

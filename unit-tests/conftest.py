@@ -19,11 +19,10 @@ async def api_client():
 
 @pytest.fixture
 def kube_clients(mocker, api_client) -> SimpleNamespace:
-    """Patch ``create_clients`` (used directly and by ``async_kube_api``) with mocks that capture bodies.
+    """Patch ``create_clients`` with mocks, so the objects ``deploy_server`` creates can be read back.
 
-    The Deployment, Service and PodDisruptionBudget that ``deploy_server`` creates can then be read
-    back from ``apps.create_namespaced_deployment``, ``core.create_namespaced_service`` and
-    ``policy.create_namespaced_pod_disruption_budget`` without a cluster.
+    ``create_clients`` is used directly and by ``async_kube_api``; the bodies land on the
+    ``apps``/``core``/``policy`` ``create_namespaced_*`` mocks.
     """
     deployment_result = mocker.MagicMock()
     deployment_result.api_version = "apps/v1"

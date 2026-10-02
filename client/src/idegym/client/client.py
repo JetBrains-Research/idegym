@@ -108,23 +108,19 @@ class IdeGYMClient:
             otel_config: OpenTelemetry configuration for tracing. Falls back to ``IDEGYM_OTEL_*``
                 environment variables when not provided. Tracing stays off unless an endpoint is
                 configured, either here or through ``IDEGYM_OTEL_TRACING_ENDPOINT``.
-            transport: Transport for the HTTP client this object builds — for an alternative HTTP
-                stack, a recording transport in tests, or a proxy. It is used as-is, so its pool
-                limits are whatever it was built with.
-            limits: Connection-pool limits for the HTTP client this object builds. Mutually
-                exclusive with ``transport``: httpx applies them only to the transport it builds
-                itself.
-            http_client: A fully configured ``httpx.AsyncClient`` to use verbatim. Nothing about it
-                is modified — it is not instrumented for tracing either — so it must already carry
-                ``base_url`` and any authentication, and it is not closed on exit: its owner closes
-                it. With it, ``orchestrator_url``, ``auth``, ``request_timeout_in_seconds`` and
-                ``otel_config`` are ignored and no credentials are required. Mutually exclusive with ``transport`` and
-                ``limits``.
+            transport: Transport for the HTTP client this object builds — an alternative HTTP
+                stack, a recording transport in tests, or a proxy. Used as-is, pool limits included.
+            limits: Connection-pool limits for the HTTP client this object builds. httpx applies
+                them only to a transport it builds itself, so not combinable with ``transport``.
+            http_client: A fully configured ``httpx.AsyncClient`` used verbatim: not modified, not
+                instrumented for tracing, and not closed on exit. It must already carry
+                ``base_url`` and authentication; ``orchestrator_url``, ``auth``,
+                ``request_timeout_in_seconds`` and ``otel_config`` are ignored. Not combinable
+                with ``transport`` or ``limits``.
 
         Raises:
             ValueError: if ``http_client`` is combined with ``transport`` or ``limits``, or
-                ``transport`` with ``limits``, since the ignored arguments would otherwise be
-                dropped silently.
+                ``transport`` with ``limits`` — one of them would otherwise be dropped silently.
         """
         if orchestrator_url == "idegym.test":
             orchestrator_url = f"http://{orchestrator_url}"
@@ -140,8 +136,7 @@ class IdeGYMClient:
                 "limits apply only to the transport httpx builds itself; set them on the supplied transport instead"
             )
 
-        # A supplied client belongs to its caller: used as-is, and closed by them, not here. It
-        # carries its own authentication, so there are no credentials to require.
+        # A supplied client belongs to its caller, auth included, so no credentials are required.
         owns_http_client = http_client is None
         if http_client is None:
             auth = auth or BasicAuth(
@@ -155,10 +150,8 @@ class IdeGYMClient:
                 base_url=orchestrator_url,
                 timeout=request_timeout_in_seconds,
                 transport=transport,
-                # Only override when asked: a bare `Limits()` is not httpx's default. It sets
-                # max_connections=None, which removes the 100-connection pool cap entirely, so
-                # passing it unconditionally would unbound the pool for every caller that never
-                # asked to configure one.
+                # Only when asked: a bare `Limits()` is not httpx's default — its
+                # max_connections=None would lift the 100-connection pool cap.
                 **({"limits": limits} if limits is not None else {}),
                 headers=(
                     {
@@ -186,8 +179,7 @@ class IdeGYMClient:
             ),
         )
 
-        # Instrumenting patches the client, and uninstrumenting on exit would strip tracing from
-        # every other user of a shared one, so a supplied client is left exactly as it came.
+        # Uninstrumenting on exit would strip tracing from every other user of a shared client.
         if owns_http_client:
             instrument(
                 client=http_client,
@@ -257,9 +249,8 @@ class IdeGYMClient:
         try:
             await self._register()
         except BaseException:
-            # `async with` does not call __aexit__ when __aenter__ raises, so this is the only
-            # chance to release the client this object built — otherwise its sockets leak with a
-            # ResourceWarning. There is no registration to stop.
+            # `async with` skips __aexit__ when __aenter__ raises; release the HTTP client here or
+            # its sockets leak. There is no registration to stop.
             self._stop_heartbeat()
             await self._release_http_client()
             raise
@@ -285,8 +276,8 @@ class IdeGYMClient:
         try:
             await self._stop_client()
         except Exception:
-            # A failed deregistration leaks every pod the client owns, so it is never silent. It
-            # is raised only when nothing else is: the body's exception says what went wrong first.
+            # A failed deregistration leaks every pod the client owns, so it is always logged, but
+            # raised only when it would not mask the body's own exception.
             logger.exception("Failed to deregister client", client_id=self._utils.current_client_id)
             if exc_type is None:
                 raise
@@ -362,9 +353,8 @@ class IdeGYMClient:
 
         On exit, the server is either finished (``FINISH``) or stopped and its resources deleted
         (``STOP``) depending on ``close_action``. Exceptions from the body are re-raised after
-        the cleanup. If the cleanup fails as well, its error is logged rather than raised, so it
-        cannot mask the body's exception — the one that says what actually went wrong. A cleanup
-        failure after a body that succeeded is raised as usual.
+        the cleanup; a cleanup failure is then only logged, so it cannot mask them. After a body
+        that succeeded, a cleanup failure is raised.
         """
         server = await self.start_server(
             image_tag=image_tag,

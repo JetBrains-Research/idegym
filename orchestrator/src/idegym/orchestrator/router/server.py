@@ -191,10 +191,8 @@ async def get_server_capabilities(server_id: int, client_id: UUID, low_level_req
 @router.get("/api/idegym-servers")
 @handle_server_exceptions("listing IdeGYM servers")
 async def list_servers(client_id: UUID, include_terminal: bool = False) -> ListServersResponse:
-    """List the servers a client owns.
+    """List the servers a client owns, so a leaked pod can be found without kubectl.
 
-    Without this a client cannot ask what it is holding, so finding a leaked pod after a crash
-    meant reaching for kubectl — which a client running outside the cluster generally cannot do.
     Terminal servers are excluded unless asked for, since the common question is "what is still
     mine and running".
     """
@@ -233,11 +231,9 @@ async def keepalive_server(request: KeepaliveServerRequest) -> KeepaliveServerRe
     """
     until = current_time_millis() + int(request.minutes * 60_000)
     server = await extend_server_keepalive(client_id=request.client_id, server_id=request.server_id, until=until)
-    # A terminal server is returned untouched, so the hold was refused. Keying on availability
-    # rather than on a null `keepalive_until` matters: a server that held a lease before it died
-    # still carries the old timestamp, and reporting that back would claim a hold we do not have.
-    # This is the race the endpoint exists to lose gracefully — a keepalive loop overtaken by the
-    # reaper — so it says the sandbox is gone instead of 500-ing on None arithmetic.
+    # A terminal server comes back untouched: the hold was refused. Key on availability, not on
+    # `keepalive_until`, which a server that died while held still carries. A keepalive loop
+    # overtaken by the reaper gets a 410, not a 500.
     if AvailabilityStatus(server.availability).is_terminal:
         raise HTTPException(
             status_code=status.HTTP_410_GONE,
@@ -261,15 +257,10 @@ async def keepalive_server(request: KeepaliveServerRequest) -> KeepaliveServerRe
 async def get_server_status(server_id: int, client_id: UUID) -> ServerStatusResponse:
     """Report whether a server is usable, without touching it.
 
-    Before this existed the cheapest liveness probe was an unrelated endpoint such as
-    ``/capabilities``, which happens to touch both the database record and the pod. This reads
-    the record and the pod phase directly, and deliberately does not update the server's
-    activity timestamp, so polling it cannot keep a server from being reaped.
-
-    The record is the answer and the pod view is a best-effort addition to it. A terminal server
-    has no pod worth asking about, so Kubernetes is not called for one, and a Kubernetes failure
-    (an API timeout, missing RBAC, a deleted namespace) leaves the pod fields null rather than
-    hiding the recorded availability and failure reason behind a 500.
+    It does not update the server's activity timestamp, so polling cannot keep a server from being
+    reaped. The database record is the answer and the pod view is best effort: Kubernetes is not
+    asked about a terminal server, and a Kubernetes failure leaves the pod fields null rather than
+    hiding the recorded status behind a 500.
     """
     server = await get_owned_server(client_id=client_id, server_id=server_id)
     pod_phase, pod_ready = None, None

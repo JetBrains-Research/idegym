@@ -1,19 +1,11 @@
 """Drive one IdeGYM registration from more than one thread or event loop.
 
-An :class:`~idegym.client.client.IdeGYMClient` owns an ``httpx`` session and a heartbeat task,
-both bound to the loop that created it. A caller that drives sandboxes from several loops — a
-synchronous facade with one loop per sandbox, say — therefore cannot share a single
-registration with it, and has to run the client on its own dedicated loop in a separate thread.
-That is roughly a hundred and fifty lines of easy-to-get-subtly-wrong machinery, and every
-integration with the same shape has to write it.
+An :class:`~idegym.client.client.IdeGYMClient` is bound to the loop that created it, so a caller
+driving sandboxes from several loops cannot share it directly. :class:`SharedIdeGYMClient` owns a
+loop in a dedicated thread, registers the client there, and marshals every call onto it.
 
-:class:`SharedIdeGYMClient` is that machinery, once. It owns a loop in a dedicated thread,
-constructs and registers the client on it, and marshals every call back onto it, so callers on
-any thread or loop share one registration freely.
-
-Sharing a registration matters beyond convenience: deregistering terminates every server that
-client owns, so two registrations for one process means one of them can tear down the other's
-sandboxes.
+Sharing one registration matters: deregistering terminates every server the client owns, so with
+two registrations per process one could tear down the other's sandboxes.
 """
 
 import asyncio
@@ -31,9 +23,8 @@ logger = get_logger(__name__)
 class _LoopThread:
     """An event loop running in its own daemon thread, accepting work from any other thread."""
 
-    # How long the drain lets pending work finish on its own, then how long it gives the tasks it
-    # cancels to unwind, then how long the loop's own shutdown hooks may take. The caller waits
-    # for all three plus a margin, so its wait cannot expire while the drain is still inside them.
+    # Drain phases: pending work finishing on its own, cancelled tasks unwinding, shutdown hooks.
+    # close() waits for all three plus a margin, so it cannot give up mid-drain.
     _DRAIN_TIMEOUT_SECONDS = 5.0
     _CANCEL_TIMEOUT_SECONDS = 2.0
     _SHUTDOWN_HOOKS_TIMEOUT_SECONDS = 5.0
@@ -60,9 +51,8 @@ class _LoopThread:
         A factory rather than a coroutine so that the awaitable is created on the owning loop:
         anything a coroutine function touches at creation time then belongs to the right loop.
 
-        Refused once :meth:`close` has started. Work scheduled after the drain has taken stock of
-        the pending tasks — or after the loop has stopped — would never run, and a caller waiting
-        on it without a timeout would wait forever.
+        Refused once :meth:`close` has started: work scheduled after the drain took stock would
+        never run, and a caller waiting on it without a timeout would hang.
         """
         with self._closing_lock:
             if self._closing:
@@ -94,8 +84,7 @@ class _LoopThread:
         )
         try:
             drain.result(timeout=close_timeout)
-        # A failed or slow drain must never stop us from shutting the loop down. Only Exception:
-        # a KeyboardInterrupt still stops the loop below, and then propagates.
+        # A failed or slow drain must not prevent shutdown; a KeyboardInterrupt still propagates.
         except Exception:
             logger.debug("Loop drain did not finish cleanly; stopping anyway", exc_info=True)
         finally:
@@ -106,8 +95,7 @@ class _LoopThread:
     async def _drain(self) -> None:
         """Let pending work finish, cancel what does not, then run the loop's own shutdown hooks.
 
-        Cancelling matters beyond tidiness: a thread blocked on a :meth:`submit` future with no
-        timeout is only released when that future completes, and a cancelled task completes it.
+        Cancelling is what releases a thread blocked on a :meth:`submit` future with no timeout.
         """
         pending = [task for task in asyncio.all_tasks(self._loop) if task is not asyncio.current_task()]
         if pending:
@@ -188,9 +176,8 @@ class SharedIdeGYMClient:
         Safe to call from any thread, including one that is itself running an event loop — the
         awaitable never touches the caller's loop.
 
-        If ``timeout`` expires, the call is cancelled on the owned loop before ``TimeoutError`` is
-        raised. Otherwise it would carry on unobserved — a ``start_server`` that times out here
-        would still create a server that nobody holds a handle to.
+        If ``timeout`` expires, the call is cancelled before ``TimeoutError`` is raised, so that,
+        say, a timed-out ``start_server`` does not go on to create a server nobody holds.
         """
         future = self.submit(call)
         try:

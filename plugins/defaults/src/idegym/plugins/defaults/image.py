@@ -604,10 +604,9 @@ class Project(PluginBase):
         return f"{self.owner}:{self.group or self.owner}"
 
 
-# Every path the renderer copies out of an IdeGYM checkout. A ref that predates any of them —
-# an example config pinning a commit from before `plugins/` was split out, say — used to fail
-# deep inside the Docker build with a bare `cp: no such file`, naming neither the ref nor what
-# it was missing. Keep this in step with the copies in `_render_from_git` / `_render_from_local`.
+# Every path the renderer copies out of an IdeGYM checkout, checked up front so an old ref fails
+# naming what it lacks rather than with a bare `cp: no such file`. Keep in step with the copies in
+# `_render_from_git` / `_render_from_local`.
 _REQUIRED_WORKSPACE_PATHS = (
     ".python-version",
     "api",
@@ -628,10 +627,9 @@ _REQUIRED_WORKSPACE_PATHS = (
 
 
 def _redact_userinfo(url: str) -> str:
-    """The URL with any ``user:password@`` replaced, for text that is not the clone itself.
+    """The URL with any ``user:password@`` masked, for log lines and Dockerfile comments.
 
-    The clone needs the credential, but a build log line or a Dockerfile comment does not, and both
-    are kept verbatim in the image history and in build output.
+    Only the clone needs the credential; everything else is kept verbatim in image history and build output.
     """
     parts = urlsplit(url)
     if "@" not in parts.netloc:
@@ -644,9 +642,8 @@ def _render_workspace_path_check(source_root: str, described_as: str) -> str:
 
     Runs immediately after the checkout so the failure arrives in seconds, and reports *every*
     missing path at once so an out-of-date ref does not have to be diagnosed one `cp` at a time.
-    ``described_as`` comes from the caller's URL and ref, so it reaches the shell only as a
-    quoted ``printf`` argument: inside a double-quoted ``echo``, a ``$`` or ``"`` in it would be
-    expanded or break the step.
+    ``described_as`` is caller-controlled, so it reaches the shell only as a quoted ``printf``
+    argument.
     """
     checks = " ".join(quote(path) for path in _REQUIRED_WORKSPACE_PATHS)
     return dedent(

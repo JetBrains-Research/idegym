@@ -54,7 +54,6 @@ class TestToolService(IsolatedAsyncioTestCase):
         self.assertTrue(self.service.bash_executor.execute_bash_command.call_args.kwargs["strip_output"])
 
     async def test_execute_bash_tool_runs_an_empty_script(self):
-        """An empty script is a no-op that exits 0, as documented; it used to be a 500."""
         self.service.bash_executor.execute_bash_command.return_value = Future()
         self.service.bash_executor.execute_bash_command.return_value.set_result(("", "", 0))
 

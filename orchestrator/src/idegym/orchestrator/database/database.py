@@ -295,8 +295,7 @@ async def list_idegym_servers_by_client_id(
 ) -> list[IdeGYMServer]:
     """Return a client's servers newest first, leaving out terminal ones unless asked.
 
-    Filtering and ordering happen in SQL because a long-lived client accumulates every server it
-    has ever owned, and the common question is only which of them are still running.
+    Filtered in SQL because a long-lived client accumulates every server it has ever owned.
     """
     query = select(IdeGYMServer).filter(IdeGYMServer.client_id == client_id)
     if not include_terminal:
@@ -494,15 +493,12 @@ async def extend_idegym_server_keepalive(
 ) -> Optional[IdeGYMServer]:
     """Hold a client's own live server against the inactivity reaper until ``until`` epoch millis.
 
-    The window is only ever extended, never shortened, so two callers holding the same server
-    cannot cut each other's hold short. That has to be one statement: a read followed by a write
-    lets a shorter request that read the old value commit last and overwrite a longer one. The
-    ``UPDATE`` takes the row lock, and under ``READ COMMITTED`` a blocked update re-evaluates
-    ``GREATEST`` against the row the other transaction committed.
+    The window is only ever extended, so concurrent holders cannot cut each other short. It must be
+    one ``UPDATE``: a read-then-write lets a shorter request commit last, while a blocked update
+    re-evaluates ``GREATEST`` against the committed row under ``READ COMMITTED``.
 
-    Returns ``None`` when nothing matched: the server is missing, belongs to another client, or is
-    terminal. A terminal server is never extended, since reviving one by keepalive would
-    contradict whatever put it in that state; the caller tells those cases apart.
+    Returns ``None`` when the server is missing, foreign or terminal; a terminal server is never
+    revived by keepalive.
     """
     query = (
         update(IdeGYMServer)
@@ -571,11 +567,7 @@ async def subtract_resources_from_rule(
 
 
 async def update_idegym_server_owner(db: AsyncSession, server_id: int, client_id: UUID) -> Optional[IdeGYMServer]:
-    """Hand a reused server to a new client.
-
-    The keepalive hold is cleared with the handover: it was the previous owner saying it still
-    needed the server, and a new owner that never asked for a hold must not inherit one.
-    """
+    """Hand a reused server to a new client, clearing the previous owner's keepalive hold."""
     server = await get_idegym_server(db, server_id)
     if not server:
         return None

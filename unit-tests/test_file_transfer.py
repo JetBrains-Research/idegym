@@ -265,7 +265,7 @@ async def test_upload_raises_instead_of_spinning_when_the_source_shrinks() -> No
 
 
 async def test_download_raises_instead_of_returning_truncated_data_on_a_short_read() -> None:
-    """An empty chunk before the reported size used to end the download as if it were complete."""
+    """An empty chunk before the reported size must not end the download as if it were complete."""
     sandbox = _FakeSandbox({"/work/blob.bin": BINARY}, max_chunk=64)
     operations = _operations(sandbox)
     serve = sandbox._download

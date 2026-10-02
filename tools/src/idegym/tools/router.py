@@ -37,8 +37,7 @@ async def execute_bash_script(
     request: BashCommandRequest,
     service: ToolService = Depends(_get_tool_service),
 ):
-    # A `cwd` or `user` the executor cannot honour raises BashExecutorRequestError, which the
-    # server's exception handlers turn into a 400.
+    # A bad `cwd` or `user` raises BashExecutorRequestError, which the server maps to 400.
     stdout, stderr, exit_code = await service.execute_tool(
         tool_name=ToolName.BASH,
         parameters={

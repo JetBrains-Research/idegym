@@ -308,7 +308,7 @@ def _written_script() -> tuple[int, str]:
 
 
 def test_script_file_stays_private_and_is_rewound_for_the_child() -> None:
-    """The file used to be 0644 whenever `user` was set; the child now reads the descriptor."""
+    """The child reads the descriptor, so the file never needs to be readable by another user."""
     descriptor, path = _written_script()
 
     try:
@@ -343,7 +343,7 @@ async def test_root_switches_with_runuser(monkeypatch) -> None:
     [(True, bash_executor._UserSwitch.SUDO), (False, None)],
 )
 async def test_non_root_switches_through_sudo_or_is_rejected(monkeypatch, sudo_available, expected) -> None:
-    """`runuser` as non-root used to fail inside the child, which looked like an ordinary exit 1."""
+    """A switch that cannot work is rejected up front rather than failing inside the child."""
     user = _another_user(monkeypatch)
     monkeypatch.setattr(bash_executor.os, "geteuid", lambda: 1000)
     executor = bash_executor.BashExecutor()
@@ -377,7 +377,7 @@ def test_discarding_the_script_twice_is_not_an_error() -> None:
 
 
 async def test_a_cancelled_write_still_removes_the_script_file(monkeypatch) -> None:
-    """`mkstemp` used to run in the worker thread, so a cancel there lost the path to clean up."""
+    """The path is known before the threaded write starts, so a cancel there can still clean up."""
     created: list[tuple[int, str]] = []
     started = threading.Event()
     release = threading.Event()
@@ -417,7 +417,7 @@ def test_bash_request_defaults_to_no_per_command_context() -> None:
     [{"A=B": "1"}, {"": "x"}, {"1ABC": "x"}, {"WITH SPACE": "x"}, {"K": "a\x00b"}],
 )
 def test_bash_request_rejects_an_environment_the_os_cannot_carry(env) -> None:
-    """These reached `execve` and failed there with a bare ValueError, which became a 500."""
+    """These would fail in `execve` with a bare ValueError, i.e. a 500."""
     with pytest.raises(ValidationError):
         BashCommandRequest(command="true", env=env)
 

@@ -53,10 +53,9 @@ from idegym.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-# The orchestrator's own start timeout begins only after its database work and the deploy, and
-# is followed by a diagnosis of what the pod was doing. The client therefore waits this much
-# longer than the timeout it sends, so that diagnosis — not a bare client-side timeout — is what
-# reaches the caller.
+# The orchestrator's start timeout starts after its database work and the deploy, and ends with a
+# diagnosis of the pod. The client waits this much longer so that diagnosis, not a bare
+# client-side timeout, reaches the caller.
 _START_DEADLINE_GRACE_MIN_SECONDS = 60.0
 _START_DEADLINE_GRACE_FRACTION = 0.1
 
@@ -104,8 +103,7 @@ class ServerOperations:
         client_id = self._utils.validate_client_id(client_id)
         namespace = self._utils.validate_namespace(namespace)
 
-        # The server is given `server_start_wait_timeout_in_seconds`; the client allows itself a
-        # grace period on top, for the POST, the polling, and the 429 retries alike.
+        # One client deadline covers the POST, the polling and the 429 retries.
         client_deadline = _client_start_deadline(server_start_wait_timeout_in_seconds)
         start_time = time.time()
         attempts = 0
@@ -195,9 +193,8 @@ class ServerOperations:
 
     @staticmethod
     def _still_rate_limited(response: ErrorResponse, attempts: int, timeout_in_seconds: float) -> IdeGYMBusyError:
-        # The wait ran out while the orchestrator was still refusing for quota. Reporting that as a
-        # timeout would hide it from `except IdeGYMBusyError: back off`, which is the handler that
-        # knows what to do about an exhausted quota.
+        # Ran out of time while still refused for quota: report it as busy, not as a timeout, so
+        # an `except IdeGYMBusyError` back-off handler sees it.
         return IdeGYMBusyError(
             f"Server start still rate-limited after {attempts} attempt(s) in {timeout_in_seconds:g} seconds: "
             f"{response.model_dump()}",
@@ -249,7 +246,7 @@ class ServerOperations:
             server_id=server_id,
             server_start_wait_timeout_in_seconds=server_start_wait_timeout_in_seconds,
         )
-        # As in start_server: the server gets the timeout, the client waits a grace period longer.
+        # As in start_server, the client waits a grace period longer than the server's timeout.
         client_deadline = (
             math.ceil(_client_start_deadline(server_start_wait_timeout_in_seconds))
             if server_start_wait_timeout_in_seconds

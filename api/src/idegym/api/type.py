@@ -42,11 +42,10 @@ OCIImageName = Annotated[
 
 
 def _check_label_key_prefix_length(key: str) -> str:
-    """Cap the DNS-subdomain prefix at 253 characters, which the pattern alone cannot express.
+    """Cap the DNS-subdomain prefix at 253 characters.
 
-    The name segment is bounded in the pattern, but a dotted prefix cannot be: Pydantic's Rust
-    regex engine has no lookahead, and the overall ``max_length`` alone would let a 300-character
-    prefix through as long as the name after it is short.
+    The pattern cannot bound a dotted prefix (Pydantic's Rust regex engine has no lookahead), and
+    ``max_length`` alone would pass a long prefix followed by a short name.
     """
     prefix, slash, _ = key.rpartition("/")
     if slash and len(prefix) > 253:
@@ -55,9 +54,8 @@ def _check_label_key_prefix_length(key: str) -> str:
 
 
 # https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#syntax-and-character-set
-# An optional lowercase DNS-subdomain prefix and a slash, then a name segment of at most 63
-# characters. Checked here rather than left to the API server, which would otherwise turn a typo
-# into a server that fails to start after the request was accepted.
+# Validated here rather than by the API server, so a typo is rejected with the request instead of
+# surfacing as a server that fails to start.
 KubernetesLabelKey = Annotated[
     str,
     StringConstraints(
@@ -95,8 +93,7 @@ def _check_annotations_total_size(annotations: dict[str, str]) -> dict[str, str]
     return annotations
 
 
-# An annotation key follows the label-key syntax; a value is arbitrary and may be long, as long as
-# all of them together stay within the API server's total size limit.
+# An annotation key follows the label-key syntax; values are arbitrary within the total size limit.
 KubernetesAnnotationKey: TypeAlias = KubernetesLabelKey
 
 KubernetesNodeSelector: TypeAlias = dict[KubernetesLabelKey, KubernetesLabelValue]

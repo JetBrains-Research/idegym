@@ -12,9 +12,8 @@ from idegym.backend.utils.bash_executor import (
     BashExecutorWorkingDirectoryError,
 )
 
-# Importing `server.main` wires the server's dependency-injection container into its routers
-# for the rest of the process, which breaks tests that call those routers directly (test_fs).
-# The server app is therefore exercised in a child interpreter.
+# Importing `server.main` wires its DI container into the routers for the whole process, which
+# breaks tests that call them directly (test_fs), so the app runs in a child interpreter.
 _REQUEST_BAD_CONTEXT = """
 import json, sys
 from fastapi.testclient import TestClient
@@ -45,7 +44,6 @@ def test_caller_input_errors_are_idegym_bad_requests(error) -> None:
 
 
 def test_a_bad_cwd_or_user_is_a_400_with_the_standard_error_body() -> None:
-    """These used to be a one-off `{detail}` 400 in one router, and a 500 from every other caller."""
     cases = [
         ({"cwd": "/does/not/exist"}, "Working directory does not exist"),
         ({"user": "no-such-user"}, "No such user"),

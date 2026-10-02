@@ -1,9 +1,7 @@
 """Client-side deadlines around starting a server and polling an async operation.
 
-Two failures are pinned here. The client used to give up at the same moment the orchestrator
-did, so the orchestrator's diagnosis of a slow start never reached the caller; and a long poll
-backoff could put the last poll well before the deadline, so an operation that finished in that
-gap was reported as timed out.
+The client must outwait the orchestrator's start timeout so its diagnosis reaches the caller, and
+a long poll backoff must not leave the last poll well before the deadline.
 """
 
 import asyncio

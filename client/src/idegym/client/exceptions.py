@@ -1,13 +1,9 @@
 """Typed failures for IdeGYM SDK calls.
 
 A retry policy has to tell "the sandbox is gone" from "the control plane is busy" from "the
-command timed out". Every failure used to arrive as a plain ``RuntimeError`` whose message
-embedded the status, which left callers parsing message text that changes whenever the format
-does. These exceptions carry the status code and the response body as attributes instead.
-
-They subclass ``RuntimeError`` as well as ``IdeGYMException`` so that code written against the
-old behaviour — including ``except RuntimeError`` around a client call — keeps working, and the
-messages are unchanged for the same reason.
+command timed out", so these exceptions carry the status code and response body as attributes
+rather than only in the message. They also subclass ``RuntimeError``, and keep their messages
+stable, so existing ``except RuntimeError`` handlers and message parsing keep working.
 """
 
 from http import HTTPStatus
@@ -60,18 +56,17 @@ class IdeGYMNotFoundError(IdeGYMHTTPError):
 class IdeGYMTimeoutError(IdeGYMHTTPError, TimeoutError):
     """The call did not complete in time. Safe to retry if the operation is idempotent.
 
-    Covers both a timeout status from the orchestrator and a deadline the SDK itself enforces —
-    on a request, or on polling an async operation. It is also a builtin ``TimeoutError``,
-    which is what those client-side deadlines used to raise, so an existing
-    ``except TimeoutError`` keeps catching them.
+    Covers both a timeout status from the orchestrator and a deadline the SDK enforces on a
+    request or on polling. It is also a builtin ``TimeoutError`` so that ``except TimeoutError``
+    catches the client-side deadlines.
     """
 
 
 class IdeGYMConnectionError(IdeGYMHTTPError):
     """The request never got a response: the connection failed or broke off mid-exchange.
 
-    Typically the orchestrator is restarting or unreachable. ``status_code`` is ``None``. Safe to
-    retry if the operation is idempotent — the request may or may not have been acted on.
+    Typically the orchestrator is restarting or unreachable; ``status_code`` is ``None``. Safe to
+    retry only if the operation is idempotent, since the request may have been acted on.
     """
 
 
@@ -90,11 +85,10 @@ class IdeGYMServerError(IdeGYMHTTPError):
 class IdeGYMSandboxError(IdeGYMHTTPError):
     """The sandbox itself answered a forwarded request with an error status.
 
-    The sandbox is alive — it produced the response — so this is kept apart from the status-based
-    types: an application-level ``404 Path not found`` from a live sandbox must not read as
-    ``IdeGYMNotFoundError``, which tells the caller the sandbox is gone and a new one is needed.
+    Kept apart from the status-based types because the sandbox is alive: its ``404 Path not
+    found`` must not read as ``IdeGYMNotFoundError``, which means the sandbox is gone.
     ``status_code`` and ``body`` are the sandbox's own. Failures the orchestrator reports about the
-    forward itself — the pod cannot be reached, the call was cancelled — keep their usual types.
+    forward itself (pod unreachable, call cancelled) keep their usual types.
     """
 
 
@@ -145,9 +139,8 @@ def http_error(
 def raise_for_error_response[T](response: T | ErrorResponse, operation: str) -> T:
     """Turn an ``ErrorResponse`` from an async operation into the matching exception.
 
-    Some operations report failure as a *return value* rather than by raising, which makes it
-    possible to record a live pod as stopped simply by not checking. Passing the result through
-    here makes failure loud, consistently with the rest of the API.
+    Some operations report failure as a return value; an unchecked one can record a live pod as
+    stopped. Passing the result through here makes the failure raise like the rest of the API.
     """
     if isinstance(response, ErrorResponse):
         raise http_error(

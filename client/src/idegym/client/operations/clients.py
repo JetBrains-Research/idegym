@@ -62,8 +62,8 @@ class ClientOperations:
     ) -> RegisteredClientResponse:
         """Deregister the client, terminating every server it owns.
 
-        Raises an ``IdeGYMHTTPError`` if that fails rather than returning the failure: a
-        deregistration nobody checked would leak every pod the client owns.
+        Raises an ``IdeGYMHTTPError`` on failure rather than returning it, since an unchecked
+        failure would leak every pod the client owns.
         """
         client_id = self._utils.validate_client_id(client_id)
         namespace = self._utils.validate_namespace(namespace)
