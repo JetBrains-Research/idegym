@@ -68,6 +68,10 @@ looks at the timeout at all. The hold is stored separately from `last_heartbeat_
 purpose: pushing the heartbeat into the future would keep the server alive but make "last
 active" a lie, and would extend the hold by a further `inactive_timeout`.
 
+A hold also protects a `FINISHED` server, since its owner may be about to reuse it. It is cleared
+when the server is handed to another client for reuse, so a new owner never inherits a hold it
+did not ask for.
+
 ## Restart budget
 
 The crash policy is **per-server**: `StartServerRequest.max_restarts` (default `0` = fail

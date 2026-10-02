@@ -6,6 +6,7 @@ helpers they import are mocked in the ``idegym.watcher.cleanup`` namespace so th
 purely at the database layer.
 """
 
+import asyncio
 import time
 from uuid import uuid4
 
@@ -22,8 +23,8 @@ from idegym.watcher.cleanup import (
     cleanup_requests,
     cleanup_servers,
 )
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, text, update
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 pytestmark = pytest.mark.integration
 
@@ -145,8 +146,8 @@ async def test_extend_keepalive_only_ever_lengthens_the_window(db: AsyncSession)
     db.add(server)
     await db.commit()
 
-    long_hold = await extend_idegym_server_keepalive(db, server.id, now + 60 * 60 * 1000)
-    short_hold = await extend_idegym_server_keepalive(db, server.id, now + 60 * 1000)
+    long_hold = await extend_idegym_server_keepalive(db, server.id, client.id, now + 60 * 60 * 1000)
+    short_hold = await extend_idegym_server_keepalive(db, server.id, client.id, now + 60 * 1000)
 
     assert long_hold.keepalive_until == now + 60 * 60 * 1000
     assert short_hold.keepalive_until == now + 60 * 60 * 1000
@@ -167,13 +168,91 @@ async def test_extend_keepalive_does_not_revive_a_terminal_server(db: AsyncSessi
     db.add(server)
     await db.commit()
 
-    result = await extend_idegym_server_keepalive(db, server.id, now + 60 * 60 * 1000)
+    result = await extend_idegym_server_keepalive(db, server.id, client.id, now + 60 * 60 * 1000)
 
-    assert result.keepalive_until is None
+    assert result is None
+    reloaded = await _reload(db, IdeGYMServer, server.id)
+    assert reloaded.keepalive_until is None
 
 
 async def test_extend_keepalive_reports_a_missing_server(db: AsyncSession):
-    assert await extend_idegym_server_keepalive(db, 999_999, 1) is None
+    client = await _make_client(db, last_heartbeat_time=int(time.time() * 1000))
+    assert await extend_idegym_server_keepalive(db, 999_999, client.id, 1) is None
+
+
+async def test_extend_keepalive_does_not_touch_another_clients_server(db: AsyncSession):
+    now = int(time.time() * 1000)
+    owner = await _make_client(db, last_heartbeat_time=now)
+    stranger = await _make_client(db, last_heartbeat_time=now)
+    server = IdeGYMServer(
+        client_id=owner.id,
+        client_name=owner.name,
+        server_name="srv",
+        generated_name=f"srv-{uuid4().hex[:8]}",
+        namespace="idegym",
+        last_heartbeat_time=now,
+        availability=AvailabilityStatus.ALIVE,
+    )
+    db.add(server)
+    await db.commit()
+
+    assert await extend_idegym_server_keepalive(db, server.id, stranger.id, now + 60 * 1000) is None
+    reloaded = await _reload(db, IdeGYMServer, server.id)
+    assert reloaded.keepalive_until is None
+
+
+async def test_a_concurrent_shorter_keepalive_cannot_shorten_the_hold(db: AsyncSession, db_url: str):
+    """The lost update: a short request that read the row before a long one committed.
+
+    One transaction writes the long hold and keeps the row locked. The short keepalive starts
+    while that lock is held, so a read-modify-write would have read the old NULL and, once
+    unblocked, overwritten the long hold with its own shorter one.
+    """
+    now = int(time.time() * 1000)
+    long_until = now + 60 * 60 * 1000
+    short_until = now + 15 * 60 * 1000
+    client = await _make_client(db, last_heartbeat_time=now)
+    server = IdeGYMServer(
+        client_id=client.id,
+        client_name=client.name,
+        server_name="srv",
+        generated_name=f"srv-{uuid4().hex[:8]}",
+        namespace="idegym",
+        last_heartbeat_time=now,
+        availability=AvailabilityStatus.ALIVE,
+    )
+    db.add(server)
+    await db.commit()
+
+    engine = create_async_engine(db_url, pool_size=3, max_overflow=0)
+    sessions = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+    try:
+        async with sessions() as holder, sessions() as racer, sessions() as observer:
+            await holder.execute(
+                update(IdeGYMServer).where(IdeGYMServer.id == server.id).values(keepalive_until=long_until)
+            )
+            short = asyncio.create_task(extend_idegym_server_keepalive(racer, server.id, client.id, short_until))
+
+            # Commit only once the short keepalive is provably queued behind the row lock.
+            for _ in range(100):
+                waiting = await observer.scalar(
+                    text("SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock'")
+                )
+                await observer.rollback()
+                if waiting:
+                    break
+                await asyncio.sleep(0.05)
+            else:
+                pytest.fail("the concurrent keepalive never blocked on the row lock")
+
+            await holder.commit()
+            result = await short
+    finally:
+        await engine.dispose()
+
+    assert result.keepalive_until == long_until
+    reloaded = await _reload(db, IdeGYMServer, server.id)
+    assert reloaded.keepalive_until == long_until
 
 
 async def test_cleanup_clients_marks_inactive_client_killed(db: AsyncSession, mock_k8s):

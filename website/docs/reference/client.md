@@ -477,6 +477,8 @@ Calling again extends the window and never shortens it, so two holders of the sa
 cannot cut each other short — which also means `keepalive(minutes=1)` after
 `keepalive(minutes=60)` leaves the longer hold in place, and the response reports the window
 actually in effect rather than the one you asked for. The maximum window is 24 hours.
+The hold belongs to the client that took it: when a finished server is handed to another client
+for reuse, the hold is cleared, so the new owner starts without one.
 
 A hold on a server that has already reached a terminal state is refused with `410 Gone`, which
 the client raises as `IdeGYMNotFoundError`: keepalive keeps a live server alive, it does not
@@ -503,13 +505,18 @@ if not status.usable:
 | `created_at` / `last_activity_at` | `int` | Epoch milliseconds |
 | `idle_seconds` | `float` | Seconds since the last recorded activity |
 | `keepalive_until` | `int \| None` | Epoch milliseconds until which an explicit keepalive holds the server |
-| `pod_phase` | `str \| None` | Kubernetes phase, or `None` when no pod matches |
-| `pod_ready` | `bool` | True when the pod is `Running` with all containers ready |
+| `pod_phase` | `str \| None` | Kubernetes phase, or `None` when no pod matches or the pod was not checked |
+| `pod_ready` | `bool \| None` | True when the pod is `Running` with all containers ready; `None` when the pod was not checked |
 | `details` | `str \| None` | Failure reason recorded on a terminal status |
 
 Use this rather than an unrelated call such as `list_capabilities` as a liveness probe. It
 answers for a finished, stopped or crashed server instead of raising, and reading it does not
 count as activity — so a polling loop will not keep a server from being reaped.
+
+The pod fields are best-effort: they are `None` for a server in a terminal state, which is not
+looked up in Kubernetes, and when the Kubernetes lookup fails. The rest of the response still
+comes from the orchestrator's record, so check `usable` and `availability` rather than
+`pod_ready` to decide whether the server is gone.
 
 ### `restart_server(...)`
 

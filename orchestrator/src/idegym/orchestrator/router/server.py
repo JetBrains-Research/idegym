@@ -1,6 +1,7 @@
 import asyncio
 from asyncio import CancelledError
 from os import environ as env
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request, status
@@ -197,27 +198,28 @@ async def list_servers(client_id: UUID, include_terminal: bool = False) -> ListS
     Terminal servers are excluded unless asked for, since the common question is "what is still
     mine and running".
     """
-    await validate_client(client_id)
     servers = await list_client_servers(client_id=client_id, include_terminal=include_terminal)
     return ListServersResponse(
         client_id=client_id,
-        servers=[
-            ServerSummary(
-                server_id=server.id,
-                server_name=server.server_name,
-                generated_name=server.generated_name,
-                namespace=server.namespace,
-                availability=server.availability,
-                usable=server.availability in {AvailabilityStatus.ALIVE, AvailabilityStatus.REUSED},
-                image_tag=server.image_tag,
-                created_at=server.created_at,
-                last_activity_at=server.last_heartbeat_time,
-                keepalive_until=server.keepalive_until,
-                details=server.details,
-            )
-            for server in servers
-        ],
+        servers=[ServerSummary(**_server_summary_fields(server)) for server in servers],
     )
+
+
+def _server_summary_fields(server) -> dict[str, Any]:
+    """Map a server record onto the ``ServerSummary`` fields, which the status response extends."""
+    return {
+        "server_id": server.id,
+        "server_name": server.server_name,
+        "generated_name": server.generated_name,
+        "namespace": server.namespace,
+        "availability": server.availability,
+        "usable": AvailabilityStatus(server.availability).is_usable,
+        "image_tag": server.image_tag,
+        "created_at": server.created_at,
+        "last_activity_at": server.last_heartbeat_time,
+        "keepalive_until": server.keepalive_until,
+        "details": server.details,
+    }
 
 
 @router.post("/api/idegym-servers/keepalive")
@@ -263,25 +265,31 @@ async def get_server_status(server_id: int, client_id: UUID) -> ServerStatusResp
     ``/capabilities``, which happens to touch both the database record and the pod. This reads
     the record and the pod phase directly, and deliberately does not update the server's
     activity timestamp, so polling it cannot keep a server from being reaped.
+
+    The record is the answer and the pod view is a best-effort addition to it. A terminal server
+    has no pod worth asking about, so Kubernetes is not called for one, and a Kubernetes failure
+    (an API timeout, missing RBAC, a deleted namespace) leaves the pod fields null rather than
+    hiding the recorded availability and failure reason behind a 500.
     """
     server = await get_owned_server(client_id=client_id, server_id=server_id)
-    pod_phase, pod_ready = await pod_phase_and_readiness(f"app={server.generated_name}", server.namespace)
+    pod_phase, pod_ready = None, None
+    if not AvailabilityStatus(server.availability).is_terminal:
+        try:
+            pod_phase, pod_ready = await pod_phase_and_readiness(f"app={server.generated_name}", server.namespace)
+        except Exception as error:  # noqa: BLE001  # the pod view is optional; the DB record still answers
+            logger.warning(
+                "Could not read the server pod for its status",
+                server=server.generated_name,
+                server_id=server.id,
+                namespace=server.namespace,
+                error=str(error),
+            )
     now = current_time_millis()
     return ServerStatusResponse(
-        server_id=server.id,
-        server_name=server.server_name,
-        generated_name=server.generated_name,
-        namespace=server.namespace,
-        availability=server.availability,
-        usable=server.availability in {AvailabilityStatus.ALIVE, AvailabilityStatus.REUSED},
-        image_tag=server.image_tag,
-        created_at=server.created_at,
-        last_activity_at=server.last_heartbeat_time,
+        **_server_summary_fields(server),
         idle_seconds=max(now - server.last_heartbeat_time, 0) / 1000,
-        keepalive_until=server.keepalive_until,
         pod_phase=pod_phase,
         pod_ready=pod_ready,
-        details=server.details,
     )
 
 

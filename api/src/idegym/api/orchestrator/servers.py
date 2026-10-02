@@ -314,13 +314,20 @@ class ServerSummary(BaseModel):
     server_name: Optional[str] = Field(default=None, description="Logical server name from the start request")
     generated_name: str = Field(description="Kubernetes resource name for the server")
     namespace: str
-    availability: str = Field(description="Availability status recorded by the orchestrator")
-    usable: bool = Field(description="True when the server is in a state that accepts requests")
+    availability: str = Field(description="Availability status recorded by the orchestrator, e.g. ALIVE or CRASHED")
+    usable: bool = Field(description="True when the server is in a state that accepts requests (ALIVE or REUSED)")
     image_tag: Optional[str] = Field(default=None)
     created_at: int = Field(description="Epoch milliseconds", ge=0)
-    last_activity_at: int = Field(description="Epoch milliseconds", ge=0)
+    last_activity_at: int = Field(
+        description="Epoch milliseconds of the last activity the orchestrator recorded for this server",
+        ge=0,
+    )
     keepalive_until: Optional[int] = Field(
-        default=None, description="Epoch milliseconds until which an explicit keepalive holds the server"
+        default=None,
+        description=(
+            "Epoch milliseconds until which an explicit keepalive holds this server against the "
+            "inactivity reaper, or null when none is in effect"
+        ),
     )
     details: Optional[str] = Field(default=None, description="Failure reason recorded on a terminal status")
 
@@ -330,37 +337,28 @@ class ListServersResponse(BaseModel):
     servers: list[ServerSummary] = Field(default_factory=list)
 
 
-class ServerStatusResponse(BaseModel):
+class ServerStatusResponse(ServerSummary):
     """Everything needed to answer 'is this server usable right now', in one call.
 
-    Reading it does not count as activity, so polling it cannot keep a server alive by accident.
+    The list row plus the view that costs a Kubernetes call. Reading it does not count as
+    activity, so polling it cannot keep a server alive by accident.
     """
 
-    server_id: int = Field(description="Numeric IdeGYM server ID")
-    server_name: Optional[str] = Field(default=None, description="Logical server name from the start request")
-    generated_name: str = Field(description="Kubernetes resource name for the server")
-    namespace: str
-    availability: str = Field(description="Availability status recorded by the orchestrator, e.g. ALIVE or CRASHED")
-    usable: bool = Field(description="True when the server is in a state that accepts requests (ALIVE or REUSED)")
-    image_tag: Optional[str] = Field(default=None)
-    created_at: int = Field(description="Epoch milliseconds", ge=0)
-    last_activity_at: int = Field(
-        description="Epoch milliseconds of the last activity the orchestrator recorded for this server",
-        ge=0,
-    )
     idle_seconds: float = Field(description="Seconds since 'last_activity_at'", ge=0)
-    keepalive_until: Optional[int] = Field(
+    pod_phase: Optional[str] = Field(
         default=None,
         description=(
-            "Epoch milliseconds until which an explicit keepalive holds this server against the "
-            "inactivity reaper, or null when none is in effect"
+            "Kubernetes phase of the server pod, or null when no pod matches, the server is terminal, "
+            "or Kubernetes could not be reached"
         ),
     )
-    pod_phase: Optional[str] = Field(
-        default=None, description="Kubernetes phase of the server pod, or null when no pod matches"
+    pod_ready: Optional[bool] = Field(
+        default=None,
+        description=(
+            "True when the pod is Running with all containers ready, or null when the pod was not "
+            "checked: the server is terminal, or Kubernetes could not be reached"
+        ),
     )
-    pod_ready: bool = Field(default=False, description="True when the pod is Running with all containers ready")
-    details: Optional[str] = Field(default=None, description="Failure reason recorded on a terminal status")
 
 
 class AliveServerInfo(BaseModel):

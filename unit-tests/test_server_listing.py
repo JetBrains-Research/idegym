@@ -34,7 +34,6 @@ def _row(server_id, availability=AvailabilityStatus.ALIVE, created_at=0, **overr
 @pytest.fixture
 def listed(mocker):
     def configure(*rows):
-        mocker.patch.object(server_router, "validate_client", mocker.AsyncMock())
         return mocker.patch.object(server_router, "list_client_servers", mocker.AsyncMock(return_value=list(rows)))
 
     return configure
@@ -68,16 +67,17 @@ async def test_include_terminal_is_passed_through(listed) -> None:
     assert query.await_args.kwargs["include_terminal"] is True
 
 
-async def test_an_unknown_client_is_rejected_before_listing(mocker) -> None:
+async def test_an_unknown_client_is_a_404_from_the_listing(mocker) -> None:
     from fastapi import HTTPException
 
-    mocker.patch.object(server_router, "validate_client", mocker.AsyncMock(side_effect=HTTPException(status_code=404)))
-    query = mocker.patch.object(server_router, "list_client_servers", mocker.AsyncMock())
+    mocker.patch.object(
+        server_router, "list_client_servers", mocker.AsyncMock(side_effect=HTTPException(status_code=404))
+    )
 
-    with pytest.raises(HTTPException):
+    with pytest.raises(HTTPException) as caught:
         await server_router.list_servers(client_id=uuid4())
 
-    query.assert_not_awaited()
+    assert caught.value.status_code == 404
 
 
 # --------------------------------------------------------------------------------------
@@ -87,41 +87,47 @@ async def test_an_unknown_client_is_rejected_before_listing(mocker) -> None:
 
 @pytest.fixture
 def owned_rows(mocker):
-    """Feed rows to the helper, standing in for the session ``@with_db_session`` would open."""
+    """Stand in for the session ``@with_db_session`` would open, the client lookup and the query."""
 
     @asynccontextmanager
     async def session():
         yield mocker.MagicMock()
 
-    def configure(*rows):
+    def configure(*rows, client=True):
         mocker.patch.object(helpers, "get_db_session", session)
-        mocker.patch.object(helpers, "get_idegym_servers_by_client_id", mocker.AsyncMock(return_value=list(rows)))
+        lookup = mocker.patch.object(helpers, "get_client", mocker.AsyncMock(return_value=client or None))
+        query = mocker.patch.object(
+            helpers, "list_idegym_servers_by_client_id", mocker.AsyncMock(return_value=list(rows))
+        )
+        return lookup, query
 
     return configure
 
 
-async def test_helper_hides_terminal_servers_by_default(owned_rows) -> None:
-    owned_rows(_row(1), _row(2, availability=AvailabilityStatus.KILLED))
+@pytest.mark.parametrize("include_terminal", [True, False])
+async def test_helper_filters_and_orders_in_the_query(owned_rows, include_terminal) -> None:
+    lookup, query = owned_rows(_row(2), _row(1))
+    client_id = uuid4()
 
-    servers = await helpers.list_client_servers(client_id=uuid4(), include_terminal=False)
+    servers = await helpers.list_client_servers(client_id=client_id, include_terminal=include_terminal)
 
-    assert [server.id for server in servers] == [1]
-
-
-async def test_helper_returns_terminal_servers_when_asked(owned_rows) -> None:
-    owned_rows(_row(1), _row(2, availability=AvailabilityStatus.KILLED))
-
-    servers = await helpers.list_client_servers(client_id=uuid4(), include_terminal=True)
-
-    assert {server.id for server in servers} == {1, 2}
+    assert [server.id for server in servers] == [2, 1]
+    # The client check and the listing share the one session the decorator opened.
+    assert lookup.await_args.args[0] is query.await_args.args[0]
+    assert query.await_args.args[1:] == (client_id,)
+    assert query.await_args.kwargs == {"include_terminal": include_terminal}
 
 
-async def test_helper_returns_newest_first(owned_rows) -> None:
-    owned_rows(_row(1, created_at=100), _row(2, created_at=300), _row(3, created_at=200))
+async def test_helper_rejects_an_unknown_client_without_querying(owned_rows) -> None:
+    from fastapi import HTTPException
 
-    servers = await helpers.list_client_servers(client_id=uuid4(), include_terminal=True)
+    _, query = owned_rows(client=False)
 
-    assert [server.id for server in servers] == [2, 3, 1]
+    with pytest.raises(HTTPException) as caught:
+        await helpers.list_client_servers(client_id=uuid4(), include_terminal=False)
+
+    assert caught.value.status_code == 404
+    query.assert_not_awaited()
 
 
 async def test_client_wrapper_returns_the_rows_and_sends_the_filter(mocker) -> None:

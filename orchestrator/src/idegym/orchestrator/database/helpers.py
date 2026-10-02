@@ -24,6 +24,7 @@ from idegym.orchestrator.database.database import (
     get_snapshot_prepare_request_with_results,
     increment_snapshot_prepare_failed,
     increment_snapshot_prepare_succeeded,
+    list_idegym_servers_by_client_id,
     need_to_release_nodes,
     need_to_spin_up_nodes,
     save_async_operation,
@@ -90,14 +91,16 @@ async def update_client_status(db: AsyncSession, client_id: UUID, availability_s
 
 @with_db_session
 async def extend_server_keepalive(db: AsyncSession, client_id: UUID, server_id: int, until: int):
-    """Hold a client's own server against the inactivity reaper until ``until`` epoch millis."""
-    await _load_owned_server(db=db, client_id=client_id, server_id=server_id)
-    server = await extend_idegym_server_keepalive(db=db, server_id=server_id, until=until)
-    if not server:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"IdeGYM server with ID {server_id} not found"
-        )
-    return server
+    """Hold a client's own server against the inactivity reaper until ``until`` epoch millis.
+
+    The common case is a single conditional ``UPDATE``. Only when it matches nothing is the server
+    loaded, to tell a missing or foreign server (404) from a terminal one, which is returned
+    untouched so the endpoint can answer 410.
+    """
+    server = await extend_idegym_server_keepalive(db=db, server_id=server_id, client_id=client_id, until=until)
+    if server:
+        return server
+    return await _load_owned_server(db=db, client_id=client_id, server_id=server_id)
 
 
 @with_db_session
@@ -133,23 +136,9 @@ async def _load_owned_server(db: AsyncSession, client_id: UUID, server_id: int):
 @with_db_session
 async def validate_server(db: AsyncSession, client_id: UUID, server_id: int):
     """Validate that the client owns the server and that it is in a usable state (ALIVE or REUSED)."""
-    client = await get_client(db, client_id)
-    if not client:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Client with ID {client_id} not found")
+    server = await _load_owned_server(db=db, client_id=client_id, server_id=server_id)
 
-    server = await get_idegym_server(db=db, server_id=server_id)
-    if not server:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"IdeGYM server with ID {server_id} not found"
-        )
-
-    if server.client_id != client_id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"IdeGYM server with ID {server_id} is not associated with client ID {client_id}",
-        )
-
-    if server.availability not in {AvailabilityStatus.ALIVE, AvailabilityStatus.REUSED}:
+    if not AvailabilityStatus(server.availability).is_usable:
         detail = f"IdeGYM server with ID {server_id} is not available (status: {server.availability})"
         if server.details:
             detail = f"{detail}: {server.details}"
@@ -236,11 +225,13 @@ async def find_matching_finished_server_in_db(
 
 @with_db_session
 async def list_client_servers(db: AsyncSession, client_id: UUID, include_terminal: bool):
-    """Return every server owned by a client, newest first, optionally including dead ones."""
-    servers = await get_idegym_servers_by_client_id(db, client_id)
-    if not include_terminal:
-        servers = [server for server in servers if not AvailabilityStatus(server.availability).is_terminal]
-    return sorted(servers, key=lambda server: server.created_at or 0, reverse=True)
+    """Return every server owned by a client, newest first, optionally including dead ones.
+
+    An unknown client is a 404 rather than an empty list, checked in the same session as the query.
+    """
+    if not await get_client(db, client_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Client with ID {client_id} not found")
+    return await list_idegym_servers_by_client_id(db, client_id, include_terminal=include_terminal)
 
 
 @with_db_session
@@ -248,7 +239,7 @@ async def find_alive_servers(db: AsyncSession, client_id: UUID) -> list[AliveSer
     servers_info = []
     servers = await get_idegym_servers_by_client_id(db, client_id)
     for server in servers:
-        if server.availability in {AvailabilityStatus.ALIVE, AvailabilityStatus.REUSED}:
+        if AvailabilityStatus(server.availability).is_usable:
             servers_info.append(AliveServerInfo(id=server.id, generated_name=server.generated_name))
     return servers_info
 

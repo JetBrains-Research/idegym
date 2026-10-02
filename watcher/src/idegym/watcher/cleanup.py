@@ -73,8 +73,9 @@ async def cleanup_servers(db: AsyncSession, current_time: int, inactive_timeout:
         # is only a proxy for that, and a bad one while an agent thinks or a build runs.
         if server.keepalive_until and server.keepalive_until > current_time:
             logger.debug(
-                f"Skipping IdeGYM server {server.generated_name}: held by keepalive for another "
-                f"{(server.keepalive_until - current_time) / 1000 / 60:.2f} minutes"
+                "Skipping IdeGYM server held by keepalive",
+                server=server.generated_name,
+                minutes=round((server.keepalive_until - current_time) / 1000 / 60, 2),
             )
             continue
 

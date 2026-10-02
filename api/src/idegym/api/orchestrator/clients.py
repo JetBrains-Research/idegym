@@ -28,6 +28,15 @@ class AvailabilityStatus(StrEnum):
             AvailabilityStatus.RESTART_FAILED,
         }
 
+    @property
+    def is_usable(self) -> bool:
+        """Returns True if a server in this status accepts requests.
+
+        Narrower than "not terminal": a ``FINISHED`` server still exists and can be reused, but it
+        has been handed back and must not be driven until a start request takes it over.
+        """
+        return self in {AvailabilityStatus.ALIVE, AvailabilityStatus.REUSED}
+
 
 class RegisterClientRequest(BaseModel):
     name: str = Field(description="Human-readable name for the client")

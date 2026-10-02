@@ -5,6 +5,7 @@ otherwise have failed — so most of these drive ``cleanup_servers`` directly.
 """
 
 from types import SimpleNamespace
+from unittest.mock import ANY
 from uuid import uuid4
 
 import pytest
@@ -164,6 +165,61 @@ def test_keepalive_request_rejects_a_window_outside_the_allowed_range(minutes) -
 
 def test_keepalive_request_defaults_to_a_bounded_window() -> None:
     assert KeepaliveServerRequest(client_id=uuid4(), server_id=7).minutes == 15.0
+
+
+# --------------------------------------------------------------------------------------
+# The database helper
+# --------------------------------------------------------------------------------------
+
+
+@pytest.fixture
+def keepalive_helper(mocker):
+    """Stand in for the session ``@with_db_session`` opens and for the two lookups it may make."""
+    from contextlib import asynccontextmanager
+
+    from idegym.orchestrator.database import helpers
+
+    @asynccontextmanager
+    async def session():
+        yield mocker.MagicMock()
+
+    def configure(updated, owned=None):
+        mocker.patch.object(helpers, "get_db_session", session)
+        extend = mocker.patch.object(helpers, "extend_idegym_server_keepalive", mocker.AsyncMock(return_value=updated))
+        load = mocker.patch.object(helpers, "_load_owned_server", mocker.AsyncMock(**owned or {}))
+        return helpers, extend, load
+
+    return configure
+
+
+async def test_a_matching_keepalive_is_one_update_and_no_lookup(keepalive_helper) -> None:
+    held = SimpleNamespace(id=7, availability=AvailabilityStatus.ALIVE, keepalive_until=NOW)
+    helpers, extend, load = keepalive_helper(updated=held)
+    client_id = uuid4()
+
+    assert await helpers.extend_server_keepalive(client_id=client_id, server_id=7, until=NOW) is held
+
+    extend.assert_awaited_once_with(db=ANY, server_id=7, client_id=client_id, until=NOW)
+    load.assert_not_awaited()
+
+
+async def test_an_unmatched_keepalive_returns_the_terminal_server_for_a_410(keepalive_helper) -> None:
+    dead = SimpleNamespace(id=7, availability=AvailabilityStatus.KILLED, keepalive_until=None)
+    helpers, _, load = keepalive_helper(updated=None, owned={"return_value": dead})
+
+    assert await helpers.extend_server_keepalive(client_id=uuid4(), server_id=7, until=NOW) is dead
+    load.assert_awaited_once()
+
+
+async def test_an_unmatched_keepalive_on_a_foreign_server_is_a_404(keepalive_helper) -> None:
+    from fastapi import HTTPException
+
+    helpers, _, _ = keepalive_helper(updated=None, owned={"side_effect": HTTPException(status_code=404)})
+
+    with pytest.raises(HTTPException) as caught:
+        await helpers.extend_server_keepalive(client_id=uuid4(), server_id=7, until=NOW)
+
+    assert caught.value.status_code == 404
 
 
 # --------------------------------------------------------------------------------------

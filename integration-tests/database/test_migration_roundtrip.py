@@ -212,7 +212,41 @@ async def test_round_trip_through_every_revision(manager: MigrationManager):
 
 
 async def test_downgrading_only_the_last_revision_preserves_rows(manager: MigrationManager):
-    """head -> 002 -> 003 keeps every row, and empties exactly the columns 003 added."""
+    """head -> 004 undoes just the keepalive revision, the step a one-release rollback runs.
+
+    The rows must survive and only ``keepalive_until`` may go; upgrading again brings the column
+    back empty, since the downgrade deliberately discards the holds it carried.
+    """
+    engine = manager.engine
+    await manager.migrate_to("heads")
+    await seed_revision_001(engine)
+    await seed_revision_002(engine)
+    await seed_revision_003(engine)
+    await seed_revision_004(engine)
+    await seed_revision_005(engine)
+
+    plan = await manager.migrate_to("004", allow_downgrade=True)
+    assert plan.revisions == ("005",)
+    assert await manager.get_current_revision() == "004"
+    for table, columns in COLUMNS_ADDED_BY_005.items():
+        assert not columns & await column_names(engine, table)
+    assert await scalar(engine, "SELECT count(*) FROM servers") == 1
+    assert await scalar(engine, "SELECT count(*) FROM snapshots") == 1
+    assert await scalar(engine, "SELECT count(*) FROM job_statuses") == 1
+    assert await scalar(engine, "SELECT details FROM servers") == "crashed once"
+
+    await manager.migrate_to("heads")
+    assert await scalar(engine, "SELECT count(*) FROM servers") == 1
+    assert await scalar(engine, "SELECT generated_name FROM servers") == "srv-abc"
+    assert await scalar(engine, "SELECT keepalive_until FROM servers") is None
+
+
+async def test_downgrading_past_revision_003_preserves_rows(manager: MigrationManager):
+    """head -> 002 -> 003: undoing several revisions in one plan keeps every row.
+
+    The downgrade to 002 reverts every revision above it, 003 included, and the upgrade back to
+    003 restores exactly the columns 003 added, empty.
+    """
     engine = manager.engine
     await manager.migrate_to("heads")
     await seed_revision_001(engine)

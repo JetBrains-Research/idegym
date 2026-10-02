@@ -205,6 +205,11 @@ Report a server's availability, pod phase and idle time. Synchronous, and read-o
 Unlike the other server endpoints this one does not return `410 Gone` for an inactive server —
 reporting that state is the reason it exists.
 
+The pod fields are best-effort. For a server in a terminal state Kubernetes is not asked at
+all, and if the pod lookup fails (an API timeout, missing RBAC, a deleted namespace) the
+orchestrator logs a warning and still answers `200 OK` from the database record. In both cases
+`pod_phase` and `pod_ready` are `null`; `availability` and `details` are always served.
+
 ### Servers — `POST /api/idegym-servers/restart`
 
 Restart an IdeGYM server's pods. Always async.

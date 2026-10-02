@@ -35,6 +35,7 @@ from idegym.orchestrator.database.database import (
     get_job_status_by_id,
     get_resource_limit_rule,
     get_running_idegym_servers,
+    list_idegym_servers_by_client_id,
     mark_stale_async_operations_as_finished,
     need_to_release_nodes,
     need_to_spin_up_nodes,
@@ -318,6 +319,25 @@ async def test_get_idegym_servers_by_client_id(db: AsyncSession):
     assert len(servers) == 2
 
 
+async def test_list_idegym_servers_by_client_id_filters_and_orders_in_sql(db: AsyncSession):
+    owner = await _make_client(db, "owner")
+    other = await _make_client(db, "other")
+    oldest = await _make_server(db, owner, "oldest")
+    killed = await _make_server(db, owner, "killed", availability=AvailabilityStatus.KILLED)
+    finished = await _make_server(db, owner, "finished", availability=AvailabilityStatus.FINISHED)
+    await _make_server(db, other, "foreign")
+    for age, server in enumerate([finished, killed, oldest]):
+        server.created_at = 1_000_000 - age * 1000
+    await db.commit()
+
+    live = await list_idegym_servers_by_client_id(db, owner.id, include_terminal=False)
+    everything = await list_idegym_servers_by_client_id(db, owner.id, include_terminal=True)
+
+    # FINISHED is not terminal: it can still be reused, so it stays in the default view.
+    assert [s.id for s in live] == [finished.id, oldest.id]
+    assert [s.id for s in everything] == [finished.id, killed.id, oldest.id]
+
+
 async def test_get_running_idegym_servers(db: AsyncSession):
     client = await _make_client(db)
     alive = await _make_server(db, client, "alive-srv", availability=AvailabilityStatus.ALIVE)
@@ -410,6 +430,21 @@ async def test_update_idegym_server_owner(db: AsyncSession):
     updated = await update_idegym_server_owner(db, server.id, new_owner.id)
     assert updated is not None
     assert updated.client_id == new_owner.id
+
+
+async def test_update_idegym_server_owner_drops_the_previous_owners_keepalive(db: AsyncSession):
+    """A reusing client must not inherit a hold it never asked for."""
+    old_owner = await _make_client(db, "old-owner")
+    new_owner = await _make_client(db, "new-owner")
+    server = await _make_server(db, old_owner, availability=AvailabilityStatus.FINISHED)
+    server.keepalive_until = server.created_at + 24 * 60 * 60 * 1000
+    await db.commit()
+
+    await update_idegym_server_owner(db, server.id, new_owner.id)
+
+    await db.refresh(server)
+    assert server.client_id == new_owner.id
+    assert server.keepalive_until is None
 
 
 async def test_update_idegym_server_owner_returns_none_for_unknown(db: AsyncSession):
