@@ -424,7 +424,7 @@ result = await server.execute_bash(
     "python -m pytest -q",
     cwd="tests",  # relative paths resolve against the project directory
     env={"PYTHONHASHSEED": "0"},  # merged over the server's cleaned environment
-    user="devuser",  # requires the server to run as root
+    user="devuser",  # needs a root server, or passwordless sudo as in the server image
 )
 ```
 

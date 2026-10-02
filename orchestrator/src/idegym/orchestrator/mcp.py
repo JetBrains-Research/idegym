@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from copy import copy
 from typing import Any, Optional
 from uuid import UUID
 
@@ -57,6 +58,11 @@ class ForwardServerRequest(BaseModel):
     body: str = Field(default="", description="Request body to forward as text")
 
 
+def _bash_field(name: str) -> Any:
+    """Reuse a ``BashCommandRequest`` field as-is, so the MCP schema cannot drift from the HTTP one."""
+    return copy(BashCommandRequest.model_fields[name])
+
+
 class RunBashCommandToolRequest(BaseModel):
     client_id: UUID = Field(description="UUID of the client that owns the server")
     server_id: int = Field(description="Numeric IdeGYM server ID to run the command on")
@@ -72,6 +78,10 @@ class RunBashCommandToolRequest(BaseModel):
         strict=True,
         description="Maximum retained bytes for each output stream; null retains complete output",
     )
+    cwd: Optional[str] = _bash_field("cwd")
+    env: dict[str, str] = _bash_field("env")
+    user: Optional[str] = _bash_field("user")
+    strip_output: bool = _bash_field("strip_output")
 
 
 class ListServerMcpToolsRequest(BaseModel):
@@ -196,6 +206,10 @@ def create_mcp_server(
             timeout=request.command_timeout,
             graceful_termination_timeout=request.graceful_termination_timeout,
             max_output_bytes=request.max_output_bytes,
+            strip_output=request.strip_output,
+            cwd=request.cwd,
+            env=request.env,
+            user=request.user,
         )
         return await forward_request_to_server(
             client_id=request.client_id,

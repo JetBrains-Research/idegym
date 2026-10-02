@@ -327,6 +327,7 @@ These handlers apply to all server endpoints:
 | `FileNotFoundError` | `404 Not Found` |
 | `PermissionError` | `403 Forbidden` |
 | `OSError` (other) | `400 Bad Request` |
+| `BashExecutorRequestError` — unknown `user`, missing `cwd`, no way to switch user | `400 Bad Request` |
 | `BashCommandExecutionTimeoutError` | `500 Internal Server Error` |
 | `Exception` (catch-all) | `500 Internal Server Error` |
 
@@ -346,9 +347,14 @@ All error responses include a JSON body: `{"timestamp": "...", "message": "...",
 
 | Method | Path | Success | Error |
 |--------|------|---------|-------|
-| `POST` | `/api/tools/bash` | `200 OK` | `500` on timeout; bash failure is in `exit_code` |
+| `POST` | `/api/tools/bash` | `200 OK` | `400` on a bad `cwd` or `user`; `422` on an invalid `env`; `500` on timeout; bash failure is in `exit_code` |
 
 Response: `{stdout, stderr, exit_code}`. A non-zero `exit_code` does **not** produce an HTTP error — it is encoded in the response body.
+
+A `cwd` that is not a directory, a `user` that does not exist, and a `user` the server cannot
+switch to (it is neither root nor allowed passwordless sudo) are rejected with `400 Bad Request`
+before anything runs, with the standard error body above. The same holds for every endpoint that
+runs a command through the bash executor, not only this one.
 
 ### Tools — File Operations
 
@@ -445,7 +451,7 @@ Reward endpoints always return `200 OK`. Success or failure of the underlying op
 | `202 Accepted` | Accepted for async processing | All async orchestrator endpoints; `POST /api/shutdown` |
 | `302 Found` | Redirect | `GET /api` |
 | `307 Temporary Redirect` | Redirect | `/dashboard` → `/dashboard/servers` |
-| `400 Bad Request` | Invalid request or bad path | Path not a directory/file, bad workspace path, non-empty dir delete |
+| `400 Bad Request` | Invalid request or bad path | Path not a directory/file, bad workspace path, non-empty dir delete, bad bash `cwd`/`user` |
 | `403 Forbidden` | Access denied | Path escapes workspace, `PermissionError`, deleting workspace root |
 | `404 Not Found` | Resource missing | Client/server/operation/job not found, path not found |
 | `410 Gone` | Server no longer available | Server status is terminal (stopped/crashed/killed/etc.) |

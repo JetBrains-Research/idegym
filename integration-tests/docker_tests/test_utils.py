@@ -26,13 +26,14 @@ def build_docker_image():
     return tag
 
 
-def run_test_in_docker(image, command=None):
+def run_test_in_docker(image, command=None, user=None):
     """
     Run a specific test or all tests in the Docker container.
 
     Args:
         image (str): The name of the Docker image to run.
         command (str, optional): The specific test to run. If None, all tests are run.
+        user (str, optional): The container user to run as. Defaults to the image's user.
 
     Returns:
         str: The container logs.
@@ -52,6 +53,7 @@ def run_test_in_docker(image, command=None):
         remove=True,
         detach=False,  # Wait for the container to finish
         command=cmd,
+        user=user,
     )
     print(f"Container logs:\n{container_logs}")
 

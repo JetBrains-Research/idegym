@@ -9,7 +9,7 @@ from fastapi.responses import Response
 from fastmcp.utilities.lifespan import combine_lifespans
 from idegym.api.paths import API_BASE_PATH
 from idegym.api.plugin import get_all_server_plugins
-from idegym.backend.utils.bash_executor import BashCommandExecutionTimeoutError
+from idegym.backend.utils.bash_executor import BashCommandExecutionTimeoutError, BashExecutorRequestError
 from idegym.backend.utils.instrumentation.uvicorn import UvicornInstrumentor
 from idegym.backend.utils.logging import configure_logging, create_uvicorn_logging_config
 from idegym.backend.utils.otel import configure_telemetry, system_metrics_config
@@ -131,6 +131,12 @@ async def permission_error(_request: Request, ex: PermissionError):
 @app.exception_handler(BashCommandExecutionTimeoutError)
 async def bash_command_timed_out(_request: Request, ex: BashCommandExecutionTimeoutError):
     return ErrorResponse(exception=ex, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# A `cwd` or `user` the executor cannot honour is the caller's mistake, whichever endpoint ran it.
+@app.exception_handler(BashExecutorRequestError)
+async def bash_executor_bad_request(_request: Request, ex: BashExecutorRequestError):
+    return ErrorResponse(exception=ex, status_code=status.HTTP_400_BAD_REQUEST)
 
 
 @app.exception_handler(status.HTTP_404_NOT_FOUND)

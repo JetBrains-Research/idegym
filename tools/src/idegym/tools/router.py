@@ -22,10 +22,6 @@ from idegym.api.tools.file import (
     UploadFileChunkRequest,
     UploadFileChunkResponse,
 )
-from idegym.backend.utils.bash_executor import (
-    BashExecutorUnknownUserError,
-    BashExecutorWorkingDirectoryError,
-)
 from idegym.tools.tool_service import FileToolActionName, ToolName, ToolService
 
 router = APIRouter()
@@ -41,23 +37,21 @@ async def execute_bash_script(
     request: BashCommandRequest,
     service: ToolService = Depends(_get_tool_service),
 ):
-    try:
-        stdout, stderr, exit_code = await service.execute_tool(
-            tool_name=ToolName.BASH,
-            parameters={
-                "command": request.command,
-                "timeout": request.timeout,
-                "graceful_termination_timeout": request.graceful_termination_timeout,
-                "max_output_bytes": request.max_output_bytes,
-                "strip_output": request.strip_output,
-                "cwd": request.cwd,
-                "env": request.env,
-                "user": request.user,
-            },
-        )
-    # `cwd` and `user` are caller-supplied, so a bad value is a bad request, not a server fault.
-    except (BashExecutorWorkingDirectoryError, BashExecutorUnknownUserError) as ex:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ex)) from ex
+    # A `cwd` or `user` the executor cannot honour raises BashExecutorRequestError, which the
+    # server's exception handlers turn into a 400.
+    stdout, stderr, exit_code = await service.execute_tool(
+        tool_name=ToolName.BASH,
+        parameters={
+            "command": request.command,
+            "timeout": request.timeout,
+            "graceful_termination_timeout": request.graceful_termination_timeout,
+            "max_output_bytes": request.max_output_bytes,
+            "strip_output": request.strip_output,
+            "cwd": request.cwd,
+            "env": request.env,
+            "user": request.user,
+        },
+    )
 
     return BashCommandResponse(stdout=stdout, stderr=stderr, exit_code=exit_code)
 

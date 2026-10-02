@@ -1,8 +1,10 @@
+import re
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 DEFAULT_MAX_OUTPUT_BYTES = 1024 * 1024
+_ENVIRONMENT_NAME_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 class BashCommandRequest(BaseModel):
@@ -13,7 +15,7 @@ class BashCommandRequest(BaseModel):
             "Working directory for the command. Defaults to the server's project directory. "
             "A relative path is resolved against it."
         ),
-        examples=["/root/work", "src"],
+        examples=["/home/appuser/work", "src"],
     )
     env: dict[str, str] = Field(
         default_factory=dict,
@@ -27,8 +29,8 @@ class BashCommandRequest(BaseModel):
     user: Optional[str] = Field(
         default=None,
         description=(
-            "Run the command as this user via 'runuser'. Requires the server to run as root; "
-            "leave unset to run as the server's own user."
+            "Run the command as this user. Needs the server to run as root or to have passwordless "
+            "sudo, as the server image does; leave unset to run as the server's own user."
         ),
         examples=["devuser"],
     )
@@ -49,6 +51,22 @@ class BashCommandRequest(BaseModel):
             "output is byte-for-byte what the command wrote; undecodable bytes are still replaced."
         ),
     )
+
+    @field_validator("env")
+    @classmethod
+    def _validate_env(cls, env: dict[str, str]) -> dict[str, str]:
+        """Reject what the OS cannot put in an environment, so it is a 422 rather than a 500.
+
+        ``A=B``, an empty name or a NUL in a value otherwise reached ``execve`` and failed there
+        with a bare ``ValueError``. Names are held to the portable shell-identifier form, since a
+        name bash cannot reference is of no use to the script.
+        """
+        for name, value in env.items():
+            if not _ENVIRONMENT_NAME_PATTERN.fullmatch(name):
+                raise ValueError(f"Environment variable name must match [A-Za-z_][A-Za-z0-9_]*: {name!r}")
+            if "\0" in value:
+                raise ValueError(f"Environment variable value must not contain NUL: {name}")
+        return env
 
 
 class BashCommandResponse(BaseModel):

@@ -30,7 +30,7 @@ Execute a bash script inside the container.
 | `command` | string | — | Bash script to execute |
 | `cwd` | string or null | `null` | Working directory; a relative path resolves against the project directory |
 | `env` | object | `{}` | Environment variables added to the command's environment |
-| `user` | string or null | `null` | Run the command as this user via `runuser` |
+| `user` | string or null | `null` | Run the command as this user; needs a root server or passwordless `sudo` |
 | `timeout` | float | 600.0 | Maximum execution time in seconds |
 | `graceful_termination_timeout` | float | 2.0 | Seconds to wait for graceful process exit before SIGKILL |
 | `max_output_bytes` | integer or null | 1048576 | Maximum retained bytes per stream; `null` retains complete output |
@@ -52,22 +52,32 @@ finishes or reaches its execution timeout so subprocess pipes cannot deadlock.
 
 #### How the script is run
 
-The script is written to a temp file inside the container and executed as `bash <file>`. There
-is no practical size limit: passing it as a `bash -c` argument used to cap it at the kernel's
-`MAX_ARG_STRLEN` of 128 KiB, and an oversized script failed with a bare `E2BIG`.
+The script is written to a temp file inside the container, and `bash -c` evaluates the file's
+contents. There is no practical size limit: passing the script itself as the `bash -c` argument
+used to cap it at the kernel's `MAX_ARG_STRLEN` of 128 KiB, and an oversized script failed with
+a bare `E2BIG`.
+
+It still behaves like `bash -c`: `$0` is `bash`, there are no positional parameters, and an error
+reads `bash: line 3: nosuchcmd: command not found`. Running the file as `bash <file>` would have
+put the temp file's name, different on every call, in both places.
 
 A file rather than bash's stdin is deliberate. A script read from stdin is consumed
 incrementally, so any command inside it that reads stdin — `cat`, `read`, an interactive
 installer — would swallow the rest of the script. Running from a file leaves the command's own
 stdin alone.
 
-The temp file is removed once the command finishes, including when it times out.
+The temp file is removed once the command finishes, including when it times out or the request
+is cancelled.
 
 Before the script, IdeGYM sources a bundled init file that sets up the shell environment. It is
 joined to your script with `;`, not `&&`, so it cannot change what your script means: every
 statement runs exactly as written, and your own `&&` and `||` behave normally. The prefix stays
 on the same line, so a bash error still reports the line number you wrote. An empty script is a
 no-op that exits 0.
+
+The init sources `~/.bashrc`, and its exit status is ignored: a `.bashrc` whose last line is a
+routine `[ -f ~/.fzf.bash ] && source ~/.fzf.bash` must not fail every command. Only an init file
+that cannot be read at all aborts the command, with exit code 1 and a message on stderr.
 
 #### Per-command context
 
@@ -80,7 +90,7 @@ result = await server.execute_bash(
     "python -m pytest -q",
     cwd="tests",  # relative to the project directory
     env={"PYTHONHASHSEED": "0"},  # merged over the cleaned environment
-    user="devuser",  # requires the server to run as root
+    user="devuser",  # needs a root server, or passwordless sudo as in the server image
 )
 ```
 
@@ -89,8 +99,24 @@ stripped; `env` is merged over it, so a name that already exists is overridden. 
 this way never enter the command text, which means they are not written to the command log —
 prefer it to an `export` line for anything sensitive.
 
-`user` runs the script through `runuser --preserve-environment`, so it needs the server
-container to be running as root. Without it the command runs as the server's own user.
+A `PATH` in `env` governs the commands your script runs, not how IdeGYM starts it: `bash` itself
+is resolved once against the server's own `PATH`, so `env={"PATH": "/opt/tool/bin"}` is safe.
+
+Names must be shell identifiers (`[A-Za-z_][A-Za-z0-9_]*`) and values must not contain NUL; any
+other entry is rejected with `422 Unprocessable Entity` before the command runs.
+
+`user` runs the script as that user, with the environment described above plus the user's own
+`HOME`, `USER`, `LOGNAME` and `SHELL`. Naming the server's own user is not a switch at all. A
+root server drops privileges with `runuser --preserve-environment`; the server image runs as the
+non-root `appuser` with passwordless sudo, so there the executor goes through `sudo` to reach the
+same `runuser`, restoring the environment sudo would otherwise rewrite (`PATH`, `LD_*`,
+`PYTHONPATH`) and signalling the command's process group through sudo on timeout. A server that
+has neither rejects the request with `400 Bad Request` rather than running anything. An unknown
+user is a `400` too.
+
+The temp file holding the script stays private to the server's user (mode `0600`) even then.
+Bash receives it as a descriptor opened before the privilege drop, so the target user can run
+the script without being able to open the file, and neither can anyone else in the container.
 
 #### Output fidelity
 
@@ -129,10 +155,14 @@ command = await mcp.call_tool(
             "command": "python -c 'import sys; print(sys.version)'",
             "command_timeout": 30.0,
             "max_output_bytes": 1048576,
+            "env": {"API_TOKEN": token},  # kept out of the command text, as over HTTP
         },
     },
 )
 ```
+
+The MCP tool takes the same `cwd`, `env`, `user` and `strip_output` fields as the HTTP request,
+with the same meaning; only the timeout is named `command_timeout`.
 
 **Via Python client:**
 

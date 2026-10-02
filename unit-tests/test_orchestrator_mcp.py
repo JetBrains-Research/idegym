@@ -5,6 +5,7 @@ import pytest
 from fastapi.routing import APIRoute, iter_route_contexts
 from fastmcp.exceptions import ToolError
 from idegym.api.orchestrator.mcp import MCPToolName
+from idegym.api.tools.bash import BashCommandRequest
 from idegym.orchestrator.main import create_app
 from idegym.orchestrator.mcp import create_mcp_server
 from starlette.datastructures import Headers
@@ -171,6 +172,38 @@ async def test_run_bash_command_mcp_tool_calls_forwarding_endpoint(mocker):
         '{"command":"echo hello","cwd":null,"env":{},"user":null,"timeout":600.0,"graceful_termination_timeout":2.0,"max_output_bytes":1048576,"strip_output":false}'
     )
     assert result.structured_content == {"async_operation_id": 43}
+
+
+async def test_run_bash_command_mcp_tool_passes_per_command_context(mocker):
+    """MCP agents could not set cwd/env/user, so secrets had to go into the script text."""
+    endpoint = mocker.patch(
+        "idegym.orchestrator.mcp.forward_request_to_server",
+        return_value={"async_operation_id": 43},
+    )
+    mcp = create_mcp_server(get_http_client=object)
+
+    await mcp.call_tool(
+        MCPToolName.RUN_BASH_COMMAND,
+        {
+            "request": {
+                "client_id": str(uuid4()),
+                "server_id": 7,
+                "command": "echo hello",
+                "cwd": "src",
+                "env": {"TOKEN": "s3cr3t"},
+                "user": "devuser",
+                "strip_output": True,
+            },
+        },
+    )
+
+    forwarded = BashCommandRequest.model_validate_json(endpoint.await_args.kwargs["body"])
+    assert (forwarded.cwd, forwarded.env, forwarded.user, forwarded.strip_output) == (
+        "src",
+        {"TOKEN": "s3cr3t"},
+        "devuser",
+        True,
+    )
 
 
 async def test_run_bash_command_mcp_tool_supports_unlimited_output(mocker):

@@ -1,15 +1,23 @@
 import asyncio
 import contextlib
 import os
+import pwd
 import shlex
 import signal
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
+from typing import Optional
 
 import psutil
 import pytest
 from idegym.backend.utils import bash_executor as bash_executor_module
-from idegym.backend.utils.bash_executor import BashCommandExecutionTimeoutError, BashExecutor
+from idegym.backend.utils.bash_executor import (
+    BashCommandExecutionTimeoutError,
+    BashExecutor,
+    BashExecutorUserSwitchError,
+)
 from structlog.testing import capture_logs
 
 
@@ -44,6 +52,39 @@ def _process_is_running(process_id: int) -> bool:
 def _kill_process_if_running(process_id: int) -> None:
     with contextlib.suppress(ProcessLookupError):
         os.kill(process_id, signal.SIGKILL)
+
+
+def _bash_version() -> tuple[int, ...]:
+    output = subprocess.run(
+        [bash_executor_module._BASH, "-c", 'printf "%s.%s" "${BASH_VERSINFO[0]}" "${BASH_VERSINFO[1]}"'],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    return tuple(int(part) for part in output.split("."))
+
+
+# Under `bash -c`, and `eval` within it, bash before 5.1 miscounts script lines in its error
+# messages, and 3.2 (macOS) omits `line N` for a one-line script. That is bash's own behaviour,
+# not the executor's; the server image ships 5.2.
+_needs_bash_5_1_error_format = pytest.mark.skipif(
+    _bash_version() < (5, 1), reason="bash < 5.1 formats `bash -c` error locations differently"
+)
+
+
+def _uid_of(name: str) -> Optional[int]:
+    try:
+        return pwd.getpwnam(name).pw_uid
+    except KeyError:
+        return None
+
+
+# `devuser` and `appuser` exist only in the docker test image, which mirrors the server image.
+_SWITCH_TARGET = "devuser"
+_needs_switch_target = pytest.mark.skipif(
+    _uid_of(_SWITCH_TARGET) in (None, os.geteuid()),
+    reason="needs the docker test image's devuser, as a different user",
+)
 
 
 class TestBashExecutor:
@@ -110,13 +151,45 @@ class TestBashExecutor:
         assert stdout == ""
         assert exit_code != 0
 
+    @_needs_bash_5_1_error_format
     @pytest.mark.asyncio
     async def test_bash_reports_errors_at_the_callers_own_line_numbers(self):
         executor = BashExecutor()
 
         _stdout, stderr, _exit_code = await executor.execute_bash_command("true\ntrue\nthis-command-does-not-exist")
 
-        assert "line 3" in stderr
+        assert stderr.startswith("bash: line 3: this-command-does-not-exist:")
+
+    @_needs_bash_5_1_error_format
+    @pytest.mark.asyncio
+    async def test_errors_carry_the_bash_c_prefix_not_the_temp_file_name(self):
+        """`bash <file>` prefixed errors with a per-call temp path, which broke stderr comparisons."""
+        executor = BashExecutor()
+
+        _stdout, stderr, exit_code = await executor.execute_bash_command("nosuchcmd")
+
+        assert stderr.startswith("bash: line 1: nosuchcmd:")
+        assert exit_code == 127
+
+    @pytest.mark.asyncio
+    async def test_dollar_zero_is_bash_and_there_are_no_positional_parameters(self):
+        executor = BashExecutor()
+
+        stdout, _stderr, exit_code = await executor.execute_bash_command('printf "%s %s" "$0" "$#"')
+
+        assert (stdout, exit_code) == ("bash 0", 0)
+
+    @pytest.mark.asyncio
+    async def test_a_bashrc_ending_in_a_failing_command_does_not_abort_the_script(self, tmp_path):
+        """`source` returns the rc file's last status; a trailing `[ -f ... ] && ...` is routine."""
+        (tmp_path / ".bashrc").write_text("export FROM_BASHRC=1\n[ -f ~/.not-installed ] && source ~/.not-installed\n")
+        executor = BashExecutor()
+
+        stdout, stderr, exit_code = await executor.execute_bash_command(
+            'printf "%s" "$FROM_BASHRC"', env={"HOME": str(tmp_path)}
+        )
+
+        assert (stdout, stderr, exit_code) == ("1", "", 0)
 
     @pytest.mark.asyncio
     async def test_execute_command_with_working_directory(self):
@@ -161,8 +234,9 @@ class TestBashExecutor:
     @pytest.mark.asyncio
     async def test_non_utf8_output_is_replaced_and_exit_code_survives(self):
         executor = BashExecutor()
-        stdout, _stderr, exit_code = await executor.execute_bash_command("printf '\\xff\\xfe'; exit 3")
+        stdout, _stderr, exit_code = await executor.execute_bash_command("printf '\\377\\376'; exit 3")
 
+        # Each invalid byte becomes its own U+FFFD, so two bytes give two replacement characters.
         assert stdout == "��"
         assert exit_code == 3
 
@@ -207,6 +281,121 @@ class TestBashExecutor:
         assert stdout == "overridden"
 
     @pytest.mark.asyncio
+    async def test_a_callers_path_does_not_affect_finding_bash(self, tmp_path):
+        """`bash` used to be resolved in the caller's PATH, so this failed as a FileNotFoundError."""
+        executor = BashExecutor()
+
+        stdout, _stderr, exit_code = await executor.execute_bash_command(
+            'printf "%s" "$PATH"', env={"PATH": "/nonexistent/bin", "HOME": str(tmp_path)}
+        )
+
+        assert (stdout, exit_code) == ("/nonexistent/bin", 0)
+
+    def test_the_sudo_trampoline_restores_the_environment_and_the_script_descriptor(self, tmp_path):
+        """Run the trampoline without sudo: it must hand on fd 3 and exactly the environment written."""
+        script = tmp_path / "script"
+        script.write_text("from-descriptor")
+        environment_file = tmp_path / "environment"
+        descriptor = os.open(environment_file, os.O_WRONLY | os.O_CREAT, 0o600)
+        environment = {"PYTHONPATH": "/p", "WITH_EQUALS": "a=b", "EMPTY": ""}
+        try:
+            bash_executor_module._write_environment(descriptor, environment)
+        finally:
+            os.close(descriptor)
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-I",
+                "-S",
+                "-c",
+                bash_executor_module._SUDO_TRAMPOLINE,
+                str(script),
+                str(environment_file),
+                bash_executor_module._BASH,
+                "-c",
+                'IFS= read -r -d "" -u 3 body; printf "%s|%s|%s|%s|%s" "$body" "$PYTHONPATH" "$WITH_EQUALS" "${EMPTY-unset}" "${UNRELATED-gone}"',
+            ],
+            capture_output=True,
+            text=True,
+            env={"UNRELATED": "dropped"},
+        )
+
+        assert result.stdout == "from-descriptor|/p|a=b||gone"
+
+    @_needs_switch_target
+    @pytest.mark.asyncio
+    async def test_a_user_switch_keeps_the_script_private_and_the_environment_intact(self):
+        """Run as root this goes through runuser, run as `appuser` through the sudo trampoline.
+
+        The script used to be made world-readable for the target user, and sudo would rewrite
+        PATH and drop LD_*/PYTHONPATH; neither may be visible here.
+        """
+        executor = BashExecutor()
+        glob = shlex.quote(tempfile.gettempdir()) + "/idegym-bash-*"
+        script = (
+            'id -un; printf "%s\\n" "$HOME" "$PATH" "$PYTHONPATH" "$LD_LIBRARY_PATH"\n'
+            f'for f in {glob}; do [ -r "$f" ] && echo "readable: $f"; done; true'
+        )
+
+        stdout, stderr, exit_code = await executor.execute_bash_command(
+            script,
+            user=_SWITCH_TARGET,
+            env={"PATH": "/custom/bin:/usr/bin:/bin", "PYTHONPATH": "/p", "LD_LIBRARY_PATH": "/l"},
+        )
+
+        assert (stdout, stderr, exit_code) == (
+            f"{_SWITCH_TARGET}\n/home/{_SWITCH_TARGET}\n/custom/bin:/usr/bin:/bin\n/p\n/l\n",
+            "",
+            0,
+        )
+
+    @_needs_switch_target
+    @pytest.mark.asyncio
+    async def test_a_timeout_under_a_user_switch_still_returns(self):
+        """Under sudo the server may not signal the target user's processes; none may survive."""
+        executor = BashExecutor()
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+
+        with pytest.raises(BashCommandExecutionTimeoutError):
+            await executor.execute_bash_command(
+                "sleep 31 & sleep 31", user=_SWITCH_TARGET, timeout=0.5, graceful_termination_timeout=0.5
+            )
+
+        assert loop.time() - started < 10
+        deadline = loop.time() + 2
+        while survivors := [
+            process.pid
+            for process in psutil.process_iter(["username", "cmdline"])
+            if process.info["username"] == _SWITCH_TARGET and process.info["cmdline"] == ["sleep", "31"]
+        ]:
+            assert loop.time() < deadline, f"processes outlived the timeout: {survivors}"
+            await asyncio.sleep(0.05)
+
+    @pytest.mark.skipif(
+        pwd.getpwuid(os.geteuid()).pw_name != _SWITCH_TARGET,
+        reason="needs to run as the docker test image's devuser, which is neither root nor a sudoer",
+    )
+    @pytest.mark.asyncio
+    async def test_a_user_switch_without_root_or_sudo_is_rejected(self):
+        """runuser as non-root used to fail inside the child and come back as an ordinary exit 1."""
+        executor = BashExecutor()
+
+        with pytest.raises(BashExecutorUserSwitchError, match="passwordless sudo"):
+            await executor.execute_bash_command("true", user="appuser")
+
+    @pytest.mark.asyncio
+    async def test_the_servers_own_user_needs_no_switch(self):
+        """The server image runs as appuser, so `user="appuser"` must work without root or sudo."""
+        executor = BashExecutor()
+        own_user = pwd.getpwuid(os.geteuid()).pw_name
+
+        stdout, _stderr, exit_code = await executor.execute_bash_command("id -un", user=own_user, strip_output=True)
+
+        assert (stdout, exit_code) == (own_user, 0)
+
+    @pytest.mark.asyncio
     async def test_a_script_far_larger_than_the_argument_limit_runs(self):
         """MAX_ARG_STRLEN is 128 KiB; this script is well past it and used to fail with E2BIG."""
         executor = BashExecutor()
@@ -222,14 +411,14 @@ class TestBashExecutor:
     async def test_the_script_file_is_removed_after_the_command(self, monkeypatch):
         executor = BashExecutor()
         written: list[str] = []
-        original = bash_executor_module._write_script
+        original = bash_executor_module._create_script_file
 
-        def record(script, readable_by_other_user):
-            path = original(script, readable_by_other_user)
+        def record():
+            descriptor, path = original()
             written.append(path)
-            return path
+            return descriptor, path
 
-        monkeypatch.setattr(bash_executor_module, "_write_script", record)
+        monkeypatch.setattr(bash_executor_module, "_create_script_file", record)
 
         await executor.execute_bash_command("true")
 
@@ -239,14 +428,14 @@ class TestBashExecutor:
     async def test_the_script_file_is_removed_after_a_timeout(self, monkeypatch):
         executor = BashExecutor()
         written: list[str] = []
-        original = bash_executor_module._write_script
+        original = bash_executor_module._create_script_file
 
-        def record(script, readable_by_other_user):
-            path = original(script, readable_by_other_user)
+        def record():
+            descriptor, path = original()
             written.append(path)
-            return path
+            return descriptor, path
 
-        monkeypatch.setattr(bash_executor_module, "_write_script", record)
+        monkeypatch.setattr(bash_executor_module, "_create_script_file", record)
 
         with pytest.raises(BashCommandExecutionTimeoutError):
             await executor.execute_bash_command("sleep 10", timeout=0.2, graceful_termination_timeout=0.1)

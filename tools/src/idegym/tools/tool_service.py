@@ -38,7 +38,8 @@ class ToolService:
                 graceful_termination_timeout = parameters.get("graceful_termination_timeout", 2.0)
                 max_output_bytes = parameters.get("max_output_bytes", DEFAULT_MAX_OUTPUT_BYTES)
                 strip_output = parameters.get("strip_output", False)
-                if not command:
+                # `is None` rather than falsiness: an empty script is a valid no-op that exits 0.
+                if command is None:
                     raise ValueError("Missing 'command' in parameters for bash tool")
                 stdout, stderr, exit_code = await self.bash_executor.execute_bash_command(
                     command=command,

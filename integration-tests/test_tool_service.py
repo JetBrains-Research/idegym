@@ -2,7 +2,7 @@ from asyncio import Future
 from unittest import IsolatedAsyncioTestCase, main
 from unittest.mock import MagicMock
 
-from idegym.api.tools.bash import BashCommandRequest
+from idegym.api.tools.bash import DEFAULT_MAX_OUTPUT_BYTES, BashCommandRequest
 from idegym.tools.router import execute_bash_script
 from idegym.tools.tool_service import ToolService
 
@@ -52,6 +52,25 @@ class TestToolService(IsolatedAsyncioTestCase):
         await self.service.execute_tool("bash", {"command": "echo 'Hello'", "strip_output": True})
 
         self.assertTrue(self.service.bash_executor.execute_bash_command.call_args.kwargs["strip_output"])
+
+    async def test_execute_bash_tool_runs_an_empty_script(self):
+        """An empty script is a no-op that exits 0, as documented; it used to be a 500."""
+        self.service.bash_executor.execute_bash_command.return_value = Future()
+        self.service.bash_executor.execute_bash_command.return_value.set_result(("", "", 0))
+
+        result = await self.service.execute_tool("bash", {"command": ""})
+
+        self.assertEqual(result, ("", "", 0))
+        self.service.bash_executor.execute_bash_command.assert_called_once_with(
+            command="",
+            timeout=600.0,
+            graceful_termination_timeout=2.0,
+            max_output_bytes=DEFAULT_MAX_OUTPUT_BYTES,
+            strip_output=False,
+            cwd=None,
+            env=None,
+            user=None,
+        )
 
     async def test_execute_bash_tool_missing_command(self):
         parameters = {}

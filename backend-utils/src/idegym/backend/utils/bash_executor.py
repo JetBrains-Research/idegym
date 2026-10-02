@@ -4,14 +4,18 @@ import os
 import pwd
 import re
 import shlex
+import shutil
 import signal
+import sys
 import tempfile
 from asyncio.subprocess import Process
 from collections import deque
+from enum import StrEnum
 from importlib.resources import files
 from pathlib import Path
 from typing import Optional
 
+from idegym.api.exceptions import IdeGYMException
 from idegym.backend import resources
 from idegym.backend.utils.environment import cleanenv
 from idegym.utils.logging import get_logger
@@ -27,9 +31,43 @@ _PROCESS_REAP_TIMEOUT_SECONDS = 0.25
 _EXPORT_ASSIGNMENT_PATTERN = re.compile(
     r"""\bexport[ \t]+(?P<name>[A-Za-z_][A-Za-z0-9_]*)=(?:'[^']*'|"[^"]*"|[^\s;&|)]*)"""
 )
+# Resolved once, against the server's own PATH: the child is spawned with the caller's `env`,
+# so a bare name would be looked up in a PATH the caller chose — `env={"PATH": "/opt/tool/bin"}`
+# then failed with FileNotFoundError, which surfaced as a 404 rather than anything actionable.
+_BASH = shutil.which("bash") or "/bin/bash"
+_RUNUSER = shutil.which("runuser") or "/usr/sbin/runuser"
+_SUDO = shutil.which("sudo") or "/usr/bin/sudo"
+# `bash <file>` would set `$0` to the temp path and prefix every error with it
+# (`/tmp/idegym-bash-k3j9x.sh: line 1: ...`, a different name per call), which broke stderr
+# comparisons and made `$(dirname "$0")` resolve to /tmp. Evaluating the file's contents inside
+# `bash -c` keeps what callers had before the script moved out of argv: `$0` is `bash` and errors
+# read `bash: line N:`. The script arrives on an inherited descriptor rather than by path (see
+# `_process_argv`), which is read and then closed so the command's own children do not inherit
+# it. The file is never empty — the init prefix is in it — so an empty read is a failure.
+_EVAL_SCRIPT_DESCRIPTOR = (
+    'IFS= read -r -d "" -u {fd} __idegym_script || [ -n "$__idegym_script" ] || '
+    '{{ echo "IdeGYM: cannot read the bash script" >&2 ; exit 1 ; }} ; '
+    'exec {fd}<&- ; eval "unset __idegym_script ; $__idegym_script"'
+)
+# The descriptor number the sudo trampoline places the script on. sudo closes every inherited
+# descriptor above stderr, so the trampoline has to reopen the file on the far side.
+_SUDO_SCRIPT_DESCRIPTOR = 3
+# Runs as root under `sudo`, so it can open the server user's private files. sudo also rewrites
+# the environment it passes on — `secure_path` replaces PATH, and `env_delete` drops LD_*,
+# PYTHONPATH, BASH_ENV and others — so the environment the executor built travels in a file
+# and is restored verbatim for `runuser`.
+_SUDO_TRAMPOLINE = f"""
+import os, sys
+script, environment, *argv = sys.argv[1:]
+os.dup2(os.open(script, os.O_RDONLY), {_SUDO_SCRIPT_DESCRIPTOR})
+os.set_inheritable({_SUDO_SCRIPT_DESCRIPTOR}, True)
+with open(environment, "rb") as handle:
+    entries = handle.read().split(b"\\0")
+os.execve(argv[0], argv, dict(entry.split(b"=", 1) for entry in entries if entry))
+"""
 
 
-class BashExecutorError(Exception):
+class BashExecutorError(IdeGYMException):
     pass
 
 
@@ -37,12 +75,29 @@ class BashCommandExecutionTimeoutError(BashExecutorError):
     pass
 
 
-class BashExecutorUnknownUserError(BashExecutorError):
+class BashExecutorRequestError(BashExecutorError):
+    """Caller-supplied context the executor cannot honour: a bad request, not a server fault.
+
+    The server maps this whole family to 400 in one handler, so every caller of the executor —
+    the tools router, rewards, project reset — reports it the same way.
+    """
+
+
+class BashExecutorUnknownUserError(BashExecutorRequestError):
     """The requested ``user`` does not exist in the container."""
 
 
-class BashExecutorWorkingDirectoryError(BashExecutorError):
+class BashExecutorWorkingDirectoryError(BashExecutorRequestError):
     """The requested ``cwd`` does not exist or is not a directory."""
+
+
+class BashExecutorUserSwitchError(BashExecutorRequestError):
+    """The server can neither ``runuser`` (it is not root) nor ``sudo`` without a password."""
+
+
+class _UserSwitch(StrEnum):
+    RUNUSER = "runuser"
+    SUDO = "sudo"
 
 
 class _OutputCollector:
@@ -210,8 +265,11 @@ def _prepend_bash_integration(command: str) -> str:
     # `;` rather than `&&` so the caller's script keeps its own semantics, but the init is still
     # guarded: without this a missing or unreadable init left the script running in an
     # unconfigured shell and failing later as "command not found", with the caller's exit code.
-    guard = f'source {init} || {{ echo "IdeGYM: failed to source the bash integration at {init}" >&2 ; exit 1 ; }}'
-    return f"{guard} ; {command}"
+    # The guard tests readability rather than the status of `source`, which is that of the last
+    # command in the sourced chain — a `~/.bashrc` ending in `[ -f ~/.fzf.bash ] && ...` would
+    # otherwise abort every command.
+    guard = f'[ -r {init} ] || {{ echo "IdeGYM: cannot read the bash integration at {init}" >&2 ; exit 1 ; }}'
+    return f"{guard} ; source {init} ; {command}"
 
 
 def _user_environment(user: str) -> dict[str, str]:
@@ -230,45 +288,105 @@ def _user_environment(user: str) -> dict[str, str]:
     return {"HOME": entry.pw_dir, "USER": user, "LOGNAME": user, "SHELL": entry.pw_shell or "/bin/bash"}
 
 
-def _process_argv(script_path: str, user: Optional[str]) -> list[str]:
-    """Build the argv that runs the script file, optionally dropping to another user.
+def _process_argv(descriptor: int, user: Optional[str]) -> list[str]:
+    """Build the argv that runs the script held open on ``descriptor``, optionally as ``user``.
 
     ``runuser`` is used rather than ``su`` because it does not authenticate and keeps the
     caller's environment, which is what the ``env`` argument has already been merged into.
+
+    The script reaches bash as an inherited descriptor, not a path, so the file can stay 0600
+    and owned by the server's user even when ``user`` is someone else: the descriptor was opened
+    before the privilege drop, and ``runuser`` passes it through. Reopening it by path — even as
+    ``/dev/fd/N`` — would be checked against the target user and refused, which is what made
+    the file world-readable before. The alternative, ``chown`` to the target user, needs root on
+    the server side and leaves a file in the sticky temp directory the server can no longer
+    delete.
     """
-    invocation = ["bash", script_path]
+    invocation = [_BASH, "-c", _EVAL_SCRIPT_DESCRIPTOR.format(fd=descriptor), "bash"]
     if user is None:
         return invocation
-    return ["runuser", "--preserve-environment", "-u", user, "--", *invocation]
+    return [_RUNUSER, "--preserve-environment", "-u", user, "--", *invocation]
 
 
-def _write_script(script: str, readable_by_other_user: bool) -> str:
-    """Write the script to a temp file and return its path.
+def _sudo_argv(script_path: str, environment_path: str, user: str) -> list[str]:
+    """Build the argv that reaches ``runuser`` through ``sudo`` when the server is not root.
+
+    The server image runs as a non-root user with passwordless sudo, where ``runuser`` alone
+    fails. sudo closes inherited descriptors and rewrites the environment, so rather than
+    handing the target command either directly, it runs a root-side trampoline that reopens
+    the script, restores the environment from ``environment_path``, and then execs the same
+    ``runuser`` argv the root path uses.
+    """
+    return _root_python_argv(
+        _SUDO_TRAMPOLINE, script_path, environment_path, *_process_argv(_SUDO_SCRIPT_DESCRIPTOR, user)
+    )
+
+
+def _root_python_argv(code: str, *arguments: str) -> list[str]:
+    """Run ``code`` as root through passwordless sudo, isolated from the environment sudo leaves."""
+    return [_SUDO, "-n", "--", sys.executable, "-I", "-S", "-c", code, *arguments]
+
+
+async def _succeeds(argv: list[str]) -> bool:
+    """Run a helper command without any I/O and report whether it exited 0."""
+    try:
+        helper = await asyncio.create_subprocess_exec(
+            *argv,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+    except OSError:
+        return False
+    return await helper.wait() == 0
+
+
+def _create_script_file() -> tuple[int, str]:
+    """Create a private (0600) temp file for the script and return its descriptor and path.
 
     Passing the script as a ``bash -c`` argument capped it at Linux's ``MAX_ARG_STRLEN``
     (128 KiB), and an oversized script failed with a bare ``E2BIG`` rather than anything a
     caller could act on. A file has no such ceiling, and unlike feeding bash on stdin it leaves
     the command's own stdin alone — a script read from stdin is consumed incrementally, so any
     command inside it that reads stdin would swallow the rest of the script.
+
+    This runs on the event loop rather than in a worker thread on purpose: a request cancelled
+    while ``mkstemp`` ran in a thread lost the path, and with it the only way to remove the file.
     """
-    descriptor, path = tempfile.mkstemp(prefix="idegym-bash-", suffix=".sh")
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            handle.write(script)
-        if readable_by_other_user:
-            # mkstemp creates 0600, which the target user of `runuser` could not read.
-            # TODO: 0644 also exposes the script to any co-tenant process for the duration of the
-            # run, which matters because callers do put credentials in scripts (see
-            # `_redact_exports`). Prefer `os.chown(path, uid, -1)` with 0600, or a directory only
-            # the target user can traverse.
-            os.chmod(path, 0o644)
-    except BaseException:
-        _remove_script(path)
-        raise
-    return path
+    return tempfile.mkstemp(prefix="idegym-bash-", suffix=".sh")
 
 
-def _remove_script(path: str) -> None:
+def _write_script(descriptor: int, script: str) -> None:
+    """Write the script through ``descriptor``, which stays open and owned by the caller.
+
+    The offset is rewound because the child reads through the same open file description.
+    """
+    with os.fdopen(descriptor, "w", encoding="utf-8", closefd=False) as handle:
+        handle.write(script)
+    os.lseek(descriptor, 0, os.SEEK_SET)
+
+
+def _write_environment(descriptor: int, environment: dict[str, str]) -> None:
+    """Write ``environment`` as NUL-separated ``NAME=value`` entries for the sudo trampoline."""
+    entries = b"".join(os.fsencode(name) + b"=" + os.fsencode(value) + b"\0" for name, value in environment.items())
+    with os.fdopen(descriptor, "wb", closefd=False) as handle:
+        handle.write(entries)
+
+
+def _write_files(
+    script_descriptor: int,
+    script: str,
+    environment_descriptor: Optional[int],
+    environment: dict[str, str],
+) -> None:
+    _write_script(script_descriptor, script)
+    if environment_descriptor is not None:
+        _write_environment(environment_descriptor, environment)
+
+
+def _discard_script(descriptor: int, path: str) -> None:
+    with contextlib.suppress(OSError):
+        os.close(descriptor)
     with contextlib.suppress(OSError):
         os.unlink(path)
 
@@ -313,8 +431,34 @@ async def _wait_for_process_group_exit(process_group_id: int, timeout: float) ->
     return True
 
 
-async def terminate_process_group(process: Process, graceful_termination_timeout: float = 2.0) -> None:
-    if not _signal_process_group(process, signal.SIGTERM):
+async def _sudo_signal_process_group(process_group_id: int, requested_signal: signal.Signals) -> bool:
+    """Signal a process group through sudo, for members that run as another user.
+
+    Under the sudo trampoline the group holds root's ``runuser`` and the target user's
+    processes, none of which the server's own user may signal: a plain ``killpg`` reaches only
+    ``sudo``, which relays to its direct child, and the command's own children outlived a
+    timeout.
+    """
+    return await _succeeds(
+        _root_python_argv(
+            "import os, sys; os.killpg(int(sys.argv[1]), int(sys.argv[2]))",
+            str(process_group_id),
+            str(int(requested_signal)),
+        )
+    )
+
+
+async def _signal_group(process: Process, requested_signal: signal.Signals, through_sudo: bool) -> bool:
+    signalled = _signal_process_group(process, requested_signal)
+    if through_sudo:
+        signalled = await _sudo_signal_process_group(process.pid, requested_signal) or signalled
+    return signalled
+
+
+async def terminate_process_group(
+    process: Process, graceful_termination_timeout: float = 2.0, through_sudo: bool = False
+) -> None:
+    if not await _signal_group(process, signal.SIGTERM, through_sudo):
         logger.info(f"Process group {process.pid} was already terminated")
         return
 
@@ -322,7 +466,7 @@ async def terminate_process_group(process: Process, graceful_termination_timeout
         logger.info(f"Process group {process.pid} terminated gracefully")
         return
 
-    if _signal_process_group(process, signal.SIGKILL):
+    if await _signal_group(process, signal.SIGKILL, through_sudo):
         logger.info(f"Process group {process.pid} was forcefully killed")
     else:
         logger.info(f"Process group {process.pid} was already terminated")
@@ -331,6 +475,37 @@ async def terminate_process_group(process: Process, graceful_termination_timeout
 class BashExecutor:
     def __init__(self, working_directory: Optional[Path] = None):
         self.working_directory = working_directory
+        self._sudo_available: Optional[bool] = None
+
+    async def _can_sudo(self) -> bool:
+        """Whether the trampoline can run through ``sudo`` without a password; checked once."""
+        if self._sudo_available is None:
+            self._sudo_available = await _succeeds(_root_python_argv(""))
+        return self._sudo_available
+
+    async def resolve_user_switch(self, user: Optional[str]) -> Optional[_UserSwitch]:
+        """Decide how to run as ``user``, or return ``None`` when no switch is needed.
+
+        Asking for the server's own user is not a switch. Otherwise root drops privileges with
+        ``runuser`` directly; a non-root server goes through passwordless ``sudo``, which is
+        how the server image is set up. A server that can do neither rejects the request up
+        front — ``runuser`` would only have failed inside the child, as an ordinary exit 1.
+        """
+        if user is None:
+            return None
+        try:
+            entry = pwd.getpwnam(user)
+        except KeyError:
+            raise BashExecutorUnknownUserError(f"No such user in this container: {user}") from None
+        if entry.pw_uid == os.geteuid():
+            return None
+        if os.geteuid() == 0:
+            return _UserSwitch.RUNUSER
+        if await self._can_sudo():
+            return _UserSwitch.SUDO
+        raise BashExecutorUserSwitchError(
+            f"Cannot run as {user}: the server is neither root nor allowed passwordless sudo"
+        )
 
     def resolve_working_directory(self, cwd: Optional[str]) -> Optional[Path]:
         """Resolve a per-command ``cwd`` against the executor's directory.
@@ -373,11 +548,12 @@ class BashExecutor:
         ``cwd``, ``env`` and ``user`` give a caller per-command context without having to
         synthesize it into the script — an environment variable set through ``env`` never
         enters the command text, so it is not logged with it. ``user`` requires the executor
-        to run as root, since it shells out through ``runuser``.
+        to run as root or to have passwordless sudo; see ``resolve_user_switch``.
 
         Output is returned verbatim unless ``strip_output`` asks for surrounding
-        whitespace to be trimmed. The script itself is written to a temp file and run as
-        ``bash <file>``, so its size is not capped by the kernel's argument limit.
+        whitespace to be trimmed. The script itself is written to a temp file and evaluated
+        by ``bash -c``, so its size is not capped by the kernel's argument limit while ``$0``
+        and error prefixes stay those of ``bash -c``.
 
         Returns a tuple of (stdout, stderr, exit_code).
         Raises BashCommandExecutionTimeoutError if the timeout is exceeded.
@@ -385,6 +561,7 @@ class BashExecutor:
         stdout_collector = _OutputCollector(max_output_bytes)
         stderr_collector = _OutputCollector(max_output_bytes)
         working_directory = self.resolve_working_directory(cwd)
+        switch = await self.resolve_user_switch(user)
         # The user's identity goes on before the caller's env, so an explicit HOME still wins.
         environment = cleanenv() | (_user_environment(user) if user is not None else {}) | (env or {})
         logger.info(
@@ -393,48 +570,70 @@ class BashExecutor:
             cwd=str(working_directory) if working_directory else None,
             env_names=sorted(env) if env else [],
             user=user,
+            user_switch=switch,
         )
         logger.debug("Bash command", command=_command_excerpt(command))
 
         bash_command = _prepend_bash_integration(command)
-        script_path = await asyncio.to_thread(_write_script, bash_command, user is not None)
+        through_sudo = switch is _UserSwitch.SUDO
+        descriptor, script_path = _create_script_file()
+        environment_descriptor: Optional[int] = None
+        environment_path: Optional[str] = None
+        # Everything from here to the cleanup is one try/finally, so a cancellation at any await
+        # still reaches the paths. The write is shielded and awaited in the cleanup because the
+        # worker thread keeps using the descriptors after a cancelled await has returned.
+        write: Optional[asyncio.Future[None]] = None
         try:
+            if through_sudo:
+                # sudo cannot pass the environment through intact, so the trampoline reads it.
+                environment_descriptor, environment_path = _create_script_file()
+            write = asyncio.ensure_future(
+                asyncio.to_thread(_write_files, descriptor, bash_command, environment_descriptor, environment)
+            )
+            await asyncio.shield(write)
+            if through_sudo:
+                argv, inherited = _sudo_argv(script_path, environment_path, user), ()
+            else:
+                argv, inherited = _process_argv(descriptor, None if switch is None else user), (descriptor,)
             process = await asyncio.create_subprocess_exec(
-                *_process_argv(script_path, user),
+                *argv,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=working_directory,
                 preexec_fn=os.setsid,
                 env=environment,
+                pass_fds=inherited,
             )
-        except BaseException:
-            _remove_script(script_path)
-            raise
 
-        communication_task = asyncio.create_task(
-            _communicate_bounded(process, stdout_collector, stderr_collector),
-            name=f"bash-output-{process.pid}",
-        )
-        termination_started = False
-        timed_out = False
-        try:
+            communication_task = asyncio.create_task(
+                _communicate_bounded(process, stdout_collector, stderr_collector),
+                name=f"bash-output-{process.pid}",
+            )
+            termination_started = False
+            timed_out = False
             try:
-                await asyncio.wait_for(asyncio.shield(communication_task), timeout=timeout)
-            except TimeoutError:
-                timed_out = True
-                termination_started = True
-                await terminate_process_group(process, graceful_termination_timeout)
-            except asyncio.CancelledError:
-                termination_started = True
-                await terminate_process_group(process, graceful_termination_timeout)
-                raise
+                try:
+                    await asyncio.wait_for(asyncio.shield(communication_task), timeout=timeout)
+                except TimeoutError:
+                    timed_out = True
+                    termination_started = True
+                    await terminate_process_group(process, graceful_termination_timeout, through_sudo)
+                except asyncio.CancelledError:
+                    termination_started = True
+                    await terminate_process_group(process, graceful_termination_timeout, through_sudo)
+                    raise
+            finally:
+                if not termination_started and (process.returncode is None or not communication_task.done()):
+                    await terminate_process_group(process, graceful_termination_timeout, through_sudo)
+                await _finish_output_drain(process, communication_task)
+                _close_output_pipes(process)
+                await _reap_process(process)
         finally:
-            if not termination_started and (process.returncode is None or not communication_task.done()):
-                await terminate_process_group(process, graceful_termination_timeout)
-            await _finish_output_drain(process, communication_task)
-            _close_output_pipes(process)
-            await _reap_process(process)
-            _remove_script(script_path)
+            if write is not None:
+                await asyncio.gather(write, return_exceptions=True)
+            _discard_script(descriptor, script_path)
+            if environment_descriptor is not None:
+                _discard_script(environment_descriptor, environment_path)
 
         if timed_out:
             logger.warning(
