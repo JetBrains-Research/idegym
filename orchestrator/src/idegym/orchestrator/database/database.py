@@ -28,13 +28,19 @@ from idegym.utils.serializer import serialize_as_json_string
 from opentelemetry.instrumentation.asyncpg import AsyncPGInstrumentor
 from opentelemetry.instrumentation.psycopg2 import Psycopg2Instrumentor
 from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
-from sqlalchemy import Text, delete, func, select, text, update
+from sqlalchemy import Text, delete, func, literal, select, text, update
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 from sqlalchemy.ext.asyncio import async_sessionmaker as AsyncSessionMaker
 
 logger = get_logger(__name__)
 
 SessionFactory: Optional[AsyncSessionMaker[AsyncSession]] = None
+
+# Advisory lock guarding the set of limit rules: shared while quota is reserved or released,
+# exclusive while rules are created, edited, or deleted, or their counters rebuilt. The other
+# advisory locks in use are MIGRATION_LOCK_ID (42239) and the watcher's cleanup lock (16082).
+RULE_SET_LOCK_ID = 51307
 
 # A server's CPU, RAM, and pod slot are counted against its limit rule from the moment it is saved
 # until it enters one of these states. FINISHED keeps its share, since a finished server stays
@@ -585,6 +591,38 @@ async def update_idegym_server_heartbeat(
     return server
 
 
+async def settle_deletion_failed_server(db: AsyncSession, server_id: int) -> Optional[IdeGYMServer]:
+    """Mark a DELETION_FAILED server STOPPED and release its quota, once its Deployment is gone.
+
+    DELETION_FAILED keeps its quota because its Deployment may still be running, and as a terminal
+    status nothing moves it on, so a server whose Deployment was later deleted by hand would hold
+    its CPU, RAM, and pod slot forever. Any other status is returned untouched.
+
+    The rule is locked before the server row, which is the order a quota release takes (the rule
+    while it runs, the server row when it commits), so the two cannot deadlock. The row is then
+    re-read under its lock, so two callers release the quota once.
+    """
+    server = await get_idegym_server(db, server_id)
+    if server is None or server.availability != AvailabilityStatus.DELETION_FAILED:
+        return server
+    await find_matching_resource_limit_rule(db, server.client_name, for_update=True)
+    locked = (
+        select(IdeGYMServer)
+        .filter(IdeGYMServer.id == server_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    server = (await db.execute(locked)).scalar_one()
+    if server.availability != AvailabilityStatus.DELETION_FAILED:
+        await db.commit()
+        return server
+    server.availability = AvailabilityStatus.STOPPED
+    server.last_heartbeat_time = current_time_millis()
+    await subtract_resources_from_rule(db, server.client_name, server.cpu, server.ram)
+    await db.commit()
+    return server
+
+
 async def subtract_resources_from_rule(
     db: AsyncSession, client_name: str, cpu_amount: float, ram_amount: float
 ) -> None:
@@ -806,6 +844,107 @@ async def update_resource_limit_rule(
     return rule
 
 
+async def lock_resource_limit_rules(db: AsyncSession) -> list[ResourceLimitRule]:
+    """Take the rule set for this transaction: no quota is reserved or released until it ends.
+
+    Every reservation and release holds the rule set lock in shared mode for its whole transaction
+    (:func:`find_matching_resource_limit_rule` with ``for_update``); taking it exclusively here waits
+    for those in flight to commit and holds back new ones until this transaction does. So the
+    servers read after this point are final, and a reservation that follows matches against the
+    rules as this transaction leaves them. The rows are locked too, so they read as current.
+    """
+    await db.execute(select(func.pg_advisory_xact_lock(RULE_SET_LOCK_ID)))
+    result = await db.execute(select(ResourceLimitRule).order_by(ResourceLimitRule.id).with_for_update())
+    return list(result.scalars().all())
+
+
+async def recalculate_rule_usage(db: AsyncSession) -> dict[int, tuple[RuleUsage, RuleUsage]]:
+    """Rebuild every rule's usage counters from the servers table, inside the caller's transaction.
+
+    The rule set is locked first, so a reservation or release racing this one either committed
+    before the servers were read (and is counted) or waits for this commit (and then adjusts the
+    rebuilt counters under the rules as they now stand), so the result is exact. Returns each rule's
+    counters before and after.
+    """
+    rules = await lock_resource_limit_rules(db)
+    usage = await recompute_rule_usage(db)
+    changes: dict[int, tuple[RuleUsage, RuleUsage]] = {}
+    for rule in rules:
+        before = RuleUsage(rule.current_pods, rule.used_cpu, rule.used_ram)
+        after = usage.get(rule.id, RuleUsage(0, 0.0, 0.0))
+        rule.current_pods, rule.used_cpu, rule.used_ram = after
+        changes[rule.id] = (before, after)
+    return changes
+
+
+async def regex_error(db: AsyncSession, regex: str) -> Optional[str]:
+    """PostgreSQL's complaint about ``regex``, or ``None`` if it compiles.
+
+    Quota enforcement matches with PostgreSQL's ``~``, whose dialect differs from Python's ``re``,
+    so only PostgreSQL can say whether a rule's regex is usable.
+    """
+    try:
+        async with db.begin_nested():
+            await db.execute(select(literal("", Text).op("~")(regex)))
+    except DBAPIError as error:
+        return str(error.orig).splitlines()[-1] if error.orig else str(error)
+    return None
+
+
+async def save_resource_limit_rule(
+    db: AsyncSession,
+    rule_id: Optional[int],
+    client_name_regex: str,
+    pods_limit: int,
+    cpu_limit: float,
+    ram_limit: float,
+    priority: int,
+) -> Optional[ResourceLimitRule]:
+    """Create a rule (``rule_id`` of ``None``) or update one, then rebuild every rule's counters.
+
+    A new rule, a changed regex, or a changed priority moves servers from one rule to another, and
+    their eventual release is charged to whichever rule matches then; rebuilding the counters in
+    the same transaction keeps both sides in step. Returns ``None`` for an unknown ``rule_id``.
+    """
+    rules = {rule.id: rule for rule in await lock_resource_limit_rules(db)}
+    if rule_id is None:
+        rule = ResourceLimitRule(
+            client_name_regex=client_name_regex,
+            pods_limit=pods_limit,
+            cpu_limit=cpu_limit,
+            ram_limit=ram_limit,
+            priority=priority,
+        )
+        db.add(rule)
+    else:
+        rule = rules.get(rule_id)
+        if rule is None:
+            return None
+        rule.client_name_regex = client_name_regex
+        rule.pods_limit = pods_limit
+        rule.cpu_limit = cpu_limit
+        rule.ram_limit = ram_limit
+        rule.priority = priority
+    await db.flush()
+    await recalculate_rule_usage(db)
+    await db.commit()
+    await db.refresh(rule)
+    return rule
+
+
+async def delete_resource_limit_rule(db: AsyncSession, rule_id: int) -> bool:
+    """Delete a rule and hand its servers to whichever rule matches them now."""
+    rules = {rule.id: rule for rule in await lock_resource_limit_rules(db)}
+    rule = rules.get(rule_id)
+    if rule is None:
+        return False
+    await db.delete(rule)
+    await db.flush()
+    await recalculate_rule_usage(db)
+    await db.commit()
+    return True
+
+
 async def find_matching_resource_limit_rule(
     db: AsyncSession, client_name: str, for_update: bool = False
 ) -> Optional[ResourceLimitRule]:
@@ -815,6 +954,12 @@ async def find_matching_resource_limit_rule(
     Uses PostgreSQL's ~ operator for regex matching and orders by priority descending
     so that more specific rules win over the catch-all ".*" default.
     Pass for_update=True to lock the selected row for a subsequent update.
+
+    With ``for_update`` the caller is about to reserve or release quota, so it first takes the rule
+    set lock in shared mode (see :func:`lock_resource_limit_rules`), in a statement of its own: the
+    match below then reads a snapshot taken after any rule edit in flight has committed. Row locks
+    alone are not enough, because a SELECT that waits on a locked row re-checks that row but does not
+    re-run its ORDER BY, and so would still pick the winner from the rules as they were before.
     """
     query = (
         select(ResourceLimitRule)
@@ -824,6 +969,7 @@ async def find_matching_resource_limit_rule(
     )
 
     if for_update:
+        await db.execute(select(func.pg_advisory_xact_lock_shared(RULE_SET_LOCK_ID)))
         query = query.with_for_update()
 
     result = await db.execute(query)

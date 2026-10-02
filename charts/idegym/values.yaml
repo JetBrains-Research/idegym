@@ -127,6 +127,11 @@ ingress:
 # the dashboard shows no Grafana links, and without a datasource UID it hides that kind of link.
 # The URL is the one a browser reaches, not an in-cluster service address.
 dashboard:
+  # Buttons that change things: stop and restart servers, stop clients, edit resource limit rules,
+  # rebuild usage counters, delete orphaned Deployments. The orchestrator authenticates nobody, so
+  # enable this only when an authenticating proxy (e.g. oauth2-proxy) guards /dashboard.
+  actions:
+    enabled: false
   grafana:
     url: ""  # e.g. https://grafana.example.com
     orgId: ""

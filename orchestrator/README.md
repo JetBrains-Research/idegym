@@ -582,6 +582,25 @@ servers still holding quota (every status outside `QUOTA_RELEASING_STATUSES`), m
 name to its rule in the database, so it applies PostgreSQL's regex rules exactly as quota enforcement
 does.
 
+With `IDEGYM_DASHBOARD_ACTIONS_ENABLED` set (`dashboard.actions.enabled` in the chart) the pages
+also offer actions, all `POST`s under `/dashboard` defined in `router/dashboard_actions.py`:
+
+| Path | Action |
+|------|--------|
+| `POST /dashboard/servers/{id}/stop` | Stop a server: the regular stop operation, which releases its quota and deletes its Deployment |
+| `POST /dashboard/servers/{id}/restart` | Restart a server's pods |
+| `POST /dashboard/clients/{id}/stop` | Stop a client and all of its servers |
+| `POST /dashboard/rules`, `POST /dashboard/rules/{id}` | Create or update a resource limit rule |
+| `POST /dashboard/rules/{id}/delete` | Delete a rule (never the `.*` catch-all) |
+| `POST /dashboard/health/recalculate` | Rebuild every rule's usage counters from the servers table |
+| `POST /dashboard/health/orphans/delete` | Delete a sandbox Deployment no live server row expects |
+
+Creating, updating, or deleting a rule rebuilds every rule's counters in the same transaction,
+because a new regex or priority moves servers from one rule to another and their release is later
+charged to whichever rule matches then. Every reservation and release holds an advisory lock on
+the rule set in shared mode, and an edit takes it exclusively, so a start or stop racing an edit is
+either counted by the rebuild or waits for it and then matches against the rules as they now stand.
+
 When `IDEGYM_GRAFANA_URL` and a datasource UID are set, each server, pod, and client links to its
 logs and traces in Grafana Explore; see
 [Linking the dashboard to Grafana](https://jetbrains-research.github.io/idegym/reference/remote_deployment#linking-the-dashboard-to-grafana).

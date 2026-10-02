@@ -40,8 +40,28 @@
   </div>
 </header>
 <main class="page">
+  {% set notice = request.query_params.get("notice") if request else None %}
+  {% if notice %}
+    {% set level = request.query_params.get("level", "good") %}
+    <div class="callout callout-{{ 'critical' if level == 'critical' else 'good' }} notice" role="status">
+      <div><strong>{{ "✕" if level == "critical" else "✓" }}</strong> {{ notice }}</div>
+      <a class="notice-close" href="{{ request.url.path }}" aria-label="Dismiss">✕</a>
+    </div>
+  {% endif %}
   {% block content %}{% endblock %}
 </main>
+{% if actions_enabled %}
+<dialog class="dialog" id="confirm-dialog" aria-labelledby="confirm-title">
+  <form method="dialog">
+    <h2 id="confirm-title">Are you sure?</h2>
+    <p data-confirm-message></p>
+    <div class="dialog-actions">
+      <button type="submit" value="cancel" class="button">Cancel</button>
+      <button type="submit" value="confirm" class="button button-primary" data-confirm-button>Confirm</button>
+    </div>
+  </form>
+</dialog>
+{% endif %}
 <footer class="footer">IdeGYM orchestrator {{ version }}</footer>
 </body>
 </html>

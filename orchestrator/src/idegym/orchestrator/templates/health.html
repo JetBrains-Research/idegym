@@ -35,6 +35,13 @@
       <h2>Quota counters</h2>
       <p>Each rule's stored usage against the usage recomputed from servers that still hold quota. A positive difference is quota leaked by a release that never ran.</p>
     </div>
+    {% if actions_enabled %}
+      <form class="inline" method="post" action="/dashboard/health/recalculate"
+            data-confirm="Rebuild every rule's usage counters from the servers that hold quota? Starts and stops wait for the few milliseconds it takes."
+            data-confirm-action="Rebuild counters">
+        <button type="submit" class="button{{ ' button-primary' if drifting }}">Rebuild counters</button>
+      </form>
+    {% endif %}
   </div>
   {% if not drifts %}
     {{ ui.empty("No resource limit rules") }}
@@ -78,7 +85,7 @@
   {% else %}
     <div class="table-wrap">
       <table class="table">
-        <thead><tr><th>Name</th><th>Namespace</th><th>Problem</th><th>Server</th></tr></thead>
+        <thead><tr><th>Name</th><th>Namespace</th><th>Problem</th><th>Server</th>{% if actions_enabled %}<th></th>{% endif %}</tr></thead>
         <tbody>
         {% for o in orphans %}
           <tr>
@@ -86,6 +93,21 @@
             <td>{{ o.namespace }}</td>
             <td>{{ o.problem }}</td>
             <td>{% if o.server %}<a href="/dashboard/servers/{{ o.server.id }}">{{ o.server.id }}</a> {{ ui.status(o.server.availability) }}{% else %}<span class="muted">—</span>{% endif %}</td>
+            {% if actions_enabled %}
+              <td>
+                {% if o.deployment %}
+                  <form class="inline" method="post" action="/dashboard/health/orphans/delete"
+                        data-confirm="Delete Deployment {{ o.namespace }}/{{ o.name }}? Its pods, Service, and PodDisruptionBudget go with it."
+                        data-confirm-action="Delete Deployment" data-confirm-danger>
+                    <input type="hidden" name="namespace" value="{{ o.namespace }}" />
+                    <input type="hidden" name="name" value="{{ o.name }}" />
+                    <button type="submit" class="button button-small button-danger">Delete</button>
+                  </form>
+                {% elif o.server %}
+                  <a href="/dashboard/servers/{{ o.server.id }}">Open server</a>
+                {% endif %}
+              </td>
+            {% endif %}
           </tr>
         {% endfor %}
         </tbody>

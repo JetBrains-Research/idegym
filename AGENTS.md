@@ -233,6 +233,21 @@ to a `<name>_with_config` twin holding the actual logic. The MCP tools in
 HTTP, so they have no `Request` to inject — a handler that reaches for the config itself is
 unreachable from MCP. `start_server` / `start_server_with_config` is the model.
 
+### Dashboard actions
+
+The orchestrator authenticates nobody, so every state-changing dashboard route lives in
+`orchestrator/src/idegym/orchestrator/router/dashboard_actions.py`, is a `POST`, and returns
+`refusal(request)` before doing anything: that is what enforces `IDEGYM_DASHBOARD_ACTIONS_ENABLED`
+and the same-origin check server-side, and hiding a button in a template enforces neither. An action
+calls the operation the API itself runs (`stop_server_request`, `restart_server_with_config`,
+`stop_client`) rather than deleting Kubernetes objects or editing rows directly; a raw delete skips
+the quota release, and the limit rule's counters drift. Anything that changes which rule a server
+falls under must rebuild the counters with `recalculate_rule_usage` in the same transaction, after
+`lock_resource_limit_rules`. Code that reserves or releases quota must find its rule through
+`find_matching_resource_limit_rule(..., for_update=True)`, which first takes the rule set's advisory
+lock in shared mode: row locks alone let a match that waited on a locked rule return a rule an edit
+has just outranked, because PostgreSQL re-checks the waited-on row but does not re-run the ORDER BY.
+
 ### Database migrations
 
 Read [`orchestrator/src/idegym/orchestrator/migrations/README.md`](orchestrator/src/idegym/orchestrator/migrations/README.md)

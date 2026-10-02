@@ -642,6 +642,26 @@ the `k8s.pod.name` resource attribute, which the orchestrator sets on every serv
 
 The chart turns these values into `IDEGYM_GRAFANA_*` environment variables on the orchestrator.
 
+### Dashboard actions
+
+The dashboard can also change things: stop or restart a server, stop a client with all of its
+servers, create, edit, or delete resource limit rules, rebuild the rules' usage counters, and
+delete a sandbox Deployment no server owns. The orchestrator authenticates nobody, so these are off
+until you enable them, and you should do that only behind an authenticating proxy such as
+[oauth2-proxy](https://oauth2-proxy.github.io/oauth2-proxy/) in front of `/dashboard`:
+
+```yaml
+dashboard:
+  actions:
+    enabled: true
+```
+
+Every action is a `POST` that must carry an `Origin` (or `Referer`) header naming the dashboard's
+own host, so a page on another site cannot trigger one with your proxy's login cookie. Behind a
+proxy that rewrites `Host`, make sure it passes the public host as `X-Forwarded-Host`. Each action is
+logged with the user the proxy reports in `X-Auth-Request-Email`, `X-Forwarded-Email`,
+`X-Auth-Request-User`, or `X-Forwarded-User`.
+
 ### Prometheus
 
 Only deployed if you installed with `--set prometheus.enabled=true`.
@@ -743,6 +763,8 @@ response = httpx.get("https://idegym.yourdomain.com/health", headers=headers)
 - [ ] `deployment.resources` populated with appropriate requests/limits for your workload
 - [ ] Backup strategy for PostgreSQL persistent volume
 - [ ] gVisor runtime class available on nodes if using sandboxed containers
+- [ ] `dashboard.actions.enabled` left `false` unless an authenticating proxy guards `/dashboard`;
+      see [Dashboard actions](#dashboard-actions)
 - If using pod snapshots:
     - [ ] GKE pod-snapshot feature enabled on the cluster
     - [ ] GCS bucket provisioned

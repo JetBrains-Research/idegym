@@ -468,6 +468,14 @@ class GrafanaConfig(ConfigModel):
 class DashboardConfig(ConfigModel):
     env_segment = "DASHBOARD"
 
+    actions_enabled: bool = Field(
+        description=(
+            "Let the dashboard change things: stop and restart servers, stop clients, edit resource "
+            "limit rules, delete orphaned Deployments. The orchestrator has no authentication of its "
+            "own, so enable this only behind an authenticating proxy."
+        ),
+        default=False,
+    )
     grafana: GrafanaConfig = Field(default_factory=GrafanaConfig)
 
 

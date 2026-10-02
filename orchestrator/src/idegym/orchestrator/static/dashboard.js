@@ -202,6 +202,32 @@
     });
   }
 
+  // ---- Confirmation: <form data-confirm="question" data-confirm-action="Stop" data-confirm-danger> ---
+
+  function initConfirm() {
+    const dialog = document.getElementById("confirm-dialog");
+    if (!dialog) return;
+    const message = dialog.querySelector("[data-confirm-message]");
+    const button = dialog.querySelector("[data-confirm-button]");
+    let pending = null;
+    document.addEventListener("submit", (event) => {
+      const form = event.target;
+      if (!(form instanceof HTMLFormElement) || !form.dataset.confirm) return;
+      event.preventDefault();
+      pending = form;
+      message.textContent = form.dataset.confirm;
+      button.textContent = form.dataset.confirmAction || "Confirm";
+      button.className = `button ${"confirmDanger" in form.dataset ? "button-danger-solid" : "button-primary"}`;
+      dialog.returnValue = "";
+      dialog.showModal();
+    });
+    dialog.addEventListener("close", () => {
+      // form.submit() skips the submit event, so the dialog does not open again.
+      if (dialog.returnValue === "confirm" && pending) pending.submit();
+      pending = null;
+    });
+  }
+
   // ---- Auto-refresh ------------------------------------------------------------------------
 
   function initRefresh() {
@@ -212,9 +238,11 @@
       clearTimeout(timer);
       if (toggle.checked) {
         timer = setTimeout(() => {
-          // Keep the page quiet while someone is typing into a filter or reading a dialog.
+          // Keep the page quiet while someone is filling in a field, editing a rule, or reading a
+          // confirmation: a reload would throw all of that away.
           const active = document.activeElement;
-          if (active && active.matches("input[type=text], input[type=search], textarea") && active.value) {
+          const typing = active && active.matches("input:not([type=checkbox]), select, textarea");
+          if (typing || document.querySelector("dialog[open], details.editor[open]")) {
             schedule();
             return;
           }
@@ -238,6 +266,7 @@
     initSorting();
     initFilters();
     initLogs();
+    initConfirm();
     initRefresh();
   });
 })();

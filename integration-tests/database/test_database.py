@@ -18,6 +18,7 @@ from idegym.orchestrator.database.database import (
     create_client,
     create_resource_limit_rule,
     delete_old_async_operations,
+    delete_resource_limit_rule,
     find_matching_finished_server,
     find_matching_resource_limit_rule,
     get_alive_clients,
@@ -40,13 +41,18 @@ from idegym.orchestrator.database.database import (
     get_recent_job_statuses,
     get_resource_limit_rule,
     get_running_idegym_servers,
+    lock_resource_limit_rules,
     mark_stale_async_operations_as_finished,
     need_to_release_nodes,
     need_to_spin_up_nodes,
+    recalculate_rule_usage,
     recompute_rule_usage,
+    regex_error,
     save_async_operation,
     save_idegym_server,
     save_job_status,
+    save_resource_limit_rule,
+    settle_deletion_failed_server,
     subtract_resources_from_rule,
     update_async_operation,
     update_client_heartbeat,
@@ -936,3 +942,140 @@ async def test_get_recent_job_statuses_is_newest_first(db: AsyncSession):
     second = await save_job_status(db, job_name="build-2", tag="registry.example.com/a:2")
 
     assert [job.id for job in await get_recent_job_statuses(db)] == [second.id, first.id]
+
+
+async def test_recalculate_rule_usage_rebuilds_drifted_counters(db: AsyncSession):
+    rule = await _make_rule(db, ".*")
+    client = await _make_client(db)
+    await _make_server(db, client, cpu=1.5, ram=3.0)
+    rule.current_pods, rule.used_cpu, rule.used_ram = 7, 99.0, 99.0
+    await db.commit()
+
+    changes = await recalculate_rule_usage(db)
+    await db.commit()
+
+    before, after = changes[rule.id]
+    assert before == (7, 99.0, 99.0)
+    assert after == (1, 1.5, 3.0)
+    refreshed = await get_resource_limit_rule(db, rule.id)
+    assert (refreshed.current_pods, refreshed.used_cpu, refreshed.used_ram) == (1, 1.5, 3.0)
+
+
+async def test_a_new_higher_priority_rule_takes_over_its_clients_usage(db: AsyncSession):
+    catch_all = await _make_rule(db, ".*")
+    client = await _make_client(db, "team-alpha")
+    await _make_server(db, client, cpu=2.0, ram=4.0)
+    catch_all.current_pods, catch_all.used_cpu, catch_all.used_ram = 1, 2.0, 4.0
+    await db.commit()
+
+    team = await save_resource_limit_rule(db, None, "^team-", pods_limit=5, cpu_limit=10.0, ram_limit=20.0, priority=10)
+
+    assert (team.current_pods, team.used_cpu, team.used_ram) == (1, 2.0, 4.0)
+    refreshed = await get_resource_limit_rule(db, catch_all.id)
+    assert (refreshed.current_pods, refreshed.used_cpu, refreshed.used_ram) == (0, 0.0, 0.0)
+
+
+async def test_updating_an_unknown_rule_returns_none(db: AsyncSession):
+    assert await save_resource_limit_rule(db, 404, ".*", 1, 1.0, 1.0, 0) is None
+
+
+async def test_deleting_a_rule_hands_its_usage_back(db: AsyncSession):
+    catch_all = await _make_rule(db, ".*")
+    team = await _make_rule(db, "^team-", priority=10)
+    client = await _make_client(db, "team-alpha")
+    await _make_server(db, client, cpu=2.0, ram=4.0)
+    await recalculate_rule_usage(db)
+    await db.commit()
+
+    assert await delete_resource_limit_rule(db, team.id)
+
+    assert await get_resource_limit_rule(db, team.id) is None
+    refreshed = await get_resource_limit_rule(db, catch_all.id)
+    assert (refreshed.current_pods, refreshed.used_cpu, refreshed.used_ram) == (1, 2.0, 4.0)
+    assert not await delete_resource_limit_rule(db, team.id)
+
+
+async def test_regex_error_uses_postgres_rules(db: AsyncSession):
+    assert await regex_error(db, "^team-[a-z]+$") is None
+    assert await regex_error(db, "(unclosed") is not None
+    # The session stays usable after a rejected regex.
+    assert await get_alive_clients(db) == []
+
+
+async def test_settling_a_deletion_failed_server_releases_its_quota_once(db: AsyncSession):
+    rule = await _make_rule(db, ".*")
+    client = await _make_client(db)
+    server = await _make_server(db, client, cpu=2.0, ram=4.0, availability=AvailabilityStatus.DELETION_FAILED)
+    rule.current_pods, rule.used_cpu, rule.used_ram = 1, 2.0, 4.0
+    await db.commit()
+
+    settled = await settle_deletion_failed_server(db, server.id)
+    again = await settle_deletion_failed_server(db, server.id)
+
+    assert settled.availability == AvailabilityStatus.STOPPED
+    assert again.availability == AvailabilityStatus.STOPPED
+    refreshed = await get_resource_limit_rule(db, rule.id)
+    assert (refreshed.current_pods, refreshed.used_cpu, refreshed.used_ram) == (0, 0.0, 0.0)
+
+
+async def test_settling_leaves_other_statuses_alone(db: AsyncSession):
+    rule = await _make_rule(db, ".*")
+    client = await _make_client(db)
+    server = await _make_server(db, client)
+    rule.current_pods, rule.used_cpu, rule.used_ram = 1, 1.0, 2.0
+    await db.commit()
+
+    assert (await settle_deletion_failed_server(db, server.id)).availability == AvailabilityStatus.ALIVE
+    assert (await get_resource_limit_rule(db, rule.id)).current_pods == 1
+    assert await settle_deletion_failed_server(db, 404) is None
+
+
+async def test_a_release_racing_a_rule_edit_is_charged_to_the_rule_it_ends_up_under(db: AsyncSession, db_url: str):
+    """A release that starts while a new rule is being added must see that rule once it exists.
+
+    The edit rebuilds the counters with the server still counted (its release is not committed),
+    under the new rule. Were the release to match against the rules as they stood when it started,
+    it would subtract from the catch-all instead and leave the new rule over-counted for good.
+    """
+    import asyncio
+
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    catch_all = await _make_rule(db, ".*")
+    client = await _make_client(db, "team-alpha")
+    server = await _make_server(db, client, cpu=2.0, ram=4.0)
+    catch_all.current_pods, catch_all.used_cpu, catch_all.used_ram = 1, 2.0, 4.0
+    await db.commit()
+
+    async def release(session: AsyncSession) -> None:
+        stopped = await get_idegym_server(session, server.id)
+        stopped.availability = AvailabilityStatus.STOPPED
+        await subtract_resources_from_rule(session, client.name, stopped.cpu, stopped.ram)
+        await session.commit()
+
+    engine = create_async_engine(db_url, pool_size=2, max_overflow=0)
+    sessions = async_sessionmaker(bind=engine, expire_on_commit=False, autoflush=False)
+    try:
+        async with sessions() as editing, sessions() as releasing:
+            await lock_resource_limit_rules(editing)
+            team = ResourceLimitRule(
+                client_name_regex="^team-", pods_limit=5, cpu_limit=10.0, ram_limit=20.0, priority=9
+            )
+            editing.add(team)
+            await editing.flush()
+            await recalculate_rule_usage(editing)
+
+            releasing_task = asyncio.create_task(release(releasing))
+            await asyncio.sleep(0.5)
+            assert not releasing_task.done(), "the release must wait for the rule edit"
+
+            await editing.commit()
+            await asyncio.wait_for(releasing_task, timeout=10)
+            team_id = team.id
+    finally:
+        await engine.dispose()
+
+    for rule_id in (catch_all.id, team_id):
+        rule = await get_resource_limit_rule(db, rule_id)
+        await db.refresh(rule)
+        assert (rule.current_pods, rule.used_cpu, rule.used_ram) == (0, 0.0, 0.0), rule.client_name_regex

@@ -33,6 +33,7 @@
           <th data-sort="number">Registered</th>
           <th data-sort="number">Last heartbeat</th>
           {% if grafana and grafana.loki_enabled %}<th>Grafana</th>{% endif %}
+          {% if actions_enabled %}<th></th>{% endif %}
         </tr>
         </thead>
         <tbody>
@@ -47,6 +48,15 @@
             <td class="nowrap" data-value="{{ c.last_heartbeat_time or 0 }}">{{ ui.when(c.last_heartbeat_time) }}</td>
             {% if grafana and grafana.loki_enabled %}
               <td><span class="links">{{ ui.link(grafana.client_logs(c), "Mentions") }}</span></td>
+            {% endif %}
+            {% if actions_enabled %}
+              <td>
+                <form class="inline" method="post" action="/dashboard/clients/{{ c.id }}/stop"
+                      data-confirm="Stop client {{ c.name }}? Every one of its servers is stopped and deleted."
+                      data-confirm-action="Stop client" data-confirm-danger>
+                  <button type="submit" class="button button-small button-danger">Stop</button>
+                </form>
+              </td>
             {% endif %}
           </tr>
         {% endfor %}
