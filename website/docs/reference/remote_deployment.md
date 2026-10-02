@@ -614,6 +614,34 @@ kubectl get secret grafana -n idegym -o jsonpath='{.data.admin-password}' | base
 
 For production, expose Grafana via its own Ingress rather than port-forwarding.
 
+### Linking the dashboard to Grafana
+
+The orchestrator dashboard can link every server, pod, and client straight to its logs (Loki) and
+traces (Tempo) in Grafana Explore. It works with any Grafana the browser can reach, not only the
+bundled one, and nothing is linked until you configure it:
+
+```yaml
+dashboard:
+  grafana:
+    url: https://grafana.example.com # as the browser reaches it
+    orgId: 1 # optional
+    loki:
+      datasourceUid: loki-uid # Grafana → Connections → Data sources → the datasource's URL
+      labels: # optional selectors added to every log query
+        cluster: my-cluster
+      namespaceLabel: "" # optional; defaults to "namespace"
+      podLabel: "" # optional; defaults to "pod"
+    tempo:
+      datasourceUid: tempo-uid
+```
+
+Without a Loki UID the log links are hidden, and without a Tempo UID the trace links are. The label
+names depend on how logs reach Loki: promtail and Grafana Alloy use `namespace` and `pod`, while an
+OpenTelemetry collector typically uses `k8s_namespace_name` and `k8s_pod_name`. Trace links filter on
+the `k8s.pod.name` resource attribute, which the orchestrator sets on every server pod it starts.
+
+The chart turns these values into `IDEGYM_GRAFANA_*` environment variables on the orchestrator.
+
 ### Prometheus
 
 Only deployed if you installed with `--set prometheus.enabled=true`.

@@ -551,15 +551,21 @@ Status values: `SCHEDULED`, `IN_PROGRESS`, `SUCCEEDED`, `FAILED`, `CANCELLED`, `
 
 ### Dashboard
 
-The orchestrator ships a lightweight HTML dashboard for monitoring:
+The orchestrator ships an HTML dashboard for monitoring. It needs no build step: the pages are Jinja
+templates under `templates/`, and the stylesheet and script under `static/` are served from
+`/dashboard/static`, so it works on networks without CDN access.
 
 | Path | Description |
 |------|-------------|
-| `GET /` | Dashboard home |
+| `GET /` | Overview: counts of alive servers and clients, resource usage per rule |
 | `GET /dashboard/servers` | Running servers with status and image |
 | `GET /dashboard/clients` | Alive clients with heartbeat times |
 | `GET /dashboard/pods` | Live Kubernetes pods (paginated, filterable by label selector) |
-| `GET /dashboard/rules` | Resource limit rules |
+| `GET /dashboard/rules` | Resource limit rules with usage meters |
+
+When `IDEGYM_GRAFANA_URL` and a datasource UID are set, each server, pod, and client links to its
+logs and traces in Grafana Explore; see
+[Linking the dashboard to Grafana](https://jetbrains-research.github.io/idegym/reference/remote_deployment#linking-the-dashboard-to-grafana).
 
 ---
 

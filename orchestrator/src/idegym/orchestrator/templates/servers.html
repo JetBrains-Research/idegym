@@ -1,61 +1,71 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Alive Servers — IdeGYM Orchestrator</title>
-  <style>
-    body{font-family:Arial,Helvetica,sans-serif;margin:20px;color:#222;background:#fafafa}
-    h1{font-size:22px;margin-bottom:8px}
-    .layout{max-width:1200px;margin:0 auto}
-    .muted{color:#777;font-size:13px}
-    table{border-collapse:collapse;width:100%;background:#fff}
-    th,td{border:1px solid #ddd;padding:8px;font-size:14px}
-    th{background:#f0f0f0;text-align:left}
-    tr:nth-child(even){background:#f9f9f9}
-    a{color:#0a62c9;text-decoration:none}
-    a:hover{text-decoration:underline}
-  </style>
-</head>
-<body>
-<div class="layout">
-  <h1>Alive Servers</h1>
-  <p class="muted">List of currently alive servers (pods) with requested resources and last availability time. <a href="/">Back to Home</a></p>
-
-  {% if not alive_servers %}
-    <p>No running pods found.</p>
-  {% else %}
-    <table>
-      <thead>
-      <tr>
-        <th>ID</th>
-        <th>Name</th>
-        <th>Client</th>
-        <th>Namespace</th>
-        <th>Image Tag</th>
-        <th>Runtime</th>
-        <th>CPU</th>
-        <th>RAM (GB)</th>
-        <th>Last Heartbeat</th>
-      </tr>
-      </thead>
-      <tbody>
-      {% for s in alive_servers %}
-        <tr>
-          <td>{{ s.id }}</td>
-          <td>{{ s.generated_name or '' }}</td>
-          <td>{{ s.client_name or '' }}</td>
-          <td>{{ s.namespace or '' }}</td>
-          <td>{{ s.image_tag or '' }}</td>
-          <td>{{ s.container_runtime or '' }}</td>
-          <td>{{ '%.2f' % s.cpu }}</td>
-          <td>{{ '%.2f' % s.ram }}</td>
-          <td>{{ s.last_heartbeat_time | format_ts }}</td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
-  {% endif %}
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Servers{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Servers</h1>
+    <p>Alive and reused servers with their requested resources and last heartbeat.</p>
+  </div>
 </div>
-</body>
-</html>
+
+<section class="card">
+  <div class="card-header">
+    <div class="filters">
+      <label class="field"><span>Filter</span>
+        <input class="input" type="search" data-filter="servers-table" placeholder="Name, client, image…" size="32" />
+      </label>
+    </div>
+    <span class="muted"><span data-filter-count="servers-table">{{ alive_servers | length }}</span> of {{ alive_servers | length }} servers</span>
+  </div>
+  {% if not alive_servers %}
+    {{ ui.empty("No alive servers", "Servers appear here once a client starts one.") }}
+  {% else %}
+    <div class="table-wrap">
+      <table class="table" id="servers-table" data-sortable>
+        <thead>
+        <tr>
+          <th data-sort="number">ID</th>
+          <th data-sort="text">Name</th>
+          <th data-sort="text">Status</th>
+          <th data-sort="text">Client</th>
+          <th data-sort="text">Image</th>
+          <th data-sort="number" class="num">CPU</th>
+          <th data-sort="number" class="num">RAM (GB)</th>
+          <th data-sort="number">Started</th>
+          <th data-sort="number">Last heartbeat</th>
+          {% if grafana and grafana.enabled %}<th>Grafana</th>{% endif %}
+        </tr>
+        </thead>
+        <tbody>
+        {% for s in alive_servers %}
+          <tr>
+            <td data-value="{{ s.id }}">{{ s.id }}</td>
+            <td>
+              {{ ui.ident(s.generated_name) }}
+              <div class="muted">{{ s.namespace }}{% if s.container_runtime %} · {{ s.container_runtime }}{% endif %}{% if s.server_kind and s.server_kind != "idegym" %} · {{ s.server_kind }}{% endif %}</div>
+            </td>
+            <td>{{ ui.status(s.availability) }}</td>
+            <td>{{ s.client_name or "" }}</td>
+            <td class="mono secondary">{{ s.image_tag or "" }}</td>
+            <td class="num" data-value="{{ s.cpu }}">{{ "%.2f" | format(s.cpu or 0) }}</td>
+            <td class="num" data-value="{{ s.ram }}">{{ "%.2f" | format(s.ram or 0) }}</td>
+            <td class="nowrap" data-value="{{ s.created_at or 0 }}">{{ ui.when(s.created_at) }}</td>
+            <td class="nowrap" data-value="{{ s.last_heartbeat_time or 0 }}">{{ ui.when(s.last_heartbeat_time) }}</td>
+            {% if grafana and grafana.enabled %}
+              <td>
+                <span class="links">
+                  {{ ui.link(grafana.server_logs(s), "Logs") }}
+                  {{ ui.link(grafana.server_mentions(s), "Mentions") }}
+                  {{ ui.link(grafana.server_traces(s), "Traces") }}
+                </span>
+              </td>
+            {% endif %}
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

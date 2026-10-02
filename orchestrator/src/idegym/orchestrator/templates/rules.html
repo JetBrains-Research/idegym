@@ -1,61 +1,44 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Resource Limits — IdeGYM Orchestrator</title>
-  <style>
-    body{font-family:Arial,Helvetica,sans-serif;margin:20px;color:#222;background:#fafafa}
-    h1{font-size:22px;margin-bottom:8px}
-    .layout{max-width:1200px;margin:0 auto}
-    .muted{color:#777;font-size:13px}
-    table{border-collapse:collapse;width:100%;background:#fff}
-    th,td{border:1px solid #ddd;padding:8px;font-size:14px}
-    th{background:#f0f0f0;text-align:left}
-    tr:nth-child(even){background:#f9f9f9}
-    a{color:#0a62c9;text-decoration:none}
-    a:hover{text-decoration:underline}
-  </style>
-</head>
-<body>
-<div class="layout">
-  <h1>Resource Limiter Rules</h1>
-  <p class="muted">Configured rules and current usage values. <a href="/">Back to Home</a></p>
-
-  {% if not rules %}
-    <p>No resource limit rules defined.</p>
-  {% else %}
-    <table>
-      <thead>
-      <tr>
-        <th>ID</th>
-        <th>Client Name Regex</th>
-        <th>Priority</th>
-        <th>Pods Limit</th>
-        <th>Current Pods</th>
-        <th>CPU Limit</th>
-        <th>Used CPU</th>
-        <th>RAM Limit (GB)</th>
-        <th>Used RAM (GB)</th>
-      </tr>
-      </thead>
-      <tbody>
-      {% for r in rules %}
-        <tr>
-          <td>{{ r.id }}</td>
-          <td>{{ r.client_name_regex }}</td>
-          <td>{{ r.priority }}</td>
-          <td>{{ r.pods_limit }}</td>
-          <td>{{ r.current_pods }}</td>
-          <td>{{ '%.2f' % r.cpu_limit }}</td>
-          <td>{{ '%.2f' % r.used_cpu }}</td>
-          <td>{{ '%.2f' % r.ram_limit }}</td>
-          <td>{{ '%.2f' % r.used_ram }}</td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
-  {% endif %}
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Resource limits{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Resource limits</h1>
+    <p>Rules are matched against the client name by regex; the highest priority match wins.</p>
+  </div>
 </div>
-</body>
-</html>
+
+<section class="card">
+  {% if not rules %}
+    {{ ui.empty("No resource limit rules", "The orchestrator creates a catch-all rule on startup.") }}
+  {% else %}
+    <div class="table-wrap">
+      <table class="table" data-sortable>
+        <thead>
+        <tr>
+          <th data-sort="number">ID</th>
+          <th data-sort="text">Client name regex</th>
+          <th data-sort="number" class="num">Priority</th>
+          <th>Pods</th>
+          <th>CPU</th>
+          <th>RAM</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for r in rules %}
+          <tr>
+            <td data-value="{{ r.id }}">{{ r.id }}</td>
+            <td><code>{{ r.client_name_regex }}</code></td>
+            <td class="num" data-value="{{ r.priority }}">{{ r.priority }}</td>
+            <td>{{ ui.meter("Pods", r.current_pods, r.pods_limit, precision=0) }}</td>
+            <td>{{ ui.meter("CPU", r.used_cpu, r.cpu_limit, " cores") }}</td>
+            <td>{{ ui.meter("RAM", r.used_ram, r.ram_limit, " GB") }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

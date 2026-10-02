@@ -4,6 +4,7 @@ from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from fastmcp.utilities.lifespan import combine_lifespans
 from httpx import AsyncClient, Limits, Timeout
 from idegym.api.config import Config
@@ -26,6 +27,7 @@ from idegym.orchestrator.router import (
     server,
     snapshot,
 )
+from idegym.orchestrator.templating import STATIC_DIR, STATIC_URL
 from idegym.utils import __version__
 from idegym.utils.logging import get_logger
 from opentelemetry.instrumentation.aiohttp_client import AioHttpClientInstrumentor
@@ -124,6 +126,7 @@ def create_app() -> FastAPI:
     app.include_router(async_operation.router)
     app.include_router(snapshot.router)
     app.include_router(dashboard.router)
+    app.mount(STATIC_URL, StaticFiles(directory=STATIC_DIR), name="dashboard-static")
     app.mount("/mcp", mcp_app)
 
     AsyncioInstrumentor().instrument()

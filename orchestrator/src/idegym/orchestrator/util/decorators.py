@@ -1,6 +1,5 @@
 from asyncio import CancelledError
 from functools import wraps
-from pathlib import Path
 from types import NoneType
 from typing import Any
 
@@ -13,10 +12,10 @@ from idegym.orchestrator.database.helpers import (
     update_operation_with_error,
     update_server_status,
 )
+from idegym.orchestrator.templating import templates
 from idegym.orchestrator.util.errors import format_error
 from idegym.utils.logging import get_logger
 from pydantic import BaseModel
-from starlette.templating import Jinja2Templates
 from starlette.websockets import WebSocketState
 
 logger = get_logger(__name__)
@@ -252,8 +251,6 @@ def render_dashboard_error(message: str, back_url: str = "/", log_message: str |
                     if isinstance(candidate, Request):
                         req = candidate
 
-                templates_dir = str(Path(__file__).parent.parent / "templates")
-                templates = Jinja2Templates(directory=templates_dir)
                 logger.exception(log_message or message)
                 context = {
                     "message": message,

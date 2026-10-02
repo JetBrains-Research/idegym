@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}Overview{% endblock %} · IdeGYM</title>
+  <script>
+    // Set the theme before the first paint so a dark-theme user never sees a light flash.
+    try { const t = localStorage.getItem("idegym-theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
+  <link rel="stylesheet" href="{{ static_url }}/dashboard.css?v={{ version }}" />
+  <script src="{{ static_url }}/dashboard.js?v={{ version }}" defer></script>
+  {% block head %}{% endblock %}
+</head>
+<body>
+{% set nav = [
+  ("overview", "/", "Overview"),
+  ("servers", "/dashboard/servers", "Servers"),
+  ("clients", "/dashboard/clients", "Clients"),
+  ("pods", "/dashboard/pods", "Pods"),
+  ("rules", "/dashboard/rules", "Resource limits"),
+] %}
+<header class="topbar">
+  <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">G</span>IdeGYM</a>
+  <nav class="nav" aria-label="Dashboard">
+    {% for key, href, label in nav %}
+      <a href="{{ href }}"{% if active == key %} aria-current="page"{% endif %}>{{ label }}</a>
+    {% endfor %}
+  </nav>
+  <div class="toolbar">
+    <label class="toggle" title="Reload this page every 15 seconds">
+      <input type="checkbox" data-auto-refresh /> Auto-refresh
+    </label>
+    <button type="button" class="button button-icon" data-theme-toggle title="Theme" aria-label="Change theme">◐</button>
+  </div>
+</header>
+<main class="page">
+  {% block content %}{% endblock %}
+</main>
+<footer class="footer">IdeGYM orchestrator {{ version }}</footer>
+</body>
+</html>
