@@ -303,12 +303,14 @@ def _page_request(enabled: bool = True) -> Request:
     )
 
 
-async def test_the_shell_page_loads_the_vendored_terminal(client) -> None:
+async def test_the_shell_page_loads_the_terminal_from_the_cdn(client) -> None:
     response = await dashboard_shell.shell_page(_page_request(), namespace="idegym", pod_name="srv-7-5d8f7c9b4-x2kqp")
     html = response.body.decode()
 
     assert response.status_code == 200, html
-    assert "/dashboard/static/vendor/xterm/xterm.js" in html
+    assert "https://cdn.jsdelivr.net/npm/@xterm/xterm@6.0.0/lib/xterm.js" in html
+    assert "https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.11.0/lib/addon-fit.js" in html
+    assert "/dashboard/static/shell.js" in html
     assert 'data-shell="/dashboard/pods/idegym/srv-7-5d8f7c9b4-x2kqp/exec?container=server"' in html
     assert "data-no-auto-refresh" in html
 

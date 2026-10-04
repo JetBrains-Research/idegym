@@ -2,9 +2,10 @@
 {% import "_macros.html" as ui %}
 {% block title %}Shell · {{ pod.name }}{% endblock %}
 {% block head %}
-  <link rel="stylesheet" href="{{ static_url }}/vendor/xterm/xterm.css?v={{ version }}" />
-  <script src="{{ static_url }}/vendor/xterm/xterm.js?v={{ version }}" defer></script>
-  <script src="{{ static_url }}/vendor/xterm/addon-fit.js?v={{ version }}" defer></script>
+  {# The terminal emulator comes from jsDelivr, pinned by version; nothing else on the dashboard is third-party code. #}
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@6.0.0/css/xterm.css" />
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@6.0.0/lib/xterm.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.11.0/lib/addon-fit.js" defer></script>
   <script src="{{ static_url }}/shell.js?v={{ version }}" defer></script>
 {% endblock %}
 {% block content %}

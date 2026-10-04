@@ -650,8 +650,8 @@ relayed through the orchestrator the way `kubectl exec -it` works, for debugging
 `/dashboard/pods/{namespace}/{pod}/exec` (`router/dashboard_shell.py`, `pod_shell.py`). It opens
 only in pods labelled as IdeGYM servers, never in the orchestrator's or PostgreSQL's, closes after
 30 minutes without input, and logs every session with the user the proxy reports. The terminal is
-[xterm.js](https://github.com/xtermjs/xterm.js), vendored under `static/vendor/xterm/`; its README
-there lists the versions and how to upgrade them.
+[xterm.js](https://github.com/xtermjs/xterm.js), which the browser loads from jsDelivr at the
+version pinned in `templates/shell.html`; the rest of the dashboard has no third-party code.
 
 When `IDEGYM_GRAFANA_URL` and a datasource UID are set, each server, pod, and client links to its
 logs and traces in Grafana Explore; see

@@ -684,7 +684,9 @@ The same caveat applies as for actions, only more so, since this is a shell in e
 it only behind an authenticating proxy. The WebSocket handshake must carry an `Origin` naming the
 dashboard's host, the shell opens only in pods labelled as IdeGYM servers, a session closes after 30
 minutes without input, and each one is logged with the user and why it ended. Your proxy and ingress
-must allow WebSocket upgrades on `/dashboard`, as they already must for `/api/ws-forward`.
+must allow WebSocket upgrades on `/dashboard`, as they already must for `/api/ws-forward`. The
+terminal itself is [xterm.js](https://xtermjs.org), which the browser loads from `cdn.jsdelivr.net`,
+so the person using the shell needs access to that CDN; the cluster does not.
 
 ### Prometheus
 

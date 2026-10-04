@@ -153,10 +153,6 @@ out — `UP045`, `UP040`, `PYI041` — each with a comment in `pyproject.toml` e
 
 - **Adding an ignore requires a written reason** in the same place. An unexplained entry in
   `ignore` or `per-file-ignores` will be asked about in review.
-- **Vendored assets are exempt from every pre-commit hook.** The top-level `exclude` in
-  `.pre-commit-config.yaml` skips `orchestrator/src/idegym/orchestrator/static/vendor/`, so the
-  end-of-file and whitespace fixers cannot rewrite a minified third-party file away from the
-  published package it was copied from. Upgrade those files as their `README.md` describes.
 - **Per-file relaxations apply only to `*-tests/**`, `examples/**`, and `scripts/**`.**
   Library code keeps full enforcement — do not widen a glob to silence a finding in `src`.
 - **`ruff check --fix` (safe fixes) is fine; `--unsafe-fixes` is not, unattended.** Unsafe

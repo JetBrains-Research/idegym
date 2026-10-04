@@ -10,8 +10,18 @@
 
   function start() {
     const root = document.querySelector("[data-shell]");
-    if (!root || typeof Terminal === "undefined") return;
+    if (!root) return;
     const status = document.querySelector("[data-shell-status]");
+    if (typeof Terminal === "undefined" || typeof FitAddon === "undefined") {
+      // The emulator is loaded from jsDelivr; a browser that cannot reach it gets no terminal.
+      if (status) {
+        status.className = "badge badge-critical";
+        status.textContent = "Unavailable";
+      }
+      root.textContent = "The terminal library could not be loaded from cdn.jsdelivr.net. Check this browser's network access.";
+      root.style.color = "#e7e6e1";
+      return;
+    }
     const styles = getComputedStyle(document.documentElement);
 
     const terminal = new Terminal({
