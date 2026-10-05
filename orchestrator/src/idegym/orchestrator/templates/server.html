@@ -12,6 +12,18 @@
     </p>
   </div>
   <div class="page-actions">
+    {% if actions_enabled and server.availability in ("ALIVE", "REUSED") %}
+      <form class="inline" method="post" action="/dashboard/servers/{{ server.id }}/restart"
+            data-confirm="Restart {{ server.generated_name }}? Its pods are recreated, and anything running inside them is lost."
+            data-confirm-action="Restart server">
+        <button type="submit" class="button">Restart</button>
+      </form>
+      <form class="inline" method="post" action="/dashboard/servers/{{ server.id }}/stop"
+            data-confirm="Stop {{ server.generated_name }}? Its Deployment is deleted together with its pods, Service, and PodDisruptionBudget, and its quota is released."
+            data-confirm-action="Stop server" data-confirm-danger>
+        <button type="submit" class="button button-danger">Stop</button>
+      </form>
+    {% endif %}
     {% if grafana and grafana.enabled %}
       {% set logs = grafana.server_logs(server) %}
       {% set mentions = grafana.server_mentions(server) %}

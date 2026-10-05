@@ -395,3 +395,36 @@ a.tile:hover { text-decoration: none; border-color: var(--baseline); }
 .log-line:hover { background: rgba(255, 255, 255, 0.05); }
 .log-line[hidden] { display: none; }
 .log mark { background: #6b4f00; color: #fff; border-radius: 2px; }
+
+/* ---- Actions: notices, confirmation dialog, inline forms ---------------------------------- */
+
+.callout-good { border-color: color-mix(in oklab, var(--good) 40%, var(--hairline)); background: color-mix(in oklab, var(--good) 8%, var(--surface)); }
+.notice { align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.notice-close { color: var(--ink-muted); padding: 0 4px; }
+.notice-close:hover { color: var(--ink); text-decoration: none; }
+
+form.inline { display: inline-flex; margin: 0; }
+
+.button-danger-solid { background: var(--critical); border-color: var(--critical); color: #fff; }
+.button-danger-solid:hover { background: color-mix(in oklab, var(--critical) 85%, #000); border-color: transparent; }
+
+.dialog {
+  width: min(460px, calc(100vw - 32px));
+  padding: 20px;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--surface-raised);
+  color: var(--ink);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
+}
+.dialog::backdrop { background: rgba(11, 11, 11, 0.45); backdrop-filter: blur(2px); }
+.dialog h2 { font-size: 16px; }
+.dialog p { color: var(--ink-secondary); margin: 8px 0 18px; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; align-items: end; }
+.form-grid .wide { grid-column: span 2; }
+details.editor > summary { list-style: none; cursor: pointer; }
+details.editor > summary::-webkit-details-marker { display: none; }
+details.editor[open] { padding-bottom: 8px; }
+details.editor .form-grid { margin-top: 10px; min-width: 560px; }

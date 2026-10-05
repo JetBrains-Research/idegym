@@ -66,11 +66,17 @@ def grafana_links(request: Request) -> GrafanaLinks:
 
 def render(request: Request, name: str, active: str, status_code: int = 200, **context: Any) -> HTMLResponse:
     """Render a dashboard page with what every page's layout expects."""
+    config: Config = request.app.state.config
     return templates.TemplateResponse(
         request=request,
         name=name,
         status_code=status_code,
-        context={"active": active, "grafana": grafana_links(request), **context},
+        context={
+            "active": active,
+            "grafana": grafana_links(request),
+            "actions_enabled": config.orchestrator.dashboard.actions_enabled,
+            **context,
+        },
     )
 
 

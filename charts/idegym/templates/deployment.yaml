@@ -85,6 +85,10 @@ spec:
               value: {{ .Values.deployment.uvicornWorkers | quote }}
             - name: IDEGYM_MCP_STATELESS_HTTP
               value: {{ .Values.deployment.mcp.statelessHttp | quote | title }}
+            {{- if .Values.dashboard.actions.enabled }}
+            - name: IDEGYM_DASHBOARD_ACTIONS_ENABLED
+              value: "True"
+            {{- end }}
             {{- with .Values.dashboard.grafana }}
             {{- if .url }}
             - name: IDEGYM_GRAFANA_URL

@@ -1,6 +1,29 @@
 {% extends "base.html" %}
 {% import "_macros.html" as ui %}
 {% block title %}Resource limits{% endblock %}
+
+{% macro rule_fields(rule=None) -%}
+  {% set catch_all = rule and rule.client_name_regex == ".*" %}
+  <div class="form-grid">
+    <label class="field wide"><span>Client name regex (PostgreSQL)</span>
+      <input class="input mono" type="text" name="client_name_regex" required value="{{ rule.client_name_regex if rule else '' }}"
+             placeholder="^team-alpha"{% if catch_all %} readonly title="The catch-all rule's regex cannot change"{% endif %} />
+    </label>
+    <label class="field"><span>Priority</span>
+      <input class="input" type="number" name="priority" required step="1" value="{{ rule.priority if rule else 10 }}" />
+    </label>
+    <label class="field"><span>Pods</span>
+      <input class="input" type="number" name="pods_limit" required min="0" step="1" value="{{ rule.pods_limit if rule else 10 }}" />
+    </label>
+    <label class="field"><span>CPU cores</span>
+      <input class="input" type="number" name="cpu_limit" required min="0" step="any" value="{{ rule.cpu_limit if rule else 10 }}" />
+    </label>
+    <label class="field"><span>RAM (GB)</span>
+      <input class="input" type="number" name="ram_limit" required min="0" step="any" value="{{ rule.ram_limit if rule else 20 }}" />
+    </label>
+  </div>
+{%- endmacro %}
+
 {% block content %}
 <div class="page-header">
   <div>
@@ -8,6 +31,20 @@
     <p>Rules are matched against the client name by regex; the highest priority match wins.</p>
   </div>
 </div>
+
+{% if actions_enabled %}
+<section class="card">
+  <details class="editor card-body">
+    <summary><span class="button button-primary">＋ New rule</span></summary>
+    <form method="post" action="/dashboard/rules"
+          data-confirm="Create this rule? Every rule's usage counters are rebuilt, since servers of matching clients now count against it."
+          data-confirm-action="Create rule">
+      {{ rule_fields() }}
+      <div style="margin-top: 12px"><button type="submit" class="button button-primary">Create rule</button></div>
+    </form>
+  </details>
+</section>
+{% endif %}
 
 <section class="card">
   {% if not rules %}
@@ -23,17 +60,40 @@
           <th>Pods</th>
           <th>CPU</th>
           <th>RAM</th>
+          {% if actions_enabled %}<th></th>{% endif %}
         </tr>
         </thead>
         <tbody>
         {% for r in rules %}
           <tr>
             <td data-value="{{ r.id }}">{{ r.id }}</td>
-            <td><code>{{ r.client_name_regex }}</code></td>
+            <td><code>{{ r.client_name_regex }}</code>{% if r.client_name_regex == ".*" %} <span class="muted">catch-all</span>{% endif %}</td>
             <td class="num" data-value="{{ r.priority }}">{{ r.priority }}</td>
             <td>{{ ui.meter("Pods", r.current_pods, r.pods_limit, precision=0) }}</td>
             <td>{{ ui.meter("CPU", r.used_cpu, r.cpu_limit, " cores") }}</td>
             <td>{{ ui.meter("RAM", r.used_ram, r.ram_limit, " GB") }}</td>
+            {% if actions_enabled %}
+              <td class="nowrap">
+                <details class="editor">
+                  <summary><span class="button button-small">Edit</span></summary>
+                  <form method="post" action="/dashboard/rules/{{ r.id }}"
+                        data-confirm="Save rule {{ r.id }}? Every rule's usage counters are rebuilt, since a new regex or priority moves servers between rules."
+                        data-confirm-action="Save rule">
+                    {{ rule_fields(r) }}
+                    <div style="margin-top: 12px; display: flex; gap: 8px">
+                      <button type="submit" class="button button-primary">Save</button>
+                    </div>
+                  </form>
+                </details>
+                {% if r.client_name_regex != ".*" %}
+                  <form class="inline" method="post" action="/dashboard/rules/{{ r.id }}/delete"
+                        data-confirm="Delete rule {{ r.id }} ({{ r.client_name_regex }})? Its clients fall back to the next rule that matches them."
+                        data-confirm-action="Delete rule" data-confirm-danger>
+                    <button type="submit" class="button button-small button-danger">Delete</button>
+                  </form>
+                {% endif %}
+              </td>
+            {% endif %}
           </tr>
         {% endfor %}
         </tbody>

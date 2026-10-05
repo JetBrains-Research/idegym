@@ -653,3 +653,26 @@ async def test_health_page_reports_namespaces_it_cannot_list(database, kube, moc
     html = _html(await dashboard.dashboard_health(_request("/dashboard/health")))
 
     assert "Could not list Deployments" in html
+
+
+@pytest.mark.parametrize(
+    ("enabled", "availability", "offered"),
+    [
+        (True, AvailabilityStatus.ALIVE, True),
+        (True, AvailabilityStatus.CRASHED, False),
+        (False, AvailabilityStatus.ALIVE, False),
+    ],
+)
+async def test_server_page_offers_stop_and_restart_only_when_they_can_work(
+    server_page, mocker, enabled: bool, availability: AvailabilityStatus, offered: bool
+) -> None:
+    mocker.patch.object(
+        dashboard, "get_idegym_server", mocker.AsyncMock(return_value=_server(availability=availability))
+    )
+    request = _request("/dashboard/servers/7")
+    request.app.state.config.orchestrator.dashboard.actions_enabled = enabled
+
+    html = _html(await dashboard.dashboard_server(request, server_id=7))
+
+    assert ('action="/dashboard/servers/7/stop"' in html) is offered
+    assert ('action="/dashboard/servers/7/restart"' in html) is offered
