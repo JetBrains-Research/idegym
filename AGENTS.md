@@ -250,6 +250,9 @@ falls under must rebuild the counters with `recalculate_rule_usage` in the same 
 `find_matching_resource_limit_rule(..., for_update=True)`, which first takes the rule set's advisory
 lock in shared mode: row locks alone let a match that waited on a locked rule return a rule an edit
 has just outranked, because PostgreSQL re-checks the waited-on row but does not re-run the ORDER BY.
+The pod shell (`router/dashboard_shell.py`) is guarded the same way at the WebSocket handshake,
+and re-reads the pod to check it carries the sandbox labels before any exec: the page's links are
+not a check, and a shell in the orchestrator's or PostgreSQL's pod exposes the database credentials.
 
 ### Database migrations
 

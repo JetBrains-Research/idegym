@@ -44,6 +44,7 @@ from idegym.orchestrator.router.server import restart_server_with_config, stop_s
 from idegym.utils.logging import get_logger
 from kubernetes_asyncio.client import ApiException
 from sqlalchemy import select
+from starlette.requests import HTTPConnection
 
 router = APIRouter(prefix="/dashboard")
 logger = get_logger(__name__)
@@ -63,11 +64,11 @@ def actions_enabled(request: Request) -> bool:
     return config.orchestrator.dashboard.actions_enabled
 
 
-def acting_user(request: Request) -> str:
+def acting_user(request: HTTPConnection) -> str:
     return next((request.headers[name] for name in _USER_HEADERS if request.headers.get(name)), "unknown")
 
 
-def same_origin(request: Request) -> bool:
+def same_origin(request: HTTPConnection) -> bool:
     """Whether the request was sent by a page of this dashboard rather than by another site.
 
     Browsers send ``Origin`` with every POST; ``Referer`` is the fallback for the few that strip it.

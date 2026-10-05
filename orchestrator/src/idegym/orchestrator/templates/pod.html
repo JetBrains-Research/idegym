@@ -15,6 +15,10 @@
     </p>
   </div>
   <div class="page-actions">
+    {% set sandbox = pod.labels.get("app.kubernetes.io/part-of") == "idegym" and pod.labels.get("app.kubernetes.io/component") == "sandbox" %}
+    {% if shell_enabled and sandbox and pod.phase == "Running" %}
+      <a class="button button-primary" href="/dashboard/pods/{{ pod.namespace }}/{{ pod.name }}/shell{% if container %}?container={{ container | urlencode }}{% endif %}">Open shell</a>
+    {% endif %}
     {% if grafana and grafana.loki_enabled %}
       <a class="button" href="{{ grafana.pod_logs(pod.namespace, pod.name) }}" target="_blank" rel="noopener">Logs in Grafana ↗</a>
     {% endif %}

@@ -23,6 +23,7 @@ from idegym.orchestrator.router import (
     client,
     dashboard,
     dashboard_actions,
+    dashboard_shell,
     diagnostics,
     forwarding,
     server,
@@ -128,6 +129,7 @@ def create_app() -> FastAPI:
     app.include_router(snapshot.router)
     app.include_router(dashboard.router)
     app.include_router(dashboard_actions.router)
+    app.include_router(dashboard_shell.router)
     app.mount(STATIC_URL, StaticFiles(directory=STATIC_DIR), name="dashboard-static")
     app.mount("/mcp", mcp_app)
 

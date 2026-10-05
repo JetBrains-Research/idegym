@@ -476,6 +476,14 @@ class DashboardConfig(ConfigModel):
         ),
         default=False,
     )
+    shell_enabled: bool = Field(
+        description=(
+            "Offer a browser terminal into IdeGYM server pods, relayed through the orchestrator like "
+            "kubectl exec, for debugging. It is a shell in every sandbox, so enable it only behind an "
+            "authenticating proxy."
+        ),
+        default=False,
+    )
     grafana: GrafanaConfig = Field(default_factory=GrafanaConfig)
 
 
