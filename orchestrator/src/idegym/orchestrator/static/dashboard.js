@@ -163,6 +163,45 @@
     });
   }
 
+  // ---- Log viewer: <pre id="…" data-log-scroll>, <input data-log-search="…">, <input data-log-wrap="…"> ---
+
+  function initLogs() {
+    document.querySelectorAll("pre[data-log-scroll]").forEach((pre) => {
+      pre.scrollTop = pre.scrollHeight;
+    });
+    document.querySelectorAll("input[data-log-wrap]").forEach((toggle) => {
+      const pre = document.getElementById(toggle.dataset.logWrap);
+      if (!pre) return;
+      toggle.addEventListener("change", () => pre.classList.toggle("log-wrap", toggle.checked));
+    });
+    document.querySelectorAll("input[data-log-search]").forEach((input) => {
+      const pre = document.getElementById(input.dataset.logSearch);
+      if (!pre) return;
+      const counter = document.querySelector(`[data-log-count="${input.dataset.logSearch}"]`);
+      const lines = Array.from(pre.querySelectorAll(".log-line"));
+      const originals = lines.map((line) => line.textContent);
+      input.addEventListener("input", () => {
+        const needle = input.value;
+        const lowered = needle.toLowerCase();
+        let shown = 0;
+        lines.forEach((line, index) => {
+          const text = originals[index];
+          const at = needle ? text.toLowerCase().indexOf(lowered) : -1;
+          line.hidden = Boolean(needle) && at < 0;
+          line.textContent = text;
+          if (at >= 0) {
+            // Rebuild the line from text nodes so log content can never be interpreted as HTML.
+            const mark = document.createElement("mark");
+            mark.textContent = text.slice(at, at + needle.length);
+            line.replaceChildren(document.createTextNode(text.slice(0, at)), mark, document.createTextNode(text.slice(at + needle.length)));
+          }
+          if (!line.hidden) shown += 1;
+        });
+        if (counter) counter.textContent = needle ? `${shown} matching.` : "";
+      });
+    });
+  }
+
   // ---- Auto-refresh ------------------------------------------------------------------------
 
   function initRefresh() {
@@ -198,6 +237,7 @@
     initCopy();
     initSorting();
     initFilters();
+    initLogs();
     initRefresh();
   });
 })();

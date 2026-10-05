@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Events{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Events</h1>
+    <p>Kubernetes events in <code>{{ namespace }}</code>, warnings first, then newest first. Kubernetes keeps events for about an hour.</p>
+  </div>
+  {% if grafana and grafana.loki_enabled %}
+    <div class="page-actions"><a class="button" href="{{ grafana.namespace_logs(namespace) }}" target="_blank" rel="noopener">Namespace logs ↗</a></div>
+  {% endif %}
+</div>
+
+<section class="card">
+  <div class="card-header">
+    <form class="filters" action="/dashboard/events" method="get">
+      <label class="field"><span>Namespace</span>
+        <input class="input" type="text" name="namespace" value="{{ namespace }}" size="18" />
+      </label>
+      <label class="toggle"><input type="checkbox" name="warnings" value="true" onchange="this.form.submit()"{% if warnings %} checked{% endif %} /> Warnings only</label>
+      <label class="field"><span>Filter</span>
+        <input class="input" type="search" data-filter="events-table" placeholder="Reason, object, message…" size="28" form="none" />
+      </label>
+      <button type="submit" class="button">Apply</button>
+    </form>
+    <span class="muted">
+      {% if total > limit %}Showing {{ limit }} of {{ total }} events{% else %}{{ total }} event{{ "s" if total != 1 }}{% endif %}
+    </span>
+  </div>
+  {% if events %}
+    {% set table_id = "events-table" %}{% include "_events.html" %}
+  {% else %}
+    {{ ui.empty("No events", "Nothing has happened in this namespace recently." if not warnings else "No warnings in this namespace recently.") }}
+  {% endif %}
+</section>
+{% endblock %}

@@ -5,21 +5,35 @@
 <div class="page-header">
   <div>
     <h1>Servers</h1>
-    <p>Alive and reused servers with their requested resources and last heartbeat.</p>
+    <p>
+      {% if status == "alive" %}Alive and reused servers with their requested resources and last heartbeat.
+      {% elif status == "all" %}The {{ limit }} most recent servers of any status.
+      {% else %}The {{ limit }} most recent servers with status {{ ui.status(status) }}.{% endif %}
+    </p>
   </div>
 </div>
 
 <section class="card">
   <div class="card-header">
-    <div class="filters">
-      <label class="field"><span>Filter</span>
-        <input class="input" type="search" data-filter="servers-table" placeholder="Name, client, image…" size="32" />
+    <form class="filters" action="/dashboard/servers" method="get">
+      <label class="field"><span>Status</span>
+        <select class="input" name="status" onchange="this.form.submit()">
+          {% for option in statuses %}
+            <option value="{{ option }}"{% if option == status %} selected{% endif %}>
+              {{- {"alive": "Alive and reused", "all": "Any status"}.get(option, option) -}}
+            </option>
+          {% endfor %}
+        </select>
       </label>
-    </div>
-    <span class="muted"><span data-filter-count="servers-table">{{ alive_servers | length }}</span> of {{ alive_servers | length }} servers</span>
+      <label class="field"><span>Filter</span>
+        <input class="input" type="search" data-filter="servers-table" placeholder="Name, client, image…" size="28" />
+      </label>
+      <noscript><button type="submit" class="button">Apply</button></noscript>
+    </form>
+    <span class="muted"><span data-filter-count="servers-table">{{ servers | length }}</span> of {{ servers | length }} servers</span>
   </div>
-  {% if not alive_servers %}
-    {{ ui.empty("No alive servers", "Servers appear here once a client starts one.") }}
+  {% if not servers %}
+    {{ ui.empty("No servers", "Servers appear here once a client starts one." if status == "alive" else "Nothing matches this status.") }}
   {% else %}
     <div class="table-wrap">
       <table class="table" id="servers-table" data-sortable>
@@ -38,14 +52,18 @@
         </tr>
         </thead>
         <tbody>
-        {% for s in alive_servers %}
+        {% for s in servers %}
           <tr>
-            <td data-value="{{ s.id }}">{{ s.id }}</td>
+            <td data-value="{{ s.id }}"><a href="/dashboard/servers/{{ s.id }}">{{ s.id }}</a></td>
             <td>
-              {{ ui.ident(s.generated_name) }}
+              <a href="/dashboard/servers/{{ s.id }}" class="mono">{{ s.generated_name }}</a>
+              <button type="button" class="copy" data-copy="{{ s.generated_name }}" title="Copy" aria-label="Copy {{ s.generated_name }}">⧉</button>
               <div class="muted">{{ s.namespace }}{% if s.container_runtime %} · {{ s.container_runtime }}{% endif %}{% if s.server_kind and s.server_kind != "idegym" %} · {{ s.server_kind }}{% endif %}</div>
             </td>
-            <td>{{ ui.status(s.availability) }}</td>
+            <td>
+              {{ ui.status(s.availability) }}
+              {% if s.details %}<div class="muted" style="max-width: 280px">{{ s.details | truncate(120) }}</div>{% endif %}
+            </td>
             <td>{{ s.client_name or "" }}</td>
             <td class="mono secondary">{{ s.image_tag or "" }}</td>
             <td class="num" data-value="{{ s.cpu }}">{{ "%.2f" | format(s.cpu or 0) }}</td>
