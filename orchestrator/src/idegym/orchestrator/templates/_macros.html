@@ -1,0 +1,40 @@
+{# Shared pieces of the dashboard pages. Import with {% import "_macros.html" as ui %}. #}
+
+{% macro status(value, label=None) -%}
+  {%- if value -%}
+    <span class="badge badge-{{ status_level(value) }}">{{ label or value }}</span>
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro ident(value) -%}
+  {%- if value -%}
+    <span class="ident"><span class="mono">{{ value }}</span><button type="button" class="copy" data-copy="{{ value }}" title="Copy" aria-label="Copy {{ value }}">⧉</button></span>
+  {%- else -%}<span class="muted">—</span>{%- endif -%}
+{%- endmacro %}
+
+{% macro when(value) -%}
+  {%- if value -%}
+    <time datetime="{{ value | iso_ts }}" data-relative>{{ value | format_ts }}</time>
+  {%- else -%}<span class="muted">—</span>{%- endif -%}
+{%- endmacro %}
+
+{% macro link(href, label) -%}
+  {%- if href -%}<a href="{{ href }}" target="_blank" rel="noopener">{{ label }} ↗</a>{%- endif -%}
+{%- endmacro %}
+
+{% macro meter(label, used, limit, unit="", precision=2) -%}
+  {%- set u = usage(used, limit) -%}
+  <div class="meter meter-{{ u.level }}">
+    <div class="meter-head">
+      <span>{{ label }}{% if u.level != "ok" %} <span class="meter-flag">{{ "⚠ filling up" if u.level == "warning" else ("✕ full" if u.percent >= 100 else "✕ almost full") }}</span>{% endif %}</span>
+      <span class="value">{{ ("%." ~ precision ~ "f") | format(used or 0) }} / {{ ("%." ~ precision ~ "f") | format(limit or 0) }}{{ unit }} · {{ "%.0f" | format(u.percent) }}%</span>
+    </div>
+    <div class="meter-track" role="meter" aria-label="{{ label }}" aria-valuemin="0" aria-valuemax="{{ limit or 0 }}" aria-valuenow="{{ used or 0 }}">
+      <div class="meter-fill" style="width: {{ '%.1f' | format(u.width) }}%"></div>
+    </div>
+  </div>
+{%- endmacro %}
+
+{% macro empty(title, detail="") -%}
+  <div class="empty"><strong>{{ title }}</strong>{% if detail %}<span>{{ detail }}</span>{% endif %}</div>
+{%- endmacro %}

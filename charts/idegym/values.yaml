@@ -123,6 +123,23 @@ ingress:
     enabled: false
     secretName: ""
 
+# Links from the orchestrator dashboard into your own Grafana. Everything is optional: with no url
+# the dashboard shows no Grafana links, and without a datasource UID it hides that kind of link.
+# The URL is the one a browser reaches, not an in-cluster service address.
+dashboard:
+  grafana:
+    url: ""  # e.g. https://grafana.example.com
+    orgId: ""
+    loki:
+      datasourceUid: ""
+      # Extra stream selectors added to every log query, e.g. { cluster: my-cluster }.
+      labels: { }
+      # Label names used by your log shipper; empty means "namespace" and "pod".
+      namespaceLabel: ""
+      podLabel: ""
+    tempo:
+      datasourceUid: ""
+
 limitRange:
   enabled: false
   limits: [ ]

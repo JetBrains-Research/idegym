@@ -85,6 +85,38 @@ spec:
               value: {{ .Values.deployment.uvicornWorkers | quote }}
             - name: IDEGYM_MCP_STATELESS_HTTP
               value: {{ .Values.deployment.mcp.statelessHttp | quote | title }}
+            {{- with .Values.dashboard.grafana }}
+            {{- if .url }}
+            - name: IDEGYM_GRAFANA_URL
+              value: {{ .url | quote }}
+            {{- end }}
+            {{- if .orgId }}
+            - name: IDEGYM_GRAFANA_ORG_ID
+              value: {{ .orgId | quote }}
+            {{- end }}
+            {{- with .loki }}
+            {{- if .datasourceUid }}
+            - name: IDEGYM_GRAFANA_LOKI_DATASOURCE_UID
+              value: {{ .datasourceUid | quote }}
+            {{- end }}
+            {{- if .labels }}
+            - name: IDEGYM_GRAFANA_LOKI_LABELS
+              value: {{ toJson .labels | quote }}
+            {{- end }}
+            {{- if .namespaceLabel }}
+            - name: IDEGYM_GRAFANA_LOKI_NAMESPACE_LABEL
+              value: {{ .namespaceLabel | quote }}
+            {{- end }}
+            {{- if .podLabel }}
+            - name: IDEGYM_GRAFANA_LOKI_POD_LABEL
+              value: {{ .podLabel | quote }}
+            {{- end }}
+            {{- end }}
+            {{- if .tempo.datasourceUid }}
+            - name: IDEGYM_GRAFANA_TEMPO_DATASOURCE_UID
+              value: {{ .tempo.datasourceUid | quote }}
+            {{- end }}
+            {{- end }}
             {{- with .Values.deployment.sqlalchemy.pool }}
             {{- if .size }}
             - name: IDEGYM_SQLALCHEMY_POOL_SIZE
