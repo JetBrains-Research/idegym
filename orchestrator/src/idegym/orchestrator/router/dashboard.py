@@ -9,18 +9,25 @@ from fastapi import status as http_status
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from idegym.api.config import Config
 from idegym.api.orchestrator.clients import AvailabilityStatus
+from idegym.api.orchestrator.operations import AsyncOperationStatus, AsyncOperationType
 from idegym.backend.utils.kubernetes_client import async_kube_api, describe_pod_startup
+from idegym.orchestrator.dashboard_health import EXPECTS_DEPLOYMENT, SANDBOX_SELECTOR, find_orphans, quota_drift
 from idegym.orchestrator.database.database import (
     find_matching_resource_limit_rule,
     get_alive_clients,
     get_db_session,
     get_idegym_server,
     get_idegym_servers_by_generated_names,
+    get_idegym_servers_by_status,
     get_recent_async_operations,
     get_recent_idegym_servers,
+    get_recent_job_statuses,
+    get_recent_snapshot_jobs,
+    get_recent_snapshots,
     get_running_idegym_servers,
+    recompute_rule_usage,
 )
-from idegym.orchestrator.database.models import Client, IdeGYMServer, ResourceLimitRule
+from idegym.orchestrator.database.models import Client, IdeGYMServer, ResourceLimitRule, current_time_millis
 from idegym.orchestrator.grafana_links import GrafanaLinks
 from idegym.orchestrator.templating import templates
 from idegym.orchestrator.util.decorators import render_dashboard_error
@@ -534,3 +541,90 @@ async def dashboard_rules(request: Request):
     async with get_db_session() as db:
         rules = await _all_rules(db)
     return render(request, "rules.html", active="rules", rules=rules)
+
+
+@router.get("/dashboard/operations", response_class=HTMLResponse)
+@render_dashboard_error("Failed to load operations", back_url="/")
+async def dashboard_operations(
+    request: Request, status: Optional[str] = None, request_type: Optional[str] = None, limit: int = 100
+):
+    """The newest async operations, the record of every start, stop, restart, and forward."""
+    statuses = [str(value) for value in AsyncOperationStatus]
+    types = [str(value) for value in AsyncOperationType]
+    status = status if status in statuses else None
+    request_type = request_type if request_type in types else None
+    limit = min(max(limit, 1), 1000)
+    async with get_db_session() as db:
+        operations = await get_recent_async_operations(
+            db,
+            statuses={AsyncOperationStatus(status)} if status else None,
+            request_types={AsyncOperationType(request_type)} if request_type else None,
+            limit=limit,
+        )
+    return render(
+        request,
+        "operations.html",
+        active="operations",
+        operations=operations,
+        show_targets=True,
+        status=status or "",
+        request_type=request_type or "",
+        statuses=statuses,
+        types=types,
+        limit=limit,
+    )
+
+
+@router.get("/dashboard/builds", response_class=HTMLResponse)
+@render_dashboard_error("Failed to load image builds", back_url="/")
+async def dashboard_builds(request: Request, limit: int = 100):
+    limit = min(max(limit, 1), 1000)
+    async with get_db_session() as db:
+        builds = await get_recent_job_statuses(db, limit=limit)
+    return render(request, "builds.html", active="builds", builds=builds, limit=limit)
+
+
+@router.get("/dashboard/snapshots", response_class=HTMLResponse)
+@render_dashboard_error("Failed to load snapshots", back_url="/")
+async def dashboard_snapshots(request: Request, limit: int = 100):
+    limit = min(max(limit, 1), 1000)
+    async with get_db_session() as db:
+        jobs = await get_recent_snapshot_jobs(db, limit=limit)
+        snapshots = await get_recent_snapshots(db, limit=limit)
+    return render(request, "snapshots.html", active="snapshots", jobs=jobs, snapshots=snapshots, limit=limit)
+
+
+@router.get("/dashboard/health", response_class=HTMLResponse)
+@render_dashboard_error("Failed to check consistency", back_url="/")
+async def dashboard_health(request: Request):
+    """Where the orchestrator's records and the cluster disagree: quota counters, orphaned Deployments."""
+    async with get_db_session() as db:
+        rules = await _all_rules(db)
+        drifts = quota_drift(rules, await recompute_rule_usage(db))
+        live = await get_idegym_servers_by_status(db, EXPECTS_DEPLOYMENT)
+
+    namespaces = sorted({orchestrator_namespace(), *(server.namespace for server in live if server.namespace)})
+    deployments: dict[str, list[Any]] = {}
+    errors: dict[str, str] = {}
+    async with async_kube_api() as (apps, _, _, _, _):
+        for namespace in namespaces:
+            try:
+                response = await apps.list_namespaced_deployment(namespace=namespace, label_selector=SANDBOX_SELECTOR)
+                deployments[namespace] = response.items
+            except ApiException as error:
+                errors[namespace] = api_error_message(error)
+
+    names = {deployment.metadata.name for items in deployments.values() for deployment in items}
+    async with get_db_session() as db:
+        owners = {server.generated_name: server for server in await get_idegym_servers_by_generated_names(db, names)}
+    orphans = find_orphans(deployments, owners, list(live), now_ms=current_time_millis())
+    return render(
+        request,
+        "health.html",
+        active="health",
+        drifts=drifts,
+        orphans=orphans,
+        namespaces=namespaces,
+        errors=errors,
+        deployment_count=len(names),
+    )

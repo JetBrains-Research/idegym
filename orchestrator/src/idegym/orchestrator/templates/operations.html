@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Operations{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Operations</h1>
+    <p>The {{ limit }} most recent async operations: every start, stop, restart, snapshot, and forwarded request.</p>
+  </div>
+</div>
+
+<section class="card">
+  <div class="card-header">
+    <form class="filters" action="/dashboard/operations" method="get">
+      <label class="field"><span>Status</span>
+        <select class="input" name="status" onchange="this.form.submit()">
+          <option value="">Any status</option>
+          {% for option in statuses %}<option value="{{ option }}"{% if option == status %} selected{% endif %}>{{ option }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="field"><span>Type</span>
+        <select class="input" name="request_type" onchange="this.form.submit()">
+          <option value="">Any type</option>
+          {% for option in types %}<option value="{{ option }}"{% if option == request_type %} selected{% endif %}>{{ option }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="field"><span>Filter</span>
+        <input class="input" type="search" data-filter="operations-table" placeholder="Pod, result…" size="24" form="none" />
+      </label>
+      <noscript><button type="submit" class="button">Apply</button></noscript>
+    </form>
+    <span class="muted"><span data-filter-count="operations-table">{{ operations | length }}</span> of {{ operations | length }} operations</span>
+  </div>
+  {% if not operations %}
+    {{ ui.empty("No operations", "Nothing matches these filters.") }}
+  {% else %}
+    {% set table_id = "operations-table" %}{% include "_operations.html" %}
+  {% endif %}
+</section>
+{% endblock %}

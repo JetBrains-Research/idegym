@@ -14,6 +14,7 @@ from uuid import uuid4
 import pytest
 from idegym.api.config import Config, GrafanaConfig
 from idegym.api.orchestrator.clients import AvailabilityStatus
+from idegym.orchestrator.database.database import RuleUsage
 from idegym.orchestrator.router import dashboard
 from idegym.orchestrator.templating import format_ts, iso_ts, status_level, usage
 from kubernetes_asyncio.client import ApiException
@@ -546,3 +547,109 @@ async def test_pod_pages_work_while_the_database_is_down(kube, mocker) -> None:
 
     assert "CrashLoopBackOff" in listing
     assert "second &lt;b&gt;line&lt;/b&gt;" in page
+
+
+async def test_operations_page_filters_by_status_and_type(database, mocker) -> None:
+    recent = mocker.patch.object(dashboard, "get_recent_async_operations", mocker.AsyncMock(return_value=[]))
+
+    html = _html(
+        await dashboard.dashboard_operations(
+            _request("/dashboard/operations"), status="FAILED", request_type="STOP_SERVER"
+        )
+    )
+
+    assert recent.await_args.kwargs["statuses"] == {"FAILED"}
+    assert recent.await_args.kwargs["request_types"] == {"STOP_SERVER"}
+    assert '<option value="FAILED" selected' in html
+
+
+async def test_operations_page_ignores_unknown_filters(database, mocker) -> None:
+    recent = mocker.patch.object(dashboard, "get_recent_async_operations", mocker.AsyncMock(return_value=[]))
+
+    _html(await dashboard.dashboard_operations(_request("/dashboard/operations"), status="nope", request_type="nope"))
+
+    assert recent.await_args.kwargs["statuses"] is None
+    assert recent.await_args.kwargs["request_types"] is None
+
+
+async def test_builds_page_renders(database, mocker) -> None:
+    build = SimpleNamespace(
+        job_name="kaniko-abc",
+        request_id="req-1",
+        status="failure",
+        tag="registry.example.com/env:1",
+        created_at=1_700_000_000_000,
+        updated_at=1_700_000_090_000,
+        details="error building image",
+    )
+    mocker.patch.object(dashboard, "get_recent_job_statuses", mocker.AsyncMock(return_value=[build]))
+
+    html = _html(await dashboard.dashboard_builds(_request("/dashboard/builds")))
+
+    assert "kaniko-abc" in html
+    assert "badge-critical" in html
+    assert "90 s" in html
+
+
+async def test_snapshots_page_renders(database, mocker) -> None:
+    job = SimpleNamespace(
+        job_id="job-1",
+        prepare_request_id=None,
+        status="success",
+        snapshot_id=3,
+        created_at=1,
+        updated_at=2,
+        details=None,
+    )
+    snapshot = SimpleNamespace(
+        id=3,
+        snapshot_name="snap-3",
+        pod_snapshot_name=None,
+        image_tag="registry.example.com/env:1",
+        server_name="srv",
+        namespace="idegym",
+        server_kind="idegym",
+        runtime_class_name=None,
+        run_as_root=False,
+        updated_at=2,
+    )
+    mocker.patch.object(dashboard, "get_recent_snapshot_jobs", mocker.AsyncMock(return_value=[job]))
+    mocker.patch.object(dashboard, "get_recent_snapshots", mocker.AsyncMock(return_value=[snapshot]))
+
+    html = _html(await dashboard.dashboard_snapshots(_request("/dashboard/snapshots")))
+
+    assert "job-1" in html
+    assert "snap-3" in html
+
+
+async def test_health_page_shows_drift_and_orphans(database, kube, mocker) -> None:
+    mocker.patch.object(dashboard, "_all_rules", mocker.AsyncMock(return_value=[_rule(current_pods=2)]))
+    mocker.patch.object(dashboard, "recompute_rule_usage", mocker.AsyncMock(return_value={}))
+    mocker.patch.object(dashboard, "get_idegym_servers_by_status", mocker.AsyncMock(return_value=[]))
+    mocker.patch.object(dashboard, "get_idegym_servers_by_generated_names", mocker.AsyncMock(return_value=[]))
+    ghost = SimpleNamespace(
+        metadata=SimpleNamespace(
+            name="ghost-1", creation_timestamp=datetime(2020, 1, 1, tzinfo=UTC), deletion_timestamp=None
+        )
+    )
+    kube.apps.list_namespaced_deployment = mocker.AsyncMock(return_value=SimpleNamespace(items=[ghost]))
+
+    html = _html(await dashboard.dashboard_health(_request("/dashboard/health")))
+
+    selector = kube.apps.list_namespaced_deployment.await_args.kwargs["label_selector"]
+    assert selector == "app.kubernetes.io/part-of=idegym,app.kubernetes.io/component=sandbox"
+    assert "Drifting" in html
+    assert "(+2)" in html
+    assert "ghost-1" in html
+    assert "No server row owns this Deployment" in html
+
+
+async def test_health_page_reports_namespaces_it_cannot_list(database, kube, mocker) -> None:
+    mocker.patch.object(dashboard, "recompute_rule_usage", mocker.AsyncMock(return_value={1: RuleUsage(9, 4.0, 31.0)}))
+    mocker.patch.object(dashboard, "get_idegym_servers_by_status", mocker.AsyncMock(return_value=[]))
+    mocker.patch.object(dashboard, "get_idegym_servers_by_generated_names", mocker.AsyncMock(return_value=[]))
+    kube.apps.list_namespaced_deployment = mocker.AsyncMock(side_effect=ApiException(status=403, reason="Forbidden"))
+
+    html = _html(await dashboard.dashboard_health(_request("/dashboard/health")))
+
+    assert "Could not list Deployments" in html
