@@ -9,6 +9,80 @@ Sections are generated from merged pull requests by
 paragraph is drafted separately by a maintainer with
 [`scripts/draft_highlights.py`](scripts/draft_highlights.py) and may be edited by hand.
 
+## [0.13.0] - 2026-10-05
+
+### Highlights
+
+_TODO: summarise the headline changes of this release. Draft this paragraph with `uv run scripts/draft_highlights.py 0.13.0` (uses Claude Code), or write it by hand._
+
+### Features
+
+- 5-Dashboard: Add a pod shell to the dashboard (JBRes-9956, [#344](https://github.com/JetBrains-Research/idegym/pull/344))
+- Let the dashboard stop servers and edit resource limits ([#343](https://github.com/JetBrains-Research/idegym/pull/343))
+- Add history and consistency pages to the dashboard ([#341](https://github.com/JetBrains-Research/idegym/pull/341))
+- Add server and pod pages, log viewer, and events to the dashboard ([#340](https://github.com/JetBrains-Research/idegym/pull/340))
+- Redesign the dashboard and link it to Grafana logs and traces ([#339](https://github.com/JetBrains-Research/idegym/pull/339))
+- Review follow-ups: bring docs and OpenAPI schemas up to date (stack 6/6) (JBRes-10676, [#321](https://github.com/JetBrains-Research/idegym/pull/321))
+- Review follow-ups: trim docstring and comment prose (stack 5/6) (JBRes-10676, [#320](https://github.com/JetBrains-Research/idegym/pull/320))
+- Review follow-ups: bash user switching, private script, stable stderr (stack 4/6) (JBRes-10676, [#319](https://github.com/JetBrains-Research/idegym/pull/319))
+- Review follow-ups: typed client errors, honest deadlines, safe shutdown (stack 3/6) (JBRes-10676, [#318](https://github.com/JetBrains-Research/idegym/pull/318))
+- Review follow-ups: reserved pod metadata and precise start diagnosis (stack 2/6) (JBRes-10676, [#317](https://github.com/JetBrains-Research/idegym/pull/317))
+- Review follow-ups: atomic keepalive, resilient status, SQL listing (stack 1/6) (JBRes-10676, [#316](https://github.com/JetBrains-Research/idegym/pull/316))
+- Trim metric labels to fit Prometheus label_limit ([#329](https://github.com/JetBrains-Research/idegym/pull/329))
+- Require a declared database schema revision on startup (JBRes-10375, [#322](https://github.com/JetBrains-Research/idegym/pull/322))
+- Preserve USER from a previous stage in plugin installation (JBRes-11028, [#314](https://github.com/JetBrains-Research/idegym/pull/314))
+- Allow building images without plugins and run commands (JBRes-11028, [#313](https://github.com/JetBrains-Research/idegym/pull/313))
+- Image source validation and honest start timeouts (stack 8/8) (JBRes-10676, [#296](https://github.com/JetBrains-Research/idegym/pull/296))
+- Per-server labels and annotations (stack 7/8) (JBRes-10676, [#295](https://github.com/JetBrains-Research/idegym/pull/295))
+- SDK: raising failures, injectable HTTP client, loop-owning facade (stack 6/8) (JBRes-10676, [#294](https://github.com/JetBrains-Research/idegym/pull/294))
+- Server lifecycle: status, keepalive, listing, reuse reporting (stack 5/8) (JBRes-10676, [#293](https://github.com/JetBrains-Research/idegym/pull/293))
+- Bash tool: per-command context, script size, init semantics (stack 4/8) (JBRes-10676, [#292](https://github.com/JetBrains-Research/idegym/pull/292))
+- SDK: typed HTTP errors and opt-in tracing (stack 3/8) (JBRes-10676, [#291](https://github.com/JetBrains-Research/idegym/pull/291))
+- Binary-safe chunked file transfer (stack 2/8) (JBRes-10676, [#290](https://github.com/JetBrains-Research/idegym/pull/290))
+- Bash tool: verbatim output and safe logging (stack 1/8) (JBRes-10676, [#289](https://github.com/JetBrains-Research/idegym/pull/289))
+- Preserve task JDK and recover build status (JBRes-10125, [#303](https://github.com/JetBrains-Research/idegym/pull/303))
+- Build from an inline Dockerfile base (JBRes-10600, [#298](https://github.com/JetBrains-Research/idegym/pull/298))
+- Update CHANGELOG.md for 0.12.0 ([#288](https://github.com/JetBrains-Research/idegym/pull/288))
+
+### Infrastructure
+
+- Run checks on any PR base; migrate to fastmcp 4 ([#297](https://github.com/JetBrains-Research/idegym/pull/297))
+
+### Dependencies
+
+<details>
+<summary>27 routine dependency updates</summary>
+
+- Bump dompurify ([#348](https://github.com/JetBrains-Research/idegym/pull/348))
+- Bump alembic ([#335](https://github.com/JetBrains-Research/idegym/pull/335))
+- Bump the security-minor-patch group across 1 directory with 3 updates ([#346](https://github.com/JetBrains-Research/idegym/pull/346))
+- Bump postgresql ([#331](https://github.com/JetBrains-Research/idegym/pull/331))
+- Bump the python-other-minor-patch group with 5 updates ([#338](https://github.com/JetBrains-Research/idegym/pull/338))
+- Bump the python-testing-tooling-minor-patch group with 4 updates ([#337](https://github.com/JetBrains-Research/idegym/pull/337))
+- Bump the python-observability-minor-patch group with 12 updates ([#336](https://github.com/JetBrains-Research/idegym/pull/336))
+- Bump the python-web-stack-minor-patch group with 3 updates ([#334](https://github.com/JetBrains-Research/idegym/pull/334))
+- Bump python in /orchestrator ([#333](https://github.com/JetBrains-Research/idegym/pull/333))
+- Bump the actions-minor-patch group with 5 updates ([#332](https://github.com/JetBrains-Research/idegym/pull/332))
+- Bump the observability-minor-patch group ([#330](https://github.com/JetBrains-Research/idegym/pull/330))
+- Bump oauthlib ([#325](https://github.com/JetBrains-Research/idegym/pull/325))
+- Bump the security-major group across 1 directory with 2 updates ([#328](https://github.com/JetBrains-Research/idegym/pull/328))
+- Bump oauthlib ([#327](https://github.com/JetBrains-Research/idegym/pull/327))
+- Bump pyjwt ([#326](https://github.com/JetBrains-Research/idegym/pull/326))
+- Bump pyjwt ([#324](https://github.com/JetBrains-Research/idegym/pull/324))
+- Bump cryptography ([#310](https://github.com/JetBrains-Research/idegym/pull/310))
+- Bump aiohttp ([#309](https://github.com/JetBrains-Research/idegym/pull/309))
+- Bump the security-minor-patch group across 1 directory with 2 updates ([#311](https://github.com/JetBrains-Research/idegym/pull/311))
+- Bump anyio ([#307](https://github.com/JetBrains-Research/idegym/pull/307))
+- Bump cryptography ([#308](https://github.com/JetBrains-Research/idegym/pull/308))
+- Bump the security-major group across 1 directory with 3 updates ([#305](https://github.com/JetBrains-Research/idegym/pull/305))
+- Bump the security-minor-patch group across 1 directory with 2 updates ([#304](https://github.com/JetBrains-Research/idegym/pull/304))
+- Bump @swc/html ([#301](https://github.com/JetBrains-Research/idegym/pull/301))
+- Bump nanoid ([#302](https://github.com/JetBrains-Research/idegym/pull/302))
+- Bump browserslist ([#300](https://github.com/JetBrains-Research/idegym/pull/300))
+- Bump fast-uri ([#299](https://github.com/JetBrains-Research/idegym/pull/299))
+
+</details>
+
 ## [0.12.0] - 2026-08-30
 
 ### Highlights
@@ -431,6 +505,7 @@ Notable upgrades:
 
 </details>
 
+[0.13.0]: https://github.com/JetBrains-Research/idegym/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/JetBrains-Research/idegym/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/JetBrains-Research/idegym/compare/v0.10.0...v0.11.1
 [0.10.0]: https://github.com/JetBrains-Research/idegym/compare/v0.9.0...v0.10.0
