@@ -307,6 +307,10 @@ class OrchestratorConfig(BaseModel):
     build: BuildConfig = Field(default_factory=BuildConfig)
     watcher: WatcherConfig = Field(default_factory=WatcherConfig)
     mcp: MCPConfig = Field(default_factory=MCPConfig)
+    persist_forward_request_body: bool = Field(
+        default=True,
+        description="Store forwarded HTTP request bodies in operation history; results are always stored",
+    )
     client_request_timeout: float = Field(
         description="Client request read timeout in seconds",
         default=60.0 * 60,  # 1 hour

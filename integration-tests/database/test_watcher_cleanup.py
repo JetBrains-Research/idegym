@@ -21,7 +21,8 @@ from idegym.watcher.cleanup import (
 )
 from idegym.watcher.operation_retention import retain_operations_once
 from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.dialects.postgresql.asyncpg import PGDialect_asyncpg
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 pytestmark = pytest.mark.integration
 
@@ -157,6 +158,119 @@ async def test_check_orphaned_kaniko_jobs_reconciles_status(db: AsyncSession, mo
     reloaded = await _reload(db, JobStatusRecord, job_id)
     assert reloaded.status == Status.SUCCESS
     mock_k8s["get_job_status"].assert_awaited()
+
+
+async def test_stale_cleanup_is_bounded_and_oldest_first(db):
+    now = 30 * DAY_MS
+    stale = [
+        AsyncOperation(request_type="FORWARD_REQUEST", status="IN_PROGRESS", started_at=now - 2 * DAY_MS + n)
+        for n in range(503)
+    ]
+    protected = [
+        AsyncOperation(request_type="START_SERVER", status=status, started_at=started)
+        for status, started in [
+            ("SUCCEEDED", 1),
+            ("FAILED", 1),
+            ("CANCELLED", 1),
+            ("SCHEDULED", 1),
+            ("IN_PROGRESS", now - DAY_MS),
+            ("IN_PROGRESS", now),
+            ("IN_PROGRESS", None),
+        ]
+    ]
+    db.add_all([*stale, *protected])
+    await db.commit()
+    first_ids = {row.id for row in stale[:500]}
+    protected_ids = {row.id: row.status for row in protected}
+    assert await database.mark_stale_async_operations_as_finished(db, now, Duration(hours=24)) == 500
+    assert not db.in_transaction()
+    db.expire_all()
+    finished = (await db.execute(select(AsyncOperation).where(AsyncOperation.finished_at == now))).scalars().all()
+    assert {row.id for row in finished} == first_ids
+    assert all(row.status == "FINISHED_BY_WATCHER" for row in finished)
+    assert await database.mark_stale_async_operations_as_finished(db, now, Duration(hours=24)) == 3
+    assert await database.mark_stale_async_operations_as_finished(db, now, Duration(hours=24)) == 0
+    assert not db.in_transaction()
+    db.expire_all()
+    for row_id, status in protected_ids.items():
+        assert (await db.get(AsyncOperation, row_id)).status == status
+
+
+async def test_stale_cleanup_skips_concurrent_completion(db, db_url):
+    now = 30 * DAY_MS
+    rows = [AsyncOperation(request_type="FORWARD_REQUEST", status="IN_PROGRESS", started_at=1) for _ in range(2)]
+    db.add_all(rows)
+    await db.commit()
+    locked_id, other_id = [row.id for row in rows]
+    engine = create_async_engine(db_url)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(
+                text("UPDATE async_operations SET status='SUCCEEDED', finished_at=:now WHERE id=:id"),
+                {"now": now, "id": locked_id},
+            )
+            assert await database.mark_stale_async_operations_as_finished(db, now, Duration(hours=24)) == 1
+        assert await database.mark_stale_async_operations_as_finished(db, now, Duration(hours=24)) == 0
+        db.expire_all()
+        assert (await db.get(AsyncOperation, locked_id)).status == "SUCCEEDED"
+        assert (await db.get(AsyncOperation, other_id)).status == "FINISHED_BY_WATCHER"
+    finally:
+        await engine.dispose()
+
+
+async def test_stale_cleanup_lock_timeout_rolls_back_and_recovers(db, db_url, mocker):
+    mocker.patch.object(database.logger, "exception")
+    db.add(AsyncOperation(request_type="FORWARD_REQUEST", status="IN_PROGRESS", started_at=1))
+    await db.commit()
+    original_timeout = await db.scalar(text("SHOW statement_timeout"))
+    await db.commit()
+    engine = create_async_engine(db_url)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(text("LOCK TABLE async_operations IN ACCESS EXCLUSIVE MODE"))
+            async with asyncio.timeout(3):
+                assert await database.mark_stale_async_operations_as_finished(db, 30 * DAY_MS, Duration(hours=24)) == 0
+            assert not db.in_transaction()
+            assert await db.scalar(text("SELECT 1")) == 1
+            assert await db.scalar(text("SHOW statement_timeout")) == original_timeout
+        assert await database.mark_stale_async_operations_as_finished(db, 30 * DAY_MS, Duration(hours=24)) == 1
+    finally:
+        await engine.dispose()
+
+
+async def test_empty_stale_batch_preserves_advisory_lock_and_resets_timeouts(db, db_url):
+    engine = create_async_engine(db_url)
+    try:
+        async with engine.connect() as connection, AsyncSession(bind=connection) as session:
+            pid = await session.scalar(text("SELECT pg_backend_pid()"))
+            original_timeout = await session.scalar(text("SHOW statement_timeout"))
+            assert await database.acquire_advisory_lock(session, cleanup.CLEANUP_ADVISORY_LOCK_ID)
+            assert await database.mark_stale_async_operations_as_finished(session, 30 * DAY_MS, Duration(hours=24)) == 0
+            assert not session.in_transaction()
+            assert await session.scalar(text("SHOW statement_timeout")) == original_timeout
+            assert await session.scalar(text("SELECT pg_backend_pid()")) == pid
+            assert not await database.acquire_advisory_lock(db, cleanup.CLEANUP_ADVISORY_LOCK_ID)
+            assert await database.release_advisory_lock(session, cleanup.CLEANUP_ADVISORY_LOCK_ID)
+    finally:
+        await engine.dispose()
+
+
+async def test_stale_cleanup_partial_index_supports_generic_plans(db, mocker):
+    execute = mocker.spy(db, "execute")
+    assert await database.mark_stale_async_operations_as_finished(db, 30 * DAY_MS, Duration(hours=24)) == 0
+    query = next(call.args[0] for call in execute.call_args_list if "WITH candidates" in str(call.args[0]))
+    compiled = query.compile(dialect=PGDialect_asyncpg())
+    arguments = ", ".join(
+        compiled.render_literal_value(compiled.params[name], compiled.binds[name].type) for name in compiled.positiontup
+    )
+    await db.execute(text("SET LOCAL plan_cache_mode = force_generic_plan"))
+    await db.execute(text("SET LOCAL enable_seqscan = off"))
+    await db.execute(text(f"PREPARE stale_cleanup_plan AS {compiled}"))
+    try:
+        plan = (await db.execute(text(f"EXPLAIN EXECUTE stale_cleanup_plan({arguments})"))).scalars().all()
+        assert "ix_async_operations_in_progress_started" in "\n".join(plan)
+    finally:
+        await db.execute(text("DEALLOCATE stale_cleanup_plan"))
 
 
 @pytest.mark.parametrize("failure", [None, "connect", "database", "unlock"])

@@ -84,6 +84,7 @@ async def forward_request_by_server_id(
         http_client=request.app.state.http_client,
         wait_seconds=_parse_wait_seconds(request),
         response=response,
+        persist_forward_request_body=request.app.state.config.orchestrator.persist_forward_request_body,
     )
 
 
@@ -97,6 +98,7 @@ async def forward_request_to_server(
     http_client: AsyncClient,
     wait_seconds: float = 0.0,
     response: Response | None = None,
+    persist_forward_request_body: bool = True,
 ) -> ForwardRequestResponse:
     logger.info(f"Forwarding {method} request to IdeGYM server ID {server_id} for client {client_id}: {path}")
     server = await validate_server(client_id=client_id, server_id=server_id)
@@ -112,7 +114,7 @@ async def forward_request_to_server(
         async_operation_type=AsyncOperationType.FORWARD_REQUEST,
         client_id=client_id,
         server_id=server_id,
-        request=forward_payload,
+        request=forward_payload if persist_forward_request_body else forward_payload.model_copy(update={"body": None}),
     )
     task = asyncio.create_task(
         _task_forward_request(
