@@ -101,7 +101,7 @@ SNAPSHOT_ID_KEY = "idegym.jetbrains.com/snapshot-id"
 # take minutes); a same-name create before that returns 409, so restart waits for the 404 first.
 POD_DELETION_TIMEOUT_SECONDS = 300
 _POLL_INTERVAL_SECONDS = 2
-_MAX_CONSECUTIVE_UNSCHEDULABLE = 15  # ~30 s at the 2 s poll interval
+_MAX_CONSECUTIVE_UNSCHEDULABLE = 50  # ~100 s at the 2 s poll interval
 
 # The API server rejects a pod create with 409 Conflict when the ResourceQuota admission
 # controller loses its optimistic-concurrency update under a burst of concurrent creates,
@@ -449,12 +449,12 @@ async def wait_for_pods_ready(
     Poll until all matching pods are Running and ready.
 
     Fails fast if image pull errors occur `max_image_pull_attempts` times in a row,
-    or if pods remain Unschedulable for ~30 seconds (~15 consecutive checks at 2 s interval).
+    or if pods remain Unschedulable for ~100 seconds (~50 consecutive checks at 2 s interval).
     Raises asyncio.TimeoutError if `wait_timeout` seconds elapse without all pods becoming ready.
     """
     consecutive_image_pull_errors = 0
     consecutive_unschedulable = 0
-    max_consecutive_unschedulable = 15  # ~30s at 2s poll interval
+    max_consecutive_unschedulable = 50  # ~100s at 2s poll interval
 
     async with timeout(wait_timeout):
         while True:
@@ -625,7 +625,7 @@ async def wait_for_pod_ready(
 
     A 404 while the pod is not visible yet keeps polling. Fails fast on a terminal phase
     (Failed / Succeeded), on image pull errors `max_image_pull_attempts` times in a row, or on
-    an Unschedulable condition for ~30 s. Raises asyncio.TimeoutError after `wait_timeout` s.
+    an Unschedulable condition for ~100 s. Raises asyncio.TimeoutError after `wait_timeout` s.
     """
     consecutive_image_pull_errors = 0
     consecutive_unschedulable = 0
