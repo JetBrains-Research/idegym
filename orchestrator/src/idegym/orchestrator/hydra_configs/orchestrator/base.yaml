@@ -44,6 +44,7 @@ sqlalchemy:
   application_name: ${oc.env:IDEGYM_SQLALCHEMY_APPLICATION_NAME, "idegym-orchestrator"}
 
 client_request_timeout: ${oc.env:IDEGYM_CLIENT_REQUEST_TIMEOUT, 3600.0}
+persist_forward_request_body: ${oc.env:IDEGYM_PERSIST_FORWARD_REQUEST_BODY, "True"}
 
 connection_limits:
   max_connections_or_asyncio_tasks: ${oc.env:IDEGYM_MAX_CONNECTIONS_OR_ASYNCIO_TASKS, 1500}

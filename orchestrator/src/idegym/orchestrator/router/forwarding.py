@@ -33,20 +33,12 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 
-# Upper bound on how long a blocking forward (``?wait_seconds=N``) may hold the
-# request open before falling back to the 202 async-operation ticket. Caps how
-# long any single forward pins a connection, regardless of what a client asks.
+# Bound the time a blocking forward holds its HTTP connection before returning a ticket.
 _MAX_FORWARD_WAIT_SECONDS = 120.0
 
 
 def _parse_wait_seconds(request: Request) -> float:
-    """Read the optional ``?wait_seconds=N`` blocking-forward hint (clamped).
-
-    Absent / non-positive / unparseable ⇒ 0.0 (the original fire-and-forget
-    202-ticket behavior). A positive value is clamped to
-    ``_MAX_FORWARD_WAIT_SECONDS`` so no single request pins a connection longer
-    than the operator-set ceiling.
-    """
+    """Clamp the blocking-forward window; absent, invalid or non-positive values return zero."""
     raw = request.query_params.get("wait_seconds")
     if raw is None:
         return 0.0
@@ -84,6 +76,7 @@ async def forward_request_by_server_id(
         http_client=request.app.state.http_client,
         wait_seconds=_parse_wait_seconds(request),
         response=response,
+        persist_forward_request_body=request.app.state.config.orchestrator.persist_forward_request_body,
     )
 
 
@@ -97,6 +90,7 @@ async def forward_request_to_server(
     http_client: AsyncClient,
     wait_seconds: float = 0.0,
     response: Response | None = None,
+    persist_forward_request_body: bool = True,
 ) -> ForwardRequestResponse:
     logger.info(f"Forwarding {method} request to IdeGYM server ID {server_id} for client {client_id}: {path}")
     server = await validate_server(client_id=client_id, server_id=server_id)
@@ -112,7 +106,7 @@ async def forward_request_to_server(
         async_operation_type=AsyncOperationType.FORWARD_REQUEST,
         client_id=client_id,
         server_id=server_id,
-        request=forward_payload,
+        request=forward_payload if persist_forward_request_body else forward_payload.model_copy(update={"body": None}),
     )
     task = asyncio.create_task(
         _task_forward_request(
@@ -121,12 +115,7 @@ async def forward_request_to_server(
             async_operation_id=async_operation_id,
         )
     )
-    # Blocking-forward fast path: hold the request open for up to wait_seconds
-    # and return the tool result inline, so the caller never has to poll the
-    # async operation. asyncio.wait does NOT cancel the task on timeout, so a
-    # tool that outruns the window keeps running, writes its result to the DB,
-    # and the caller falls back to polling the returned ticket. wait_seconds <= 0
-    # preserves the original fire-and-forget + 202-ticket behavior exactly.
+    # asyncio.wait leaves a timed-out task running so it can persist the result for polling.
     if wait_seconds > 0:
         done, _pending = await asyncio.wait({task}, timeout=wait_seconds)
         if task in done and task.exception() is None:
@@ -175,10 +164,7 @@ async def _task_forward_request(
     http_client: AsyncClient, forward_payload: ForwardRequestPayload, async_operation_id: int
 ) -> ForwardRequestResponse:
     need_to_update_server_heartbeat = False
-    # Built in every branch and returned so the blocking-forward fast path can
-    # hand the result back inline. The update_operation_* DB writes below remain
-    # the source of truth for the poll fallback + observability; the returned
-    # object mirrors what a subsequent status poll of this operation would read.
+    # Inline responses and status polling expose the same persisted result.
     result: ForwardRequestResponse
     try:
         await update_operation_status(

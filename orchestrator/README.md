@@ -527,6 +527,17 @@ GET /api/operations/status/{operation_id}
 
 Returns the current state of an async operation.
 
+`IDEGYM_PERSIST_FORWARD_REQUEST_BODY` defaults to `true`. When set to `false`,
+stored `FORWARD_REQUEST` payloads retain HTTP metadata with `body: null`.
+The sandbox receives the complete request, and results remain available inline
+and through status polling. Other operation types retain their request payloads.
+An omitted forwarding body does not set `payloads_expired_at` or cause HTTP 410.
+
+The watcher marks at most 500 operations older than `request_stale` (24 hours
+by default) as `FINISHED_BY_WATCHER` per cleanup tick. This sweep skips locked
+rows and has a five-second timeout. Migration 007 adds its partial index;
+apply `007_up.sql` in autocommit mode before upgrading a populated database.
+
 **Response:**
 
 ```json

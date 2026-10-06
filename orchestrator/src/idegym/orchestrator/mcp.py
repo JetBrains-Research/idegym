@@ -179,6 +179,7 @@ def create_mcp_server(
             headers=Headers(headers=request.headers or {}),
             body=request.body,
             http_client=_require_http_client(get_http_client),
+            persist_forward_request_body=config.orchestrator.persist_forward_request_body if config else True,
         )
 
     @mcp.tool(name=MCPToolName.RUN_BASH_COMMAND)
@@ -197,6 +198,7 @@ def create_mcp_server(
             headers=Headers(headers={"Content-Type": "application/json"}),
             body=bash_request.model_dump_json(),
             http_client=_require_http_client(get_http_client),
+            persist_forward_request_body=config.orchestrator.persist_forward_request_body if config else True,
         )
 
     @mcp.tool(name=MCPToolName.LIST_SERVER_MCP_TOOLS)

@@ -164,11 +164,18 @@ class SnapshotJobRecord(Base):
 TERMINAL_OPERATION_PREDICATE = (
     "status IN ('SUCCEEDED', 'FAILED', 'CANCELLED', 'FINISHED_BY_WATCHER') AND finished_at IS NOT NULL"
 )
+IN_PROGRESS_OPERATION_PREDICATE = "status = 'IN_PROGRESS'"
 
 
 class AsyncOperation(Base):
     __tablename__ = "async_operations"
     __table_args__ = (
+        Index(
+            "ix_async_operations_in_progress_started",
+            "started_at",
+            "id",
+            postgresql_where=text(IN_PROGRESS_OPERATION_PREDICATE),
+        ),
         Index(
             "ix_async_operations_terminal_finished",
             "finished_at",

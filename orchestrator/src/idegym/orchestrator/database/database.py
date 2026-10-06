@@ -10,6 +10,7 @@ from idegym.api.orchestrator.snapshots import SnapshotPipelineJob
 from idegym.api.status import Status
 from idegym.api.type import Duration
 from idegym.orchestrator.database.models import (
+    IN_PROGRESS_OPERATION_PREDICATE,
     AsyncOperation,
     AvailabilityStatus,
     Client,
@@ -1130,28 +1131,41 @@ async def get_snapshot_prepare_request_with_results(
 async def mark_stale_async_operations_as_finished(
     db: AsyncSession, current_time: int, stale_inprogress: Duration
 ) -> int:
-    """
-    Mark IN_PROGRESS operations that started more than stale_inprogress ago as FINISHED_BY_WATCHER.
+    """Finish at most 500 stale IN_PROGRESS operations, skipping locked rows.
 
-    This handles cases where the orchestrator restarted mid-operation and the task
-    will never complete on its own. Returns the number of updated rows.
+    Commit the batch, including an empty batch, or roll back on failure. The caller
+    owns the connection so its session-level cleanup advisory lock survives commits.
     """
     try:
         stale_inprogress_ms = int(stale_inprogress.total_seconds() * 1000)
-        result = await db.execute(
-            update(AsyncOperation)
-            .where(
-                AsyncOperation.started_at < (current_time - stale_inprogress_ms),
-                AsyncOperation.status == AsyncOperationStatus.IN_PROGRESS,
+        async with asyncio.timeout(5):
+            await db.execute(
+                text("SELECT set_config('statement_timeout', '5s', true), set_config('lock_timeout', '500ms', true)")
             )
-            .values(status=AsyncOperationStatus.FINISHED_BY_WATCHER, finished_at=current_time)
-        )
-        updated_count = result.rowcount or 0
-        if updated_count:
+            candidates = (
+                select(AsyncOperation.id)
+                .where(
+                    text(IN_PROGRESS_OPERATION_PREDICATE),
+                    AsyncOperation.started_at < current_time - stale_inprogress_ms,
+                )
+                .order_by(AsyncOperation.started_at, AsyncOperation.id)
+                .limit(500)
+                .with_for_update(skip_locked=True)
+                .cte("candidates")
+            )
+            result = await db.execute(
+                update(AsyncOperation)
+                .where(AsyncOperation.id.in_(select(candidates.c.id)))
+                .values(status=AsyncOperationStatus.FINISHED_BY_WATCHER, finished_at=current_time)
+                .execution_options(synchronize_session="fetch")
+            )
             await db.commit()
+        updated_count = result.rowcount or 0
         logger.info(f"Marked {updated_count} stale IN_PROGRESS async operations as FINISHED_BY_WATCHER")
         return updated_count
-    except Exception:
-        logger.exception("Error marking stale async operations as FINISHED_BY_WATCHER")
+    except BaseException as error:
         await db.rollback()
+        if not isinstance(error, Exception):
+            raise
+        logger.exception("Error marking stale async operations as FINISHED_BY_WATCHER")
         return 0

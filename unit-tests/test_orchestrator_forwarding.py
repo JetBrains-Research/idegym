@@ -2,7 +2,9 @@ import asyncio
 from types import SimpleNamespace
 from uuid import uuid4
 
+import pytest
 from fastapi import Response
+from idegym.api.config import OrchestratorConfig
 from idegym.api.orchestrator.operations import ForwardRequestResponse
 from idegym.orchestrator.router import forwarding
 from idegym.orchestrator.router.forwarding import (
@@ -17,7 +19,9 @@ from starlette.datastructures import Headers
 from starlette.requests import Request
 
 
-def _http_request(query_string: bytes = b"", *, http_client: object | None = None) -> Request:
+def _http_request(
+    query_string: bytes = b"", *, http_client: object | None = None, persist_body: bool = True
+) -> Request:
     return Request(
         {
             "type": "http",
@@ -28,19 +32,25 @@ def _http_request(query_string: bytes = b"", *, http_client: object | None = Non
             "scheme": "http",
             "server": ("testserver", 80),
             "client": ("testclient", 50000),
-            "app": SimpleNamespace(state=SimpleNamespace(http_client=http_client)),
+            "app": SimpleNamespace(
+                state=SimpleNamespace(
+                    http_client=http_client,
+                    config=SimpleNamespace(orchestrator=OrchestratorConfig(persist_forward_request_body=persist_body)),
+                )
+            ),
         }
     )
 
 
-async def test_forward_request_by_server_id_passes_request_headers_to_forwarding(mocker):
+@pytest.mark.parametrize("persist_body", [True, False])
+async def test_forward_request_by_server_id_passes_request_headers_to_forwarding(mocker, persist_body):
     client_id = uuid4()
     http_client = object()
     endpoint = mocker.patch(
         "idegym.orchestrator.router.forwarding.forward_request_to_server",
         return_value={"async_operation_id": 44},
     )
-    request = _http_request(http_client=http_client)
+    request = _http_request(http_client=http_client, persist_body=persist_body)
     response = Response()
 
     result = await forward_request_by_server_id(request, response, client_id=client_id, server_id=7, path="api/tools")
@@ -49,11 +59,14 @@ async def test_forward_request_by_server_id_passes_request_headers_to_forwarding
     assert endpoint.await_args.kwargs["headers"] is request.headers
     assert isinstance(endpoint.await_args.kwargs["headers"], Headers)
     assert endpoint.await_args.kwargs["http_client"] is http_client
-    # No ?wait_seconds on this request → the fast path is off (0.0), and the
-    # injected Response is threaded through so the handler can flip 202 → 200.
+    assert endpoint.await_args.kwargs["persist_forward_request_body"] is persist_body
     assert endpoint.await_args.kwargs["wait_seconds"] == 0.0
     assert endpoint.await_args.kwargs["response"] is response
     assert result == {"async_operation_id": 44}
+
+
+def test_forward_request_body_persistence_defaults_to_enabled():
+    assert OrchestratorConfig().persist_forward_request_body is True
 
 
 def test_parse_wait_seconds_variants():

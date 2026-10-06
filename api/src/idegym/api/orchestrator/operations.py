@@ -29,7 +29,10 @@ class AsyncOperationStatusResponse(BaseModel):
     request_type: str
     status: str
 
-    request: Optional[str] = Field(default=None, description="Original request payload (JSON)")
+    request: Optional[str] = Field(
+        default=None,
+        description="Stored request payload (JSON); forwarding bodies may be omitted by configuration",
+    )
     result: Optional[str] = Field(default=None, description="Operation result payload (JSON or string)")
 
     client_id: Optional[UUID] = Field(default=None)

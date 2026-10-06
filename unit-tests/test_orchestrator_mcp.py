@@ -142,13 +142,19 @@ async def test_start_server_mcp_tool_calls_endpoint(mocker):
     assert result.structured_content == {"namespace": "idegym", "client_id": str(client_id), "operation_id": 42}
 
 
-async def test_run_bash_command_mcp_tool_calls_forwarding_endpoint(mocker):
+@pytest.mark.parametrize("persist_body", [None, True, False])
+async def test_run_bash_command_mcp_tool_calls_forwarding_endpoint(mocker, persist_body):
     client_id = uuid4()
     endpoint = mocker.patch(
         "idegym.orchestrator.mcp.forward_request_to_server",
         return_value={"async_operation_id": 43},
     )
-    mcp = create_mcp_server(get_http_client=lambda: object())
+    config = (
+        None
+        if persist_body is None
+        else SimpleNamespace(orchestrator=SimpleNamespace(persist_forward_request_body=persist_body))
+    )
+    mcp = create_mcp_server(config=config, get_http_client=lambda: object())
 
     result = await mcp.call_tool(
         MCPToolName.RUN_BASH_COMMAND,
@@ -165,12 +171,27 @@ async def test_run_bash_command_mcp_tool_calls_forwarding_endpoint(mocker):
     assert endpoint.await_args.kwargs["client_id"] == client_id
     assert endpoint.await_args.kwargs["server_id"] == 7
     assert endpoint.await_args.kwargs["path"] == "api/tools/bash"
+    assert endpoint.await_args.kwargs["persist_forward_request_body"] is (persist_body is not False)
     assert isinstance(endpoint.await_args.kwargs["headers"], Headers)
     assert endpoint.await_args.kwargs["headers"]["content-type"] == "application/json"
     assert endpoint.await_args.kwargs["body"] == (
         '{"command":"echo hello","timeout":600.0,"graceful_termination_timeout":2.0}'
     )
     assert result.structured_content == {"async_operation_id": 43}
+
+
+async def test_forward_request_mcp_passes_body_persistence_setting(mocker):
+    endpoint = mocker.patch(
+        "idegym.orchestrator.mcp.forward_request_to_server", return_value={"async_operation_id": 43}
+    )
+    config = SimpleNamespace(orchestrator=SimpleNamespace(persist_forward_request_body=False))
+    mcp = create_mcp_server(config=config, get_http_client=lambda: object())
+    await mcp.call_tool(
+        MCPToolName.FORWARD_REQUEST,
+        {"request": {"client_id": str(uuid4()), "server_id": 7, "path": "api/tools/bash", "body": "input"}},
+    )
+    assert endpoint.await_args.kwargs["body"] == "input"
+    assert endpoint.await_args.kwargs["persist_forward_request_body"] is False
 
 
 async def test_run_bash_command_mcp_tool_requires_http_client():
