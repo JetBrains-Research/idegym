@@ -13,7 +13,7 @@ paragraph is drafted separately by a maintainer with
 
 ### Highlights
 
-_TODO: summarise the headline changes of this release. Draft this paragraph with `uv run scripts/draft_highlights.py 0.13.0` (uses Claude Code), or write it by hand._
+The dashboard was redesigned and now covers servers and pods end to end: logs, events, history, consistency checks, an interactive pod shell, stopping servers, editing resource limits, and links to Grafana logs and traces. A two-round review of the server lifecycle, SDK and tools hardened day-to-day behaviour: atomic keepalive, SQL-backed server listing, per-server labels and annotations, start timeouts with precise failure diagnosis, typed SDK errors with opt-in tracing, verbatim bash output, a working `user=` switch on non-root servers, and binary-safe chunked file transfer. Image builds can now start from an inline Dockerfile base, run without plugins, and keep the task JDK and a previous stage's `USER`. Services now refuse to start without a declared database schema revision, and the MCP layer moved to fastmcp 4.
 
 ### Features
 
