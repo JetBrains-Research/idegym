@@ -12,8 +12,10 @@ Runs in CI on the minikube runner. Locally it needs the full e2e setup (minikube
 
 import asyncio
 from contextlib import asynccontextmanager
+from http import HTTPStatus
 
 from idegym.api.resources import KubernetesResources, ResourceQuantities
+from idegym.client.exceptions import IdeGYMSandboxError
 from idegym.image.builder import Image
 from idegym.image.docker_api import IdeGYMDockerAPI
 from idegym.plugins.defaults.image import Project
@@ -36,9 +38,16 @@ _RESOURCES = KubernetesResources(
 async def _wait_for_openhands_ready(server, timeout_seconds: float = 120.0, poll_interval_seconds: float = 1.0) -> None:
     deadline = asyncio.get_running_loop().time() + timeout_seconds
     while True:
-        health = await server.openhands.health()
-        if health.ready:
-            return
+        # The pod is ready once the IdeGYM server listens, which can be before the OpenHands service
+        # it proxies to; until then the proxy answers 503 rather than a not-ready health.
+        try:
+            health = await server.openhands.health()
+        except IdeGYMSandboxError as error:
+            if error.status_code != HTTPStatus.SERVICE_UNAVAILABLE:
+                raise
+        else:
+            if health.ready:
+                return
         if asyncio.get_running_loop().time() >= deadline:
             raise TimeoutError("OpenHands health did not become ready before timeout")
         await asyncio.sleep(poll_interval_seconds)
