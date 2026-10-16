@@ -9,6 +9,29 @@ Sections are generated from merged pull requests by
 paragraph is drafted separately by a maintainer with
 [`scripts/draft_highlights.py`](scripts/draft_highlights.py) and may be edited by hand.
 
+## [0.13.1] - 2026-10-16
+
+### Highlights
+
+- Precompile idegym-server code for quicker pod start up
+- Reduce readiness probe time to improve pod start up time
+
+### Features
+
+- Improve start up time (JBRes-11324, [#358](https://github.com/JetBrains-Research/idegym/pull/358))
+
+### Dependencies
+
+<details>
+<summary>4 routine dependency updates</summary>
+
+- Bump mako ([#354](https://github.com/JetBrains-Research/idegym/pull/354))
+- Bump multidict ([#355](https://github.com/JetBrains-Research/idegym/pull/355))
+- Bump the security-minor-patch group across 1 directory with 5 updates ([#356](https://github.com/JetBrains-Research/idegym/pull/356))
+- Bump virtualenv ([#353](https://github.com/JetBrains-Research/idegym/pull/353))
+
+</details>
+
 ## [0.13.0] - 2026-10-05
 
 ### Highlights
@@ -505,6 +528,7 @@ Notable upgrades:
 
 </details>
 
+[0.13.1]: https://github.com/JetBrains-Research/idegym/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/JetBrains-Research/idegym/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/JetBrains-Research/idegym/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/JetBrains-Research/idegym/compare/v0.10.0...v0.11.1
