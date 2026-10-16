@@ -10,6 +10,7 @@ Runs in CI on the minikube runner. Locally it needs the full e2e setup (minikube
 ``idegym-local.test`` in /etc/hosts); see ``e2e-tests/README.md``.
 """
 
+import asyncio
 from contextlib import asynccontextmanager
 
 from idegym.api.resources import KubernetesResources, ResourceQuantities
@@ -30,6 +31,17 @@ _RESOURCES = KubernetesResources(
     requests=ResourceQuantities(cpu="1", memory="2Gi", ephemeral_storage="4Gi"),
     limits=ResourceQuantities(cpu="2", memory="4Gi", ephemeral_storage="8Gi"),
 )
+
+
+async def _wait_for_openhands_ready(server, timeout_seconds: float = 120.0, poll_interval_seconds: float = 1.0) -> None:
+    deadline = asyncio.get_running_loop().time() + timeout_seconds
+    while True:
+        health = await server.openhands.health()
+        if health.ready:
+            return
+        if asyncio.get_running_loop().time() >= deadline:
+            raise TimeoutError("OpenHands health did not become ready before timeout")
+        await asyncio.sleep(poll_interval_seconds)
 
 
 def _build_image(test_id: str) -> str:
@@ -80,6 +92,7 @@ async def _server(test_id: str, suffix: str):
             server_start_wait_timeout_in_seconds=DEFAULT_SERVER_START_TIMEOUT,
         ) as server,
     ):
+        await _wait_for_openhands_ready(server)
         yield server
 
 
