@@ -318,7 +318,7 @@ async def deploy_server(
             path=health_probe_path,
             port=port.container_port,
         ),
-        initial_delay_seconds=0,
+        initial_delay_seconds=3,
         period_seconds=1,
         failure_threshold=9,
     )
