@@ -83,7 +83,7 @@ HYDRA_DEFAULTS: dict[str, Any] = {
     "orchestrator.prometheus_multiproc_dir": join(gettempdir(), "idegym", "prometheus"),
     "orchestrator.resources.default_cpu_request": 1.0,
     "orchestrator.resources.default_ram_request": 2.0,
-    "orchestrator.scheduling.poll_interval": "0:00:02",
+    "orchestrator.scheduling.poll_interval": "0:00:01",
     "orchestrator.scheduling.provisioning_timeout": "0:15:00",
     "orchestrator.scheduling.unschedulable_timeout": "0:05:00",
     "orchestrator.sqlalchemy.max_overflow": 5,

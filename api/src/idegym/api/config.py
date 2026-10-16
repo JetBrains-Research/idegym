@@ -220,7 +220,7 @@ class SchedulingConfig(ConfigModel):
     env_segment = "SCHEDULING"
 
     poll_interval: Duration = Field(
-        description="Interval between pod readiness polls", gt=Duration(0), default=Duration(seconds=2)
+        description="Interval between pod readiness polls", gt=Duration(0), default=Duration(seconds=1)
     )
     unschedulable_timeout: Duration = Field(
         description="How long pods may stay Unschedulable before the readiness wait fails, when no autoscaler "

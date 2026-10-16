@@ -409,7 +409,7 @@ scale-up to actually be waited out.
 |-------------------------------------------|--------------------------------------------------------------------------|---------|
 | `IDEGYM_SCHEDULING_UNSCHEDULABLE_TIMEOUT` | Budget for a pod nobody has promised capacity to                         | `PT5M`  |
 | `IDEGYM_SCHEDULING_PROVISIONING_TIMEOUT`  | Budget for a pod the autoscaler is already growing a node for            | `PT15M` |
-| `IDEGYM_SCHEDULING_POLL_INTERVAL`         | Interval between pod readiness polls                                     | `PT2S`  |
+| `IDEGYM_SCHEDULING_POLL_INTERVAL`         | Interval between pod readiness polls                                     | `PT1S`  |
 
 All three accept an ISO-8601 duration (`PT10M`) or a `H:MM:SS` clock string (`0:10:00`); a bare
 number of seconds is *not* accepted. Setting either budget to `PT0S` disables that early failure
