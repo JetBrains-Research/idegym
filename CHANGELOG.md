@@ -13,7 +13,8 @@ paragraph is drafted separately by a maintainer with
 
 ### Highlights
 
-_TODO: summarise the headline changes of this release. Draft this paragraph with `uv run scripts/draft_highlights.py 0.13.1` (uses Claude Code), or write it by hand._
+- Precompile idegym-server code for quicker pod start up
+- Reduce readiness probe time to improve pod start up time
 
 ### Features
 
