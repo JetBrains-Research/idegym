@@ -318,8 +318,9 @@ async def deploy_server(
             path=health_probe_path,
             port=port.container_port,
         ),
-        initial_delay_seconds=10,
-        period_seconds=3,
+        initial_delay_seconds=0,
+        period_seconds=1,
+        failure_threshold=9,
     )
     container = V1Container(
         name="server",

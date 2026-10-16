@@ -685,8 +685,10 @@ def _idegym_server_uv_sync() -> str:
             uv sync --project server \\
                 --frozen \\
                 --no-cache \\
-                --no-dev; \\
-            uv pip install supervisor
+                --no-dev \\
+                --compile-bytecode; \\
+            uv pip install --compile-bytecode supervisor; \\
+            .venv/bin/python -m compileall -q -j 0 -x '/\\.' api backend-utils common-utils plugins rewards server tools
         """
     ).rstrip()
 
