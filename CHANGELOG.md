@@ -19,8 +19,6 @@ paragraph is drafted separately by a maintainer with
 ### Features
 
 - Improve start up time (JBRes-11324, [#358](https://github.com/JetBrains-Research/idegym/pull/358))
-- draft 0.13.0 highlights (JBRes-11249) (JBRes-11249, [#357](https://github.com/JetBrains-Research/idegym/pull/357))
-- add 0.13.0 section ([#351](https://github.com/JetBrains-Research/idegym/pull/351))
 
 ### Dependencies
 
