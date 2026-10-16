@@ -67,13 +67,17 @@ COPY --chown=appuser:appuser rewards rewards/
 COPY --chown=appuser:appuser tools tools/
 COPY --chown=appuser:appuser server server/
 
+# Ship bytecode so a new pod does not compile every import before the server can listen.
+# The workspace packages are editable installs, which `--compile-bytecode` skips.
 RUN set -eux; \
     uv python install; \
     uv sync --project server \
             --frozen \
             --no-cache \
-            --no-dev; \
-    uv pip install supervisor
+            --no-dev \
+            --compile-bytecode; \
+    uv pip install --compile-bytecode supervisor; \
+    .venv/bin/python -m compileall -q -j 0 -x '/\.' api backend-utils common-utils plugins rewards server tools
 
 VOLUME /docker-entrypoint.d
 
