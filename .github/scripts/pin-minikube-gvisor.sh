@@ -23,16 +23,43 @@ url="https://storage.googleapis.com/gvisor/releases/release/${GVISOR_RELEASE}/${
 workdir="$(mktemp -d)"
 trap 'rm -rf "$workdir"' EXIT
 
-for binary in runsc containerd-shim-runsc-v1; do
-  echo "* Installing gVisor ${GVISOR_RELEASE} \`${binary}\` (${arch}) on the minikube node..."
+binaries=(runsc containerd-shim-runsc-v1)
+
+for binary in "${binaries[@]}"; do
+  echo "* Downloading gVisor ${GVISOR_RELEASE} \`${binary}\` (${arch})..."
   curl -fsSL -o "${workdir}/${binary}" "${url}/${binary}"
   curl -fsSL -o "${workdir}/${binary}.sha512" "${url}/${binary}.sha512"
   (cd "$workdir" && shasum -a 512 -c "${binary}.sha512")
-  # Not `/tmp/${binary}`: the addon creates `/tmp/runsc` on the node as its log directory.
-  staged="/tmp/idegym-gvisor-${binary}"
-  minikube cp "${workdir}/${binary}" "$staged"
-  minikube ssh -- sudo install -m 0755 "$staged" "/usr/bin/${binary}"
-  minikube ssh -- sudo rm -f "$staged"
 done
 
-minikube ssh -- /usr/bin/runsc --version
+install_binaries() {
+  for binary in "${binaries[@]}"; do
+    # Not `/tmp/${binary}`: the addon creates `/tmp/runsc` on the node as its log directory.
+    staged="/tmp/idegym-gvisor-${binary}"
+    minikube cp "${workdir}/${binary}" "$staged"
+    minikube ssh -- sudo install -m 0755 "$staged" "/usr/bin/${binary}"
+    minikube ssh -- sudo rm -f "$staged"
+  done
+}
+
+binaries_are_pinned() {
+  for binary in "${binaries[@]}"; do
+    minikube ssh -- "sudo sha512sum /usr/bin/${binary}" | grep -q "$(cut -d' ' -f1 "${workdir}/${binary}.sha512")" || return 1
+  done
+}
+
+# The addon downloads asynchronously from its own pod, so it can finish after an install here and
+# put the broken files back. Re-install until both binaries survive a settle period unchanged.
+for attempt in 1 2 3 4 5 6; do
+  echo "* Installing pinned gVisor binaries on the minikube node (attempt ${attempt})..."
+  install_binaries
+  sleep 20
+  if binaries_are_pinned; then
+    minikube ssh -- /usr/bin/runsc --version
+    exit 0
+  fi
+  echo "* The gvisor addon overwrote the pinned binaries; installing them again."
+done
+
+echo "gVisor binaries on the minikube node keep being overwritten; giving up." >&2
+exit 1
