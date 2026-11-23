@@ -2,6 +2,7 @@ from collections.abc import Sequence
 from os.path import abspath, join
 from tempfile import gettempdir
 from typing import Annotated, Any, ClassVar, Optional
+from urllib.parse import quote
 
 from idegym.api.auth import BasicAuth
 from idegym.api.image_build import BuildBackend
@@ -162,7 +163,8 @@ class DatabaseConfig(ConfigModel):
     host: str = env(legacy=["POSTGRES_HOST"], default="localhost")
     port: str = env(legacy=["POSTGRES_PORT"], default="5432")
     user: str = env(legacy=["POSTGRES_USER"], default="postgres")
-    password: str = env(legacy=["POSTGRES_PASSWORD"], default="postgres")
+    # SecretStr, so the password stays masked in every repr — a traceback, a log line, an error.
+    password: SecretStr = env(legacy=["POSTGRES_PASSWORD"], default=SecretStr("postgres"))
     db: str = env(legacy=["POSTGRES_DB"], default="idegym")
     clean: bool = env(
         legacy=["IDEGYM_CLEAN_DATABASE"], description="Drop and recreate all tables on startup", default=False
@@ -178,7 +180,11 @@ class DatabaseConfig(ConfigModel):
 
     @property
     def url(self) -> str:
-        return f"postgresql+asyncpg://{self.user}:{self.password}@{self.host}:{self.port}/{self.db}"
+        # Quoted: an unescaped '@', '/' or '%' in the credentials would point the URL at another
+        # host, or make the parser raise an error that quotes the whole URL, password included.
+        user = quote(self.user, safe="")
+        password = quote(self.password.get_secret_value(), safe="")
+        return f"postgresql+asyncpg://{user}:{password}@{self.host}:{self.port}/{self.db}"
 
 
 class SQLAlchemyConfig(ConfigModel):

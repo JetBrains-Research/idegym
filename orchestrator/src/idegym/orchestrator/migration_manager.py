@@ -304,7 +304,9 @@ class MigrationManager:
 
     def _alembic_config(self) -> Config:
         alembic_cfg = Config(self.alembic_ini_path)
-        alembic_cfg.set_main_option("sqlalchemy.url", self.db_url)
+        # set_main_option interpolates '%' (ConfigParser), and the quoted password is full of them;
+        # unescaped, it raises an error that quotes the whole URL, password included.
+        alembic_cfg.set_main_option("sqlalchemy.url", self.db_url.replace("%", "%%"))
         return alembic_cfg
 
     def _script_directory(self) -> ScriptDirectory:

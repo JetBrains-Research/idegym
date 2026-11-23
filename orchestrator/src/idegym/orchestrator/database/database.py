@@ -74,7 +74,7 @@ def connect_db_engine(db_url: str, config: SQLAlchemyConfig) -> AsyncEngine:
         url=db_url,
         **config.model_dump(),
     )
-    logger.info("Connected to database", url=db_url)
+    logger.info("Connected to database", url=db_engine.url.render_as_string(hide_password=True))
 
     AsyncPGInstrumentor().instrument()
     Psycopg2Instrumentor().instrument()

@@ -13,13 +13,18 @@ from idegym.backend.utils.renderer import ConsoleRenderer
 from structlog import configure as configure_global_logging
 from structlog import get_logger as get_named_logger
 from structlog.contextvars import merge_contextvars as MergeContextVars
-from structlog.processors import JSONRenderer, TimeStamper
-from structlog.processors import dict_tracebacks as DictTracebacks
+from structlog.processors import ExceptionRenderer, JSONRenderer, TimeStamper
 from structlog.stdlib import BoundLogger, LoggerFactory, ProcessorFormatter
 from structlog.stdlib import add_log_level as LogLevel
 from structlog.stdlib import add_logger_name as LoggerName
 from structlog.stdlib import filter_by_level as FilterByLevel
+from structlog.tracebacks import ExceptionDictTransformer
 from structlog.types import Processor
+
+# structlog renders tracebacks with every frame's local variables by default, so one exception
+# raised under a function holding the ``Config`` would print the database password and any other
+# credential in scope. Locals stay off in both renderers; the frames still carry file and line.
+DictTracebacks = ExceptionRenderer(ExceptionDictTransformer(show_locals=False))
 
 DefaultProcessors: list[Processor] = [
     MergeContextVars,
