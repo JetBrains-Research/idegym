@@ -43,6 +43,7 @@ from utils.constants import DEFAULT_SERVER_START_TIMEOUT
 from utils.mcp_steroid import (
     list_windows,
     nonempty_lines,
+    skip_mcp_steroid_unavailable,
     take_screenshots_all_windows,
 )
 
@@ -87,6 +88,7 @@ echo "SUCCESS: IDEA running under virtual display"
 """
 
 
+@skip_mcp_steroid_unavailable
 @pytest.mark.ide_integrations
 @pytest.mark.asyncio
 async def test_idea_virtual_display_windows(test_id):

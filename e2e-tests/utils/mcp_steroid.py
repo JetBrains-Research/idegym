@@ -16,10 +16,18 @@ import os
 from importlib.resources import files
 from typing import Optional
 
+import pytest
 import resources as e2e_resources
 from idegym.utils.logging import get_logger
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
+
+# jonnyzzz/mcp-steroid no longer publishes releases, so the pinned zip 404s at image build time.
+# Every test that bakes mcp-steroid into an image is skipped until a download source is restored;
+# drop this mark (one place) to re-enable them.
+skip_mcp_steroid_unavailable = pytest.mark.skip(
+    reason="mcp-steroid release download is unavailable (404); re-enable once a release is published"
+)
 
 logger = get_logger(__name__)
 
