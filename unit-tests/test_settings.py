@@ -23,7 +23,7 @@ from idegym.backend.utils.settings import (
     environment_aliases,
     load_config,
 )
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, SecretStr, ValidationError
 from pytest import mark, param, raises
 from structlog.testing import capture_logs
 
@@ -65,7 +65,7 @@ HYDRA_DEFAULTS: dict[str, Any] = {
     "orchestrator.database.clean": False,
     "orchestrator.database.db": "idegym",
     "orchestrator.database.host": "localhost",
-    "orchestrator.database.password": "postgres",
+    "orchestrator.database.password": SecretStr("postgres"),
     "orchestrator.database.port": "5432",
     "orchestrator.database.schema_revision": None,
     "orchestrator.database.user": "postgres",
@@ -263,7 +263,7 @@ SAMPLES = {
         "PT10M",
         Duration(minutes=10),
     ),
-    "IDEGYM_DATABASE_PASSWORD": ("orchestrator.database.password", "hunter2", "hunter2"),
+    "IDEGYM_DATABASE_PASSWORD": ("orchestrator.database.password", "hunter2", SecretStr("hunter2")),
     "IDEGYM_DATABASE_SCHEMA_REVISION": ("orchestrator.database.schema_revision", "003", "003"),
     "IDEGYM_WATCHER_INACTIVE_TIMEOUT": ("watcher.inactive_timeout", "PT20M", Duration(minutes=20)),
     "IDEGYM_MCP_STATELESS_HTTP": ("orchestrator.mcp.stateless_http", "False", False),
