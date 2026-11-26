@@ -132,6 +132,10 @@ pre-commit install
    ```
    Bind context as keyword arguments (`logger.info("Server started", server=name)`) rather
    than formatting into the message. Never log tokens, passwords, or auth headers.
+   Tracebacks are rendered **without frame locals** (`backend-utils/.../logging.py`,
+   `renderer.py`): structlog's default dumps every local, and a frame holding the `Config`
+   would print the database password. Keep `show_locals=False`, and type any credential field
+   as `SecretStr` so its `repr` stays masked wherever it ends up.
 7. **Exceptions inherit from `IdeGYMException`** (`api/src/idegym/api/exceptions.py`).
    Routers translate them into HTTP status codes; see
    [HTTP Error Codes](website/docs/reference/http_error_codes.md).

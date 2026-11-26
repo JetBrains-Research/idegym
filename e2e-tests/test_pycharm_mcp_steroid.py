@@ -51,6 +51,7 @@ from utils.mcp_steroid import (
     dismiss_modal_dialogs,
     list_windows,
     nonempty_lines,
+    skip_mcp_steroid_unavailable,
     take_screenshots_all_windows,
 )
 
@@ -86,6 +87,7 @@ _OPEN_PROJECT_SCRIPT = f"PROJECT_PATH={_PROJECT_PATH}\n" + files(e2e_resources).
 ).read_text(encoding="utf-8")
 
 
+@skip_mcp_steroid_unavailable
 @pytest.mark.ide_integrations
 @pytest.mark.asyncio
 async def test_mcp_steroid_pycharm(test_id: str):

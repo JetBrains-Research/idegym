@@ -141,6 +141,9 @@ class OpenHands(PluginBase):
             pip_targets = [
                 f'"openhands-sdk=={self.openhands_sdk_version}"',
                 f'"openhands-tools=={self.openhands_tools_version}"',
+                # openhands-sdk leaves this unbounded, and 1.0 removed ``acp.helpers``, which the
+                # pinned SDK imports at load time; without the cap ``openhands.tools`` fails to import.
+                '"agent-client-protocol<1"',
                 '"fastapi"',
                 '"fastmcp>=4"',
                 '"mcp"',

@@ -40,6 +40,7 @@ from idegym.plugins.defaults.image import Project
 from idegym.plugins.idea.image import Idea
 from utils.build_images import minikube_load_image
 from utils.constants import DEFAULT_SERVER_START_TIMEOUT
+from utils.mcp_steroid import skip_mcp_steroid_unavailable
 
 _LOCAL_BASE_IMAGE = "ghcr.io/jetbrains-research/idegym/server-debian-bookworm-20250520-slim:latest"
 
@@ -72,6 +73,7 @@ _OPEN_PROJECT_SCRIPT = f"PROJECT_PATH={_PROJECT_PATH}\n" + files(e2e_resources).
 ).read_text(encoding="utf-8")
 
 
+@skip_mcp_steroid_unavailable
 @pytest.mark.ide_integrations
 @pytest.mark.asyncio
 async def test_mcp_steroid_idea(test_id):

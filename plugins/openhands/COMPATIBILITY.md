@@ -13,6 +13,7 @@ installed; run it with `plugins/openhands/run-compat-tests.sh`.
 | `openhands-tools`    | `1.36.0`  | pulls `libtmux`, `browser-use`, `tree-sitter*`, `func-timeout` |
 | FastMCP (service)    | `>=4`     | IdeGYM ships `fastmcp 4.0.0` |
 | MCP                  | via FastMCP | `mcp 2.1.1`, pulled by FastMCP 4 |
+| `agent-client-protocol` | `<1`   | unbounded in `openhands-sdk`; 1.0.0 removed `acp.helpers`, which SDK 1.36.0 imports |
 
 FastMCP 4 moves the MCP stack onto **`httpx2`**, which is a separate distribution from `httpx`,
 not an upgrade of it. Both are now in the workspace lock and import side by side: IdeGYM's own
